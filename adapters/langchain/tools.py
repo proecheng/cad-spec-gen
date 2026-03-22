@@ -37,7 +37,15 @@ gemini_enhance_tool = Tool(
     func=lambda cmd: shell.run(cmd),
 )
 
-cad_tools = [cad_spec_tool, bom_parser_tool, gemini_enhance_tool, shell]
+annotate_render_tool = Tool(
+    name="cad_annotate",
+    description="Add component labels (Chinese/English) to rendered images via PIL. "
+                "Leader lines + text on semi-transparent background. "
+                "Input: shell command like 'python annotate_render.py --all --dir ./renders --config render_config.json --lang cn'",
+    func=lambda cmd: shell.run(cmd),
+)
+
+cad_tools = [cad_spec_tool, bom_parser_tool, gemini_enhance_tool, annotate_render_tool, shell]
 
 # For agents that accept a system message, inject the pipeline knowledge:
 SYSTEM_MESSAGE = _system_prompt

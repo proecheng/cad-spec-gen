@@ -162,6 +162,26 @@ python gemini_gen.py --image V5_ortho_front.png \
 - 3 templates for different view types (standard / exploded / ortho)
 - Output: ~6MB JPG per view, photorealistic studio quality
 
+### Component Label Annotation (CN/EN)
+
+After AI enhancement, add component labels programmatically via PIL (Chinese text is NOT AI-generated):
+
+```bash
+# Annotate single image with Chinese labels
+python annotate_render.py V1_enhanced.jpg \
+  --config cad/end_effector/render_config.json --lang cn
+
+# Batch annotate all views (Chinese)
+python annotate_render.py --all --dir assets/images/mechanical \
+  --config cad/end_effector/render_config.json --lang cn
+
+# Batch annotate all views (English)
+python annotate_render.py --all --dir assets/images/mechanical \
+  --config cad/end_effector/render_config.json --lang en
+```
+
+Label coordinates defined in `render_config.json` `labels` section (1920×1080 reference, auto-scaled to actual image size).
+
 ### Render Only (GLB already exists)
 
 ```bash

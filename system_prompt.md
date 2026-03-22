@@ -93,8 +93,28 @@ Prompt templates in `templates/prompt_*.txt` use these placeholders:
 4. Fill template variables from render_config.json `prompt_vars`
 5. Run `gemini_gen.py --image <view.png> "<filled prompt>"` for each view
 6. Output: photorealistic JPG (~6MB each, 5460×3072)
+7. Optionally annotate with component labels:
+   - `python annotate_render.py --all --dir <output_dir> --config render_config.json --lang cn`
+   - `python annotate_render.py --all --dir <output_dir> --config render_config.json --lang en`
+   - Output: `*_labeled_cn.jpg` and `*_labeled_en.jpg`
 
-### 6. Utility Tools
+### 6. annotate_render.py — Component Label Annotation
+```bash
+# Single image with Chinese labels
+python annotate_render.py V1_enhanced.jpg --config render_config.json --lang cn
+
+# Single image with English labels
+python annotate_render.py V1_enhanced.jpg --config render_config.json --lang en
+
+# Batch all V*_enhanced.jpg in a directory
+python annotate_render.py --all --dir ./renders --config render_config.json --lang cn
+
+# Custom font size and light style
+python annotate_render.py V1_enhanced.jpg --config render_config.json --lang en --font-size 40 --style light
+```
+Adds leader lines + text labels to rendered images via PIL (not AI). Chinese uses SimHei font, English uses Arial. Label positions defined in render_config.json `labels` section (1920×1080 reference coordinates, auto-scaled to actual image size).
+
+### 7. Utility Tools
 ```bash
 python tools/hybrid_render/check_env.py         # environment check (human-readable)
 python tools/hybrid_render/check_env.py --json   # environment check (machine-readable)

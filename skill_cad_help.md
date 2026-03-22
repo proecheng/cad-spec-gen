@@ -323,10 +323,23 @@ prompt模板 (templates/ 目录):
      V4: gemini_gen.py --image V4_exploded.png "<prompt_exploded填充>"
      V5: gemini_gen.py --image V5_ortho_front.png "<prompt_ortho填充>"
   4. 输出: ~6MB JPG/张, 5460×3072, 照片级影棚品质
+  5. 可选: 添加元件标注 (中文/英文):
+     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang cn
+     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang en
+     输出: *_labeled_cn.jpg / *_labeled_en.jpg
+     注意: 中文文字用PIL+SimHei字体程序化绘制，不经过AI生成
 
 双用途:
   PNG → 审图/加工参考 (几何100%精确)
   JPG → 展示/答辩/商业计划书 (视觉吸引力)
+  JPG_labeled → 带元件标注的展示图 (答辩/报告/说明书)
+
+标注工具 (annotate_render.py):
+  依赖: Pillow (PIL)
+  数据源: render_config.json 的 labels 段 (每视角每元件的2D锚点+标签位置+中英文名)
+  坐标系: 基于1920×1080参考分辨率，自动按实际图片尺寸缩放
+  样式: dark(白字黑底) / light(黑字白底)，引线+圆点+半透明背景矩形
+  字体: 中文SimHei(黑体) / 英文Arial
 
 首次配置:
   python gemini_gen.py --config

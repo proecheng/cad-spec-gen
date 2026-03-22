@@ -26,6 +26,8 @@ STEP + DXF (GB/T national-standard 2D drawings) + GLB
 5-view PNG — 100% geometry-accurate, cross-view consistent
     ↓ AI enhancement (reskin only, geometry locked)
 Photorealistic JPG — presentation / defense / business plan ready
+    ↓ annotate_render.py — PIL-based component labels (CN/EN)
+Labeled JPG — with leader lines and component names
 ```
 
 ## Why This Tool?
@@ -165,6 +167,21 @@ python gemini_gen.py --image V5_ortho_front.png \
 Fill `{product_name}`, `{view_description}`, `{material_descriptions}` from `render_config.json`.
 Output: ~6MB JPG per view, 5460×3072, photorealistic studio quality.
 
+### Component Label Annotation
+
+After AI enhancement, add component labels (Chinese/English) via PIL:
+
+```bash
+# Annotate single image with Chinese labels
+python annotate_render.py V1_enhanced.jpg --config render_config.json --lang cn
+
+# Batch annotate all views in both languages
+python annotate_render.py --all --dir ./renders --config render_config.json --lang cn
+python annotate_render.py --all --dir ./renders --config render_config.json --lang en
+```
+
+Labels are defined in `render_config.json` `labels` section with per-view 2D coordinates (1920×1080 reference, auto-scaled). Chinese text uses SimHei font via PIL — not AI-generated — for reliable CJK rendering.
+
 ## Usage
 
 ```
@@ -244,6 +261,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── cad_spec_extractors.py          # 8 extraction functions + table parser
 ├── cad_spec_defaults.py            # Standard defaults & completeness rules
 ├── bom_parser.py                   # BOM table parser (also standalone CLI)
+├── annotate_render.py              # PIL-based component label annotation (CN/EN)
 ├── adapters/
 │   ├── claude-code/
 │   │   ├── commands/cad-help.md    # Claude Code slash command

@@ -163,6 +163,26 @@ python gemini_gen.py --image V5_ortho_front.png \
 - 输出：每张约6MB JPG，照片级影棚品质
 - 双输出：PNG用于工程审图/加工参考，JPG用于答辩/展示/商业计划书
 
+### 元件标注（中文/英文）
+
+AI增强完成后，可通过PIL程序化添加元件名称标注（不经过AI生成中文）：
+
+```bash
+# 单张图标注
+python annotate_render.py V1_enhanced.jpg \
+  --config cad/end_effector/render_config.json --lang cn
+
+# 批量标注所有视角（中文）
+python annotate_render.py --all --dir assets/images/mechanical \
+  --config cad/end_effector/render_config.json --lang cn
+
+# 批量标注所有视角（英文）
+python annotate_render.py --all --dir assets/images/mechanical \
+  --config cad/end_effector/render_config.json --lang en
+```
+
+标注数据在 `render_config.json` 的 `labels` 段定义，坐标基于1920×1080参考分辨率，自动缩放到实际图片尺寸。
+
 ### 单独渲染（已有 GLB）
 
 ```bash

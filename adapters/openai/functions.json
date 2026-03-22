@@ -84,6 +84,46 @@
         },
         "required": ["input_image", "prompt"]
       }
+    },
+    {
+      "name": "cad_annotate",
+      "description": "Add component labels (Chinese or English) to rendered images using PIL. Draws leader lines from component anchor points to text labels with semi-transparent backgrounds. Label coordinates defined in render_config.json labels section.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input_image": {
+            "type": "string",
+            "description": "Path to the rendered image (e.g., V1_front_iso_enhanced.jpg)"
+          },
+          "config": {
+            "type": "string",
+            "description": "Path to render_config.json containing labels section"
+          },
+          "lang": {
+            "type": "string",
+            "enum": ["cn", "en"],
+            "description": "Label language: cn (Chinese, SimHei font) or en (English, Arial font). Default: cn"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "Annotate all V*_enhanced.jpg in the directory (default: false)"
+          },
+          "dir": {
+            "type": "string",
+            "description": "Directory to search when using all mode"
+          },
+          "font_size": {
+            "type": "integer",
+            "description": "Base font size at 1080p resolution (default: 32)"
+          },
+          "style": {
+            "type": "string",
+            "enum": ["dark", "light"],
+            "description": "Label style: dark (white text on dark bg) or light (dark text on light bg). Default: dark"
+          }
+        },
+        "required": ["config"]
+      }
     }
   ]
 }

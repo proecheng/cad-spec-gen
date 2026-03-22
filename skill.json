@@ -44,6 +44,11 @@
       "name": "gemini_enhance",
       "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked)",
       "cli": "python gemini_gen.py --image <input.png> \"<prompt from templates/prompt_*.txt>\""
+    },
+    {
+      "name": "annotate_render",
+      "description": "Add component labels (CN/EN) to rendered images via PIL. Leader lines + text on semi-transparent background.",
+      "cli": "python annotate_render.py <image.jpg> --config <render_config.json> --lang cn|en [--all --dir DIR] [--font-size 32] [--style dark|light]"
     }
   ],
   "adapters": {
@@ -53,12 +58,13 @@
     "dify": "adapters/dify/"
   },
   "pipeline": {
-    "overview": "Design Doc (.md) → CAD_SPEC.md → CadQuery (STEP/DXF/GLB) → Blender Cycles PNG → Gemini AI JPG",
+    "overview": "Design Doc (.md) → CAD_SPEC.md → CadQuery (STEP/DXF/GLB) → Blender Cycles PNG → Gemini AI JPG → Annotated JPG",
     "stages": [
       "Spec extraction (cad_spec_gen.py): 9-category structured data",
       "Parametric modeling (CadQuery): STEP + DXF (GB/T national standard) + GLB",
       "3D rendering (Blender Cycles CPU): 5-view PNG, 15 PBR material presets",
-      "AI enhancement (Gemini, optional): photorealistic JPG, geometry locked"
+      "AI enhancement (Gemini, optional): photorealistic JPG, geometry locked",
+      "Annotation (annotate_render.py, optional): component labels (CN/EN) via PIL"
     ]
   }
 }
