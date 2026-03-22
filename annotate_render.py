@@ -65,7 +65,7 @@ def detect_view_id(filename: str) -> str:
 
 
 def annotate_image(img_path: str, config: dict, lang: str = "cn",
-                   font_size: int = 32, style: str = "dark") -> str:
+                   font_size: int = 20, style: str = "clean") -> str:
     """
     Annotate a single image with component labels.
     Returns path to the annotated image.
@@ -107,19 +107,25 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
     draw = ImageDraw.Draw(overlay)
 
     # Style colors
-    if style == "dark":
+    if style == "clean":
+        # Clean engineering style: black text, no background, thin gray lines
+        line_color = (80, 80, 80, 180)
+        bg_color = None  # no background
+        text_color = (30, 30, 30, 255)
+        dot_color = (200, 50, 50, 230)
+    elif style == "dark":
         line_color = (255, 255, 255, 220)
         bg_color = (0, 0, 0, 180)
         text_color = (255, 255, 255, 255)
         dot_color = (255, 80, 80, 255)
-    else:
+    else:  # light
         line_color = (40, 40, 40, 220)
         bg_color = (255, 255, 255, 200)
         text_color = (20, 20, 20, 255)
         dot_color = (220, 60, 60, 255)
 
-    line_width = max(2, int(2 * min(sx, sy)))
-    dot_r = max(4, int(5 * min(sx, sy)))
+    line_width = max(1, int(1.5 * min(sx, sy)))
+    dot_r = max(3, int(3.5 * min(sx, sy)))
     pad_x = max(6, int(8 * min(sx, sy)))
     pad_y = max(3, int(4 * min(sx, sy)))
 
@@ -148,12 +154,13 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
 
-        # Background rectangle
-        rx0 = lx - pad_x
-        ry0 = ly - th // 2 - pad_y
-        rx1 = lx + tw + pad_x
-        ry1 = ly + th // 2 + pad_y
-        draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=4, fill=bg_color)
+        # Background rectangle (skip in clean mode)
+        if bg_color:
+            rx0 = lx - pad_x
+            ry0 = ly - th // 2 - pad_y
+            rx1 = lx + tw + pad_x
+            ry1 = ly + th // 2 + pad_y
+            draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=4, fill=bg_color)
 
         # Text
         draw.text((lx, ly - th // 2), name, fill=text_color, font=font)
@@ -184,10 +191,10 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="Annotate all V*_enhanced.jpg in --dir")
     parser.add_argument("--dir", default=".", help="Directory for --all mode")
-    parser.add_argument("--font-size", type=int, default=32,
-                        help="Base font size at 1080p (default: 32)")
-    parser.add_argument("--style", default="dark", choices=["dark", "light"],
-                        help="Label style (default: dark)")
+    parser.add_argument("--font-size", type=int, default=20,
+                        help="Base font size at 1080p (default: 20)")
+    parser.add_argument("--style", default="clean", choices=["clean", "dark", "light"],
+                        help="Label style (default: clean)")
     args = parser.parse_args()
 
     # Load config
