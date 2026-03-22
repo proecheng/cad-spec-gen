@@ -1,8 +1,36 @@
-# CAD Spec Generator
+# CAD Spec Generator — A Claude Code Skill
 
 > **From Markdown to machining-ready drawings and photorealistic renders — in one command.**
 
-A complete AI-assisted CAD pipeline skill that transforms design documents into structured specifications, GB/T-compliant 2D engineering drawings, geometrically accurate 3D renders, and photorealistic presentation images.
+A **Claude Code Skill** for the complete AI-assisted CAD pipeline. Install it in any project, type `/cad-help` or `/cad-spec`, and let Claude handle everything: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
+
+## What is a Claude Code Skill?
+
+[Claude Code Skills](https://docs.anthropic.com/en/docs/claude-code) are reusable slash commands that extend Claude's capabilities. Once installed, you can:
+
+```
+/cad-help                           # Smart assistant — "what should I do next?"
+/cad-help what materials are available?  # Natural language queries
+/cad-spec examples/04-*.md         # Generate structured CAD spec
+/cad-spec --all                    # Process all subsystems at once
+```
+
+### Install as a Claude Code Skill
+
+```bash
+# 1. Clone into your project (or as a standalone tool)
+git clone https://github.com/proecheng/cad-spec-gen.git
+
+# 2. Copy slash commands into your project's .claude/commands/
+cp -r cad-spec-gen/.claude/commands/* your-project/.claude/commands/
+
+# 3. Copy skill knowledge file
+cp cad-spec-gen/skill_cad_help.md your-project/
+
+# 4. Now use /cad-help and /cad-spec in Claude Code!
+```
+
+Or use standalone without Claude Code — all tools are plain Python CLI scripts.
 
 ```
 Design Document (.md)
@@ -178,19 +206,24 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── cad_spec_gen.py              # Main generator (CLI entry point)
-├── cad_spec_extractors.py       # 8 extraction functions + table parser
-├── cad_spec_defaults.py         # Standard defaults & completeness rules
-├── bom_parser.py                # BOM table parser (also standalone CLI)
+├── .claude/
+│   └── commands/
+│       ├── cad-help.md              # Skill: /cad-help slash command
+│       └── cad-spec.md              # Skill: /cad-spec slash command
+├── skill_cad_help.md                # Skill knowledge (14 intents + actions)
+├── cad_spec_gen.py                  # Main generator (CLI entry point)
+├── cad_spec_extractors.py           # 8 extraction functions + table parser
+├── cad_spec_defaults.py             # Standard defaults & completeness rules
+├── bom_parser.py                    # BOM table parser (also standalone CLI)
 ├── config/
-│   └── gisbot.json              # Example: 18-subsystem GISBOT config
+│   └── gisbot.json                  # Example: 18-subsystem GISBOT config
 ├── templates/
-│   └── cad_spec_template.md     # Output template reference
+│   └── cad_spec_template.md         # Output template reference
 ├── examples/
-│   └── 04-末端执行机构设计.md     # Example design document
+│   └── 04-末端执行机构设计.md         # Example design document
 └── docs/
-    ├── cad-help-guide-en.md     # User guide (English)
-    ├── cad-help-guide-zh.md     # User guide (Chinese)
+    ├── cad-help-guide-en.md         # User guide (English)
+    ├── cad-help-guide-zh.md         # User guide (Chinese)
     └── cad_pipeline_agent_guide.md  # Cross-LLM agent integration guide
 ```
 
