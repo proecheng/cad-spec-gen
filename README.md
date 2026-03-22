@@ -1,36 +1,20 @@
-# CAD Spec Generator — A Claude Code Skill
+# CAD Spec Generator — Universal AI Skill for CAD Pipelines
 
-> **From Markdown to machining-ready drawings and photorealistic renders — in one command.**
+> **From Markdown to machining-ready drawings and photorealistic renders — powered by any LLM.**
 
-A **Claude Code Skill** for the complete AI-assisted CAD pipeline. Install it in any project, type `/cad-help` or `/cad-spec`, and let Claude handle everything: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
+A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
-## What is a Claude Code Skill?
+## Use with Any LLM
 
-[Claude Code Skills](https://docs.anthropic.com/en/docs/claude-code) are reusable slash commands that extend Claude's capabilities. Once installed, you can:
+| Platform | How to Install |
+|----------|---------------|
+| **Any LLM + Shell** | Paste [`system_prompt.md`](system_prompt.md) as system message |
+| **Claude Code** | `python install.py --platform claude-code --target your-project/` |
+| **GPT-4 / Assistants** | Upload `system_prompt.md` + enable Code Interpreter ([guide](adapters/openai/README.md)) |
+| **LangChain / AutoGen** | `from adapters.langchain.tools import cad_tools` ([guide](adapters/langchain/README.md)) |
+| **Dify / Coze** | Import `system_prompt.md` to knowledge base ([guide](adapters/dify/README.md)) |
 
-```
-/cad-help                           # Smart assistant — "what should I do next?"
-/cad-help what materials are available?  # Natural language queries
-/cad-spec examples/04-*.md         # Generate structured CAD spec
-/cad-spec --all                    # Process all subsystems at once
-```
-
-### Install as a Claude Code Skill
-
-```bash
-# 1. Clone into your project (or as a standalone tool)
-git clone https://github.com/proecheng/cad-spec-gen.git
-
-# 2. Copy slash commands into your project's .claude/commands/
-cp -r cad-spec-gen/.claude/commands/* your-project/.claude/commands/
-
-# 3. Copy skill knowledge file
-cp cad-spec-gen/skill_cad_help.md your-project/
-
-# 4. Now use /cad-help and /cad-spec in Claude Code!
-```
-
-Or use standalone without Claude Code — all tools are plain Python CLI scripts.
+All tools are **plain Python CLI scripts** — no framework lock-in, no vendor dependency.
 
 ```
 Design Document (.md)
@@ -40,7 +24,7 @@ CAD_SPEC.md (single source of truth for all downstream CAD work)
 STEP + DXF (GB/T national-standard 2D drawings) + GLB
     ↓ Blender Cycles CPU rendering
 5-view PNG — 100% geometry-accurate, cross-view consistent
-    ↓ Gemini AI enhancement (reskin only, geometry locked)
+    ↓ AI enhancement (reskin only, geometry locked)
 Photorealistic JPG — presentation / defense / business plan ready
 ```
 
@@ -50,10 +34,32 @@ Photorealistic JPG — presentation / defense / business plan ready
 |------------|----------------|
 | Design docs have scattered parameters, tolerances, BOM across 600+ lines | **One command** extracts all 9 data categories into a single structured spec |
 | Pure text-to-image AI gets ~42% geometry accuracy | **Hybrid pipeline**: Blender renders exact geometry first, AI only "reskins" the surface |
-| "What should I do next?" is hard to answer in a complex pipeline | **`/cad-help` natural-language assistant** scans your project artifacts and recommends the next action |
+| "What should I do next?" is hard to answer in a complex pipeline | **Natural-language assistant** scans your project artifacts and recommends the next action |
 | Cross-view consistency is poor with AI-generated images | **Blender-first** approach locks geometry across all 5 standard views; AI inherits consistency |
 | 2D drawings don't follow national standards | **GB/T compliant**: first-angle projection, FangSong font, 12-layer DXF with 0.5mm line widths |
-| Hard to integrate with other LLMs (GPT, GLM, Qwen...) | **LLM-agnostic**: pure Python CLI tools — any agent with shell execution can drive the pipeline |
+| Hard to integrate with other LLMs (GPT, GLM, Qwen...) | **LLM-agnostic**: pure Python CLI + `system_prompt.md` + platform adapters |
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Platform Adapters  (pick one, or use system_prompt.md)   │
+│  ├── claude-code/  → .claude/commands/ slash commands     │
+│  ├── openai/       → Function Calling JSON schema         │
+│  ├── langchain/    → LangChain/AutoGen Tool wrapper       │
+│  └── dify/         → Knowledge base import guide          │
+├──────────────────────────────────────────────────────────┤
+│  Universal Skill Layer                                    │
+│  ├── skill.json         → machine-readable skill manifest │
+│  ├── system_prompt.md   → paste into any LLM              │
+│  └── skill_cad_help.md  → 15-intent knowledge base        │
+├──────────────────────────────────────────────────────────┤
+│  Tool Layer  (pure Python CLI, no LLM dependency)         │
+│  ├── cad_spec_gen.py    → spec extraction                 │
+│  ├── bom_parser.py      → BOM parsing                     │
+│  └── config/templates/  → subsystem configs               │
+└──────────────────────────────────────────────────────────┘
+```
 
 ## Pipeline Architecture
 
@@ -76,7 +82,7 @@ Photorealistic JPG — presentation / defense / business plan ready
 │     15 PBR material presets · spherical camera system            │
 │     Standard views: front-iso / rear / side / exploded / ortho  │
 │                                                                 │
-│  4. AI ENHANCEMENT (Gemini, optional)                           │
+│  4. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
 │                                                                 │
@@ -94,9 +100,9 @@ Photorealistic JPG — presentation / defense / business plan ready
 - **Derived calculations**: total cost, part count, BOM completeness %
 - **Configurable**: subsystem mapping via JSON config, no hardcoded paths
 
-### Interactive Help (`/cad-help`)
+### Interactive Help (15 Intents)
 - **Natural language** — no need to memorize CLI syntax, just ask in plain language
-- **14 intents**: environment check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, parts/BOM
+- **15 intents**: environment check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, parts/BOM, CAD spec
 - **Smart "what's next?"** — scans project artifacts (STEP/DXF/GLB/PNG/JPG) and recommends the highest-priority next action
 
 ### 2D Engineering Drawings
@@ -113,15 +119,10 @@ Photorealistic JPG — presentation / defense / business plan ready
 - **Config-driven**: `render_config.json` controls materials, cameras, explosion rules
 
 ### AI Enhancement (Hybrid Rendering)
-- **Geometry-locked**: Blender PNG provides exact geometry; Gemini only changes surface appearance
+- **Geometry-locked**: Blender PNG provides exact geometry; AI only changes surface appearance
 - **Cross-view consistent**: all 5 views share the same 3D source
 - **Dual output**: PNG for engineering, JPG for presentation
 - **Prompt templates**: auto-generated from render config variables
-
-### Cross-Model Integration
-- **LLM-agnostic**: all tools are plain Python CLI scripts
-- Works with GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — anything with shell execution
-- Agent integration guide included (`docs/cad_pipeline_agent_guide.md`)
 
 ## Quick Start
 
@@ -198,33 +199,47 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 
 | Document | Language | Description |
 |----------|----------|-------------|
-| [User Guide (English)](docs/cad-help-guide-en.md) | EN | Full feature walkthrough, 14 intents, workflows |
-| [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、14种意图、典型工作流 |
+| [System Prompt](system_prompt.md) | EN | Universal system prompt — paste into any LLM |
+| [Skill Manifest](skill.json) | — | Machine-readable skill definition |
+| [User Guide (English)](docs/cad-help-guide-en.md) | EN | Full feature walkthrough, 15 intents, workflows |
+| [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、15种意图、典型工作流 |
 | [Agent Integration Guide](docs/cad_pipeline_agent_guide.md) | 中文 | LLM/Agent framework integration (GPT, GLM, LangChain, etc.) |
 | [CAD Spec Template](templates/cad_spec_template.md) | — | Output format reference with all 9 sections |
 
 ## Project Structure
 
 ```
-├── .claude/
-│   └── commands/
-│       ├── cad-help.md              # Skill: /cad-help slash command
-│       └── cad-spec.md              # Skill: /cad-spec slash command
-├── skill_cad_help.md                # Skill knowledge (14 intents + actions)
-├── cad_spec_gen.py                  # Main generator (CLI entry point)
-├── cad_spec_extractors.py           # 8 extraction functions + table parser
-├── cad_spec_defaults.py             # Standard defaults & completeness rules
-├── bom_parser.py                    # BOM table parser (also standalone CLI)
+├── skill.json                      # Machine-readable skill manifest
+├── system_prompt.md                # Universal system prompt (any LLM)
+├── skill_cad_help.md               # Skill knowledge (15 intents + actions)
+├── install.py                      # Cross-platform installer
+├── cad_spec_gen.py                 # Main generator (CLI entry point)
+├── cad_spec_extractors.py          # 8 extraction functions + table parser
+├── cad_spec_defaults.py            # Standard defaults & completeness rules
+├── bom_parser.py                   # BOM table parser (also standalone CLI)
+├── adapters/
+│   ├── claude-code/
+│   │   ├── commands/cad-help.md    # Claude Code slash command
+│   │   ├── commands/cad-spec.md    # Claude Code slash command
+│   │   └── install.sh             # One-click Claude Code installer
+│   ├── openai/
+│   │   ├── functions.json         # OpenAI Function Calling schema
+│   │   └── README.md              # GPT-4 / Assistants setup guide
+│   ├── langchain/
+│   │   ├── tools.py               # LangChain Tool wrapper
+│   │   └── README.md              # LangChain / AutoGen setup guide
+│   └── dify/
+│       └── README.md              # Dify / Coze setup guide
 ├── config/
-│   └── gisbot.json                  # Example: 18-subsystem GISBOT config
+│   └── gisbot.json                # Example: 18-subsystem config
 ├── templates/
-│   └── cad_spec_template.md         # Output template reference
+│   └── cad_spec_template.md       # Output template reference
 ├── examples/
-│   └── 04-末端执行机构设计.md         # Example design document
+│   └── 04-末端执行机构设计.md       # Example design document
 └── docs/
-    ├── cad-help-guide-en.md         # User guide (English)
-    ├── cad-help-guide-zh.md         # User guide (Chinese)
-    └── cad_pipeline_agent_guide.md  # Cross-LLM agent integration guide
+    ├── cad-help-guide-en.md       # User guide (English)
+    ├── cad-help-guide-zh.md       # User guide (Chinese)
+    └── cad_pipeline_agent_guide.md # Cross-LLM agent integration guide
 ```
 
 ## License

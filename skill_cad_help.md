@@ -4,7 +4,7 @@
 
 **每个意图动作执行前，必须先搜索项目实际文件，不要凭记忆假设。**
 
-1. **先搜后答** — 对任何涉及"某个文件在不在""某个配置怎么设的"的问题，先用 Glob/Grep/Read 查实际文件系统，再回答
+1. **先搜后答** — 对任何涉及"某个文件在不在""某个配置怎么设的"的问题，先搜索文件系统（ls/find/grep 或等效工具），再回答
 2. **多路径搜索** — 同一信息可能存在于多处（环境变量、配置文件、代码默认值），全部检查：
    - Gemini 配置：`~/.config/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
    - 渲染工具：`tools/hybrid_render/` > `cad/end_effector/` > `tools/blender/`
@@ -79,8 +79,8 @@
   ✅ matplotlib 3.10.8
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
   ✅ Gemini AI: ~/.config/gemini_image_config.json
-     API: https://api.duckcoding.ai/v1
-     模型: gemini-3-pro-image-preview-4k
+     API: https://generativelanguage.googleapis.com/v1beta
+     模型: gemini-2.0-flash-preview-image-generation
      gemini_gen.py: gemini_gen.py
   ✅ FangSong 仿宋字体 (C:\Windows\Fonts\simfang.ttf)
 ```
@@ -288,9 +288,9 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 技术路线: Blender PNG (几何精确) → Gemini --image模式 → 照片级 JPG
 
 实际配置 (~/.config/gemini_image_config.json):
-  API:    https://api.duckcoding.ai/v1 (中转代理)
-  模型:   gemini-3-pro-image-preview-4k
-  Key:    sk-*** (已配置)
+  API:    https://generativelanguage.googleapis.com/v1beta (或自定义代理)
+  模型:   gemini-2.0-flash-preview-image-generation
+  Key:    *** (已配置)
   超时:   120s
 
 核心工具:
@@ -464,12 +464,15 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   └──────────────────────────────────────────────────────────────┘
 
 第2层: 技能知识文档 (可直接作为 system prompt)
-  tools/cad_pipeline_agent_guide.md  ← 通用版 (无Claude Code依赖)
-  memory/skill_cad_help.md           ← Claude Code版
+  system_prompt.md                     ← 通用系统提示词 (任何LLM)
+  skill_cad_help.md                    ← 完整知识库 (15意图+动作)
+  docs/cad_pipeline_agent_guide.md     ← 详细Agent集成指南
 
-第3层: 斜杠命令 (仅 Claude Code CLI)
-  .claude/commands/cad-help.md
-  .claude/commands/mechdesign.md
+第3层: 平台适配器 (按需选装)
+  adapters/claude-code/commands/       ← Claude Code 斜杠命令
+  adapters/openai/functions.json       ← OpenAI Function Calling
+  adapters/langchain/tools.py          ← LangChain Tool wrapper
+  adapters/dify/README.md              ← Dify/Coze 知识库导入
 
 接入示例:
 
@@ -492,8 +495,8 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
     3. LLM 按文档指引生成命令并执行
 
 通用版导出:
-  tools/cad_pipeline_agent_guide.md
-  (去除Claude Code专属路径，保留纯工具调用接口)
+  python install.py --platform system-prompt  # 导出通用系统提示词
+  python install.py --platform openai         # 导出 OpenAI Function schema
 ```
 
 ### 14. parts — 零件/BOM 解析

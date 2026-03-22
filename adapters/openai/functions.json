@@ -1,0 +1,67 @@
+{
+  "functions": [
+    {
+      "name": "cad_help",
+      "description": "CAD rendering pipeline assistant. Answers questions about environment setup, configuration, next steps, materials, cameras, rendering, AI enhancement, troubleshooting, file structure, status, and cross-LLM integration. Supports 15 intents with natural language input.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language question about the CAD pipeline. Examples: 'what should I do next?', 'check my environment', 'what materials are available?', 'how to render?'"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "cad_spec",
+      "description": "Generate structured CAD_SPEC.md from a Markdown design document. Extracts 9 categories: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path to the design document (.md file)"
+          },
+          "config": {
+            "type": "string",
+            "description": "Path to JSON config file with subsystem mapping"
+          },
+          "output_dir": {
+            "type": "string",
+            "description": "Output directory (default: ./output)"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Force regeneration, ignoring MD5 cache (default: false)"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "Process all subsystems defined in config (default: false)"
+          }
+        },
+        "required": ["config"]
+      }
+    },
+    {
+      "name": "bom_parse",
+      "description": "Parse BOM (Bill of Materials) tables from a Markdown design document. Returns part tree with assembly hierarchy, make/buy flags, and cost breakdown.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path to the design document (.md file)"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["tree", "json", "summary"],
+            "description": "Output format: tree (default), json, or summary"
+          }
+        },
+        "required": ["file"]
+      }
+    }
+  ]
+}

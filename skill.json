@@ -1,0 +1,53 @@
+{
+  "name": "cad-spec-gen",
+  "version": "1.0.0",
+  "description": "CAD pipeline skill: design doc → structured spec → 2D drawings → 3D renders → photorealistic images",
+  "homepage": "https://github.com/proecheng/cad-spec-gen",
+  "license": "MIT",
+  "requires": {
+    "python": ">=3.9"
+  },
+  "skills": [
+    {
+      "id": "cad-help",
+      "name": "CAD Pipeline Assistant",
+      "trigger": "/cad-help",
+      "description": "Natural-language assistant for the CAD rendering pipeline (15 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, BOM/parts, CAD spec)",
+      "knowledge_file": "skill_cad_help.md"
+    },
+    {
+      "id": "cad-spec",
+      "name": "CAD Spec Generator",
+      "trigger": "/cad-spec",
+      "description": "Extract 9 categories of structured data from design documents into CAD_SPEC.md (parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report)",
+      "entry_point": "python cad_spec_gen.py"
+    }
+  ],
+  "tools": [
+    {
+      "name": "cad_spec_gen",
+      "description": "Extract structured CAD spec from Markdown design documents",
+      "cli": "python cad_spec_gen.py [FILES] --config CONFIG [--output-dir DIR] [--all] [--force]"
+    },
+    {
+      "name": "bom_parser",
+      "description": "Parse BOM tables from design documents into tree/JSON/summary",
+      "cli": "python bom_parser.py FILE [--json] [--summary]"
+    }
+  ],
+  "adapters": {
+    "claude-code": "adapters/claude-code/",
+    "openai": "adapters/openai/",
+    "langchain": "adapters/langchain/",
+    "dify": "adapters/dify/"
+  },
+  "pipeline": {
+    "overview": "Design Doc (.md) → CAD_SPEC.md → CadQuery (STEP/DXF/GLB) → Blender Cycles PNG → Gemini AI JPG",
+    "stages": [
+      "Spec extraction (cad_spec_gen.py): 9-category structured data",
+      "Parametric modeling (CadQuery): STEP + DXF (GB/T national standard) + GLB",
+      "3D rendering (Blender Cycles CPU): 5-view PNG, 15 PBR material presets",
+      "AI enhancement (Gemini, optional): photorealistic JPG, geometry locked"
+    ]
+  }
+}
