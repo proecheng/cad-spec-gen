@@ -86,8 +86,8 @@ tools/hybrid_render/
 tools/
 └── bom_parser.py          BOM part tree parser (--json --summary)
 
-D:/imageProduce/
-└── gemini_gen.py          Gemini image generation (--image png "prompt")
+# Gemini AI tool (user-configured path)
+# gemini_gen.py             Gemini image generation (--image png "prompt")
 ```
 
 ## 15 Material Presets
@@ -125,7 +125,7 @@ python cad/end_effector/build_all.py --render
 # 3. AI enhancement (optional)
 python tools/hybrid_render/prompt_builder.py \
   --config cad/end_effector/render_config.json > prompt.txt
-python D:/imageProduce/gemini_gen.py \
+python gemini_gen.py \
   --image cad/output/renders/V1_front_iso.png "$(cat prompt.txt)"
 # → Output: bananapro/gemini_*.jpg
 ```

@@ -86,8 +86,8 @@ tools/hybrid_render/
 tools/
 └── bom_parser.py          BOM 零件树解析 (--json --summary)
 
-D:/imageProduce/
-└── gemini_gen.py          Gemini 图生图 (--image png "prompt")
+# Gemini AI 工具（用户自行配置路径）
+# gemini_gen.py             Gemini 图生图 (--image png "prompt")
 ```
 
 ## 15 种材质预设
@@ -125,7 +125,7 @@ python cad/end_effector/build_all.py --render
 # 3. AI 增强 (可选)
 python tools/hybrid_render/prompt_builder.py \
   --config cad/end_effector/render_config.json > prompt.txt
-python D:/imageProduce/gemini_gen.py \
+python gemini_gen.py \
   --image cad/output/renders/V1_front_iso.png "$(cat prompt.txt)"
 # → 输出: bananapro/gemini_*.jpg
 ```
