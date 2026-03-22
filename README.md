@@ -139,6 +139,32 @@ python cad_spec_gen.py examples/04-末端执行机构设计.md \
 cat output/end_effector/CAD_SPEC.md
 ```
 
+### AI Enhancement Quick Start
+
+After Blender renders your 5-view PNGs, enhance them to photorealistic JPGs:
+
+```bash
+# Enhance standard views (V1/V2/V3) using prompt template
+python gemini_gen.py --image V1_front_iso.png \
+    "Keep ALL geometry EXACTLY unchanged. Apply photorealistic materials..."
+
+# Enhance exploded view (V4) — preserves explosion gaps
+python gemini_gen.py --image V4_exploded.png \
+    "Keep ALL geometry EXACTLY unchanged. This is an exploded view..."
+
+# Enhance orthographic view (V5) — no perspective distortion
+python gemini_gen.py --image V5_ortho_front.png \
+    "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+```
+
+3 prompt templates provided in `templates/`:
+- `prompt_enhance.txt` — V1/V2/V3 standard views
+- `prompt_exploded.txt` — V4 exploded view (preserves gaps)
+- `prompt_ortho.txt` — V5 orthographic (no perspective)
+
+Fill `{product_name}`, `{view_description}`, `{material_descriptions}` from `render_config.json`.
+Output: ~6MB JPG per view, 5460×3072, photorealistic studio quality.
+
 ## Usage
 
 ```
@@ -205,6 +231,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 | [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、15种意图、典型工作流 |
 | [Agent Integration Guide](docs/cad_pipeline_agent_guide.md) | 中文 | LLM/Agent framework integration (GPT, GLM, LangChain, etc.) |
 | [CAD Spec Template](templates/cad_spec_template.md) | — | Output format reference with all 9 sections |
+| [AI Prompt Templates](templates/) | EN | 3 prompt templates for Gemini AI enhancement (standard/exploded/ortho) |
 
 ## Project Structure
 
@@ -221,6 +248,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   ├── claude-code/
 │   │   ├── commands/cad-help.md    # Claude Code slash command
 │   │   ├── commands/cad-spec.md    # Claude Code slash command
+│   │   ├── commands/cad-enhance.md # Claude Code slash command (AI enhance)
 │   │   └── install.sh             # One-click Claude Code installer
 │   ├── openai/
 │   │   ├── functions.json         # OpenAI Function Calling schema
@@ -233,7 +261,10 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── config/
 │   └── gisbot.json                # Example: 18-subsystem config
 ├── templates/
-│   └── cad_spec_template.md       # Output template reference
+│   ├── cad_spec_template.md       # Output template reference
+│   ├── prompt_enhance.txt         # AI prompt: standard views (V1-V3)
+│   ├── prompt_exploded.txt        # AI prompt: exploded view (V4)
+│   └── prompt_ortho.txt           # AI prompt: orthographic view (V5)
 ├── examples/
 │   └── 04-末端执行机构设计.md       # Example design document
 └── docs/

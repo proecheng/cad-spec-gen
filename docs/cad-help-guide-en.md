@@ -122,13 +122,45 @@ python tools/hybrid_render/check_env.py
 python cad/end_effector/build_all.py --render
 # → Output: 8 STEP + 11 DXF + 1 GLB + 5 PNG
 
-# 3. AI enhancement (optional)
-python tools/hybrid_render/prompt_builder.py \
-  --config cad/end_effector/render_config.json > prompt.txt
+# 3. AI enhancement (optional) — use prompt templates
 python gemini_gen.py \
-  --image cad/output/renders/V1_front_iso.png "$(cat prompt.txt)"
-# → Output: bananapro/gemini_*.jpg
+  --image cad/output/renders/V1_front_iso.png \
+  "Keep ALL geometry EXACTLY unchanged. Apply photorealistic materials..."
+# → Output: photorealistic JPG (~6MB, 5460×3072)
 ```
+
+### AI Enhancement Workflow (5 Views)
+
+After Blender renders exist, enhance all 5 views to photorealistic JPGs:
+
+```bash
+# Step 1: Read render_config.json for material descriptions
+cat cad/end_effector/render_config.json | jq '.prompt_vars'
+
+# Step 2: Fill prompt template and run for each view
+# V1/V2/V3 → templates/prompt_enhance.txt (standard views)
+python gemini_gen.py --image V1_front_iso.png \
+  "Keep ALL geometry EXACTLY unchanged. This is a front-left isometric view
+   of a precision robotic end effector. Apply photorealistic materials:
+   - Silver flange: brushed aluminum 7075-T6
+   - Amber ring: PEEK translucent
+   - Blue/Green/Bronze/Purple stations: anodized aluminum
+   Studio lighting, neutral gradient background. 8K quality."
+
+# V4 → templates/prompt_exploded.txt (preserves explosion gaps)
+python gemini_gen.py --image V4_exploded.png \
+  "Keep ALL geometry EXACTLY unchanged. Exploded view — keep gaps visible..."
+
+# V5 → templates/prompt_ortho.txt (no perspective distortion)
+python gemini_gen.py --image V5_ortho_front.png \
+  "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+```
+
+**Key principles:**
+- Prompt line 1 MUST say "Keep ALL geometry EXACTLY unchanged"
+- Material descriptions come from `render_config.json` `prompt_vars`
+- 3 templates for different view types (standard / exploded / ortho)
+- Output: ~6MB JPG per view, photorealistic studio quality
 
 ### Render Only (GLB already exists)
 

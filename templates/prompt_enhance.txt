@@ -1,0 +1,6 @@
+Keep ALL geometry, proportions, positions, and shapes EXACTLY unchanged.
+This is a {view_description} of a {product_name}.
+Apply photorealistic studio-quality materials ONLY:
+{material_descriptions}
+Studio lighting: soft key light from upper-left, fill from right, subtle rim light.
+Neutral gradient background. 8K product photography quality.

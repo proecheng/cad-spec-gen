@@ -21,6 +21,12 @@
       "trigger": "/cad-spec",
       "description": "Extract 9 categories of structured data from design documents into CAD_SPEC.md (parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report)",
       "entry_point": "python cad_spec_gen.py"
+    },
+    {
+      "id": "cad-enhance",
+      "name": "Gemini AI Enhancement",
+      "trigger": "/cad-enhance",
+      "description": "Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI (geometry locked, reskin only). 3 prompt templates for standard/exploded/orthographic views."
     }
   ],
   "tools": [
@@ -33,6 +39,11 @@
       "name": "bom_parser",
       "description": "Parse BOM tables from design documents into tree/JSON/summary",
       "cli": "python bom_parser.py FILE [--json] [--summary]"
+    },
+    {
+      "name": "gemini_enhance",
+      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked)",
+      "cli": "python gemini_gen.py --image <input.png> \"<prompt from templates/prompt_*.txt>\""
     }
   ],
   "adapters": {

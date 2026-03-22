@@ -122,13 +122,46 @@ python tools/hybrid_render/check_env.py
 python cad/end_effector/build_all.py --render
 # → 输出: 8 STEP + 11 DXF + 1 GLB + 5 PNG
 
-# 3. AI 增强 (可选)
-python tools/hybrid_render/prompt_builder.py \
-  --config cad/end_effector/render_config.json > prompt.txt
+# 3. AI 增强 (可选) — 使用prompt模板
 python gemini_gen.py \
-  --image cad/output/renders/V1_front_iso.png "$(cat prompt.txt)"
-# → 输出: bananapro/gemini_*.jpg
+  --image cad/output/renders/V1_front_iso.png \
+  "Keep ALL geometry EXACTLY unchanged. Apply photorealistic materials..."
+# → 输出: 照片级 JPG (~6MB, 5460×3072)
 ```
+
+### AI 增强工作流（5视角完整流程）
+
+Blender渲染完成后，将5张PNG增强为照片级JPG：
+
+```bash
+# 步骤1: 读取 render_config.json 中的材质描述
+cat cad/end_effector/render_config.json | jq '.prompt_vars'
+
+# 步骤2: 填充prompt模板并逐视角执行
+# V1/V2/V3 → templates/prompt_enhance.txt（标准视角）
+python gemini_gen.py --image V1_front_iso.png \
+  "Keep ALL geometry EXACTLY unchanged. This is a front-left isometric view
+   of a precision robotic end effector. Apply photorealistic materials:
+   - 银色法兰: 拉丝铝合金 7075-T6
+   - 琥珀色环: PEEK工程塑料，半透明
+   - 蓝/绿/铜/紫工位: 阳极氧化铝
+   Studio lighting, neutral gradient background. 8K quality."
+
+# V4 → templates/prompt_exploded.txt（爆炸图，保留间距）
+python gemini_gen.py --image V4_exploded.png \
+  "Keep ALL geometry EXACTLY unchanged. Exploded view — keep gaps visible..."
+
+# V5 → templates/prompt_ortho.txt（正交图，无透视畸变）
+python gemini_gen.py --image V5_ortho_front.png \
+  "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+```
+
+**核心原则：**
+- Prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
+- 材质描述来源于 `render_config.json` 的 `prompt_vars` 字段
+- 3套模板对应不同视角类型（标准/爆炸/正交）
+- 输出：每张约6MB JPG，照片级影棚品质
+- 双输出：PNG用于工程审图/加工参考，JPG用于答辩/展示/商业计划书
 
 ### 单独渲染（已有 GLB）
 

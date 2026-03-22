@@ -8,7 +8,7 @@
 2. **多路径搜索** — 同一信息可能存在于多处（环境变量、配置文件、代码默认值），全部检查：
    - Gemini 配置：`~/.config/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
    - 渲染工具：`tools/hybrid_render/` > `cad/end_effector/` > `tools/blender/`
-   - prompt模板：`tools/hybrid_render/prompts/` > `cad/end_effector/prompt_*.txt`
+   - prompt模板：`templates/prompt_*.txt`（3套：enhance/exploded/ortho）
 3. **搜到即记录** — 搜索到的实际路径/版本/配置值，直接写进输出，不用模板中的占位值
 4. **不猜测缺失** — 搜不到的不要假设存在，标注 ❌ 并给出创建/安装指引
 
@@ -295,21 +295,34 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 
 核心工具:
   gemini_gen.py:     gemini_gen.py (全局命令行工具)
-  prompt_builder.py: tools/hybrid_render/prompt_builder.py (prompt生成)
   check_env.py:      tools/hybrid_render/check_env.py (环境检查)
 
-prompt模板 (搜索 tools/hybrid_render/prompts/ 和 cad/end_effector/):
-  prompt_enhance.txt  — V1~V3 通用增强 (材质/光照/环境)
-  prompt_exploded.txt — V4 爆炸图专用 (保留装配线)
-  prompt_ortho.txt    — V5 正交图专用 (保留工程特征)
+prompt模板 (templates/ 目录):
+  templates/prompt_enhance.txt  — V1~V3 标准视角 (材质/光照/环境)
+  templates/prompt_exploded.txt — V4 爆炸图专用 (保留爆炸间距和装配线)
+  templates/prompt_ortho.txt    — V5 正交图专用 (无透视畸变)
+
+模板变量 (从 render_config.json prompt_vars 填充):
+  {product_name}           ← prompt_vars.product_name
+  {view_description}       ← camera.V*.description
+  {material_descriptions}  ← prompt_vars.material_descriptions[]
 
 核心原则:
-  Gemini只"换皮"不改几何，prompt首行写 "Keep ALL geometry EXACTLY"
+  1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
+  2. 材质描述从 render_config.json 读取，不凭空编造
+  3. 不同视角用不同模板（爆炸图保留间距，正交图无透视）
+  4. 几何100%锁定，Gemini只"换皮"不改形状
 
-使用方式:
-  python gemini_gen.py "prompt文本" --image base.png
-  或通过 /text-to-image 技能调用
-  输出: bananapro/ 目录下的照片级 JPG
+5视角增强标准工作流:
+  1. 确认5张 Blender PNG 已存在 (V1~V5)
+  2. 读取 render_config.json 的 prompt_vars 字段
+  3. 逐视角填充模板并执行:
+     V1: gemini_gen.py --image V1_front_iso.png "<prompt_enhance填充>"
+     V2: gemini_gen.py --image V2_rear_oblique.png "<prompt_enhance填充>"
+     V3: gemini_gen.py --image V3_side_elevation.png "<prompt_enhance填充>"
+     V4: gemini_gen.py --image V4_exploded.png "<prompt_exploded填充>"
+     V5: gemini_gen.py --image V5_ortho_front.png "<prompt_ortho填充>"
+  4. 输出: ~6MB JPG/张, 5460×3072, 照片级影棚品质
 
 双用途:
   PNG → 审图/加工参考 (几何100%精确)

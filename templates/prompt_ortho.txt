@@ -1,0 +1,6 @@
+Keep ALL geometry, proportions, positions, and shapes EXACTLY unchanged.
+This is a front orthographic projection of a {product_name} — engineering reference view with no perspective distortion.
+Apply photorealistic studio-quality materials ONLY:
+{material_descriptions}
+Flat, even studio lighting for engineering reference.
+Neutral gradient background. 8K orthographic product photography.

@@ -62,12 +62,37 @@ python cad/<subsystem>/render_dxf.py [file.dxf ...]
 
 ### 5. AI Enhancement (requires Gemini API)
 ```bash
-# Generate prompt from config
-python tools/hybrid_render/prompt_builder.py --config render_config.json --type enhance
+# Image-to-image enhancement — apply prompt template per view type
+# V1/V2/V3 standard views:
+python gemini_gen.py --image V1_front_iso.png "$(cat templates/prompt_enhance.txt)"
 
-# Image-to-image enhancement
-python gemini_gen.py --image base.png "Keep ALL geometry EXACTLY. Photorealistic studio rendering..."
+# V4 exploded view:
+python gemini_gen.py --image V4_exploded.png "$(cat templates/prompt_exploded.txt)"
+
+# V5 orthographic:
+python gemini_gen.py --image V5_ortho_front.png "$(cat templates/prompt_ortho.txt)"
 ```
+
+**Key principle**: Gemini only changes surface materials — geometry stays 100% locked.
+
+### Prompt Template Variables
+
+Prompt templates in `templates/prompt_*.txt` use these placeholders:
+- `{product_name}` — from render_config.json `prompt_vars.product_name`
+- `{view_description}` — from render_config.json `camera.V*.description`
+- `{material_descriptions}` — from render_config.json `prompt_vars.material_descriptions[]`
+
+### AI Enhancement Workflow (5 views)
+
+1. Ensure Blender PNG renders exist (V1–V5)
+2. Read `render_config.json` for material descriptions and view info
+3. Select prompt template per view:
+   - V1/V2/V3 → `templates/prompt_enhance.txt` (standard views)
+   - V4 → `templates/prompt_exploded.txt` (preserves explosion gaps)
+   - V5 → `templates/prompt_ortho.txt` (no perspective distortion)
+4. Fill template variables from render_config.json `prompt_vars`
+5. Run `gemini_gen.py --image <view.png> "<filled prompt>"` for each view
+6. Output: photorealistic JPG (~6MB each, 5460×3072)
 
 ### 6. Utility Tools
 ```bash
