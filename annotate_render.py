@@ -54,13 +54,25 @@ def _ensure_fonts():
 
 # ── Label rendering ──────────────────────────────────────────────────────────
 
-# Reference resolution (Blender output)
-REF_W, REF_H = 1920, 1080
+# Default reference resolution (Blender output); overridden by config
+_DEFAULT_REF_W, _DEFAULT_REF_H = 1920, 1080
 
 
-def detect_view_id(filename: str) -> str:
-    """Extract view ID (V1-V5) from filename."""
-    m = re.search(r"(V[1-5])", filename, re.IGNORECASE)
+def detect_view_id(filename: str, valid_views: list = None) -> str:
+    """Extract view ID from filename.
+
+    If valid_views is provided (e.g. from config labels keys),
+    match against those first (longest-first to avoid V1 matching V10).
+    Falls back to generic V + digits pattern.
+    """
+    basename_upper = os.path.basename(filename).upper()
+    if valid_views:
+        for vid in sorted(valid_views, key=len, reverse=True):
+            if vid.upper() in basename_upper:
+                return vid.upper()
+        return None
+    # Generic fallback: any V + digits
+    m = re.search(r"(V\d+)", filename, re.IGNORECASE)
     return m.group(1).upper() if m else None
 
 
@@ -72,12 +84,15 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
     """
     _ensure_fonts()
 
-    view_id = detect_view_id(os.path.basename(img_path))
+    # Determine valid view IDs from config
+    labels_all = config.get("labels", {})
+    valid_views = [k for k in labels_all if not k.startswith("_")]
+
+    view_id = detect_view_id(os.path.basename(img_path), valid_views)
     if not view_id:
         print(f"  SKIP: cannot detect view ID from {img_path}")
         return None
 
-    labels_all = config.get("labels", {})
     labels = labels_all.get(view_id, [])
     if not labels:
         print(f"  SKIP: no labels defined for {view_id}")
@@ -90,9 +105,14 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
     img = Image.open(img_path).convert("RGBA")
     w, h = img.size
 
+    # Reference resolution (config-driven, defaults to 1920x1080)
+    ref_res = config.get("reference_resolution", {})
+    ref_w = ref_res.get("width", _DEFAULT_REF_W)
+    ref_h = ref_res.get("height", _DEFAULT_REF_H)
+
     # Scale factor from reference resolution
-    sx = w / REF_W
-    sy = h / REF_H
+    sx = w / ref_w
+    sy = h / ref_h
     scaled_font_size = max(16, int(font_size * min(sx, sy)))
 
     # Load font
@@ -206,12 +226,17 @@ def main():
         sys.exit(1)
 
     if args.all:
-        pattern = os.path.join(args.dir, "V*_*enhanced*.jpg")
-        files = sorted(glob.glob(pattern))
-        # Exclude already-labeled files
-        files = [f for f in files if "_labeled_" not in f]
+        # Discover files by scanning all JPGs and matching against config view IDs
+        labels_cfg = config.get("labels", {})
+        valid_views = [k for k in labels_cfg if not k.startswith("_")]
+        all_jpgs = sorted(glob.glob(os.path.join(args.dir, "*.jpg")))
+        # Exclude already-labeled files, then filter to those matching a valid view
+        files = [f for f in all_jpgs
+                 if "_labeled_" not in f
+                 and detect_view_id(os.path.basename(f), valid_views)]
         if not files:
-            print(f"No V*_enhanced.jpg files found in {args.dir}")
+            print(f"No annotatable images found in {args.dir} "
+                  f"(expected views: {', '.join(valid_views)})")
             sys.exit(1)
         print(f"Annotating {len(files)} images ({args.lang})...")
         results = []

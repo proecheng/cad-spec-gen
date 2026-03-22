@@ -62,7 +62,7 @@
     "stages": [
       "Spec extraction (cad_spec_gen.py): 9-category structured data",
       "Parametric modeling (CadQuery): STEP + DXF (GB/T national standard) + GLB",
-      "3D rendering (Blender Cycles CPU): 5-view PNG, 15 PBR material presets",
+      "3D rendering (Blender Cycles CPU): N-view PNG (default 5, configurable), 15 PBR material presets",
       "AI enhancement (Gemini, optional): photorealistic JPG, geometry locked",
       "Annotation (annotate_render.py, optional): component labels (CN/EN) via PIL"
     ]

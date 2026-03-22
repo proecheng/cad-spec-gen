@@ -65,7 +65,7 @@
     },
     {
       "name": "cad_enhance",
-      "description": "Enhance a Blender-rendered PNG to photorealistic JPG via Gemini AI. Geometry is locked — only surface materials change. Uses prompt templates: prompt_enhance.txt (V1-V3), prompt_exploded.txt (V4), prompt_ortho.txt (V5).",
+      "description": "Enhance a Blender-rendered PNG to photorealistic JPG via Gemini AI. Geometry is locked — only surface materials change. Uses prompt templates per view type: prompt_enhance.txt (standard), prompt_exploded.txt (exploded), prompt_ortho.txt (orthographic). Views are config-driven via render_config.json.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -87,7 +87,7 @@
     },
     {
       "name": "cad_annotate",
-      "description": "Add component labels (Chinese or English) to rendered images using PIL. Draws leader lines from component anchor points to text labels with semi-transparent backgrounds. Label coordinates defined in render_config.json labels section.",
+      "description": "Add component labels (Chinese or English) to rendered images using PIL. Draws leader lines from component anchor points to text labels. Label coordinates and view IDs defined in render_config.json labels section (not limited to V1-V5).",
       "parameters": {
         "type": "object",
         "properties": {

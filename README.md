@@ -23,7 +23,7 @@ CAD_SPEC.md (single source of truth for all downstream CAD work)
     ↓ CadQuery parametric modeling
 STEP + DXF (GB/T national-standard 2D drawings) + GLB
     ↓ Blender Cycles CPU rendering
-5-view PNG — 100% geometry-accurate, cross-view consistent
+N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
     ↓ AI enhancement (reskin only, geometry locked)
 Photorealistic JPG — presentation / defense / business plan ready
     ↓ annotate_render.py — PIL-based component labels (CN/EN)
@@ -37,7 +37,7 @@ Labeled JPG — with leader lines and component names
 | Design docs have scattered parameters, tolerances, BOM across 600+ lines | **One command** extracts all 9 data categories into a single structured spec |
 | Pure text-to-image AI gets ~42% geometry accuracy | **Hybrid pipeline**: Blender renders exact geometry first, AI only "reskins" the surface |
 | "What should I do next?" is hard to answer in a complex pipeline | **Natural-language assistant** scans your project artifacts and recommends the next action |
-| Cross-view consistency is poor with AI-generated images | **Blender-first** approach locks geometry across all 5 standard views; AI inherits consistency |
+| Cross-view consistency is poor with AI-generated images | **Blender-first** approach locks geometry across all views; AI inherits consistency |
 | 2D drawings don't follow national standards | **GB/T compliant**: first-angle projection, FangSong font, 12-layer DXF with 0.5mm line widths |
 | Hard to integrate with other LLMs (GPT, GLM, Qwen...) | **LLM-agnostic**: pure Python CLI + `system_prompt.md` + platform adapters |
 
@@ -80,9 +80,10 @@ Labeled JPG — with leader lines and component names
 │     - 2D: GB/T A3 drawings, 3-view + section views              │
 │                                                                 │
 │  3. 3D RENDERING (Blender Cycles CPU)                           │
-│     GLB → 5-view PNG (geometry 100% accurate)                   │
+│     GLB → N-view PNG (geometry 100% accurate, default 5 views)  │
 │     15 PBR material presets · spherical camera system            │
-│     Standard views: front-iso / rear / side / exploded / ortho  │
+│     Default views: front-iso / rear / side / exploded / ortho   │
+│     Views are config-driven: render_config.json camera section   │
 │                                                                 │
 │  4. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
@@ -115,7 +116,7 @@ Labeled JPG — with leader lines and component names
 
 ### 3D Rendering
 - **Blender Cycles CPU** — works on remote desktops without GPU
-- **5 standard views**: V1 front-iso, V2 rear-oblique, V3 side-elevation, V4 exploded, V5 ortho-front
+- **5 standard views** (default, configurable per subsystem): V1 front-iso, V2 rear-oblique, V3 side-elevation, V4 exploded, V5 ortho-front
 - **15 PBR material presets**: brushed aluminum, PEEK, carbon fiber, rubber, glass, etc.
 - **Exploded views**: radial / axial / custom explosion with assembly lines
 - **Config-driven**: `render_config.json` controls materials, cameras, explosion rules
@@ -127,6 +128,8 @@ Labeled JPG — with leader lines and component names
 - **Prompt templates**: auto-generated from render config variables
 
 ## Quick Start
+
+> **Example: End Effector subsystem** — adapt paths for your own subsystem.
 
 ```bash
 git clone https://github.com/proecheng/cad-spec-gen.git
@@ -143,7 +146,7 @@ cat output/end_effector/CAD_SPEC.md
 
 ### AI Enhancement Quick Start
 
-After Blender renders your 5-view PNGs, enhance them to photorealistic JPGs:
+After Blender renders your PNGs, enhance them to photorealistic JPGs:
 
 ```bash
 # Enhance standard views (V1/V2/V3) using prompt template
@@ -183,7 +186,22 @@ python annotate_render.py --all --dir ./renders --config render_config.json --la
 Labels are defined in `render_config.json`:
 - `components` section: maps IDs to CN/EN names + BOM IDs (from design doc §X.8 BOM)
 - `labels` section: per-view coordinates for **visible** components only (occluded = not labeled)
-- Coordinates at 1920×1080 reference, auto-scaled to actual image size
+- Coordinates at 1920×1080 reference (configurable via `reference_resolution`), auto-scaled to actual image size
+
+## Adding a New Subsystem
+
+1. **Create directory and config**:
+   ```bash
+   mkdir cad/<your_subsystem>/
+   cp templates/render_config_template.json cad/<your_subsystem>/render_config.json
+   ```
+   Edit `render_config.json` — fill in subsystem info, materials, camera views, and components.
+
+2. **Parametric modeling**: Create CadQuery scripts, run `build_all.py` to generate STEP + DXF + GLB.
+
+3. **Render**: `python build_all.py --render` for Blender PNG, then optionally AI-enhance and annotate.
+
+See `templates/render_config_template.json` for field documentation.
 
 ## Usage
 

@@ -15,7 +15,7 @@
 
 ## 功能总览
 
-`/cad-help` 支持 **14 种意图**，覆盖 CAD 混合渲染管线全生命周期：
+`/cad-help` 支持 **15 种意图**，覆盖 CAD 混合渲染管线全生命周期：
 
 | # | 意图 | 触发示例 | 说明 |
 |---|------|----------|------|
@@ -44,7 +44,7 @@
 │      ↓ 参数提取                                              │
 │  CadQuery 参数化建模 → STEP + DXF + GLB                     │
 │      ↓                                                       │
-│  Blender Cycles CPU 渲染 → 5 视角 PNG（几何 100% 精确）       │
+│  Blender Cycles CPU 渲染 → N 视角 PNG（几何 100% 精确，默认5个）    │
 │      ↓                                                       │
 │  Gemini AI 增强 → 照片级 JPG（仅换皮，不改几何）              │
 │                                                              │
@@ -114,6 +114,8 @@ tools/
 
 ### 从零渲染一个子系统
 
+> **示例：末端执行器子系统** — 替换路径为你的子系统。
+
 ```bash
 # 1. 检查环境
 python tools/hybrid_render/check_env.py
@@ -129,9 +131,9 @@ python gemini_gen.py \
 # → 输出: 照片级 JPG (~6MB, 5460×3072)
 ```
 
-### AI 增强工作流（5视角完整流程）
+### AI 增强工作流（所有配置的视角）
 
-Blender渲染完成后，将5张PNG增强为照片级JPG：
+Blender渲染完成后，将所有PNG增强为照片级JPG：
 
 ```bash
 # 步骤1: 读取 render_config.json 中的材质描述

@@ -15,7 +15,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 
 ## Feature Overview
 
-`/cad-help` supports **14 intents** covering the entire CAD hybrid rendering pipeline lifecycle:
+`/cad-help` supports **15 intents** covering the entire CAD hybrid rendering pipeline lifecycle:
 
 | # | Intent | Trigger Examples | Description |
 |---|--------|-----------------|-------------|
@@ -24,7 +24,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 3 | Next Step | "what's next?" "what should I do?" | Scan project artifacts, recommend next action by priority |
 | 4 | New Subsystem | "how to start a new subsystem?" | Quick Start 3-step guide |
 | 5 | Materials | "what materials?" "colors" | List 15 PBR engineering material presets + custom examples |
-| 6 | Camera | "how to configure camera?" "views" | Spherical / Cartesian coords + 5 standard views |
+| 6 | Camera | "how to configure camera?" "views" | Spherical / Cartesian coords + N configurable views |
 | 7 | Exploded View | "how to set up exploded view?" | radial / axial / custom explosion configuration |
 | 8 | Render | "how to render?" "generate images" | Auto-detect state, run Blender or guide through prerequisites |
 | 9 | AI Enhancement | "how to use Gemini?" "photorealistic" | Gemini image-to-image hybrid enhancement workflow |
@@ -44,7 +44,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 │      ↓ Parameter extraction                                   │
 │  CadQuery Parametric Modeling → STEP + DXF + GLB              │
 │      ↓                                                        │
-│  Blender Cycles CPU Rendering → 5-view PNG (100% accurate)    │
+│  Blender Cycles CPU Rendering → N-view PNG (100% accurate, default 5)  │
 │      ↓                                                        │
 │  Gemini AI Enhancement → Photorealistic JPG (reskin only)     │
 │                                                               │
@@ -114,6 +114,8 @@ tools/
 
 ### Build & Render from Scratch
 
+> **Example: End Effector subsystem** — adapt paths for your own subsystem.
+
 ```bash
 # 1. Check environment
 python tools/hybrid_render/check_env.py
@@ -129,9 +131,9 @@ python gemini_gen.py \
 # → Output: photorealistic JPG (~6MB, 5460×3072)
 ```
 
-### AI Enhancement Workflow (5 Views)
+### AI Enhancement Workflow (all configured views)
 
-After Blender renders exist, enhance all 5 views to photorealistic JPGs:
+After Blender renders exist, enhance all views to photorealistic JPGs:
 
 ```bash
 # Step 1: Read render_config.json for material descriptions
