@@ -180,7 +180,10 @@ python annotate_render.py --all --dir ./renders --config render_config.json --la
 python annotate_render.py --all --dir ./renders --config render_config.json --lang en
 ```
 
-Labels are defined in `render_config.json` `labels` section with per-view 2D coordinates (1920×1080 reference, auto-scaled). Chinese text uses SimHei font via PIL — not AI-generated — for reliable CJK rendering.
+Labels are defined in `render_config.json`:
+- `components` section: maps IDs to CN/EN names + BOM IDs (from design doc §X.8 BOM)
+- `labels` section: per-view coordinates for **visible** components only (occluded = not labeled)
+- Coordinates at 1920×1080 reference, auto-scaled to actual image size
 
 ## Usage
 

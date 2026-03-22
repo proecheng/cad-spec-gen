@@ -83,6 +83,9 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
         print(f"  SKIP: no labels defined for {view_id}")
         return None
 
+    # Component name lookup dict (names sourced from design doc BOM)
+    components = config.get("components", {})
+
     # Open image
     img = Image.open(img_path).convert("RGBA")
     w, h = img.size
@@ -121,7 +124,13 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
     pad_y = max(3, int(4 * min(sx, sy)))
 
     for lbl in labels:
-        name = lbl.get(f"name_{lang}", lbl.get("name_en", "?"))
+        # Resolve name: component-id reference (preferred) or inline name (legacy)
+        comp_id = lbl.get("component")
+        if comp_id and components:
+            comp = components.get(comp_id, {})
+            name = comp.get(f"name_{lang}", comp.get("name_en", comp_id))
+        else:
+            name = lbl.get(f"name_{lang}", lbl.get("name_en", "?"))
         ax, ay = int(lbl["anchor"][0] * sx), int(lbl["anchor"][1] * sy)
         lx, ly = int(lbl["label"][0] * sx), int(lbl["label"][1] * sy)
 

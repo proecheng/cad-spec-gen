@@ -180,7 +180,9 @@ python annotate_render.py --all --dir assets/images/mechanical \
   --config cad/end_effector/render_config.json --lang en
 ```
 
-Label coordinates defined in `render_config.json` `labels` section (1920×1080 reference, auto-scaled to actual image size).
+Label data in `render_config.json` has two sections:
+- `components`: maps IDs to CN/EN names + BOM IDs (sourced from design doc §X.8 BOM)
+- `labels`: per-view coordinates for **visible** components only (occluded components not labeled)
 
 ### Render Only (GLB already exists)
 

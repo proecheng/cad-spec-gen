@@ -336,8 +336,14 @@ prompt模板 (templates/ 目录):
 
 标注工具 (annotate_render.py):
   依赖: Pillow (PIL)
-  数据源: render_config.json 的 labels 段 (每视角每元件的2D锚点+标签位置+中英文名)
-  坐标系: 基于1920×1080参考分辨率，自动按实际图片尺寸缩放
+  数据源: render_config.json 的 components 段(从设计文档BOM提取的中英文名) + labels 段(每视角每元件的2D锚点+标签位置)
+  数据架构:
+    "components": {"part_id": {"name_cn": "...", "name_en": "...", "bom_id": "GIS-XX-NNN"}}
+    "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
+  关键规范:
+    - components 名称必须从设计文档§X.8 BOM原文提取，不可自行编造
+    - labels 每视角仅标注该视角可见的元件（被遮挡的不标）
+    - 坐标基于1920×1080参考分辨率，自动按实际图片尺寸缩放
   样式: dark(白字黑底) / light(黑字白底)，引线+圆点+半透明背景矩形
   字体: 中文SimHei(黑体) / 英文Arial
 

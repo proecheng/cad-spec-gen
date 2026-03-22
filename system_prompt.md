@@ -108,11 +108,14 @@ python annotate_render.py V1_enhanced.jpg --config render_config.json --lang en
 
 # Batch all V*_enhanced.jpg in a directory
 python annotate_render.py --all --dir ./renders --config render_config.json --lang cn
-
-# Custom font size and light style
-python annotate_render.py V1_enhanced.jpg --config render_config.json --lang en --font-size 40 --style light
 ```
-Adds leader lines + text labels to rendered images via PIL (not AI). Chinese uses SimHei font, English uses Arial. Label positions defined in render_config.json `labels` section (1920×1080 reference coordinates, auto-scaled to actual image size).
+Adds leader lines + text labels to rendered images via PIL (not AI). Chinese uses SimHei font, English uses Arial.
+
+**Data architecture** in render_config.json:
+- `components` section: maps component IDs to CN/EN names + BOM IDs (sourced from design doc BOM)
+- `labels` section: per-view list of `{"component": "id", "anchor": [x,y], "label": [x,y]}`
+- Only **visible** components per view — occluded components must not be labeled
+- Coordinates at 1920×1080 reference, auto-scaled to actual image size
 
 ### 7. Utility Tools
 ```bash

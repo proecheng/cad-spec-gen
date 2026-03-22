@@ -181,7 +181,9 @@ python annotate_render.py --all --dir assets/images/mechanical \
   --config cad/end_effector/render_config.json --lang en
 ```
 
-标注数据在 `render_config.json` 的 `labels` 段定义，坐标基于1920×1080参考分辨率，自动缩放到实际图片尺寸。
+标注数据在 `render_config.json` 中分两段：
+- `components`：元件ID→中英文名+BOM编号（从设计文档§X.8 BOM提取）
+- `labels`：每视角仅列出**可见**元件的坐标（被遮挡的不标注）
 
 ### 单独渲染（已有 GLB）
 
