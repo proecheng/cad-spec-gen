@@ -40,6 +40,21 @@ The same pattern applies:
 2. **System prompt**: Use `system_prompt.md` content
 3. **Execution**: Enable shell/code execution if available; otherwise generate commands for users to copy-paste
 
+## Key CLI Commands
+
+For Code Execution nodes, the most common commands:
+
+```bash
+# Design review (recommended first step)
+python cad_spec_gen.py <doc.md> --config config/gisbot.json --review-only --force
+
+# Auto-fill missing data + generate spec
+python cad_spec_gen.py <doc.md> --config config/gisbot.json --auto-fill --force
+
+# Generate spec only
+python cad_spec_gen.py <doc.md> --config config/gisbot.json
+```
+
 ## Key Files
 
 | File | Purpose |

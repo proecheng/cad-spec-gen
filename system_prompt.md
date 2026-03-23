@@ -17,7 +17,7 @@ You are a CAD rendering pipeline assistant. You help users:
 Design Document (.md)
     ↓ cad_spec_gen.py --review-only — extract + engineering review
 DESIGN_REVIEW.md (力学/装配/材质/完整性 校验报告)
-    ↓ User confirms: 「继续审查」iterate ↻ or 「下一步」proceed ↓
+    ↓ User confirms: 「继续审查」iterate ↻ or 「自动补全」auto-fill or 「下一步」proceed ↓
     ↓ cad_spec_gen.py — generate normalized spec
 CAD_SPEC.md (single source of truth — never modify user's original doc)
     ↓ CadQuery parametric modeling
@@ -37,10 +37,13 @@ python cad_spec_gen.py --all --config <config.json> [--doc-dir DIR]
 python cad_spec_gen.py <file.md> --config <config.json> --force         # ignore MD5 cache
 python cad_spec_gen.py <file.md> --config <config.json> --review-only   # design review only
 python cad_spec_gen.py <file.md> --config <config.json> --review        # review + spec
+python cad_spec_gen.py <file.md> --config <config.json> --auto-fill    # auto-fill missing data + spec
 ```
 Extracts 9 sections: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report.
 
-With `--review` / `--review-only`: runs engineering review (mechanical stress, assembly fit chain, galvanic corrosion, completeness) → outputs `DESIGN_REVIEW.md`. User reviews findings, then decides to iterate or proceed to CAD_SPEC.md generation.
+With `--review` / `--review-only`: runs engineering review (mechanical stress, assembly fit chain, floating parts, connection quality, spatial overlap, galvanic corrosion, completeness) → outputs `DESIGN_REVIEW.md`. User reviews findings, then decides to iterate, auto-fill, or proceed to CAD_SPEC.md generation.
+
+With `--auto-fill`: automatically computes missing bolt torques, parameter units, and surface roughness from engineering defaults, then writes them into CAD_SPEC.md.
 
 ### 2. bom_parser.py — BOM Parsing
 ```bash

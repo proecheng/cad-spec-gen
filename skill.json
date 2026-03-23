@@ -40,7 +40,7 @@
     {
       "name": "cad_spec_gen",
       "description": "Extract structured CAD spec from Markdown design documents",
-      "cli": "python cad_spec_gen.py [FILES] --config CONFIG [--output-dir DIR] [--all] [--force] [--review] [--review-only]"
+      "cli": "python cad_spec_gen.py [FILES] --config CONFIG [--output-dir DIR] [--all] [--force] [--review] [--review-only] [--auto-fill]"
     },
     {
       "name": "bom_parser",

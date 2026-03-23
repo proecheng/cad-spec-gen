@@ -262,6 +262,7 @@ Options:
   --force               Force regeneration (ignore MD5 check)
   --review              Run design review before spec generation
   --review-only         Run design review only (no spec generation)
+  --auto-fill           Auto-fill computable missing values (torques, units, Ra)
 ```
 
 ### Process all subsystems at once

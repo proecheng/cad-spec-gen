@@ -18,6 +18,8 @@ shell = ShellTool()
 cad_spec_tool = Tool(
     name="cad_spec_gen",
     description="Generate structured CAD_SPEC.md from a Markdown design document. "
+                "Supports --review (engineering checks), --review-only, --auto-fill "
+                "(compute missing bolt torques, units, surface Ra). "
                 "Input: shell command starting with 'python cad_spec_gen.py ...'",
     func=lambda cmd: shell.run(cmd),
 )
