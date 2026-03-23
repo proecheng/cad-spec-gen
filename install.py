@@ -36,7 +36,8 @@ def install_claude_code(target: Path):
 
     # Copy Python tools
     for name in ["cad_spec_gen.py", "cad_spec_extractors.py",
-                  "cad_spec_defaults.py", "bom_parser.py",
+                  "cad_spec_defaults.py", "cad_spec_reviewer.py",
+                  "bom_parser.py",
                   "cad_paths.py", "cad_pipeline.py",
                   "annotate_render.py"]:
         src = REPO_ROOT / name

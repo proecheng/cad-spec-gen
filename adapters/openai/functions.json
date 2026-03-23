@@ -16,7 +16,7 @@
     },
     {
       "name": "cad_spec",
-      "description": "Generate structured CAD_SPEC.md from a Markdown design document. Extracts 9 categories: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report.",
+      "description": "Generate structured CAD_SPEC.md from a Markdown design document. Extracts 9 categories: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report. Supports design review (mechanical/assembly/material/completeness checks) before spec generation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -39,6 +39,14 @@
           "all": {
             "type": "boolean",
             "description": "Process all subsystems defined in config (default: false)"
+          },
+          "review": {
+            "type": "boolean",
+            "description": "Run design review (mechanical/assembly/material/completeness) before generating CAD_SPEC.md (default: false)"
+          },
+          "review_only": {
+            "type": "boolean",
+            "description": "Only generate DESIGN_REVIEW.md, skip CAD_SPEC.md (default: false)"
           }
         },
         "required": ["config"]
