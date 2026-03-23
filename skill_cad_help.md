@@ -62,12 +62,16 @@
 3. ezdxf: python -c "import ezdxf; print(ezdxf.__version__)"
 4. matplotlib: python -c "import matplotlib; print(matplotlib.__version__)"
 5. Blender: 搜索 tools/blender/blender.exe → --version (需 4.x LTS)
-6. Gemini AI增强 (按优先级逐项检查，任一通过即✅):
+6. GPU渲染: 在Blender中检测GPU (OptiX/CUDA/HIP/OneAPI)
+   - 有GPU → 自动使用GPU (render_3d.py/render_exploded.py自动检测)
+   - 无GPU → 回落CPU（可用但较慢）
+   - 可通过 --gpu / --cpu 强制指定
+7. Gemini AI增强 (按优先级逐项检查，任一通过即✅):
    a. 读取 ~/.config/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
    b. 检查环境变量 GEMINI_API_KEY / GOOGLE_API_KEY
    c. 检查 gemini_gen.py 是否存在: gemini_gen.py 或 $GEMINI_GEN_PATH
    d. 运行 tools/hybrid_render/check_env.py (如存在)
-7. 字体: 检查 FangSong (仿宋) 字体是否可用
+8. 字体: 检查 FangSong (仿宋) 字体是否可用
 ```
 
 输出格式（用实际搜索到的值填充）：
@@ -78,6 +82,8 @@
   ✅ ezdxf 1.4.3
   ✅ matplotlib 3.10.8
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
+  ⚠️ GPU渲染: 无GPU检测到 — 使用CPU (较慢)
+     提示: 如有NVIDIA GPU环境可自动加速5-20倍 (OptiX/CUDA)
   ✅ Gemini AI: ~/.config/gemini_image_config.json
      API: https://generativelanguage.googleapis.com/v1beta
      模型: gemini-2.0-flash-preview-image-generation
