@@ -255,9 +255,8 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 
 | Category | Presets |
 |----------|---------|
-| Metal | `brushed_aluminum` `polished_steel` `black_anodized` `cast_iron` `brass` `copper` `titanium` `raw_steel` |
-| Plastic | `peek_natural` `nylon_white` `abs_dark_gray` |
-| Other | `rubber_black` `glass_clear` `ceramic_white` `carbon_fiber` |
+| Metal | `brushed_aluminum` `stainless_304` `black_anodized` `dark_steel` `bronze` `copper` `gunmetal` `anodized_blue` `anodized_green` `anodized_purple` `anodized_red` |
+| Plastic | `peek_amber` `white_nylon` `black_rubber` `polycarbonate_clear` |
 
 ## Documentation
 

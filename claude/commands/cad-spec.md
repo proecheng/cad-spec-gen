@@ -20,12 +20,12 @@
 
 2. **`--all`** → 处理全部子系统：
    ```bash
-   python D:/cad-skill/tools/cad_spec_gen.py --all
+   python cad_spec_gen.py --all --config config/gisbot.json
    ```
 
 3. **文件路径** → 处理单个文档：
    ```bash
-   python D:/cad-skill/tools/cad_spec_gen.py "$ARGUMENTS"
+   python cad_spec_gen.py $ARGUMENTS --config config/gisbot.json
    ```
 
 4. 生成后读取输出的 CAD_SPEC.md 并汇总：

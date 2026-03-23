@@ -4,7 +4,7 @@
 
 ## 指令
 
-读取技能文档 `D:\cad-skill\claude\memory\skill_cad_help.md`，然后根据用户输入执行：
+读取技能文档 `skill_cad_help.md`（项目根目录），然后根据用户输入执行：
 
 ### 路由规则
 

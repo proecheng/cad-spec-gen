@@ -4,14 +4,14 @@
 
 ## 指令
 
-读取完整技能文档 `D:\cad-skill\claude\memory\skill_mech_design.md`，然后根据用户输入执行：
+读取完整技能文档 `skill_mech_design.md`（项目根目录），然后根据用户输入执行：
 
 ### 子命令路由
 
 1. **无参数**（`$ARGUMENTS` 为空）→ 显示流程概览：
    - 列出 6 个阶段简述
    - 列出可用子系统（从 `docs/design/` 扫描章节文件）
-   - 显示参考实现 `D:\cad-skill\cad\end_effector\` 的产物统计
+   - 显示参考实现 `cad/end_effector/` 的产物统计
 
 2. **`status`** → 检查各子系统 CAD 建模进度：
    - 扫描 `cad/*/build_all.py` 找已实现的子系统
@@ -37,7 +37,7 @@
      5. 渲染预览 → DXF→PNG（复用 `render_dxf.py`）
      6. 一键构建 → `build_all.py`
    - 每阶段完成后执行检查点验证
-   - 可复用模块从 `D:\cad-skill\cad\end_effector\` 复制：`drawing.py`, `draw_three_view.py`, `render_dxf.py`
+   - 可复用模块从 `cad/end_effector/` 复制：`drawing.py`, `draw_three_view.py`, `render_dxf.py`
 
 ## 关键约束
 

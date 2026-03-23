@@ -104,13 +104,13 @@
 
 ```
 1. JSON语法正确性
-2. 必需字段: subsystem_id, subsystem_name, materials, cameras, explode_rules
+2. 必需字段: subsystem, materials, camera
 3. materials 中每个条目有 part_pattern + preset/custom
-4. cameras 中至少1个视角存在（视角数不限于5个，按子系统 render_config.json camera 段定义）
-5. preset名在15种预设中: brushed_aluminum, polished_steel, black_anodized, cast_iron,
-   brass, copper, titanium, peek_natural, nylon_white, abs_dark_gray,
-   rubber_black, glass_clear, ceramic_white, carbon_fiber, raw_steel
-6. explode_rules 中 axis 值合法 (radial/axial/custom)
+4. camera 中至少1个视角存在（视角数不限于5个，按子系统 render_config.json camera 段定义）
+5. preset名在15种预设中: brushed_aluminum, stainless_304, black_anodized, dark_steel,
+   bronze, copper, gunmetal, anodized_blue, anodized_green, anodized_purple, anodized_red,
+   peek_amber, white_nylon, black_rubber, polycarbonate_clear
+6. explode 中 axis 值合法 (radial/axial/custom)
 ```
 
 报告格式：`✅ 通过` 或 `❌ 第N项失败: 具体原因`
@@ -163,32 +163,30 @@ Step 3: 渲染出图
 ```
 ═══ 15种工程材质预设 ═══
 
-金属类:
-  brushed_aluminum  — 拉丝铝 (银白, metallic=1.0, roughness=0.35)
-  polished_steel    — 抛光钢 (亮银, metallic=1.0, roughness=0.15)
-  black_anodized    — 黑色阳极氧化铝 (深黑, metallic=0.9, roughness=0.25)
-  cast_iron         — 铸铁 (深灰, metallic=0.85, roughness=0.55)
-  brass             — 黄铜 (金黄, metallic=1.0, roughness=0.30)
-  copper            — 紫铜 (红铜色, metallic=1.0, roughness=0.25)
-  titanium          — 钛合金 (浅灰, metallic=1.0, roughness=0.30)
-  raw_steel         — 未处理钢 (灰, metallic=0.9, roughness=0.50)
+金属类 (11种):
+  brushed_aluminum  — 拉丝铝 (银白, metallic=1.0, roughness=0.18, anisotropic=0.6)
+  stainless_304     — 304不锈钢 (亮银, metallic=1.0, roughness=0.15)
+  black_anodized    — 黑色阳极氧化铝 (深黑, metallic=0.85, roughness=0.30)
+  dark_steel        — 深色钢 (深灰, metallic=0.90, roughness=0.28)
+  bronze            — 青铜 (铜黄, metallic=0.90, roughness=0.25)
+  copper            — 紫铜 (红铜色, metallic=1.0, roughness=0.15)
+  gunmetal          — 枪灰色 (深灰, metallic=0.90, roughness=0.25)
+  anodized_blue     — 蓝色阳极氧化 (蓝, metallic=0.85, roughness=0.22)
+  anodized_green    — 绿色阳极氧化 (绿, metallic=0.85, roughness=0.22)
+  anodized_purple   — 紫色阳极氧化 (紫, metallic=0.85, roughness=0.22)
+  anodized_red      — 红色阳极氧化 (红, metallic=0.85, roughness=0.22)
 
-工程塑料:
-  peek_natural      — PEEK本色 (米黄, metallic=0, roughness=0.40)
-  nylon_white       — 尼龙白 (白, metallic=0, roughness=0.45)
-  abs_dark_gray     — ABS深灰 (深灰, metallic=0, roughness=0.50)
-
-其他:
-  rubber_black      — 橡胶黑 (黑, metallic=0, roughness=0.85)
-  glass_clear       — 透明玻璃 (transmission=0.9)
-  ceramic_white     — 陶瓷白 (白, metallic=0, roughness=0.20)
-  carbon_fiber      — 碳纤维 (深黑, metallic=0.3, roughness=0.35)
+工程塑料/橡胶 (4种):
+  peek_amber        — PEEK琥珀色 (米黄, metallic=0, roughness=0.30, sss=0.08)
+  white_nylon       — 尼龙白 (白, metallic=0, roughness=0.45)
+  black_rubber      — 橡胶黑 (黑, metallic=0, roughness=0.75)
+  polycarbonate_clear — 透明聚碳酸酯 (透明, metallic=0, roughness=0.05, ior=1.58)
 
 自定义示例 (render_config.json):
-  "materials": [
-    {"part_pattern": "flange*", "preset": "brushed_aluminum"},
-    {"part_pattern": "sensor*", "custom": {"color": [0.2, 0.3, 0.8, 1.0], "metallic": 0.5, "roughness": 0.3}}
-  ]
+  "materials": {
+    "flange*": {"preset": "brushed_aluminum"},
+    "sensor*": {"color": [0.2, 0.3, 0.8, 1.0], "metallic": 0.5, "roughness": 0.3}
+  }
 ```
 
 ### 6. camera — 相机配置说明
@@ -216,9 +214,9 @@ Step 3: 渲染出图
   V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影
 
 render_config.json 示例:
-  "cameras": {
-    "V1_front_iso": {"type": "spherical", "azimuth": 35, "elevation": 25, "distance_factor": 2.5},
-    "V2_rear_oblique": {"type": "spherical", "azimuth": 215, "elevation": 20, "distance_factor": 2.8}
+  "camera": {
+    "V1": {"name": "V1_front_iso", "type": "spherical", "azimuth": 35, "elevation": 25, "distance_factor": 2.5},
+    "V2": {"name": "V2_rear_oblique", "type": "spherical", "azimuth": 215, "elevation": 20, "distance_factor": 2.8}
   }
 ```
 
@@ -541,9 +539,9 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
 
 2. **运行解析器**:
    ```bash
-   python tools/bom_parser.py docs/design/NN-*设计.md          # 树形输出
-   python tools/bom_parser.py docs/design/NN-*设计.md --json   # JSON输出
-   python tools/bom_parser.py docs/design/NN-*设计.md --summary # 仅统计
+   python bom_parser.py docs/design/NN-*设计.md          # 树形输出
+   python bom_parser.py docs/design/NN-*设计.md --json   # JSON输出
+   python bom_parser.py docs/design/NN-*设计.md --summary # 仅统计
    ```
 
 3. **展示结果**: 以树形结构输出（总成→零件层级 + 自制/外购标记 + 价格统计）
@@ -567,9 +565,9 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
 
 1. **生成 CAD_SPEC**: 对指定子系统运行提取器
    ```bash
-   python tools/cad_spec_gen.py docs/design/NN-*设计.md           # 单个子系统
-   python tools/cad_spec_gen.py docs/design/NN-*设计.md --force   # 强制重生成
-   python tools/cad_spec_gen.py --all                             # 全部18个子系统
+   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json           # 单个子系统
+   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --force   # 强制重生成
+   python cad_spec_gen.py --all --config config/gisbot.json                              # 全部18个子系统
    ```
 
 2. **查看已有 CAD_SPEC**: 读取 `cad/<subsystem>/CAD_SPEC.md`
