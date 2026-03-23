@@ -27,6 +27,13 @@
       "name": "Gemini AI Enhancement",
       "trigger": "/cad-enhance",
       "description": "Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI (geometry locked, reskin only). 3 prompt templates for standard/exploded/orthographic views."
+    },
+    {
+      "id": "mechdesign",
+      "name": "Parametric Mechanical Design",
+      "trigger": "/mechdesign",
+      "description": "End-to-end parametric mechanical subsystem workflow: params.py → CadQuery 3D → GB/T 2D drawings → Blender rendering → AI enhancement. 6 phases with sub-command routing.",
+      "knowledge_file": "skill_mech_design.md"
     }
   ],
   "tools": [

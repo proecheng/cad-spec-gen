@@ -2,7 +2,7 @@
   "functions": [
     {
       "name": "cad_help",
-      "description": "CAD rendering pipeline assistant. Answers questions about environment setup, configuration, next steps, materials, cameras, rendering, AI enhancement, troubleshooting, file structure, status, and cross-LLM integration. Supports 15 intents with natural language input.",
+      "description": "CAD rendering pipeline assistant. Answers questions about environment setup, configuration, next steps, materials, cameras, rendering, AI enhancement, troubleshooting, file structure, status, cross-LLM integration, and design review. Supports 16 intents with natural language input.",
       "parameters": {
         "type": "object",
         "properties": {
