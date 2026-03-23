@@ -9,7 +9,7 @@ Use the CAD pipeline skill with Dify, Coze, or other low-code AI platforms.
 1. Create a new Knowledge Base in Dify
 2. Upload these files:
    - `system_prompt.md` — universal system prompt
-   - `skill_cad_help.md` — full knowledge base (15 intents)
+   - `skill_cad_help.md` — full knowledge base (16 intents)
 3. Create a new Agent app, attach the Knowledge Base
 4. In the Agent's system prompt, add:
    ```
@@ -45,5 +45,5 @@ The same pattern applies:
 | File | Purpose |
 |------|---------|
 | `../../system_prompt.md` | Universal system prompt — paste into any platform |
-| `../../skill_cad_help.md` | Full knowledge base with 15 intents and actions |
+| `../../skill_cad_help.md` | Full knowledge base with 16 intents and actions |
 | `../../skill.json` | Machine-readable skill manifest |

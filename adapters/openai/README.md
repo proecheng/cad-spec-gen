@@ -37,6 +37,10 @@ def handle_function(name, args):
             cmd.extend(["--output-dir", args["output_dir"]])
         if args.get("force"):
             cmd.append("--force")
+        if args.get("review"):
+            cmd.append("--review")
+        if args.get("review_only"):
+            cmd.append("--review-only")
         return subprocess.run(cmd, capture_output=True, text=True).stdout
 
     elif name == "bom_parse":

@@ -8,16 +8,16 @@
 ## 1. 管线概览
 
 ```
-设计文档 → CadQuery 参数化3D → Blender Cycles渲染PNG → Gemini AI增强JPG
-              ↓                      ↓                       ↓
-          STEP/DXF/GLB          5视角PNG (几何精确)      照片级JPG (展示用)
+设计文档 → 设计审查(DESIGN_REVIEW.md) → CadQuery 参数化3D → Blender Cycles渲染PNG → Gemini AI增强JPG
+                ↓                            ↓                      ↓                       ↓
+         力学/装配/材质/完整性校验       STEP/DXF/GLB          5视角PNG (几何精确)      照片级JPG (展示用)
 ```
 
 **能力等级**（由 `check_env.py --json` 自动检测）：
 
 | 等级 | 能力 | 所需依赖 |
 |------|------|----------|
-| 5 FULL | CAD + 2D + 3D渲染 + AI增强 | Python + CadQuery + ezdxf + matplotlib + Blender + Gemini |
+| 5 FULL | 设计审查 + CAD + 2D + 3D渲染 + AI增强 | Python + CadQuery + ezdxf + matplotlib + Blender + Gemini |
 | 4 RENDER | CAD + 2D + 3D渲染 | Python + CadQuery + ezdxf + matplotlib + Blender |
 | 3 CAD | CAD + 2D工程图 | Python + CadQuery + ezdxf + matplotlib |
 | 2 IMPORT | 仅导入GLB查看 | Blender |

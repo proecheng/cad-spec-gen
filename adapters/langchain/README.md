@@ -57,4 +57,4 @@ user_proxy.initiate_chat(assistant, message="Generate CAD spec for the end effec
 |------|---------|
 | `tools.py` | Pre-configured LangChain tools + system message |
 | `../../system_prompt.md` | Universal system prompt (injected automatically) |
-| `../../skill_cad_help.md` | Full knowledge base (15 intents + actions) |
+| `../../skill_cad_help.md` | Full knowledge base (16 intents + actions) |

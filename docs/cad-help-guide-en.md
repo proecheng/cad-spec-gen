@@ -15,7 +15,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 
 ## Feature Overview
 
-`/cad-help` supports **15 intents** covering the entire CAD hybrid rendering pipeline lifecycle:
+`/cad-help` supports **16 intents** covering the entire CAD hybrid rendering pipeline lifecycle:
 
 | # | Intent | Trigger Examples | Description |
 |---|--------|-----------------|-------------|
@@ -33,6 +33,8 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 12 | Status | "current progress?" | Scan subsystem STEP/DXF/GLB/PNG/JPG artifact counts |
 | 13 | Integration | "how to use with other LLMs?" | Cross-framework guide for GLM, GPT, LangChain, etc. |
 | 14 | Parts/BOM | "what parts?" "BOM list" | Auto-extract part tree from design docs, with make/buy and cost stats |
+| 15 | CAD Spec | "generate spec" "extract parameters" | Run cad_spec_gen.py to produce CAD_SPEC.md |
+| 16 | Design Review | "review design" "check design" "审查" | Engineering review: mechanical/assembly/material/completeness → DESIGN_REVIEW.md |
 
 ## Pipeline Architecture
 
@@ -41,6 +43,9 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 │                  CAD Hybrid Rendering Pipeline                │
 │                                                               │
 │  Design Document (.md)                                        │
+│      ↓ cad_spec_gen.py --review (optional, recommended)       │
+│  DESIGN_REVIEW.md (mechanical/assembly/material/completeness) │
+│      ↓ User: iterate ("继续审查") or proceed ("下一步")          │
 │      ↓ Parameter extraction                                   │
 │  CadQuery Parametric Modeling → STEP + DXF + GLB              │
 │      ↓                                                        │

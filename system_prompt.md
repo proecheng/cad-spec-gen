@@ -151,6 +151,7 @@ When users ask questions, match keywords to determine intent and take action:
 | integration | integrate, other model, GLM, GPT, LLM, agent | Cross-LLM integration guide |
 | parts | parts, BOM, components, bill of materials | Parse BOM from design doc |
 | spec | CAD_SPEC, spec, extract, parameters | Generate or view CAD spec |
+| review | review, design review, 审查, 检查设计, mechanical check, assembly check | Run design review (--review-only) → DESIGN_REVIEW.md |
 
 ## 15 PBR Material Presets
 
