@@ -1,0 +1,88 @@
+{
+  "_doc": "Render config template. Copy to cad/<subsystem>/ and fill in your subsystem data.",
+  "version": 1,
+  "subsystem": {
+    "_doc": "Subsystem identification. part_prefix matches your BOM numbering (e.g. GIS-EE).",
+    "name": "<subsystem_id>",
+    "name_cn": "<中文名称>",
+    "part_prefix": "<GIS-XX>",
+    "glb_file": "<XX-000_assembly.glb>",
+    "bounding_radius_mm": 300
+  },
+  "reference_resolution": {
+    "_doc": "Coordinate reference resolution for labels. Defaults to 1920x1080 if omitted.",
+    "width": 1920,
+    "height": 1080
+  },
+  "materials": {
+    "_doc": "Map logical material names to PBR presets (15 built-in) or custom overrides. Keys are free-form IDs referenced by your Blender scripts.",
+    "body": {
+      "preset": "brushed_aluminum",
+      "label": "Main body (brushed aluminum)"
+    },
+    "insulator": {
+      "preset": "peek_natural",
+      "overrides": { "roughness": 0.45 },
+      "label": "Insulation ring (PEEK)"
+    }
+  },
+  "camera": {
+    "_doc": "Define N camera views. Keys (V1, V2, ...) are free-form; annotate_render.py matches filenames against these keys. You are not limited to V1-V5.",
+    "V1": {
+      "name": "V1_front_iso",
+      "location": [500, -500, 350],
+      "target": [0, 0, 0],
+      "description": "Front-left isometric"
+    },
+    "V2": {
+      "name": "V2_rear_oblique",
+      "location": [-400, 400, 450],
+      "target": [0, 0, 0],
+      "description": "Rear-right overhead"
+    },
+    "V3": {
+      "name": "V3_side_elevation",
+      "location": [600, 0, 0],
+      "target": [0, 0, 0],
+      "description": "Side elevation"
+    }
+  },
+  "explode": {
+    "_doc": "Explosion configuration. type: radial | axial | custom. rules map part groups to explosion directions.",
+    "type": "radial",
+    "spread_mm": 50,
+    "z_spread_mm": 40,
+    "rules": {
+      "example_group": { "angle_deg": 0.0, "radial": true }
+    }
+  },
+  "prompt_vars": {
+    "_doc": "Variables for AI enhancement prompt templates. product_name and material_descriptions are used by templates/prompt_*.txt.",
+    "product_name": "<your product name>",
+    "material_descriptions": [
+      {
+        "visual_cue": "<what it looks like in the Blender render>",
+        "material_desc": "<target photorealistic material description>"
+      }
+    ]
+  },
+  "components": {
+    "_doc": "Component name registry. Source: design doc section X.8 BOM. Used by annotate_render.py for label text.",
+    "_source": "docs/design/NN-<subsystem>设计.md §X.8 BOM",
+    "example_part": {
+      "name_cn": "<中文名称>",
+      "name_en": "<English Name>",
+      "bom_id": "<GIS-XX-NNN>"
+    }
+  },
+  "labels": {
+    "_doc": "Per-view label coordinates at reference_resolution. Only list components VISIBLE in each view (occluded = omit). Keys must match camera section keys.",
+    "V1": [
+      {
+        "component": "example_part",
+        "anchor": [960, 540],
+        "label": [100, 200]
+      }
+    ]
+  }
+}

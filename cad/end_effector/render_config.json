@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "subsystem": {
+    "name": "end_effector",
+    "name_cn": "末端执行机构",
+    "part_prefix": "GIS-EE",
+    "glb_file": "EE-000_assembly.glb",
+    "bounding_radius_mm": 300
+  },
+  "materials": {
+    "fastener": {
+      "preset": "stainless_304",
+      "overrides": { "roughness": 0.25 },
+      "label": "Bolts and fasteners"
+    },
+    "lemo": {
+      "preset": "stainless_304",
+      "label": "LEMO connectors"
+    },
+    "flange_al": {
+      "preset": "black_anodized",
+      "label": "Black anodized flange body"
+    },
+    "adapter": {
+      "preset": "brushed_aluminum",
+      "overrides": { "roughness": 0.20, "anisotropic": 0.5 },
+      "label": "Brushed Al adapter plate"
+    },
+    "peek": {
+      "preset": "peek_amber",
+      "label": "PEEK amber insulation ring"
+    },
+    "applicator_tank": {
+      "preset": "brushed_aluminum",
+      "label": "S1 Applicator tank (brushed aluminum)"
+    },
+    "applicator_pump": {
+      "preset": "brushed_aluminum",
+      "label": "S1 Applicator gear pump (brushed aluminum)"
+    },
+    "applicator_scraper": {
+      "preset": "black_rubber",
+      "label": "S1 Applicator scraper (rubber)"
+    },
+    "applicator": {
+      "preset": "black_anodized",
+      "label": "S1 Applicator housing (black anodized)"
+    },
+    "station2_ae": {
+      "preset": "black_anodized",
+      "label": "S2 AE Sensor (black anodized)"
+    },
+    "cleaner_tank": {
+      "preset": "brushed_aluminum",
+      "label": "S3 Cleaner solvent tank (brushed aluminum)"
+    },
+    "cleaner": {
+      "preset": "black_anodized",
+      "label": "S3 Cleaner housing (black anodized)"
+    },
+    "uhf_sensor": {
+      "preset": "brushed_aluminum",
+      "label": "S4 UHF sensor cylinder (brushed aluminum)"
+    },
+    "uhf_bracket": {
+      "preset": "black_anodized",
+      "label": "S4 UHF bracket (black anodized)"
+    },
+    "uhf": {
+      "preset": "black_anodized",
+      "label": "S4 UHF fallback (black anodized)"
+    },
+    "reducer": {
+      "preset": "brushed_aluminum",
+      "label": "Reducer (brushed aluminum)"
+    },
+    "drive": {
+      "preset": "brushed_aluminum",
+      "label": "Drive assembly (brushed aluminum)"
+    },
+    "motor": {
+      "preset": "brushed_aluminum",
+      "label": "Motor housing (brushed aluminum)"
+    },
+    "rubber": {
+      "preset": "black_rubber",
+      "label": "Rubber parts"
+    },
+    "gimbal": {
+      "preset": "black_rubber",
+      "overrides": { "roughness": 0.70 },
+      "label": "Gimbal rubber"
+    }
+  },
+  "camera": {
+    "V1": {
+      "name": "V1_front_iso",
+      "location": [450, -450, 500],
+      "target": [0, 0, 0],
+      "description": "Top-front isometric — full flange visible, 4 stations clear"
+    },
+    "V2": {
+      "name": "V2_rear_oblique",
+      "location": [-400, 400, 500],
+      "target": [0, 0, 0],
+      "description": "Top-rear overhead — back face view"
+    },
+    "V3": {
+      "name": "V3_side_elevation",
+      "location": [600, 0, 200],
+      "target": [0, 0, 0],
+      "description": "Side elevation — stacking structure"
+    },
+    "V4": {
+      "name": "V4_exploded",
+      "location": [450, -450, 550],
+      "target": [0, 0, 0],
+      "description": "Exploded view — overhead (use render_exploded.py)"
+    },
+    "V5": {
+      "name": "V5_ortho_front",
+      "location": [0, -700, 100],
+      "target": [0, 0, 100],
+      "ortho": true,
+      "ortho_scale": 500,
+      "description": "Front orthographic projection"
+    }
+  },
+  "explode": {
+    "type": "radial",
+    "spread_mm": 70,
+    "z_spread_mm": 50,
+    "station_angles_deg": [0.0, 90.0, 180.0, 270.0],
+    "mount_radius_mm": 65.0,
+    "rules": {
+      "station1":    { "angle_deg": 0.0,   "radial": true },
+      "station2":    { "angle_deg": 90.0,  "radial": true },
+      "station3":    { "angle_deg": 180.0, "radial": true },
+      "station4":    { "angle_deg": 270.0, "radial": true },
+      "applicator":  { "angle_deg": 0.0,   "radial": true },
+      "ae":          { "angle_deg": 90.0,  "radial": true },
+      "cleaner":     { "angle_deg": 180.0, "radial": true },
+      "uhf":         { "angle_deg": 270.0, "radial": true },
+      "drive":       { "z_offset": -1 },
+      "motor":       { "z_offset": -1 },
+      "peek":        { "z_offset": 1 }
+    }
+  },
+  "prompt_vars": {
+    "product_name": "precision robotic end effector",
+    "material_descriptions": [
+      {
+        "visual_cue": "Cross-shaped flange disc",
+        "material_desc": "black hard-anodized aluminum 7075-T6, fine machining marks, dark matte finish"
+      },
+      {
+        "visual_cue": "Golden/amber ring on flange",
+        "material_desc": "PEEK engineering plastic, warm honey-amber translucent, subsurface glow"
+      },
+      {
+        "visual_cue": "Four station modules mounted on flange arms",
+        "material_desc": "black hard-anodized aluminum housing, uniform dark finish across all stations"
+      },
+      {
+        "visual_cue": "Cylindrical tanks/reservoirs on stations",
+        "material_desc": "bright brushed stainless steel, metallic sheen, fine linear grain"
+      },
+      {
+        "visual_cue": "Bottom assembly (motor/gearbox)",
+        "material_desc": "brushed aluminum housing, bright silver finish, precision machined"
+      }
+    ]
+  },
+  "components": {
+    "_source": "docs/design/04-末端执行机构设计.md §4.8 BOM",
+    "flange":      {"name_cn": "法兰总成",            "name_en": "Flange Assembly",         "bom_id": "GIS-EE-001"},
+    "peek":        {"name_cn": "PEEK绝缘段",          "name_en": "PEEK Insulation Ring",    "bom_id": "GIS-EE-001-02"},
+    "applicator":  {"name_cn": "工位1涂抹模块",       "name_en": "S1 Applicator Module",    "bom_id": "GIS-EE-002"},
+    "ae_sensor":   {"name_cn": "工位2 AE检测模块",    "name_en": "S2 AE Sensor Module",     "bom_id": "GIS-EE-003"},
+    "cleaner":     {"name_cn": "工位3卷带清洁模块",   "name_en": "S3 Tape Cleaner Module",  "bom_id": "GIS-EE-004"},
+    "uhf":         {"name_cn": "工位4 UHF模块",       "name_en": "S4 UHF Module",           "bom_id": "GIS-EE-005"},
+    "sig_cond":    {"name_cn": "信号调理模块",         "name_en": "Signal Conditioning",     "bom_id": "GIS-EE-006"}
+  },
+  "labels": {
+    "_doc": "Only visible components per view. Coords at 1920x1080 ref, auto-scaled.",
+    "V1": [
+      {"component": "applicator", "anchor": [615, 365],  "label": [1700, 150]},
+      {"component": "cleaner",    "anchor": [394, 250],  "label": [80, 140]},
+      {"component": "uhf",        "anchor": [442, 518],  "label": [60, 650]},
+      {"component": "peek",       "anchor": [658, 374],  "label": [80, 420]},
+      {"component": "flange",     "anchor": [605, 427],  "label": [80, 560]}
+    ],
+    "V2": [
+      {"component": "ae_sensor",  "anchor": [413, 384],  "label": [60, 230]},
+      {"component": "applicator", "anchor": [422, 269],  "label": [60, 120]},
+      {"component": "cleaner",    "anchor": [1037, 250], "label": [1700, 140]},
+      {"component": "peek",       "anchor": [653, 384],  "label": [1700, 380]},
+      {"component": "flange",     "anchor": [614, 432],  "label": [1700, 520]}
+    ],
+    "V3": [
+      {"component": "flange",     "anchor": [624, 326],  "label": [60, 200]},
+      {"component": "uhf",        "anchor": [298, 369],  "label": [60, 300]},
+      {"component": "peek",       "anchor": [614, 355],  "label": [60, 450]},
+      {"component": "ae_sensor",  "anchor": [1277, 350], "label": [1800, 280]},
+      {"component": "sig_cond",   "anchor": [614, 624],  "label": [1800, 650]}
+    ],
+    "V4": [
+      {"component": "cleaner",    "anchor": [365, 211],  "label": [80, 120]},
+      {"component": "uhf",        "anchor": [413, 470],  "label": [80, 540]},
+      {"component": "peek",       "anchor": [672, 326],  "label": [650, 210]},
+      {"component": "ae_sensor",  "anchor": [854, 298],  "label": [1200, 180]},
+      {"component": "applicator", "anchor": [1325, 355], "label": [1750, 130]},
+      {"component": "flange",     "anchor": [634, 422],  "label": [80, 400]},
+      {"component": "sig_cond",   "anchor": [480, 653],  "label": [80, 750]}
+    ],
+    "V5": [
+      {"component": "flange",     "anchor": [614, 355],  "label": [1680, 280]},
+      {"component": "peek",       "anchor": [614, 394],  "label": [1680, 420]},
+      {"component": "sig_cond",   "anchor": [614, 720],  "label": [1680, 720]}
+    ]
+  }
+}

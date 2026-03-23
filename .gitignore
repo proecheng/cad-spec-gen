@@ -6,3 +6,5 @@ output/
 *.egg-info/
 dist/
 build/
+tools/blender/
+.pytest_cache/
