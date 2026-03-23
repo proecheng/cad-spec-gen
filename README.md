@@ -16,8 +16,20 @@ A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude C
 
 All tools are **plain Python CLI scripts** — no framework lock-in, no vendor dependency.
 
+### Updating an Existing Installation
+
+```bash
+# Check if an update is available (no changes made)
+python install.py -p claude-code -t your-project/ --check
+
+# Update (preserves user-modified config/gisbot.json)
+python install.py -p claude-code -t your-project/ --update
+```
+
 ```
 Design Document (.md)
+    ↓ cad_spec_gen.py --review — mechanical / assembly / material / completeness checks
+DESIGN_REVIEW.md (issues & recommendations, user iterates or proceeds)
     ↓ cad_spec_gen.py — extract 9 categories of structured data
 CAD_SPEC.md (single source of truth for all downstream CAD work)
     ↓ CadQuery parametric modeling
@@ -35,6 +47,7 @@ Labeled JPG — with leader lines and component names
 | Pain Point | How We Solve It |
 |------------|----------------|
 | Design docs have scattered parameters, tolerances, BOM across 600+ lines | **One command** extracts all 9 data categories into a single structured spec |
+| Design docs may have engineering errors (stress, fit, material) | **Design review** checks mechanics, assembly, materials, completeness before CAD |
 | Pure text-to-image AI gets ~42% geometry accuracy | **Hybrid pipeline**: Blender renders exact geometry first, AI only "reskins" the surface |
 | "What should I do next?" is hard to answer in a complex pipeline | **Natural-language assistant** scans your project artifacts and recommends the next action |
 | Cross-view consistency is poor with AI-generated images | **Blender-first** approach locks geometry across all views; AI inherits consistency |
@@ -54,10 +67,11 @@ Labeled JPG — with leader lines and component names
 │  Universal Skill Layer                                    │
 │  ├── skill.json         → machine-readable skill manifest │
 │  ├── system_prompt.md   → paste into any LLM              │
-│  └── skill_cad_help.md  → 15-intent knowledge base        │
+│  └── skill_cad_help.md  → 16-intent knowledge base        │
 ├──────────────────────────────────────────────────────────┤
 │  Tool Layer  (pure Python CLI, no LLM dependency)         │
 │  ├── cad_spec_gen.py    → spec extraction                 │
+│  ├── cad_spec_reviewer.py → design review (4 categories)  │
 │  ├── bom_parser.py      → BOM parsing                     │
 │  └── config/templates/  → subsystem configs               │
 └──────────────────────────────────────────────────────────┘
@@ -69,23 +83,28 @@ Labeled JPG — with leader lines and component names
 ┌────────────────────────────────────────────────────────────────┐
 │                   CAD Hybrid Rendering Pipeline                 │
 │                                                                 │
-│  1. SPEC EXTRACTION (this repo)                                 │
+│  1. DESIGN REVIEW (optional, recommended)                         │
+│     Design doc (.md) → cad_spec_gen.py --review                   │
+│     → DESIGN_REVIEW.md (mechanical / assembly / material / gaps)  │
+│     User reviews: iterate ("继续审查") or proceed ("下一步")         │
+│                                                                 │
+│  2. SPEC EXTRACTION (this repo)                                   │
 │     Design doc (.md) → cad_spec_gen.py → CAD_SPEC.md            │
 │     9 sections: params, tolerances, fasteners, connections,     │
 │     BOM tree, assembly pose, visual IDs, render plan, gaps      │
 │                                                                 │
-│  2. PARAMETRIC MODELING                                         │
+│  3. PARAMETRIC MODELING                                         │
 │     CAD_SPEC.md → CadQuery scripts → STEP + GLB + DXF          │
 │     - 3D: assemblies with precise mate constraints              │
 │     - 2D: GB/T A3 drawings, 3-view + section views              │
 │                                                                 │
-│  3. 3D RENDERING (Blender Cycles CPU)                           │
+│  4. 3D RENDERING (Blender Cycles CPU)                           │
 │     GLB → N-view PNG (geometry 100% accurate, default 5 views)  │
 │     15 PBR material presets · spherical camera system            │
 │     Default views: front-iso / rear / side / exploded / ortho   │
 │     Views are config-driven: render_config.json camera section   │
 │                                                                 │
-│  4. AI ENHANCEMENT (optional)                                   │
+│  5. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
 │                                                                 │
@@ -98,14 +117,16 @@ Labeled JPG — with leader lines and component names
 
 ### Spec Extraction (`cad_spec_gen.py`)
 - **9-section structured output**: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report
+- **Design review mode** (`--review`): mechanical stress checks, assembly fit verification, material compatibility, completeness gaps → `DESIGN_REVIEW.md`
+- **User-driven iteration**: review → fix → re-review ("继续审查") or proceed to spec ("下一步")
 - **Idempotent**: MD5-based skip — won't regenerate if source unchanged
 - **Auto-defaults**: standard bolt torques (8.8 grade), surface Ra by material type
 - **Derived calculations**: total cost, part count, BOM completeness %
 - **Configurable**: subsystem mapping via JSON config, no hardcoded paths
 
-### Interactive Help (15 Intents)
+### Interactive Help (16 Intents)
 - **Natural language** — no need to memorize CLI syntax, just ask in plain language
-- **15 intents**: environment check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, parts/BOM, CAD spec
+- **16 intents**: environment check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, parts/BOM, CAD spec, design review
 - **Smart "what's next?"** — scans project artifacts (STEP/DXF/GLB/PNG/JPG) and recommends the highest-priority next action
 
 ### 2D Engineering Drawings
@@ -135,10 +156,19 @@ Labeled JPG — with leader lines and component names
 git clone https://github.com/proecheng/cad-spec-gen.git
 cd cad-spec-gen
 
+# Design review first (recommended)
+python cad_spec_gen.py examples/04-末端执行机构设计.md \
+    --config config/gisbot.json --review-only
+# → output/end_effector/DESIGN_REVIEW.md
+
 # Generate CAD spec from a design document
 python cad_spec_gen.py examples/04-末端执行机构设计.md \
     --config config/gisbot.json \
     --output-dir ./output
+
+# Or do both in one pass
+python cad_spec_gen.py examples/04-末端执行机构设计.md \
+    --config config/gisbot.json --review
 
 # Check output
 cat output/end_effector/CAD_SPEC.md
@@ -216,6 +246,8 @@ Options:
   --doc-dir DIR         Design docs directory for --all
   --all                 Process all NN-*.md in doc-dir
   --force               Force regeneration (ignore MD5 check)
+  --review              Run design review before spec generation
+  --review-only         Run design review only (no spec generation)
 ```
 
 ### Process all subsystems at once
@@ -264,8 +296,8 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 |----------|----------|-------------|
 | [System Prompt](system_prompt.md) | EN | Universal system prompt — paste into any LLM |
 | [Skill Manifest](skill.json) | — | Machine-readable skill definition |
-| [User Guide (English)](docs/cad-help-guide-en.md) | EN | Full feature walkthrough, 15 intents, workflows |
-| [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、15种意图、典型工作流 |
+| [User Guide (English)](docs/cad-help-guide-en.md) | EN | Full feature walkthrough, 16 intents, workflows |
+| [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、16种意图、典型工作流 |
 | [Agent Integration Guide](docs/cad_pipeline_agent_guide.md) | 中文 | LLM/Agent framework integration (GPT, GLM, LangChain, etc.) |
 | [CAD Spec Template](templates/cad_spec_template.md) | — | Output format reference with all 9 sections |
 | [AI Prompt Templates](templates/) | EN | 3 prompt templates for Gemini AI enhancement (standard/exploded/ortho) |
@@ -273,13 +305,14 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest
+├── skill.json                      # Machine-readable skill manifest (v1.1.0)
 ├── system_prompt.md                # Universal system prompt (any LLM)
-├── skill_cad_help.md               # Skill knowledge (15 intents + actions)
-├── install.py                      # Cross-platform installer
+├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
+├── install.py                      # Cross-platform installer (with --update/--check)
 ├── cad_spec_gen.py                 # Main generator (CLI entry point)
 ├── cad_spec_extractors.py          # 8 extraction functions + table parser
-├── cad_spec_defaults.py            # Standard defaults & completeness rules
+├── cad_spec_defaults.py            # Standard defaults, engineering constants & completeness rules
+├── cad_spec_reviewer.py            # Design review engine (mechanical/assembly/material/completeness)
 ├── bom_parser.py                   # BOM table parser (also standalone CLI)
 ├── annotate_render.py              # PIL-based component label annotation (CN/EN)
 ├── adapters/
@@ -287,6 +320,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   │   ├── commands/cad-help.md    # Claude Code slash command
 │   │   ├── commands/cad-spec.md    # Claude Code slash command
 │   │   ├── commands/cad-enhance.md # Claude Code slash command (AI enhance)
+│   │   ├── commands/mechdesign.md  # Claude Code slash command (parametric design)
 │   │   └── install.sh             # One-click Claude Code installer
 │   ├── openai/
 │   │   ├── functions.json         # OpenAI Function Calling schema
@@ -300,6 +334,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   └── gisbot.json                # Example: 18-subsystem config
 ├── templates/
 │   ├── cad_spec_template.md       # Output template reference
+│   ├── design_review_template.md  # Design review output template
 │   ├── prompt_enhance.txt         # AI prompt: standard views (V1-V3)
 │   ├── prompt_exploded.txt        # AI prompt: exploded view (V4)
 │   └── prompt_ortho.txt           # AI prompt: orthographic view (V5)
