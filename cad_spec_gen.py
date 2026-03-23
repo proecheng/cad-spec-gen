@@ -271,8 +271,14 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
 
 # ─── Main processing ─────────────────────────────────────────────────────
 
-def process_doc(filepath: str, output_dir: str, force: bool = False) -> dict:
-    """Process a single design document and generate CAD_SPEC.md."""
+def process_doc(filepath: str, output_dir: str, force: bool = False,
+                review: bool = False, review_only: bool = False) -> dict:
+    """Process a single design document and generate CAD_SPEC.md.
+
+    Args:
+        review: If True, also generate DESIGN_REVIEW.md before CAD_SPEC.
+        review_only: If True, only generate DESIGN_REVIEW.md (skip CAD_SPEC).
+    """
     path = Path(filepath).resolve()
     if not path.exists():
         raise FileNotFoundError(f"Design document not found: {filepath}")
@@ -365,16 +371,9 @@ def process_doc(filepath: str, output_dir: str, force: bool = False) -> dict:
     info_count = sum(1 for i in issues if i["severity"] == "INFO")
     print(f"  §9 Missing: {critical} CRITICAL / {warning} WARNING / {info_count} INFO")
 
-    # Render markdown
-    md_content = render_spec(chapter, str(path), md5, data)
-
-    # Write output
     cad_dir.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(md_content, encoding="utf-8")
-    print(f"  → {output_path}")
-
-    return {
-        "output_path": str(output_path),
+    result = {
+        "output_path": str(cad_dir / "CAD_SPEC.md"),
         "skipped": False,
         "params": len(params),
         "fasteners": len(fasteners),
@@ -385,6 +384,33 @@ def process_doc(filepath: str, output_dir: str, force: bool = False) -> dict:
         "issues_warning": warning,
         "issues_info": info_count,
     }
+
+    # ── Design Review phase ──
+    if review or review_only:
+        from cad_spec_reviewer import run_review, render_review
+        print(f"\n[Design Review] Running engineering review...")
+        review_data = run_review(data)
+        review_md = render_review(review_data, info, str(path), md5)
+        review_path = cad_dir / "DESIGN_REVIEW.md"
+        review_path.write_text(review_md, encoding="utf-8")
+        rs = review_data["summary"]
+        print(f"  Review: {rs['critical']}C / {rs['warning']}W / {rs['info']}I / {rs['ok']} OK")
+        print(f"  → {review_path}")
+        result["review_path"] = str(review_path)
+        result["review_critical"] = rs["critical"]
+        result["review_warning"] = rs["warning"]
+
+    if review_only:
+        result["output_path"] = str(cad_dir / "DESIGN_REVIEW.md")
+        return result
+
+    # ── Render CAD_SPEC.md ──
+    md_content = render_spec(chapter, str(path), md5, data)
+    output_path = cad_dir / "CAD_SPEC.md"
+    output_path.write_text(md_content, encoding="utf-8")
+    print(f"  → {output_path}")
+
+    return result
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────
@@ -404,6 +430,10 @@ def main():
                         help="Process all subsystems found in doc-dir")
     parser.add_argument("--force", action="store_true",
                         help="Force regeneration (ignore MD5 idempotency check)")
+    parser.add_argument("--review", action="store_true",
+                        help="Run design review before generating CAD_SPEC.md")
+    parser.add_argument("--review-only", action="store_true",
+                        help="Only generate DESIGN_REVIEW.md (skip CAD_SPEC.md)")
     args = parser.parse_args()
 
     # Load config
@@ -442,7 +472,8 @@ def main():
     results = []
     for f in files:
         try:
-            result = process_doc(str(f), output_dir, force=args.force)
+            result = process_doc(str(f), output_dir, force=args.force,
+                                review=args.review, review_only=args.review_only)
             results.append(result)
         except Exception as e:
             print(f"[ERROR] {f.name}: {e}", file=sys.stderr)

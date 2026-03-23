@@ -107,9 +107,9 @@
     },
     "V3": {
       "name": "V3_side_elevation",
-      "location": [600, 0, 200],
-      "target": [0, 0, 0],
-      "description": "Side elevation — stacking structure"
+      "location": [500, 200, 250],
+      "target": [0, 0, 50],
+      "description": "Side-oblique view — shows arm-to-station connections"
     },
     "V4": {
       "name": "V4_exploded",

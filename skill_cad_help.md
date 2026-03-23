@@ -44,6 +44,7 @@
 | integration | 集成, 接入, 其他模型, GLM, GPT, LLM, agent, 调用, 通用, 怎么接, 框架 | → 集成其他LLM/Agent |
 | parts | 零件, 部件, 模块, BOM, 清单, 有哪些零件, 零件树, 结构, 物料, 分解 | → 解析设计文档BOM |
 | spec | CAD_SPEC, spec, 规范, 提取数据, 生成spec, 参数提取, cad_spec | → CAD Spec生成/查看 |
+| review | 审查, 审查设计, review, 检查设计, 力学, 装配检查, 设计审查 | → 设计审查 |
 
 ---
 
@@ -577,7 +578,34 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
    - WARNING → 列出默认值，确认可否接受
    - INFO → 可选优化项
 
-4. **模板**: `docs/templates/cad_spec_template.md`（空白模板带填写说明）
+4. **模板**: `templates/cad_spec_template.md`（空白模板带填写说明）
+
+### 16. review — 设计审查
+
+**触发**: 用户要求审查设计、检查力学/装配/材质、design review。
+
+**执行步骤**:
+
+1. **运行审查**: 对设计文档提取数据后执行工程校验
+   ```bash
+   # 仅审查（推荐首次使用）
+   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --review-only --force
+
+   # 审查 + 生成 CAD_SPEC
+   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --review --force
+   ```
+
+2. **展示审查结果**: 读取 `cad/<subsystem>/DESIGN_REVIEW.md`，向用户汇总：
+   - A. 力学审查（悬臂弯矩、螺栓剪切、弹簧力）
+   - B. 装配审查（尺寸链、包络干涉、安装面校核）
+   - C. 材质审查（电偶腐蚀、温度裕度、强度余量）
+   - D. 缺失数据（CRITICAL/WARNING/INFO + 可否自动填充）
+
+3. **用户选择**:
+   - **「继续审查」** → 逐项讨论 WARNING/CRITICAL，用户可调整参数
+   - **「下一步」** → 接受当前结果，生成 CAD_SPEC.md
+
+4. **重要原则**: 不直接修改用户设计文档，所有变更仅反映在 CAD_SPEC.md 中
 
 ---
 

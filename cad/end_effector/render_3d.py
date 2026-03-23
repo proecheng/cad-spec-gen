@@ -543,7 +543,7 @@ def setup_render(samples, width, height, force_gpu=None, force_cpu=False):
                 continue
 
         if device_type == "NONE" and force_gpu:
-        log.warning("  --gpu requested but no GPU found, falling back to CPU")
+            log.warning("  --gpu requested but no GPU found, falling back to CPU")
 
     prefs.compute_device_type = device_type
     if device_type != "NONE":
