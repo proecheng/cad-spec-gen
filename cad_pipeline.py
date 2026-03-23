@@ -36,39 +36,16 @@ import subprocess
 import sys
 import time
 
+from cad_paths import (
+    SKILL_ROOT, get_blender_path, get_subsystem_dir, get_output_dir,
+    get_gemini_script,
+)
+
 log = logging.getLogger("cad_pipeline")
 
-SKILL_ROOT = os.path.dirname(os.path.abspath(__file__))
 CAD_DIR = os.path.join(SKILL_ROOT, "cad")
 TOOLS_DIR = os.path.join(SKILL_ROOT, "tools")
-DEFAULT_OUTPUT = os.environ.get("CAD_OUTPUT_DIR",
-                                os.path.join(CAD_DIR, "output"))
-
-
-def _find_blender():
-    """Locate Blender executable."""
-    candidates = [
-        os.environ.get("BLENDER_PATH", ""),
-        os.path.join(TOOLS_DIR, "blender", "blender.exe"),
-        "D:/cad-skill/tools/blender/blender.exe",
-    ]
-    for c in candidates:
-        c = os.path.normpath(c) if c else ""
-        if c and os.path.isfile(c):
-            return c
-    return None
-
-
-def _find_subsystem(name):
-    """Resolve subsystem name to its directory."""
-    d = os.path.join(CAD_DIR, name)
-    if os.path.isdir(d):
-        return d
-    # Fuzzy match
-    for entry in os.listdir(CAD_DIR):
-        if name.lower() in entry.lower() and os.path.isdir(os.path.join(CAD_DIR, entry)):
-            return os.path.join(CAD_DIR, entry)
-    return None
+DEFAULT_OUTPUT = get_output_dir()
 
 
 def _run_subprocess(cmd, label, dry_run=False, timeout=600):
@@ -106,7 +83,7 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
 
 def cmd_build(args):
     """Build STEP + DXF for a subsystem."""
-    sub_dir = _find_subsystem(args.subsystem)
+    sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
         log.error("Subsystem '%s' not found in %s", args.subsystem, CAD_DIR)
         return 1
@@ -125,18 +102,18 @@ def cmd_build(args):
         cmd.append("--verbose")
 
     ok, elapsed = _run_subprocess(cmd, f"build_all.py ({args.subsystem})",
-                                  timeout=1200)
+                                  dry_run=args.dry_run, timeout=1200)
     return 0 if ok else 1
 
 
 def cmd_render(args):
     """Run Blender rendering for a subsystem."""
-    blender = _find_blender()
+    blender = get_blender_path()
     if not blender:
         log.error("Blender not found. Set BLENDER_PATH env var.")
         return 1
 
-    sub_dir = _find_subsystem(args.subsystem)
+    sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
         log.error("Subsystem '%s' not found", args.subsystem)
         return 1
@@ -181,8 +158,8 @@ def cmd_render(args):
 
 def cmd_enhance(args):
     """Run Gemini AI enhancement on rendered PNGs."""
-    gemini_script = os.environ.get("GEMINI_GEN_PATH", "D:/imageProduce/gemini_gen.py")
-    if not os.path.isfile(gemini_script):
+    gemini_script = get_gemini_script()
+    if not gemini_script:
         log.error("gemini_gen.py not found at %s", gemini_script)
         log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
         return 1
@@ -224,12 +201,12 @@ def cmd_enhance(args):
 
 def cmd_annotate(args):
     """Add component labels to enhanced images."""
-    annotate_script = os.path.join(TOOLS_DIR, "annotate_render.py")
+    annotate_script = os.path.join(SKILL_ROOT, "annotate_render.py")
     if not os.path.isfile(annotate_script):
         log.error("annotate_render.py not found at %s", annotate_script)
         return 1
 
-    sub_dir = _find_subsystem(args.subsystem)
+    sub_dir = get_subsystem_dir(args.subsystem)
     config_path = args.config
     if not config_path and sub_dir:
         config_path = os.path.join(sub_dir, "render_config.json")
@@ -309,7 +286,7 @@ def cmd_status(args):
         if pngs:
             status = "rendered"
 
-        icon = {"spec-only": "  ", "buildable": "  ", "built": "  ", "rendered": "  "}
+        icon = {"spec-only": "[ ]", "buildable": "[B]", "built": "[*]", "rendered": "[R]"}
         log.info("  %s %-25s [%s] build=%s config=%s STEP=%d DXF=%d PNG=%d",
                  icon.get(status, "?"), entry, status,
                  "Y" if has_build else "-",
@@ -365,15 +342,15 @@ def cmd_env_check(args):
         log.error("  Pillow: NOT INSTALLED (pip install Pillow)")
 
     # Blender
-    blender = _find_blender()
+    blender = get_blender_path()
     if blender:
         log.info("  Blender: %s", blender)
     else:
         log.error("  Blender: NOT FOUND")
 
     # Gemini
-    gemini = os.environ.get("GEMINI_GEN_PATH", "D:/imageProduce/gemini_gen.py")
-    if os.path.isfile(gemini):
+    gemini = get_gemini_script()
+    if gemini:
         log.info("  Gemini: %s", gemini)
     else:
         log.warning("  Gemini: not found (optional, for AI enhancement)")

@@ -1,28 +1,28 @@
-# /cad-help — CAD Hybrid Rendering Pipeline Interactive Help
+# /cad-help — CAD 混合渲染管线交互式帮助
 
-User input: $ARGUMENTS
+用户输入: $ARGUMENTS
 
-## Instructions
+## 指令
 
-Read the skill knowledge file `skill_cad_help.md` (located in the same repo's root directory), then execute based on user input:
+读取技能文档 `D:\cad-skill\claude\memory\skill_cad_help.md`，然后根据用户输入执行：
 
-### Routing Rules
+### 路由规则
 
-1. **No arguments** (`$ARGUMENTS` is empty) → Show help panel:
-   - Output the "Help Panel" template at the end of skill_cad_help.md
-   - List common question examples in 4 groups: Environment & Install / Config & Validation / Workflows / Status & Troubleshooting
+1. **无参数**（`$ARGUMENTS` 为空）→ 显示帮助面板：
+   - 按 skill_cad_help.md 末尾"帮助面板"模板输出
+   - 列出常见问题示例，分为4组：环境与安装 / 配置与验证 / 工作流 / 状态与排错
 
-2. **With arguments** → Intent matching + execution:
-   - Extract keywords from `$ARGUMENTS` text
-   - Match against the "Intent Matching Table" in skill_cad_help.md, select best match
-   - Execute the matched intent's "Action Details" (run commands if possible, guide step-by-step if needed)
-   - If no intent matches, reply "Could not understand your question" and show help panel
+2. **有参数** → 意图匹配 + 执行：
+   - 从 `$ARGUMENTS` 文本提取关键词
+   - 对照 skill_cad_help.md 中的"意图匹配表"，选择最佳匹配意图
+   - 按该意图的"动作详情"执行（能跑程序的直接跑，需引导的分步展开）
+   - 如果匹配不到任何意图，回复"未能理解您的问题"并显示帮助面板
 
-### Execution Constraints
+### 执行约束
 
-- Environment check (env_check): run each detection command, report status with checkmarks
-- Validate config (validate): read and check render_config.json completeness
-- Render (render): confirm GLB exists before executing render commands
-- Troubleshoot (troubleshoot): ask user for specific error message, then match against troubleshooting guide
-- Status (status): scan cad/ and output/ directories, count artifacts
-- All output should be concise, using status markers
+- 环境检查（env_check）：逐项运行检测命令，汇报 ✅/❌ 状态
+- 验证配置（validate）：读取并检查 render_config.json 的完整性
+- 渲染（render）：确认 GLB 存在后再执行渲染命令
+- 排错（troubleshoot）：先问用户具体报错信息，再对照排错指南定位
+- 状态（status）：扫描 cad/ 和 cad/output/ 目录，统计产物数量
+- 所有动作输出简洁明了，用 ✅/❌/⚠️ 标记状态

@@ -30,16 +30,26 @@ _EN_CANDIDATES = ["Arial", "Helvetica", "DejaVu Sans", "Calibri"]
 
 def _find_font(candidates, fallback="arial.ttf"):
     """Find first available TrueType font from candidates list."""
-    import matplotlib.font_manager as fm
-    for name in candidates:
-        matches = [f.fname for f in fm.fontManager.ttflist if f.name == name]
-        if matches:
-            return matches[0]
-    # Fallback: try system default
     try:
-        return fm.findfont(fm.FontProperties(family="sans-serif"))
-    except Exception:
-        return fallback
+        import matplotlib.font_manager as fm
+        for name in candidates:
+            matches = [f.fname for f in fm.fontManager.ttflist if f.name == name]
+            if matches:
+                return matches[0]
+        # Fallback: try system default
+        try:
+            return fm.findfont(fm.FontProperties(family="sans-serif"))
+        except Exception:
+            pass
+    except ImportError:
+        pass
+    # matplotlib not available — try common system font paths
+    for name in ["simhei.ttf", "msyh.ttc", "arial.ttf"]:
+        for d in [r"C:\Windows\Fonts", "/usr/share/fonts/truetype"]:
+            p = os.path.join(d, name)
+            if os.path.isfile(p):
+                return p
+    return fallback
 
 _CJK_FONT_PATH = None
 _EN_FONT_PATH = None
@@ -215,7 +225,15 @@ def main():
                         help="Base font size at 1080p (default: 20)")
     parser.add_argument("--style", default="clean", choices=["clean", "dark", "light"],
                         help="Label style (default: clean)")
+    parser.add_argument("--font-path", default=None,
+                        help="Override font path (e.g. C:/Windows/Fonts/simhei.ttf)")
     args = parser.parse_args()
+
+    # Apply font override
+    if args.font_path:
+        global _CJK_FONT_PATH, _EN_FONT_PATH
+        _CJK_FONT_PATH = args.font_path
+        _EN_FONT_PATH = args.font_path
 
     # Load config
     with open(args.config, encoding="utf-8") as f:

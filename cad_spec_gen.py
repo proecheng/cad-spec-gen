@@ -75,7 +75,7 @@ def detect_chapter(filepath: str) -> str:
 def _md_table(columns: list, rows: list) -> str:
     """Generate a Markdown table string."""
     if not rows:
-        return f"| {' | '.join(columns)} |\n| {' | '.join(['---'] * len(columns))} |\n| {'（暂无数据） |' + ' |' * (len(columns) - 1)}\n"
+        return f"| {' | '.join(columns)} |\n| {' | '.join(['---'] * len(columns))} |\n| （暂无数据）{' | ' * (len(columns) - 1)}|\n"
     lines = []
     lines.append(f"| {' | '.join(columns)} |")
     lines.append(f"| {' | '.join(['---'] * len(columns))} |")

@@ -1,34 +1,34 @@
-# /cad-spec — Generate CAD Spec from Design Document
+# /cad-spec — 从设计文档生成 CAD Spec
 
-User input: $ARGUMENTS
+用户输入: $ARGUMENTS
 
-## Instructions
+## 指令
 
-Run the CAD Spec Generator on the specified design document.
+运行 CAD Spec 生成器，从设计文档提取结构化参数/公差/BOM等数据。
 
-### Routing Rules
+### 路由规则
 
-1. **No arguments** (`$ARGUMENTS` is empty) → Show usage:
+1. **无参数** → 显示用法：
    ```
-   Usage: /cad-spec <design_doc.md> [--force]
+   用法: /cad-spec <design_doc.md> [--force]
 
-   Examples:
-     /cad-spec examples/04-末端执行机构设计.md
-     /cad-spec docs/design/05-电气系统设计.md --force
+   示例:
+     /cad-spec docs/design/04-末端执行机构设计.md
+     /cad-spec docs/design/05-电气系统与信号调理.md --force
      /cad-spec --all
    ```
 
-2. **`--all`** → Process all subsystems:
+2. **`--all`** → 处理全部子系统：
    ```bash
-   python cad_spec_gen.py --all --config config/gisbot.json
+   python D:/cad-skill/tools/cad_spec_gen.py --all
    ```
 
-3. **File path** → Process single document:
+3. **文件路径** → 处理单个文档：
    ```bash
-   python cad_spec_gen.py "$ARGUMENTS" --config config/gisbot.json --output-dir ./output
+   python D:/cad-skill/tools/cad_spec_gen.py "$ARGUMENTS"
    ```
 
-4. After generation, read the output CAD_SPEC.md and summarize:
-   - Number of parameters, fasteners, BOM parts extracted
-   - Any CRITICAL or WARNING missing data items
-   - Location of output file
+4. 生成后读取输出的 CAD_SPEC.md 并汇总：
+   - 提取到的参数、紧固件、BOM零件数量
+   - 任何 CRITICAL 或 WARNING 缺失数据项
+   - 输出文件位置

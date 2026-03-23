@@ -16,13 +16,13 @@
    ```
 
 2. **有参数** → 执行增强：
-   - 读取 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
+   - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
    - 根据文件名选择 prompt 模板：
-     - V1/V2/V3 → `templates/prompt_enhance.txt`
-     - V4 → `templates/prompt_exploded.txt`
-     - V5 → `templates/prompt_ortho.txt`
+     - V1/V2/V3 → `D:\cad-skill\tools\hybrid_render\prompts\prompt_enhance.txt`
+     - V4 → `D:\cad-skill\tools\hybrid_render\prompts\prompt_exploded.txt`
+     - V5 → `D:\cad-skill\tools\hybrid_render\prompts\prompt_ortho.txt`
    - 用 render_config.json 中的变量填充模板占位符
-   - 执行 `gemini_gen.py --image <input.png> "<filled prompt>"`
+   - 执行 `python D:/imageProduce/gemini_gen.py --image <input.png> "<filled prompt>"`
    - 将输出 JPG 复制到与输入 PNG 同目录，命名为 `*_enhanced.jpg`
 
 ### 核心原则
