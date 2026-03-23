@@ -106,7 +106,7 @@
 1. JSON语法正确性
 2. 必需字段: subsystem_id, subsystem_name, materials, cameras, explode_rules
 3. materials 中每个条目有 part_pattern + preset/custom
-4. cameras 中 5个标准视角存在: V1_front_iso, V2_rear_oblique, V3_side_elevation, V4_exploded, V5_ortho_front
+4. cameras 中至少1个视角存在（视角数不限于5个，按子系统 render_config.json camera 段定义）
 5. preset名在15种预设中: brushed_aluminum, polished_steel, black_anodized, cast_iron,
    brass, copper, titanium, peek_natural, nylon_white, abs_dark_gray,
    rubber_black, glass_clear, ceramic_white, carbon_fiber, raw_steel
@@ -143,7 +143,7 @@
 Step 1: 创建目录和配置
   mkdir cad/<subsystem_name>/
   复制模板: docs/templates/render_config_template.json → cad/<name>/render_config.json
-  编辑 render_config.json 填写子系统信息
+  编辑 render_config.json 填写子系统信息（视角数、零件列表、材质等均可自定义）
 
 Step 2: 参数化建模
   从设计文档 docs/design/NN-*.md 提取参数
@@ -208,7 +208,7 @@ Step 3: 渲染出图
    "type": "cartesian",
    "x": 0.3, "y": -0.4, "z": 0.2  // 相机位置 (米)
 
-标准5视角:
+标准5视角 (默认，可在 render_config.json 中自定义视角数和名称):
   V1_front_iso     — 正面等距 (az=35, el=25)  → 主展示图
   V2_rear_oblique  — 背面斜视 (az=215, el=20) → 背部细节
   V3_side_elevation — 侧视图 (az=90, el=0)    → 轮廓/尺寸
@@ -266,7 +266,7 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 ```
 情况A: 用户想直接渲染 → 运行命令
   # Blender Cycles渲染 (几何精确PNG)
-  cd cad/end_effector && python build_all.py --render
+  cd cad/<subsystem> && python build_all.py --render
 
   # 或单独渲染特定视角
   tools/blender/blender.exe -b -P cad/end_effector/render_3d.py -- \
@@ -406,41 +406,33 @@ A: render_config.json → "resolution": {"width": 1920, "height": 1080}
 ```
 ═══ CAD渲染管线文件结构 ═══
 
-cad/end_effector/              ← 参考实现 (§4末端执行器)
-├── params.py                  ← 参数单一数据源
-├── tolerances.py              ← 公差定义
-├── bom.py                     ← BOM清单 (48零件/6总成)
-├── flange.py                  ← 法兰3D模型
-├── station1_applicator.py     ← 工位1涂覆器
-├── station2_ae.py             ← 工位2声发射
-├── station3_cleaner.py        ← 工位3清洁器
-├── station4_uhf.py            ← 工位4 UHF
-├── drive_assembly.py          ← 驱动总成
-├── assembly.py                ← 总装配 → STEP + GLB
-├── drawing.py                 ← 2D工程图引擎 (GB/T国标)
-├── draw_three_view.py         ← 三视图模板 (A3图纸)
-├── draw_flange.py             ← 法兰工程图
-├── draw_station1~4.py         ← 各工位工程图
-├── draw_drive.py              ← 驱动总成工程图
-├── draw_peek_ring.py          ← PEEK环工程图
-├── draw_signal_cond.py        ← 信号调理工程图
-├── render_dxf.py              ← DXF→PNG转换
-├── render_config.json         ← 渲染配置 (材质/相机/爆炸)
-├── render_config.py           ← 配置引擎 (15材质预设)
-├── render_3d.py               ← Blender Cycles渲染脚本
-├── render_exploded.py         ← 爆炸图渲染脚本
-├── build_all.py               ← 一键构建 (--render触发Blender)
-└── prompt_*.txt               ← Gemini AI增强prompt模板
+cad/<subsystem>/                   ← 每个子系统独立目录
+├── params.py                      ← 参数单一数据源
+├── *.py                           ← 3D模型脚本 (零件/装配)
+├── assembly.py                    ← 总装配 → STEP + GLB
+├── drawing.py                     ← 2D工程图引擎 (GB/T国标)
+├── draw_*.py                      ← 各零件工程图
+├── render_dxf.py                  ← DXF→PNG转换
+├── render_config.json             ← 渲染配置 (材质/相机/爆炸/标注)
+├── render_config.py               ← 配置引擎 (15材质预设)
+├── render_3d.py                   ← Blender Cycles渲染脚本
+├── render_exploded.py             ← 爆炸图渲染脚本
+└── build_all.py                   ← 一键构建 (--render触发Blender)
+
+参考实现: cad/end_effector/ (§4末端执行器, 14脚本, 8 STEP + 11 DXF)
 
 cad/output/                    ← 输出目录
-├── EE-000_assembly.step/.glb  ← 总装配
-├── EE-001~006_*.step          ← 子装配STEP
-├── EE-001~006-*_*.dxf         ← 2D工程图DXF
+├── XX-000_assembly.step/.glb  ← 总装配
+├── XX-NNN_*.step              ← 子装配STEP
+├── XX-NNN-NN_*.dxf            ← 2D工程图DXF
 └── *.png / *.jpg              ← 渲染结果
 
-docs/templates/                ← 模板
-├── render_config_template.json
-└── rendering_data_template.md
+templates/                     ← 模板
+├── render_config_template.json← 空白渲染配置模板（新子系统起点）
+├── cad_spec_template.md       ← CAD Spec模板
+├── prompt_enhance.txt         ← AI增强prompt (标准视角)
+├── prompt_exploded.txt        ← AI增强prompt (爆炸图)
+└── prompt_ortho.txt           ← AI增强prompt (正交图)
 
 tools/hybrid_render/           ← 混合渲染工具
 ├── check_env.py               ← 环境检查脚本
