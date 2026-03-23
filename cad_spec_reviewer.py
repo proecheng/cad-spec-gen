@@ -298,8 +298,14 @@ def review_assembly(data):
 
     # --- B4: 悬臂长度 vs 安装面 ---
     arm_length = _find_param(params, "FLANGE_L", prefer="first") or _find_param(params, "ARM", "L", prefer="min") or _find_param(params, "悬臂", "长", prefer="min")
-    mount_face = _find_param(params, "安装面", prefer="min")
-    flange_r = _find_param(params, "FLANGE", "R", prefer="first") or (flange_od / 2.0 if flange_od else None)
+    # Mount face SIZE (not flatness/roughness) — filter for reasonable dimension (>5mm)
+    mount_face_candidates = [
+        v for name, v in ((p.get("name", ""), p.get("value")) for p in params)
+        if v and "安装面" in str(name) and isinstance(v, (int, float)) and 5 < v < 200
+    ]
+    mount_face = min(mount_face_candidates) if mount_face_candidates else _find_param(params, "安装面", "尺寸")
+    # Prefer flange_od/2 — _find_param("FLANGE","R") may match spring pin R=42mm
+    flange_r = (flange_od / 2.0 if flange_od else None) or _find_param(params, "FLANGE", "R", prefer="max")
     if arm_length and mount_face and flange_r and mount_r and arm_length < 200 and mount_face < 200:
         calc_r = flange_r + arm_length
         half_face = mount_face / 2.0
