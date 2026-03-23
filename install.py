@@ -5,12 +5,11 @@ cad-spec-gen Universal Installer
 Install or update the CAD pipeline skill into any LLM/Agent platform.
 
 Usage:
-    python install.py --platform claude-code --target /path/to/project
-    python install.py --platform claude-code --target /path/to/project --update
-    python install.py --platform claude-code --target /path/to/project --check
-    python install.py --platform openai
-    python install.py --platform system-prompt
-    python install.py --platform langchain
+    python install.py                          # install to current dir (Claude Code)
+    python install.py --update                 # update existing installation
+    python install.py --check                  # check if update available
+    python install.py --target /path/to/proj   # install to another project
+    python install.py --platform openai        # other platforms
 """
 
 import argparse
@@ -337,14 +336,14 @@ def main():
     )
     parser.add_argument(
         "--platform", "-p",
-        required=True,
+        default="claude-code",
         choices=["claude-code", "openai", "system-prompt", "langchain", "dify"],
-        help="Target platform"
+        help="Target platform (default: claude-code)"
     )
     parser.add_argument(
         "--target", "-t",
         default=".",
-        help="Target project directory (for claude-code platform)"
+        help="Target project directory (default: current directory)"
     )
     parser.add_argument(
         "--update", "-u",

@@ -4,27 +4,44 @@
 
 A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
-## Use with Any LLM
+## Installation
+
+```bash
+git clone https://github.com/proecheng/cad-spec-gen.git
+cd cad-spec-gen
+
+# Install to your project (Claude Code)
+python install.py --target /path/to/your-project
+
+# Or install to current directory
+python install.py
+```
+
+After installation, type `/cad-help` in Claude Code to get started.
+
+### Update
+
+```bash
+cd cad-spec-gen
+git pull
+
+# Check if update available
+python install.py --check
+
+# Apply update (preserves your config/gisbot.json)
+python install.py --update
+```
+
+### Other Platforms
 
 | Platform | How to Install |
 |----------|---------------|
 | **Any LLM + Shell** | Paste [`system_prompt.md`](system_prompt.md) as system message |
-| **Claude Code** | `python install.py --platform claude-code --target your-project/` |
 | **GPT-4 / Assistants** | Upload `system_prompt.md` + enable Code Interpreter ([guide](adapters/openai/README.md)) |
 | **LangChain / AutoGen** | `from adapters.langchain.tools import cad_tools` ([guide](adapters/langchain/README.md)) |
 | **Dify / Coze** | Import `system_prompt.md` to knowledge base ([guide](adapters/dify/README.md)) |
 
 All tools are **plain Python CLI scripts** — no framework lock-in, no vendor dependency.
-
-### Updating an Existing Installation
-
-```bash
-# Check if an update is available (no changes made)
-python install.py -p claude-code -t your-project/ --check
-
-# Update (preserves user-modified config/gisbot.json)
-python install.py -p claude-code -t your-project/ --update
-```
 
 ```
 Design Document (.md)
@@ -153,9 +170,6 @@ Labeled JPG — with leader lines and component names
 > **Example: End Effector subsystem** — adapt paths for your own subsystem.
 
 ```bash
-git clone https://github.com/proecheng/cad-spec-gen.git
-cd cad-spec-gen
-
 # Design review first (recommended)
 python cad_spec_gen.py examples/04-末端执行机构设计.md \
     --config config/gisbot.json --review-only
