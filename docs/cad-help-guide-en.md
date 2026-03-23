@@ -100,20 +100,20 @@ tools/
 | Category | Preset Name | Description | Appearance |
 |----------|-------------|-------------|------------|
 | Metal | brushed_aluminum | Brushed Aluminum | Silver, metallic=1.0 |
-| | polished_steel | Polished Steel | Bright silver |
+| | stainless_304 | Stainless Steel 304 | Bright silver |
 | | black_anodized | Black Anodized Aluminum | Deep black |
-| | cast_iron | Cast Iron | Dark gray |
-| | brass | Brass | Golden |
+| | dark_steel | Dark Steel | Dark gray |
+| | bronze | Bronze | Golden-brown |
 | | copper | Copper | Reddish-copper |
-| | titanium | Titanium Alloy | Light gray |
-| | raw_steel | Raw Steel | Gray |
-| Plastic | peek_natural | PEEK Natural | Beige |
-| | nylon_white | Nylon White | White |
-| | abs_dark_gray | ABS Dark Gray | Dark gray |
-| Other | rubber_black | Black Rubber | Black, roughness=0.85 |
-| | glass_clear | Clear Glass | Transparent |
-| | ceramic_white | Ceramic White | White |
-| | carbon_fiber | Carbon Fiber | Deep black |
+| | gunmetal | Gunmetal | Dark blue-gray |
+| | anodized_blue | Blue Anodized | Metallic blue |
+| | anodized_green | Green Anodized | Metallic green |
+| | anodized_purple | Purple Anodized | Metallic purple |
+| | anodized_red | Red Anodized | Metallic red |
+| Plastic | peek_amber | PEEK Amber | Amber, semi-transparent |
+| | white_nylon | Nylon White | White |
+| | black_rubber | Black Rubber | Black, roughness=0.85 |
+| | polycarbonate_clear | Polycarbonate Clear | Transparent |
 
 ## Typical Workflows
 

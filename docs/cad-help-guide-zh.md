@@ -100,20 +100,20 @@ tools/
 | 分类 | 预设名 | 中文 | 外观 |
 |------|--------|------|------|
 | 金属 | brushed_aluminum | 拉丝铝 | 银白, metallic=1.0 |
-| | polished_steel | 抛光钢 | 亮银 |
+| | stainless_304 | 不锈钢304 | 亮银 |
 | | black_anodized | 黑色阳极氧化铝 | 深黑 |
-| | cast_iron | 铸铁 | 深灰 |
-| | brass | 黄铜 | 金黄 |
+| | dark_steel | 暗钢 | 深灰 |
+| | bronze | 青铜 | 金棕 |
 | | copper | 紫铜 | 红铜色 |
-| | titanium | 钛合金 | 浅灰 |
-| | raw_steel | 未处理钢 | 灰 |
-| 塑料 | peek_natural | PEEK 本色 | 米黄 |
-| | nylon_white | 尼龙白 | 白 |
-| | abs_dark_gray | ABS 深灰 | 深灰 |
-| 其他 | rubber_black | 橡胶黑 | 黑, roughness=0.85 |
-| | glass_clear | 透明玻璃 | 透明 |
-| | ceramic_white | 陶瓷白 | 白 |
-| | carbon_fiber | 碳纤维 | 深黑 |
+| | gunmetal | 枪灰 | 深蓝灰 |
+| | anodized_blue | 蓝色阳极氧化 | 金属蓝 |
+| | anodized_green | 绿色阳极氧化 | 金属绿 |
+| | anodized_purple | 紫色阳极氧化 | 金属紫 |
+| | anodized_red | 红色阳极氧化 | 金属红 |
+| 塑料 | peek_amber | PEEK 琥珀色 | 琥珀, 半透明 |
+| | white_nylon | 尼龙白 | 白 |
+| | black_rubber | 橡胶黑 | 黑, roughness=0.85 |
+| | polycarbonate_clear | 聚碳酸酯透明 | 透明 |
 
 ## 典型工作流
 
