@@ -1,4 +1,5 @@
 Keep ALL geometry, proportions, positions, spacing, and shapes EXACTLY unchanged.
+Do NOT crop, pan, zoom, or reframe — output must match the input image pixel-for-pixel in composition and resolution.
 This is an exploded view of a {product_name}.
 Each module is displaced radially outward from the central assembly to show assembly relationships.
 Apply photorealistic studio-quality materials ONLY:
