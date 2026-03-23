@@ -15,11 +15,18 @@ Usage:
 
 import argparse
 import hashlib
+import io
 import json
+import os
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# Fix Windows GBK encoding for emoji output
+if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("gbk"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent
 
@@ -202,6 +209,16 @@ def _get_changed_files(target: Path, installed: dict) -> list:
     return changed
 
 
+def _safe_copy(src: Path, dst: Path):
+    """Copy file, skipping if src and dst are the same file."""
+    try:
+        if src.resolve() == dst.resolve():
+            return
+    except OSError:
+        pass
+    shutil.copy2(src, dst)
+
+
 def install_claude_code(target: Path, update: bool = False):
     """Copy slash commands and skill files to a Claude Code project."""
     installed = _read_installed_version(target)
@@ -226,18 +243,18 @@ def install_claude_code(target: Path, update: bool = False):
     commands_dir.mkdir(parents=True, exist_ok=True)
     src_commands = REPO_ROOT / "adapters" / "claude-code" / "commands"
     for f in src_commands.glob("*.md"):
-        shutil.copy2(f, commands_dir / f.name)
+        _safe_copy(f, commands_dir / f.name)
         print(f"  ✅ {f.name} → .claude/commands/")
 
     # --- Knowledge file ---
-    shutil.copy2(REPO_ROOT / "skill_cad_help.md", target / "skill_cad_help.md")
+    _safe_copy(REPO_ROOT / "skill_cad_help.md", target / "skill_cad_help.md")
     print("  ✅ skill_cad_help.md → project root")
 
     # --- Python tools ---
     for name in INSTALL_MANIFEST["python_tools"]:
         src = REPO_ROOT / name
         if src.exists():
-            shutil.copy2(src, target / name)
+            _safe_copy(src, target / name)
     print("  ✅ Python tools copied")
 
     # --- Config & Templates (user-config-aware) ---
@@ -251,6 +268,10 @@ def install_claude_code(target: Path, update: bool = False):
             # Fresh install — just copy
             shutil.copytree(src_dir, dst_dir)
             print(f"  ✅ {dirname}/ copied")
+            continue
+        elif src_dir.resolve() == dst_dir.resolve():
+            # Self-install: target is repo root, dirs already exist
+            print(f"  ✅ {dirname}/ (already in place)")
             continue
 
         # Update mode: check each file
@@ -268,13 +289,13 @@ def install_claude_code(target: Path, update: bool = False):
                     # User modified — write .new sidecar, keep user's version
                     new_file = dst_file.with_suffix(dst_file.suffix + ".new")
                     dst_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_file, new_file)
+                    _safe_copy(src_file, new_file)
                     user_modified_files.append(full_rel)
                     continue
 
             # Not user-modified or not a config file — overwrite
             dst_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dst_file)
+            _safe_copy(src_file, dst_file)
 
         if user_modified_files:
             print(f"  ⚠️  {dirname}/ 更新（以下文件已被用户修改，新版本写入 .new）:")

@@ -1,0 +1,27 @@
+{
+  "skill": "cad-spec-gen",
+  "version": "1.1.0",
+  "installed_at": "2026-03-23T21:33:47.990523",
+  "files": {
+    "cad_spec_gen.py": "51db424ba3503edcec86003298447427",
+    "cad_spec_extractors.py": "c54d2f4ec8737cd58b122e63b598c35d",
+    "cad_spec_defaults.py": "727bffc3ad8a12c81906205e723065da",
+    "cad_spec_reviewer.py": "1571a16683ebe5298e3b32b2bbb3aa11",
+    "bom_parser.py": "94ab01bab3e3c71616f1b4cd566594ff",
+    "cad_paths.py": "2f37af91ebcab0dc64d1b91b426382d1",
+    "cad_pipeline.py": "9534c14bf3a71f992d8f48646b6bd661",
+    "annotate_render.py": "a9af7e25f30c4c79733a66d835d703e5",
+    "skill_cad_help.md": "79f7c29fb7a2429d1654118eb6e7c5aa",
+    "config/gisbot.json": "8cb1724087f9e17fea9fca7c5a79cca8",
+    "templates/cad_spec_template.md": "c40a7a9879e603e8e8d6327bf072d187",
+    "templates/design_review_template.md": "e86962bde917980ec714c269e4140942",
+    "templates/prompt_enhance.txt": "2d05855a8ed92e3de413aa82c111cb07",
+    "templates/prompt_exploded.txt": "e2516533152aaa26352f1ee2c6564adc",
+    "templates/prompt_ortho.txt": "535d491013c9b4cbe3511004c1b037ce",
+    "templates/render_config.schema.json": "1a0299e87b39b3eee45280e9e76d34ba",
+    "templates/render_config_template.json": "5bb1ae63c9e0706190d4ed6d31f5217b",
+    ".claude/commands/cad-enhance.md": "c405e6b1d945424798399f9c9f826d4a",
+    ".claude/commands/cad-help.md": "6d8c0760e5f33ae29ffc3f68cf19ccfc",
+    ".claude/commands/cad-spec.md": "ac035df84cb83feaaec708cc6c06b9f9"
+  }
+}
