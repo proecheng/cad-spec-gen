@@ -18,7 +18,9 @@ from cad_spec_defaults import (
     MATERIAL_YIELD_STRENGTH, MATERIAL_MAX_TEMP, GALVANIC_PAIRS,
     SAFETY_FACTOR_STATIC, SAFETY_FACTOR_FATIGUE,
     BOLT_SHEAR_STRENGTH, BOLT_STRESS_AREA, BOLT_TORQUE,
-    MATERIAL_DENSITY, check_completeness,
+    MATERIAL_DENSITY, COMMON_CONNECTION_PATTERNS, WEAK_LOAD_CONNECTIONS,
+    PARAM_UNIT_PATTERNS, SURFACE_RA,
+    check_completeness,
 )
 
 
@@ -326,6 +328,167 @@ def review_assembly(data):
                 "verdict": "OK", "suggestion": "",
             })
 
+    # --- B5: 悬空零件检查 — BOM零件不在连接矩阵中 ---
+    connections = data.get("connections", [])
+    bom = data.get("bom")
+    if connections and bom:
+        # Build set of part names AND part numbers from connections
+        connected_names = set()
+        connected_pnums = set()
+        for conn in connections:
+            for key in ("partA", "partB"):
+                raw = str(conn.get(key, ""))
+                # Extract part number from parenthetical like "(GIS-EE-001-01)" or "(GIS-EE-002)"
+                pnum_match = re.search(r"\(?(GIS-[A-Z]+-\d+(?:-\d+)?)\)?", raw)
+                if pnum_match:
+                    connected_pnums.add(pnum_match.group(1))
+                # Strip parenthetical for name matching
+                name = re.sub(r"\s*\(GIS-[A-Z]+-\d+(?:-\d+)?\)", "", raw).strip()
+                if name and name not in ("全部", "—", ""):
+                    connected_names.add(name)
+
+        # Build assembly part_no → member part_no map
+        assy_pnum_members = {}  # "GIS-EE-001" → {"GIS-EE-001-01", ...}
+        for assy in bom.get("assemblies", []):
+            apnum = assy.get("part_no", "")
+            if apnum:
+                assy_pnum_members[apnum] = {p.get("part_no", "") for p in assy.get("parts", [])}
+
+        # Mark parts as connected if their assembly appears in connections
+        connected_via_assy = set()
+        for cpnum in connected_pnums:
+            # Direct assembly match: GIS-EE-002 → all parts under GIS-EE-002
+            if cpnum in assy_pnum_members:
+                connected_via_assy.update(assy_pnum_members[cpnum])
+            # Sub-part match: GIS-EE-001-01 → parent GIS-EE-001's members
+            parent = re.sub(r"-\d{2}$", "", cpnum)
+            if parent in assy_pnum_members:
+                connected_via_assy.update(assy_pnum_members[parent])
+
+        # Check leaf parts
+        orphan_parts = []
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pname = part.get("name", "")
+                pnum = part.get("part_no", "")
+                # Skip assembly-level entries and 总成
+                if "总成" in pname or (pnum and re.match(r"^GIS-[A-Z]+-\d{3}$", pnum)):
+                    continue
+                # Connected via assembly part_number
+                if pnum in connected_via_assy:
+                    continue
+                # Connected via direct part_number match
+                if pnum in connected_pnums:
+                    continue
+                # Connected via name substring match (fuzzy)
+                found = False
+                pname_short = pname.split("（")[0].split("(")[0].strip()
+                for cn in connected_names:
+                    cn_short = cn.split("（")[0].split("(")[0].strip()
+                    if (len(pname_short) >= 2 and pname_short in cn) or \
+                       (len(cn_short) >= 2 and cn_short in pname):
+                        found = True
+                        break
+                if not found:
+                    orphan_parts.append(pname)
+
+        if orphan_parts:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": f"悬空零件 ({len(orphan_parts)}项)",
+                "detail": f"BOM中以下零件未出现在连接矩阵: {', '.join(orphan_parts[:5])}{'...' if len(orphan_parts) > 5 else ''}",
+                "verdict": "WARNING",
+                "suggestion": "补充这些零件的连接关系，或确认为独立附件",
+            })
+        else:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": "悬空零件检查",
+                "detail": f"所有BOM零件均出现在连接矩阵中",
+                "verdict": "OK", "suggestion": "",
+            })
+
+    # --- B6: 连接描述缺失 ---
+    if connections:
+        empty_conns = []
+        for conn in connections:
+            ctype = str(conn.get("type", "")).strip()
+            if not ctype or ctype in ("—", "-", "") or len(ctype) < 3:
+                pa = conn.get("partA", "?")
+                pb = conn.get("partB", "?")
+                empty_conns.append(f"{pa}↔{pb}")
+        idx += 1
+        if empty_conns:
+            items.append({
+                "id": f"B{idx}", "item": f"连接描述缺失 ({len(empty_conns)}条)",
+                "detail": f"缺少连接方式: {', '.join(empty_conns[:3])}{'...' if len(empty_conns) > 3 else ''}",
+                "verdict": "WARNING",
+                "suggestion": "补充连接类型（螺栓规格、配合方式等）",
+            })
+        else:
+            items.append({
+                "id": f"B{idx}", "item": "连接描述完整性",
+                "detail": f"所有{len(connections)}条连接均有连接方式描述",
+                "verdict": "OK", "suggestion": "",
+            })
+
+    # --- B7: 连接方式合理性 ---
+    if connections:
+        unusual_conns = []
+        weak_conns = []
+        for conn in connections:
+            ctype = str(conn.get("type", "")).strip()
+            if not ctype or len(ctype) < 3:
+                continue  # Already flagged in B6
+            # Check if matches any common pattern
+            matched = any(re.search(pat, ctype, re.IGNORECASE) for pat in COMMON_CONNECTION_PATTERNS)
+            if not matched:
+                unusual_conns.append(f"{conn.get('partA', '?')}↔{conn.get('partB', '?')}: {ctype}")
+            # Check if weak connection used
+            for wpat in WEAK_LOAD_CONNECTIONS:
+                if re.search(wpat, ctype, re.IGNORECASE):
+                    weak_conns.append(f"{conn.get('partA', '?')}↔{conn.get('partB', '?')}: {ctype}")
+                    break
+
+        if unusual_conns:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": f"非常规连接方式 ({len(unusual_conns)}条)",
+                "detail": "; ".join(unusual_conns[:3]) + ("..." if len(unusual_conns) > 3 else ""),
+                "verdict": "INFO",
+                "suggestion": "确认连接方式符合设计意图",
+            })
+        if weak_conns:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": f"低强度连接方式 ({len(weak_conns)}条)",
+                "detail": "; ".join(weak_conns[:3]) + ("..." if len(weak_conns) > 3 else ""),
+                "verdict": "WARNING",
+                "suggestion": "粘接/卡扣连接承载能力有限，确认该处不承受显著力学载荷",
+            })
+
+    # --- B8: 对向工位空间重叠估算 ---
+    # Stations at 180° apart share the same diameter line → higher overlap risk
+    if mount_r and len(station_envs) >= 2:
+        diametral_distance = 2 * mount_r  # 180° apart
+        for i in range(len(station_envs)):
+            for j in range(i + 1, len(station_envs)):
+                name_i, env_i = station_envs[i]
+                name_j, env_j = station_envs[j]
+                # Determine if 180° apart (S1↔S3, S2↔S4)
+                si = int(name_i.replace("S", "")) if name_i.startswith("S") else 0
+                sj = int(name_j.replace("S", "")) if name_j.startswith("S") else 0
+                if abs(si - sj) == 2:  # 180° apart
+                    overlap = (env_i + env_j) / 2.0 - diametral_distance
+                    if overlap > 0:
+                        idx += 1
+                        items.append({
+                            "id": f"B{idx}", "item": f"对向工位空间重叠 {name_i}↔{name_j}",
+                            "detail": f"对向距离={diametral_distance:.1f}mm, 包络半径和={(env_i + env_j) / 2.0:.1f}mm, 重叠={overlap:.1f}mm",
+                            "verdict": "WARNING",
+                            "suggestion": "对向工位包络可能交叉，建议3D校验",
+                        })
+
     return items
 
 
@@ -431,14 +594,25 @@ def review_completeness(data):
     params = data.get("params", []) + data.get("derived", [])
     idx = len(items)
 
-    # D+1: Check if any param has empty unit
-    empty_unit_count = sum(1 for p in data.get("params", []) if not p.get("unit"))
-    if empty_unit_count > 3:
+    # D+1: Check if any param has empty unit — attempt to infer units
+    empty_unit_params = [p for p in data.get("params", []) if not p.get("unit")]
+    inferred_units = []
+    for p in empty_unit_params:
+        pname = str(p.get("name", ""))
+        for pat, unit in PARAM_UNIT_PATTERNS.items():
+            if re.search(pat, pname, re.IGNORECASE):
+                inferred_units.append((pname, unit))
+                break
+    if len(empty_unit_params) > 3:
         idx += 1
+        can_infer = len(inferred_units)
         items.append({
-            "id": f"D{idx}", "item": f"参数缺少单位 ({empty_unit_count}项)",
-            "severity": "WARNING", "auto_fill": "否", "default_value": "—",
+            "id": f"D{idx}", "item": f"参数缺少单位 ({len(empty_unit_params)}项)",
+            "severity": "WARNING",
+            "auto_fill": "是" if can_infer > 0 else "否",
+            "default_value": f"可推断{can_infer}项" if can_infer > 0 else "—",
             "note": "多个参数缺少单位，可能导致下游计算错误",
+            "_auto_fill_detail": inferred_units if inferred_units else None,
         })
 
     # D+2: BOM material coverage
@@ -457,7 +631,131 @@ def review_completeness(data):
                 "note": f"缺失: {', '.join(missing_mat[:5])}{'...' if len(missing_mat) > 5 else ''}",
             })
 
+    # D+3: Fasteners missing torque — can auto-fill from BOLT_TORQUE
+    fasteners = data.get("fasteners", [])
+    missing_torque = []
+    for f in fasteners:
+        torque = str(f.get("torque", "")).strip()
+        if not torque or torque in ("—", ""):
+            spec = str(f.get("spec", ""))
+            bolt_match = re.search(r"(M\d+(?:\.\d+)?)", spec)
+            if bolt_match:
+                bsize = bolt_match.group(1)
+                default_t = BOLT_TORQUE.get(bsize)
+                if default_t:
+                    missing_torque.append((f.get("location", "?"), bsize, default_t))
+    if missing_torque:
+        idx += 1
+        items.append({
+            "id": f"D{idx}", "item": f"螺栓缺少力矩 ({len(missing_torque)}项)",
+            "severity": "INFO",
+            "auto_fill": "是",
+            "default_value": f"按8.8级标准力矩补全{len(missing_torque)}项",
+            "note": "; ".join(f"{loc} {sz}→{t}Nm" for loc, sz, t in missing_torque[:5]),
+            "_auto_fill_detail": missing_torque,
+        })
+
+    # D+4: Parts missing surface roughness — can auto-fill from SURFACE_RA
+    tolerances = data.get("tolerances", {})
+    surfaces = tolerances.get("surfaces", [])
+    vis_ids = data.get("visual_ids", [])
+    parts_with_ra = {s.get("part", "") for s in surfaces}
+    fillable_ra = []
+    for vis in vis_ids:
+        pname = vis.get("part", "")
+        mat = vis.get("material", "")
+        if pname and pname not in parts_with_ra and mat:
+            for mk, rv in SURFACE_RA.items():
+                if mk.lower() in mat.lower() or mk in mat:
+                    fillable_ra.append((pname, mat, rv))
+                    break
+    if fillable_ra:
+        idx += 1
+        items.append({
+            "id": f"D{idx}", "item": f"零件缺少表面粗糙度 ({len(fillable_ra)}项)",
+            "severity": "INFO",
+            "auto_fill": "是",
+            "default_value": f"按材质默认Ra补全{len(fillable_ra)}项",
+            "note": "; ".join(f"{p} ({m})→Ra{r}" for p, m, r in fillable_ra[:5]),
+            "_auto_fill_detail": fillable_ra,
+        })
+
     return items
+
+
+# ─── 自动补全 ──────────────────────────────────────────────────────────
+
+def apply_auto_fill(review_data, data):
+    """Apply auto-computable values to data dict.
+
+    Reads completeness items with auto_fill=="是" and updates the
+    corresponding entries in data. Returns changelog for user display.
+
+    Args:
+        review_data: run_review() output
+        data: the original extracted data dict (modified in place)
+
+    Returns:
+        list of dicts: [{field, old, new, source}]
+    """
+    changelog = []
+    comp = review_data.get("completeness", [])
+
+    for item in comp:
+        if item.get("auto_fill") != "是":
+            continue
+        detail = item.get("_auto_fill_detail")
+        if not detail:
+            continue
+
+        item_text = item.get("item", "")
+
+        # --- Unit inference ---
+        if "缺少单位" in item_text and isinstance(detail, list):
+            for pname, unit in detail:
+                for p in data.get("params", []):
+                    if p.get("name") == pname and not p.get("unit"):
+                        old = p.get("unit", "")
+                        p["unit"] = unit
+                        changelog.append({
+                            "field": f"params.{pname}.unit",
+                            "old": old, "new": unit,
+                            "source": "PARAM_UNIT_PATTERNS推断",
+                        })
+
+        # --- Bolt torque ---
+        elif "缺少力矩" in item_text and isinstance(detail, list):
+            for loc, bsize, torque_val in detail:
+                for f in data.get("fasteners", []):
+                    floc = str(f.get("location", ""))
+                    fspec = str(f.get("spec", ""))
+                    ftorque = str(f.get("torque", "")).strip()
+                    if (not ftorque or ftorque in ("—", "")) and bsize in fspec and loc in floc:
+                        old = f.get("torque", "")
+                        f["torque"] = f"{torque_val} [默认]"
+                        changelog.append({
+                            "field": f"fasteners.{loc}.torque",
+                            "old": old, "new": f"{torque_val}Nm",
+                            "source": f"BOLT_TORQUE[{bsize}] 8.8级标准",
+                        })
+
+        # --- Surface roughness ---
+        elif "缺少表面粗糙度" in item_text and isinstance(detail, list):
+            surfaces = data.get("tolerances", {}).setdefault("surfaces", [])
+            for pname, mat, ra_val in detail:
+                surfaces.append({
+                    "part": pname,
+                    "ra": f"Ra{ra_val}",
+                    "process": "",
+                    "material_type": mat,
+                })
+                changelog.append({
+                    "field": f"tolerances.surfaces.{pname}",
+                    "old": "—", "new": f"Ra{ra_val}",
+                    "source": f"SURFACE_RA[{mat}] 默认值",
+                })
+
+    return changelog
 
 
 # ─── 主入口 ──────────────────────────────────────────────────────────────
@@ -492,6 +790,7 @@ def run_review(data):
         "warning": verdicts.count("WARNING") + severities.count("WARNING"),
         "info": verdicts.count("INFO") + severities.count("INFO"),
         "ok": verdicts.count("OK"),
+        "auto_fill": sum(1 for c in comp if c.get("auto_fill") == "是"),
     }
 
     return {
@@ -582,6 +881,10 @@ def render_review(review_data, info, filepath, md5):
     sections.append("")
     sections.append(f"- **CRITICAL**: {s['critical']}项 / **WARNING**: {s['warning']}项 / **INFO**: {s['info']}项 / **OK**: {s['ok']}项")
 
+    auto_fill_count = s.get("auto_fill", 0)
+    if auto_fill_count > 0:
+        sections.append(f"- 可自动补全: **{auto_fill_count}项**（螺栓力矩、单位、粗糙度等）")
+
     if s["critical"] > 0:
         sections.append("- 建议: **需修正后继续** — 存在阻塞性问题")
     elif s["warning"] > 0:
@@ -590,7 +893,13 @@ def render_review(review_data, info, filepath, md5):
         sections.append("- 建议: **可继续** — 无阻塞性问题")
 
     sections.append("")
-    sections.append("> 用户可选择「继续审查」讨论具体问题，或「下一步」生成 CAD_SPEC.md")
+    if auto_fill_count > 0:
+        sections.append("> 用户可选择:")
+        sections.append("> 1. 「继续审查」讨论具体问题")
+        sections.append("> 2. 「自动补全」计算缺失数据并写入 CAD_SPEC.md")
+        sections.append("> 3. 「下一步」按现有数据生成 CAD_SPEC.md")
+    else:
+        sections.append("> 用户可选择「继续审查」讨论具体问题，或「下一步」生成 CAD_SPEC.md")
     sections.append("")
 
     return "\n".join(sections)

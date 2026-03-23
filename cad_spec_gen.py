@@ -272,11 +272,14 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
 # ─── Main processing ─────────────────────────────────────────────────────
 
 def process_doc(filepath: str, output_dir: str, force: bool = False,
-                review: bool = False, review_only: bool = False) -> dict:
+                review: bool = False, review_only: bool = False,
+                auto_fill: bool = False) -> dict:
     """Process a single design document and generate CAD_SPEC.md.
 
     Args:
         review: If True, also generate DESIGN_REVIEW.md before CAD_SPEC.
+        review_only: If True, only generate DESIGN_REVIEW.md (skip CAD_SPEC).
+        auto_fill: If True, apply auto-computable values before generating CAD_SPEC.
         review_only: If True, only generate DESIGN_REVIEW.md (skip CAD_SPEC).
     """
     path = Path(filepath).resolve()
@@ -386,8 +389,8 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     }
 
     # ── Design Review phase ──
-    if review or review_only:
-        from cad_spec_reviewer import run_review, render_review
+    if review or review_only or auto_fill:
+        from cad_spec_reviewer import run_review, render_review, apply_auto_fill
         print(f"\n[Design Review] Running engineering review...")
         review_data = run_review(data)
         review_md = render_review(review_data, info, str(path), md5)
@@ -395,10 +398,22 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         review_path.write_text(review_md, encoding="utf-8")
         rs = review_data["summary"]
         print(f"  Review: {rs['critical']}C / {rs['warning']}W / {rs['info']}I / {rs['ok']} OK")
+        if rs.get("auto_fill", 0) > 0:
+            print(f"  可自动补全: {rs['auto_fill']}项")
         print(f"  → {review_path}")
         result["review_path"] = str(review_path)
         result["review_critical"] = rs["critical"]
         result["review_warning"] = rs["warning"]
+        result["auto_fill_count"] = rs.get("auto_fill", 0)
+
+        # Apply auto-fill if requested
+        if auto_fill and rs.get("auto_fill", 0) > 0:
+            changelog = apply_auto_fill(review_data, data)
+            if changelog:
+                print(f"\n[Auto-Fill] 已补全 {len(changelog)} 项:")
+                for ch in changelog:
+                    print(f"  {ch['field']}: {ch['old']!r} → {ch['new']!r} ({ch['source']})")
+            result["auto_fill_changes"] = changelog
 
     if review_only:
         result["output_path"] = str(cad_dir / "DESIGN_REVIEW.md")
@@ -434,6 +449,8 @@ def main():
                         help="Run design review before generating CAD_SPEC.md")
     parser.add_argument("--review-only", action="store_true",
                         help="Only generate DESIGN_REVIEW.md (skip CAD_SPEC.md)")
+    parser.add_argument("--auto-fill", action="store_true",
+                        help="Auto-fill computable missing values (units, torques, Ra) into CAD_SPEC.md")
     args = parser.parse_args()
 
     # Load config
@@ -473,7 +490,8 @@ def main():
     for f in files:
         try:
             result = process_doc(str(f), output_dir, force=args.force,
-                                review=args.review, review_only=args.review_only)
+                                review=args.review, review_only=args.review_only,
+                                auto_fill=args.auto_fill)
             results.append(result)
         except Exception as e:
             print(f"[ERROR] {f.name}: {e}", file=sys.stderr)

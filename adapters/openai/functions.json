@@ -16,7 +16,7 @@
     },
     {
       "name": "cad_spec",
-      "description": "Generate structured CAD_SPEC.md from a Markdown design document. Extracts 9 categories: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report. Supports design review (mechanical/assembly/material/completeness checks) before spec generation.",
+      "description": "Generate structured CAD_SPEC.md from a Markdown design document. Extracts 9 categories: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report. Supports design review (mechanical/assembly/material/completeness checks including floating parts, connection quality, spatial overlap) before spec generation. Auto-fill mode computes missing bolt torques, units, and surface roughness.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -47,6 +47,10 @@
           "review_only": {
             "type": "boolean",
             "description": "Only generate DESIGN_REVIEW.md, skip CAD_SPEC.md (default: false)"
+          },
+          "auto_fill": {
+            "type": "boolean",
+            "description": "Auto-fill computable missing values (bolt torques, units, surface roughness) into CAD_SPEC.md (default: false)"
           }
         },
         "required": ["config"]

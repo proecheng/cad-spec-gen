@@ -87,6 +87,42 @@ BOLT_STRESS_AREA = {
     "M5": 14.2, "M6": 20.1, "M8": 36.6, "M10": 58.0, "M12": 84.3,
 }
 
+# 常见连接方式 regex（供 reviewer B7 校验）
+COMMON_CONNECTION_PATTERNS = [
+    r"\d+\s*[×xX]\s*M\d+",     # 螺栓组: 4×M3
+    r"M\d+",                     # 单螺栓: M3
+    r"过盈配合|压入",            # Press fit
+    r"H\d+/\w+",                # 配合代号: H7/k6
+    r"焊接|点焊|钎焊|laser",    # Welding
+    r"粘接|胶粘|Loctite|厌氧",  # Adhesive
+    r"卡扣|弹扣|锁扣|ZIF",      # Snap fit
+    r"轴承|bearing",             # Bearing
+    r"O.*圈|密封|seal",         # O-ring/seal
+    r"弹簧销|定位销|销|pin",    # Pin
+    r"嵌入|压紧|锁紧|夹紧",    # Insert/clamp
+    r"螺纹|旋入|拧入",          # Thread
+    r"键|花键|spline",          # Key/spline
+    r"铆|rivet",                 # Rivet
+    r"Φ\d+",                    # Diameter spec (pin/shaft)
+    r"碟簧|弹簧垫圈",           # Spring washer
+]
+
+# 承载结构件中较弱的连接方式
+WEAK_LOAD_CONNECTIONS = [r"粘接|胶粘|Loctite", r"卡扣|弹扣"]
+
+# 参数名→单位推断 (用于自动补全)
+PARAM_UNIT_PATTERNS = {
+    r"_OD$|_ID$|_DIA$|_W$|_H$|_L$|_THICK$|_R$|_GAP$": "mm",
+    r"WEIGHT|MASS": "g",
+    r"ANGLE|θ|DEG": "°",
+    r"FORCE|_F$": "N",
+    r"TORQUE|_T$": "Nm",
+    r"TEMP|温度": "°C",
+    r"SPEED|RPM": "rpm",
+    r"VOLTAGE|_V$": "V",
+    r"CURRENT|_A$|_I$": "A",
+}
+
 # ─── 必填项规则 ──────────────────────────────────────────────────────────
 
 # 每节的完整性规则：(条件函数, 严重度, 缺失描述, 建议)
