@@ -44,8 +44,9 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 │                                                               │
 │  Design Document (.md)                                        │
 │      ↓ cad_spec_gen.py --review (optional, recommended)       │
-│  DESIGN_REVIEW.md (mechanical/assembly/material/completeness) │
-│      ↓ User: iterate ("继续审查") or proceed ("下一步")          │
+│  DESIGN_REVIEW.md (A.mechanical / B.assembly incl. B5-B8     │
+│    connection checks / C.material / D.completeness)           │
+│      ↓ User: "继续审查" / "自动补全" (--auto-fill) / "下一步"    │
 │      ↓ Parameter extraction                                   │
 │  CadQuery Parametric Modeling → STEP + DXF + GLB              │
 │      ↓                                                        │

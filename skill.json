@@ -20,7 +20,7 @@
       "id": "cad-spec",
       "name": "CAD Spec Generator",
       "trigger": "/cad-spec",
-      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. Supports --review mode: mechanical/assembly/material/completeness checks → DESIGN_REVIEW.md → user iterate or proceed → CAD_SPEC.md",
+      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. Supports --review mode: mechanical(A1-A3)/assembly(B1-B8)/material(C1-C3)/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md",
       "entry_point": "python cad_pipeline.py spec"
     },
     {

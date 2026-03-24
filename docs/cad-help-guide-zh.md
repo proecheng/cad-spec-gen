@@ -44,8 +44,10 @@
 │                                                              │
 │  设计文档 (.md)                                              │
 │      ↓ cad_spec_gen.py --review（可选，推荐）                 │
-│  DESIGN_REVIEW.md（力学/装配/材质/完整性 审查报告）            │
-│      ↓ 用户选择：「继续审查」↻ 或「下一步」↓                   │
+│  DESIGN_REVIEW.md（A.力学 / B.装配含B5-B8连接检查 /          │
+│    C.材质 / D.完整性 审查报告）                                │
+│      ↓ 用户选择：「继续审查」↻ /「自动补全」(--auto-fill) /     │
+│        「下一步」↓                                             │
 │      ↓ 参数提取                                              │
 │  CadQuery 参数化建模 → STEP + DXF + GLB                     │
 │      ↓                                                       │

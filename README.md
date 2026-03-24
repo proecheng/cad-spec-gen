@@ -106,8 +106,9 @@ Labeled JPG — with leader lines and component names
 │                                                                 │
 │  1. DESIGN REVIEW (optional, recommended)                         │
 │     Design doc (.md) → cad_spec_gen.py --review                   │
-│     → DESIGN_REVIEW.md (mechanical / assembly / material / gaps)  │
-│     User reviews: iterate ("继续审查") or proceed ("下一步")         │
+│     → DESIGN_REVIEW.md (A.mechanical / B.assembly incl. B5-B8    │
+│       floating parts & connection checks / C.material / D.gaps)  │
+│     User: "继续审查" / "自动补全" (--auto-fill) / "下一步"          │
 │                                                                 │
 │  2. SPEC EXTRACTION (this repo)                                   │
 │     Design doc (.md) → cad_spec_gen.py → CAD_SPEC.md            │
@@ -143,8 +144,8 @@ Labeled JPG — with leader lines and component names
 
 ### Spec Extraction (`cad_spec_gen.py`)
 - **9-section structured output**: parameters, tolerances, fasteners, connection matrix, BOM tree, assembly pose, visual IDs, render plan, completeness report
-- **Design review mode** (`--review`): mechanical stress checks, assembly fit verification, material compatibility, completeness gaps → `DESIGN_REVIEW.md`
-- **User-driven iteration**: review → fix → re-review ("继续审查") or proceed to spec ("下一步")
+- **Design review mode** (`--review`): mechanical stress (A1-A3), assembly fit & connection graph (B1-B8), material compatibility (C1-C3), completeness gaps (D1+) → `DESIGN_REVIEW.md`
+- **User-driven iteration**: 3 options — "继续审查" (iterate) / "自动补全" (`--auto-fill`, computes missing torques/Ra/units) / "下一步" (proceed)
 - **Idempotent**: MD5-based skip — won't regenerate if source unchanged
 - **Auto-defaults**: standard bolt torques (8.8 grade), surface Ra by material type
 - **Derived calculations**: total cost, part count, BOM completeness %

@@ -49,10 +49,14 @@
    - B. 装配审查结果（尺寸链、包络干涉等）
    - C. 材质审查结果（电偶腐蚀、温度裕度等）
    - D. 缺失数据（CRITICAL/WARNING/INFO）
-3. 向用户提供两个选项：
+3. 向用户提供三个选项：
    - **「继续审查」** → 逐项讨论 WARNING/CRITICAL，用户可调整参数，审查结果记入 CAD_SPEC.md 备注
-   - **「下一步」** → 接受当前结果，生成/更新 CAD_SPEC.md
-4. 用户确认「下一步」后，运行不带 --review-only 的完整生成
+   - **「自动补全」** → 对可计算的缺失数据（螺栓力矩、单位、粗糙度等）自动填入默认值，再生成 CAD_SPEC.md
+     ```bash
+     python cad_spec_gen.py <doc.md> --config config/gisbot.json --review --auto-fill
+     ```
+   - **「下一步」** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
+4. 用户确认「下一步」或「自动补全」后，运行完整生成
 5. **重要：不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
 
 ### 生成后汇总
