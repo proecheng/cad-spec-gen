@@ -82,8 +82,15 @@ cad/end_effector/
 ├── render_3d.py           Blender 5 视角渲染 (--config --all)
 ├── render_exploded.py     爆炸图渲染 (--config --spread)
 ├── render_dxf.py          DXF → PNG 转换
-├── render_config.json     渲染配置 (材质/相机/爆炸规则)
+├── render_config.json     渲染配置 (材质/相机/爆炸规则/标准件描述)
 └── render_config.py       配置引擎 (15 种材质预设)
+
+codegen/                   代码生成器（从 CAD_SPEC.md 生成脚手架）
+├── gen_params.py          §1 参数表 → params.py
+├── gen_build.py           §5 BOM树 → build_all.py（含标准件构建表）
+├── gen_parts.py           §5 叶零件 → station_*.py 脚手架
+├── gen_assembly.py        §4+§5+§6 → assembly.py（含标准件）
+└── gen_std_parts.py       §5 外购件 → std_*.py 简化几何（9类）
 
 tools/hybrid_render/
 ├── check_env.py           环境检查 (--json)
@@ -94,7 +101,7 @@ tools/
 └── bom_parser.py          BOM 零件树解析 (--json --summary)
 
 # Gemini AI 工具（用户自行配置路径）
-# gemini_gen.py             Gemini 图生图 (--image png "prompt")
+# gemini_gen.py             Gemini 图生图 (--image png --model <id> "prompt")
 ```
 
 ## 15 种材质预设
@@ -168,7 +175,9 @@ python gemini_gen.py --image V5_ortho_front.png \
 **核心原则：**
 - Prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
 - 材质描述来源于 `render_config.json` 的 `prompt_vars` 字段
+- 标准件增强描述来源于 `render_config.json` 的 `standard_parts` 数组（`{standard_parts_description}` 占位符）
 - 3套模板对应不同视角类型（标准/爆炸/正交）
+- 模型选择：`pipeline_config.json` 的 `enhance.model` 字段选择 Gemini 模型别名（nano_banana / nano_banana_pro / nano_banana_2）
 - 输出：每张约6MB JPG，照片级影棚品质
 - 双输出：PNG用于工程审图/加工参考，JPG用于答辩/展示/商业计划书
 

@@ -29,6 +29,20 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("gbk"):
 
 REPO_ROOT = Path(__file__).resolve().parent
 
+# --- Deprecation notice ---
+_DEPRECATION_MSG = """\
+⚠️  install.py is deprecated. Please use the PyPI package instead:
+
+    pip install cad-spec-gen
+    cad-skill-setup
+
+  The PyPI installer supports language selection (zh/en), environment
+  detection, optional dependency installation, and interactive setup.
+
+  This script will continue to work but will not receive new features.
+"""
+print(_DEPRECATION_MSG, file=sys.stderr)
+
 # Files that users may customize — never overwrite silently
 USER_CONFIG_FILES = [
     "config/gisbot.json",

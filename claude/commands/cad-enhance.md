@@ -30,3 +30,36 @@
 - **几何锁定**：prompt 首行必须写 "Keep ALL geometry EXACTLY unchanged"
 - **材质来源**：所有材质描述从 render_config.json `prompt_vars` 读取，不要凭空编造
 - **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
+
+### 标准件增强
+
+prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_config.json` 的 `standard_parts` 数组填充：
+
+```json
+"standard_parts": [
+  {"visual_cue": "Small cylinder (Φ22×68mm) under flange", "real_part": "Maxon ECX motor, silver housing..."},
+  {"visual_cue": "Annular rings at bearing locations", "real_part": "MR105ZZ ball bearing, chrome steel..."}
+]
+```
+
+Gemini 收到简化几何的位置描述 + 真实零件外观描述，将简化形状增强为逼真外观。如 `standard_parts` 为空，占位符替换为空字符串，不影响现有流程。
+
+### 模型选择
+
+`pipeline_config.json` 的 `enhance` 段配置 Gemini 模型：
+
+```json
+"enhance": {
+  "model": "nano_banana_2",
+  "models": {
+    "nano_banana": "gemini-2.5-flash-image",
+    "nano_banana_pro": "gemini-3-pro-image-preview",
+    "nano_banana_2": "gemini-3.1-flash-image"
+  }
+}
+```
+
+- `model` 字段选择当前使用的模型别名
+- `models` 字典映射别名 → Gemini API model ID
+- 通过 `--model <id>` 参数传递给 `gemini_gen.py`
+- 切换模型只需修改 `pipeline_config.json` 的 `model` 值

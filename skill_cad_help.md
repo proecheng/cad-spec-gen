@@ -308,9 +308,24 @@ prompt模板 (templates/ 目录):
   templates/prompt_ortho.txt    — V5 正交图专用 (无透视畸变)
 
 模板变量 (从 render_config.json prompt_vars 填充):
-  {product_name}           ← prompt_vars.product_name
-  {view_description}       ← camera.V*.description
-  {material_descriptions}  ← prompt_vars.material_descriptions[]
+  {product_name}                ← prompt_vars.product_name
+  {view_description}            ← camera.V*.description
+  {material_descriptions}       ← prompt_vars.material_descriptions[]
+  {standard_parts_description}  ← standard_parts[] (简化几何→真实外观映射)
+
+标准件增强:
+  render_config.json 的 standard_parts 数组描述简化几何与真实零件的映射:
+    {"visual_cue": "Small cylinder Φ22×68mm under flange", "real_part": "Maxon ECX motor..."}
+  Gemini 收到位置描述+外观描述，将简化形状增强为逼真外观
+  如 standard_parts 为空，占位符替换为空字符串，不影响原有流程
+
+模型选择 (pipeline_config.json enhance 段):
+  model: nano_banana_2  ← 当前使用的模型别名
+  可选: nano_banana (gemini-2.5-flash-image)
+        nano_banana_pro (gemini-3-pro-image-preview)
+        nano_banana_2 (gemini-3.1-flash-image)
+  切换: 修改 pipeline_config.json 的 enhance.model 值
+  传递: --model <id> 参数传给 gemini_gen.py
 
 核心原则:
   1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
@@ -408,11 +423,12 @@ A: render_config.json → "resolution": {"width": 1920, "height": 1080}
 cad/<subsystem>/                   ← 每个子系统独立目录
 ├── params.py                      ← 参数单一数据源
 ├── *.py                           ← 3D模型脚本 (零件/装配)
-├── assembly.py                    ← 总装配 → STEP + GLB
+├── std_*.py                       ← 标准件简化几何 (外购件, 自动生成)
+├── assembly.py                    ← 总装配 → STEP + GLB (含标准件)
 ├── drawing.py                     ← 2D工程图引擎 (GB/T国标)
 ├── draw_*.py                      ← 各零件工程图
 ├── render_dxf.py                  ← DXF→PNG转换
-├── render_config.json             ← 渲染配置 (材质/相机/爆炸/标注)
+├── render_config.json             ← 渲染配置 (材质/相机/爆炸/标注/标准件)
 ├── render_config.py               ← 配置引擎 (15材质预设)
 ├── render_3d.py                   ← Blender Cycles渲染脚本
 ├── render_exploded.py             ← 爆炸图渲染脚本
@@ -482,6 +498,9 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
 第1层: 底层Python脚本 (任何能执行shell的LLM/Agent均可调用)
   ┌──────────────────────────────────────────────────────────────┐
   │ 脚本                          用途          CLI参数            │
+  │ cad_pipeline.py              6阶段统一入口  spec/codegen/build/│
+  │                                             render/enhance/   │
+  │                                             annotate/full     │
   │ build_all.py                 一键构建      --render           │
   │ render_3d.py (Blender内)     3D渲染        --config --view --all │
   │ render_exploded.py (Blender内) 爆炸图      --config --spread  │
@@ -489,7 +508,7 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   │ prompt_builder.py            生成prompt     --config --type    │
   │ validate_config.py           验证配置       <config.json>      │
   │ check_env.py                 环境检查       --json             │
-  │ gemini_gen.py                图生图         --image <png> "prompt" │
+  │ gemini_gen.py                图生图         --image --model    │
   └──────────────────────────────────────────────────────────────┘
 
 第2层: 技能知识文档 (可直接作为 system prompt)
@@ -523,7 +542,12 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
     2. 提供 shell/subprocess 执行能力
     3. LLM 按文档指引生成命令并执行
 
-通用版导出:
+安装（推荐 PyPI）:
+  pip install cad-spec-gen     # 安装技能包
+  cad-skill-setup              # 交互式向导（语言/环境/依赖/注册）
+  cad-skill-check              # 检查环境状态
+
+通用版导出（git clone 方式）:
   python install.py --platform system-prompt  # 导出通用系统提示词
   python install.py --platform openai         # 导出 OpenAI Function schema
 ```

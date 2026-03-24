@@ -18,6 +18,16 @@
    - 按该意图的"动作详情"执行（能跑程序的直接跑，需引导的分步展开）
    - 如果匹配不到任何意图，回复"未能理解您的问题"并显示帮助面板
 
+3. **全管线请求**（当用户要求"全部流程"/"走全流程"/"全管线"/"full pipeline"时）：
+   1. 先运行 Phase 1 SPEC（含 `--review`）
+   2. **必须**读取 `DESIGN_REVIEW.md` 并向用户展示审查摘要（CRITICAL/WARNING/INFO/OK 计数 + WARNING 条目详情）
+   3. 提供 3 选项让用户选择：
+      - 「继续审查」→ 逐项讨论 WARNING/CRITICAL，用户可调整参数
+      - 「自动补全」→ 运行 `--auto-fill` 后继续后续阶段
+      - 「下一步」→ 按现有数据直接继续 Phase 2+
+   4. 用户确认后，再执行后续阶段（codegen → build → render → enhance → annotate）
+   5. **不可**跳过此步骤直接执行 `cad_pipeline.py full`（管线层也有断点保护）
+
 ### 执行约束
 
 - 环境检查（env_check）：逐项运行检测命令，汇报 ✅/❌ 状态

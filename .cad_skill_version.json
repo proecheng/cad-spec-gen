@@ -12,7 +12,7 @@
     "cad_pipeline.py": "68353f790e055034f002d9e0966afe85",
     "annotate_render.py": "a9af7e25f30c4c79733a66d835d703e5",
     "pipeline_config.json": "fe8b66f82647d09939fb5e1ca9fb5ef1",
-    "skill_cad_help.md": "83b4248f7b7d21d0b9de50939c84cb7b",
+    "skill_cad_help.md": "73d284678cb0b9894ed613233846cb0e",
     "config/gisbot.json": "8cb1724087f9e17fea9fca7c5a79cca8",
     "templates/assembly.py.j2": "1fbca807de50eb7837d1b3b5085b5fbb",
     "templates/build_all.py.j2": "b4adfd3202f5e078dfd988dff41aefe8",

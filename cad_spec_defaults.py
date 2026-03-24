@@ -123,6 +123,76 @@ PARAM_UNIT_PATTERNS = {
     r"CURRENT|_A$|_I$": "A",
 }
 
+# ─── 标准件外形尺寸（供简化 CadQuery 几何生成使用）──────────────────────
+# 格式: "型号关键词" → {"d": 直径mm, "l": 长度mm, ...}
+# 对于方形件: {"w": 宽, "h": 高, "l": 长}
+
+STD_PART_DIMENSIONS = {
+    # --- Motors ---
+    "ECX SPEED 22": {"d": 22, "l": 68, "shaft_d": 4, "shaft_l": 14},
+    "ECX 22":       {"d": 22, "l": 55, "shaft_d": 4, "shaft_l": 14},
+    "ECX 16":       {"d": 16, "l": 44, "shaft_d": 3, "shaft_l": 10},
+    "DC Φ16":       {"d": 16, "l": 30, "shaft_d": 2, "shaft_l": 8},
+    # --- Reducers / Gearboxes ---
+    "GP22C":        {"d": 22, "l": 35, "shaft_d": 6, "shaft_l": 10},
+    "GP22":         {"d": 22, "l": 30, "shaft_d": 4, "shaft_l": 10},
+    "GP32":         {"d": 32, "l": 45, "shaft_d": 6, "shaft_l": 12},
+    "GP42":         {"d": 42, "l": 55, "shaft_d": 8, "shaft_l": 15},
+    # --- Disc Springs (DIN 2093) ---
+    "DIN 2093 A6":  {"od": 12.5, "id": 6.2, "t": 0.7, "h": 0.85},
+    "DIN 2093 A8":  {"od": 16, "id": 8.2, "t": 0.8, "h": 1.0},
+    "DIN 2093 A10": {"od": 20, "id": 10.2, "t": 1.0, "h": 1.15},
+    # --- Bearings ---
+    "MR105ZZ":      {"od": 10, "id": 5, "w": 4},
+    "MR115ZZ":      {"od": 11, "id": 5, "w": 4},
+    "MR128ZZ":      {"od": 12, "id": 8, "w": 3.5},
+    "688ZZ":        {"od": 16, "id": 8, "w": 5},
+    "608ZZ":        {"od": 22, "id": 8, "w": 7},
+    # --- Sensors ---
+    "ATI Nano17":   {"d": 17, "l": 14.5},
+    "TWAE-03":      {"d": 8, "l": 10},
+    "I300-UHF":     {"w": 30, "h": 20, "l": 15},
+    # --- Connectors ---
+    "LEMO FGG.0B":  {"d": 10, "l": 30},
+    "LEMO EGG.0B":  {"d": 12, "l": 20},
+    "SMA":          {"d": 6.5, "l": 15},
+    "Molex ZIF":    {"w": 12, "h": 3, "l": 8},
+    # --- Pumps ---
+    "齿轮泵":       {"w": 30, "h": 25, "l": 40},
+    "微量泵":       {"w": 20, "h": 15, "l": 30},
+    # --- Generic fallbacks by category ---
+    "_motor":       {"d": 22, "l": 50, "shaft_d": 4, "shaft_l": 12},
+    "_reducer":     {"d": 25, "l": 35, "shaft_d": 6, "shaft_l": 10},
+    "_spring":      {"od": 10, "id": 5, "t": 0.7, "h": 0.85},
+    "_bearing":     {"od": 12, "id": 6, "w": 4},
+    "_sensor":      {"d": 15, "l": 12},
+    "_pump":        {"w": 30, "h": 25, "l": 40},
+    "_connector":   {"d": 10, "l": 25},
+    "_seal":        {"od": 80, "id": 75, "section_d": 2.4},
+    "_tank":        {"d": 38, "l": 280},
+}
+
+
+def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> dict:
+    """Look up standard part dimensions from name/material/model text.
+
+    Returns dict with dimensional keys (d, l, w, h, od, id, etc.) or empty dict.
+    """
+    text = name + " " + material
+    # Try specific model matches first
+    for key, dims in STD_PART_DIMENSIONS.items():
+        if key.startswith("_"):
+            continue  # Skip generic fallbacks in first pass
+        if key.upper() in text.upper():
+            return dict(dims)  # Return copy
+    # Try generic fallback by category
+    if category:
+        fallback_key = f"_{category}"
+        if fallback_key in STD_PART_DIMENSIONS:
+            return dict(STD_PART_DIMENSIONS[fallback_key])
+    return {}
+
+
 # ─── 必填项规则 ──────────────────────────────────────────────────────────
 
 # 每节的完整性规则：(条件函数, 严重度, 缺失描述, 建议)

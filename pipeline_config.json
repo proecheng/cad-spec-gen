@@ -17,5 +17,15 @@
   "archive": {
     "enabled": true,
     "max_versions": 10
+  },
+  "enhance": {
+    "model": "nano_banana_2",
+    "models": {
+      "nano_banana": "gemini-2.5-flash-image",
+      "nano_banana_pro": "gemini-3-pro-image-preview",
+      "nano_banana_2": "gemini-3.1-flash-image"
+    },
+    "resolution": "2k",
+    "timeout": 180
   }
 }

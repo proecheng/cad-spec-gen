@@ -3,5 +3,6 @@ Do NOT crop, pan, zoom, or reframe — output must match the input image pixel-f
 This is a front orthographic projection of a {product_name} — engineering reference view with no perspective distortion.
 Apply photorealistic studio-quality materials ONLY:
 {material_descriptions}
+{standard_parts_description}
 Flat, even studio lighting for engineering reference.
 Neutral gradient background. 8K orthographic product photography.

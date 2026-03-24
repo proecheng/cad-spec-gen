@@ -30,6 +30,11 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8")
 
 from codegen.gen_build import parse_bom_tree
+from bom_parser import classify_part
+
+# Categories that get simplified CadQuery geometry
+_STD_PART_CATEGORIES = {"motor", "reducer", "spring", "bearing", "sensor",
+                        "pump", "connector", "seal", "tank"}
 
 
 def parse_assembly_pose(spec_path: str) -> dict:
@@ -122,6 +127,19 @@ _COLOR_PALETTE = [
     ("C_RUBBER",  0.10, 0.10, 0.10),
 ]
 
+# ── Distinct colors for standard/purchased parts ──
+_STD_COLOR_MAP = {
+    "motor":     ("C_STD_MOTOR",   0.75, 0.75, 0.78),  # silver metallic
+    "reducer":   ("C_STD_REDUCER", 0.70, 0.70, 0.72),  # darker silver
+    "spring":    ("C_STD_SPRING",  0.78, 0.68, 0.20),  # golden steel
+    "bearing":   ("C_STD_BEARING", 0.60, 0.60, 0.65),  # steel grey
+    "sensor":    ("C_STD_SENSOR",  0.20, 0.20, 0.20),  # dark (electronics)
+    "pump":      ("C_STD_PUMP",    0.55, 0.55, 0.60),  # medium grey
+    "connector": ("C_STD_CONN",    0.25, 0.25, 0.25),  # dark grey
+    "seal":      ("C_STD_SEAL",    0.08, 0.08, 0.08),  # black rubber
+    "tank":      ("C_STD_TANK",    0.82, 0.82, 0.85),  # bright steel
+}
+
 
 def generate_assembly(spec_path: str) -> str:
     """Generate assembly.py scaffold content."""
@@ -150,7 +168,9 @@ def generate_assembly(spec_path: str) -> str:
     # Build station definitions
     stations = []
     part_imports = []
+    std_part_imports = []
     color_idx = 0
+    std_colors_used = {}  # track which std colors we need
 
     # Detect station angle pattern from pose layers
     station_angles = [0.0, 90.0, 180.0, 270.0]  # default 4-station
@@ -168,26 +188,55 @@ def generate_assembly(spec_path: str) -> str:
         station_parts = []
         mod_name = f"module_{suffix.lower()}"
         func_names = []
+        std_func_imports = []  # std parts for this station
 
         for child in children:
             c_suffix = re.sub(r"^GIS-\w+-\d+-", "", child["part_no"])
-            c_func = f"make_{suffix.lower()}_{c_suffix}"
-            func_names.append(c_func)
-            c_color = _COLOR_PALETTE[color_idx % len(_COLOR_PALETTE)][0]
+            make_buy = child.get("make_buy", "")
 
-            station_parts.append({
-                "var": f"p_{suffix.lower()}_{c_suffix}",
-                "make_call": f"{c_func}()",
-                "local_transform": None,
-                "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
-                "color_var": c_color,
-            })
+            if "外购" in make_buy:
+                # Standard/purchased part — use std_ module
+                category = classify_part(child["name_cn"], child.get("material", ""))
+                if category not in _STD_PART_CATEGORIES:
+                    continue
+                std_mod = f"std_{re.sub(r'^GIS-', '', child['part_no']).lower().replace('-', '_')}"
+                std_func = f"make_{std_mod}"
+                color_info = _STD_COLOR_MAP.get(category, ("C_STD_SENSOR", 0.2, 0.2, 0.2))
+                std_colors_used[color_info[0]] = color_info
+
+                station_parts.append({
+                    "var": f"p_{std_mod}",
+                    "make_call": f"{std_func}()",
+                    "local_transform": None,
+                    "assy_name": f"STD-{child['part_no']}",
+                    "color_var": color_info[0],
+                })
+                std_func_imports.append({
+                    "module": std_mod,
+                    "func": std_func,
+                })
+            else:
+                # Custom-made part
+                c_func = f"make_{suffix.lower()}_{c_suffix}"
+                func_names.append(c_func)
+                c_color = _COLOR_PALETTE[color_idx % len(_COLOR_PALETTE)][0]
+
+                station_parts.append({
+                    "var": f"p_{suffix.lower()}_{c_suffix}",
+                    "make_call": f"{c_func}()",
+                    "local_transform": None,
+                    "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
+                    "color_var": c_color,
+                })
 
         if func_names:
             part_imports.append({
                 "module": mod_name,
                 "functions": func_names,
             })
+
+        for si in std_func_imports:
+            std_part_imports.append(si)
 
         # Determine if this is a radial station
         is_radial = i > 0 and i < len(assemblies) - 1 and len(station_angles) >= i
@@ -229,8 +278,11 @@ def generate_assembly(spec_path: str) -> str:
             "STATION_ANGLES", "MOUNT_CENTER_R", "FLANGE_AL_THICK",
         ],
         part_imports=part_imports,
+        std_part_imports=std_part_imports,
         colors=[{"name": c[0], "r": c[1], "g": c[2], "b": c[3]}
                 for c in _COLOR_PALETTE],
+        std_colors=[{"name": v[0], "r": v[1], "g": v[2], "b": v[3]}
+                    for v in std_colors_used.values()],
         stations=stations,
     )
 

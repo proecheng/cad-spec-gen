@@ -269,6 +269,37 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     return "\n".join(sections)
 
 
+# ─── Review helpers ──────────────────────────────────────────────────────
+
+def _flatten_review_items(review_data):
+    """Extract WARNING/CRITICAL items from review_data into a flat list for JSON sidecar."""
+    items = []
+    for category in ("mechanical", "assembly", "material"):
+        for it in review_data.get(category, []):
+            verdict = it.get("verdict", "")
+            if verdict in ("WARNING", "CRITICAL"):
+                items.append({
+                    "id": it.get("id", ""),
+                    "category": category,
+                    "check": it.get("check", ""),
+                    "detail": it.get("detail", ""),
+                    "verdict": verdict,
+                    "suggestion": it.get("suggestion", ""),
+                })
+    for it in review_data.get("completeness", []):
+        severity = it.get("severity", "")
+        if severity in ("WARNING", "CRITICAL"):
+            items.append({
+                "id": it.get("id", ""),
+                "category": "completeness",
+                "check": it.get("missing", ""),
+                "detail": it.get("note", ""),
+                "verdict": severity,
+                "suggestion": it.get("default", ""),
+            })
+    return items
+
+
 # ─── Main processing ─────────────────────────────────────────────────────
 
 def process_doc(filepath: str, output_dir: str, force: bool = False,
@@ -396,7 +427,17 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         review_md = render_review(review_data, info, str(path), md5)
         review_path = cad_dir / "DESIGN_REVIEW.md"
         review_path.write_text(review_md, encoding="utf-8")
+        # Write machine-readable JSON sidecar for pipeline checkpoint
         rs = review_data["summary"]
+        review_json_path = cad_dir / "DESIGN_REVIEW.json"
+        review_json_path.write_text(json.dumps({
+            "critical": rs["critical"],
+            "warning": rs["warning"],
+            "info": rs["info"],
+            "ok": rs["ok"],
+            "auto_fill": rs.get("auto_fill", 0),
+            "items": _flatten_review_items(review_data),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"  Review: {rs['critical']}C / {rs['warning']}W / {rs['info']}I / {rs['ok']} OK")
         if rs.get("auto_fill", 0) > 0:
             print(f"  可自动补全: {rs['auto_fill']}项")

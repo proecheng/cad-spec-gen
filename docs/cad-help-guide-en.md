@@ -81,8 +81,15 @@ cad/end_effector/
 ├── render_3d.py           Blender 5-view rendering (--config --all)
 ├── render_exploded.py     Exploded view rendering (--config --spread)
 ├── render_dxf.py          DXF → PNG conversion
-├── render_config.json     Render config (materials/cameras/explode rules)
+├── render_config.json     Render config (materials/cameras/explode rules/standard parts)
 └── render_config.py       Config engine (15 material presets)
+
+codegen/                   Code generators (CAD_SPEC.md → scaffold code)
+├── gen_params.py          §1 params → params.py
+├── gen_build.py           §5 BOM → build_all.py (incl. std parts build table)
+├── gen_parts.py           §5 leaf parts → station_*.py scaffolds
+├── gen_assembly.py        §4+§5+§6 → assembly.py (incl. std parts)
+└── gen_std_parts.py       §5 purchased → std_*.py simplified geometry (9 categories)
 
 tools/hybrid_render/
 ├── check_env.py           Environment check (--json)
@@ -93,7 +100,7 @@ tools/
 └── bom_parser.py          BOM part tree parser (--json --summary)
 
 # Gemini AI tool (user-configured path)
-# gemini_gen.py             Gemini image generation (--image png "prompt")
+# gemini_gen.py             Gemini image generation (--image png --model <id> "prompt")
 ```
 
 ## 15 Material Presets
@@ -167,7 +174,9 @@ python gemini_gen.py --image V5_ortho_front.png \
 **Key principles:**
 - Prompt line 1 MUST say "Keep ALL geometry EXACTLY unchanged"
 - Material descriptions come from `render_config.json` `prompt_vars`
+- Standard parts enhancement descriptions come from `render_config.json` `standard_parts` array (`{standard_parts_description}` placeholder)
 - 3 templates for different view types (standard / exploded / ortho)
+- Model selection: `pipeline_config.json` `enhance.model` field selects Gemini model alias (nano_banana / nano_banana_pro / nano_banana_2)
 - Output: ~6MB JPG per view, photorealistic studio quality
 
 ### Component Label Annotation (CN/EN)

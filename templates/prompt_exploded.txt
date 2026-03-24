@@ -4,5 +4,6 @@ This is an exploded view of a {product_name}.
 Each module is displaced radially outward from the central assembly to show assembly relationships.
 Apply photorealistic studio-quality materials ONLY:
 {material_descriptions}
+{standard_parts_description}
 Keep explosion gaps and assembly lines visible.
 Studio lighting, neutral gradient background. 8K exploded-view product photography.

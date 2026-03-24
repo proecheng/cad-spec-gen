@@ -181,6 +181,52 @@
     "uhf":         {"name_cn": "工位4 UHF模块",       "name_en": "S4 UHF Module",           "bom_id": "GIS-EE-005"},
     "sig_cond":    {"name_cn": "信号调理模块",         "name_en": "Signal Conditioning",     "bom_id": "GIS-EE-006"}
   },
+  "standard_parts": [
+    {
+      "visual_cue": "Small cylinder (Φ22×68mm) mounted under flange center",
+      "real_part": "Maxon ECX SPEED 22L brushed DC motor, silver aluminum cylindrical housing, black plastic endcap with thin cable"
+    },
+    {
+      "visual_cue": "Wider cylinder (Φ22×35mm) above motor",
+      "real_part": "Maxon GP22C planetary gearbox, silver machined aluminum housing, hex output shaft visible on top"
+    },
+    {
+      "visual_cue": "Thin flat ring/disc stack on flange (Φ12.5mm)",
+      "real_part": "DIN 2093 A6 disc spring washer stack, blued spring steel, slight iridescent golden-blue tint"
+    },
+    {
+      "visual_cue": "Small annular rings (Φ10×4mm) at bearing locations",
+      "real_part": "MR105ZZ miniature ball bearing, chrome steel races with rubber seals, precise metallic finish"
+    },
+    {
+      "visual_cue": "Black rubber torus ring (Φ80×2.4mm section) on flange sealing surface",
+      "real_part": "FKM O-ring, matte black fluoroelastomer, soft rubber appearance"
+    },
+    {
+      "visual_cue": "Cylindrical sensor (Φ17×14.5mm) at S2 station",
+      "real_part": "ATI Nano17 force/torque sensor, titanium grey body, black connector, precision instrument look"
+    },
+    {
+      "visual_cue": "Small cylinder (Φ8×10mm) AE transducer at S2",
+      "real_part": "TWAE-03 acoustic emission sensor, black anodized body, gold connector ring"
+    },
+    {
+      "visual_cue": "Small cylindrical connectors (Φ10-12mm) on modules",
+      "real_part": "LEMO push-pull connectors, chrome-plated brass body, colored coding ring, precision round plug"
+    },
+    {
+      "visual_cue": "Tall cylinder (Φ38×280mm) at S3 cleaner station",
+      "real_part": "Stainless steel solvent reservoir tank, mirror-polished SUS316L, welded end caps, industrial vessel look"
+    },
+    {
+      "visual_cue": "Box shape with pipe stubs at S1 applicator",
+      "real_part": "Miniature gear pump, silver aluminum body, two barbed tube fittings, compact industrial pump"
+    },
+    {
+      "visual_cue": "Small rectangular box at S4 UHF station",
+      "real_part": "I300-UHF inspection sensor, dark grey ABS housing, front aperture window, industrial sensor module"
+    }
+  ],
   "labels": {
     "_doc": "Only visible components per view. Coords at 1920x1080 ref, auto-scaled.",
     "V1": [

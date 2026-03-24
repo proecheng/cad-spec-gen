@@ -48,7 +48,27 @@ log = logging.getLogger("cad_pipeline")
 CAD_DIR = os.path.join(SKILL_ROOT, "cad")
 TOOLS_DIR = os.path.join(SKILL_ROOT, "tools")
 CONFIG_PATH = os.path.join(SKILL_ROOT, "config", "gisbot.json")
+PIPELINE_CONFIG_PATH = os.path.join(SKILL_ROOT, "pipeline_config.json")
 DEFAULT_OUTPUT = get_output_dir()
+
+
+def _load_pipeline_config():
+    """Load pipeline_config.json (render/timestamp/archive settings)."""
+    if os.path.isfile(PIPELINE_CONFIG_PATH):
+        with open(PIPELINE_CONFIG_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _should_timestamp(args):
+    """Determine if timestamp should be added to output filenames.
+
+    Priority: CLI --timestamp flag > pipeline_config.json timestamp.enabled
+    """
+    if getattr(args, "timestamp", False):
+        return True
+    pc = _load_pipeline_config()
+    return pc.get("timestamp", {}).get("enabled", False)
 
 
 def _load_config():
@@ -94,6 +114,7 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
         )
         elapsed = time.time() - t0
         if result.returncode != 0:
@@ -187,6 +208,13 @@ def cmd_codegen(args):
     if not ok:
         failures += 1
 
+    # 2c2: standard part simplified geometry (purchased parts)
+    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_std_parts.py"),
+           spec_path, "--output-dir", sub_dir]
+    ok, _ = _run_subprocess(cmd, "codegen std parts", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
     # 2d: assembly.py
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_assembly.py"),
            spec_path, "--mode", mode]
@@ -245,7 +273,7 @@ def cmd_render(args):
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
-    if getattr(args, "timestamp", False):
+    if _should_timestamp(args):
         render_args.append("--timestamp")
 
     if args.view:
@@ -254,13 +282,13 @@ def cmd_render(args):
             cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
         else:
             cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--view", args.view]
-        ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=600)
+        ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200)
         if not ok:
             failures += 1
     else:
         # All views
         cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--all"]
-        ok, _ = _run_subprocess(cmd, "render standard views", dry_run=args.dry_run, timeout=600)
+        ok, _ = _run_subprocess(cmd, "render standard views", dry_run=args.dry_run, timeout=1200)
         if not ok:
             failures += 1
 
@@ -287,6 +315,33 @@ def cmd_enhance(args):
         log.error("No V*.png files found in %s", render_dir)
         return 1
 
+    # Load render_config.json for standard_parts descriptions
+    std_parts_desc = ""
+    sub_dir = get_subsystem_dir(getattr(args, "subsystem", None))
+    rc_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
+    if rc_path and os.path.isfile(rc_path):
+        with open(rc_path, encoding="utf-8") as f:
+            rc = json.load(f)
+        std_parts = rc.get("standard_parts", [])
+        if std_parts:
+            lines = ["\n[Standard Components — enhance simplified shapes to real-world appearance]"]
+            for sp in std_parts:
+                lines.append(f"- {sp.get('visual_cue', '')}: {sp.get('real_part', '')}")
+            std_parts_desc = "\n".join(lines)
+
+    # Load model config
+    model_arg = []
+    pcfg_path = os.path.join(SKILL_ROOT, "pipeline_config.json")
+    if os.path.isfile(pcfg_path):
+        with open(pcfg_path, encoding="utf-8") as f:
+            pcfg = json.load(f)
+        enhance_cfg = pcfg.get("enhance", {})
+        model_key = enhance_cfg.get("model", "")
+        models = enhance_cfg.get("models", {})
+        model_id = models.get(model_key, "")
+        if model_id:
+            model_arg = ["--model", model_id]
+
     # Load prompt template
     prompt_dir = os.path.join(TOOLS_DIR, "hybrid_render", "prompts")
     failures = 0
@@ -303,11 +358,13 @@ def cmd_enhance(args):
         if os.path.isfile(tmpl_file):
             with open(tmpl_file, encoding="utf-8") as f:
                 prompt = f.read().strip()
+            # Fill standard_parts_description (empty string if no data)
+            prompt = prompt.replace("{standard_parts_description}", std_parts_desc)
         else:
             prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
                       "to photo-realistic quality with proper lighting and reflections.")
 
-        cmd = [sys.executable, gemini_script, prompt, "--image", png]
+        cmd = [sys.executable, gemini_script, prompt, "--image", png] + model_arg
         ok, _ = _run_subprocess(cmd, f"enhance {os.path.basename(png)}",
                                 dry_run=args.dry_run, timeout=180)
         if not ok:
@@ -343,6 +400,60 @@ def cmd_annotate(args):
     return 0
 
 
+def _review_checkpoint(args):
+    """Halt pipeline if DESIGN_REVIEW has CRITICAL/WARNING (unless --auto-fill or --force)."""
+    # DESIGN_REVIEW.json is written by cad_spec_gen.py to the output dir, not the cad dir.
+    # Resolve output dir from config (same logic as cad_spec_gen.py).
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
+        output_dir = cfg.get("output_dir", "./output")
+        sub_cfg = cfg.get("subsystems", {})
+        # Find subsystem cad_dir by name or alias
+        cad_subdir = None
+        for _ch, info in sub_cfg.items():
+            aliases = [info.get("name", "")] + info.get("aliases", [])
+            if args.subsystem in aliases or args.subsystem == info.get("cad_dir"):
+                cad_subdir = info.get("cad_dir", args.subsystem)
+                break
+        if not cad_subdir:
+            cad_subdir = args.subsystem
+        review_dir = os.path.join(output_dir, cad_subdir)
+    except (OSError, json.JSONDecodeError):
+        review_dir = os.path.join("./output", args.subsystem)
+
+    review_json = os.path.join(review_dir, "DESIGN_REVIEW.json")
+    if not os.path.isfile(review_json):
+        return 0  # No review data, continue
+
+    with open(review_json, encoding="utf-8") as f:
+        data = json.load(f)
+
+    critical = data.get("critical", 0)
+    warning = data.get("warning", 0)
+    auto_fill = data.get("auto_fill", 0)
+
+    if critical > 0:
+        log.error("DESIGN_REVIEW has %d CRITICAL issue(s). Fix before continuing.", critical)
+        log.error("See: %s", os.path.join(review_dir, "DESIGN_REVIEW.md"))
+        return 1  # Hard stop
+
+    if warning > 0:
+        if getattr(args, "auto_fill", False):
+            log.info("DESIGN_REVIEW has %d WARNING(s), --auto-fill active → continuing", warning)
+            return 0
+        if getattr(args, "force", False):
+            log.info("DESIGN_REVIEW has %d WARNING(s), --force active → continuing", warning)
+            return 0
+        log.warning("DESIGN_REVIEW has %d WARNING(s), %d auto-fillable.", warning, auto_fill)
+        log.warning("Options: --auto-fill (fill defaults) | --force (ignore) | fix manually")
+        log.warning("See: %s", os.path.join(review_dir, "DESIGN_REVIEW.md"))
+        return 2  # Halt, user must decide
+
+    log.info("DESIGN_REVIEW: no CRITICAL/WARNING issues — continuing.")
+    return 0
+
+
 def cmd_full(args):
     """Full pipeline: spec → codegen → build → render → enhance → annotate."""
     log.info("=" * 60)
@@ -355,6 +466,7 @@ def cmd_full(args):
     # Phase 1: Spec generation (requires --design-doc or auto-resolve)
     if not args.skip_spec:
         steps.append(("SPEC", lambda: cmd_spec(args)))
+        steps.append(("REVIEW_CHECK", lambda: _review_checkpoint(args)))
 
     # Phase 2: Code generation
     if not args.skip_codegen:

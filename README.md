@@ -6,15 +6,31 @@ A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude C
 
 ## Installation
 
+### From PyPI (Recommended)
+
+```bash
+pip install cad-spec-gen
+cad-skill-setup
+```
+
+The interactive wizard guides you through:
+1. Language selection (中文 / English)
+2. Environment detection (Python, CadQuery, ezdxf, Blender, etc.)
+3. Optional dependency installation
+4. Blender configuration
+5. Pipeline config generation
+6. Skill file registration
+
+Non-interactive mode: `cad-skill-setup --lang en --target . --skip-deps`
+
+Check environment: `cad-skill-check`
+
+### From Git (Legacy)
+
 ```bash
 git clone https://github.com/proecheng/cad-spec-gen.git
 cd cad-spec-gen
-
-# Install to your project (Claude Code)
 python install.py --target /path/to/your-project
-
-# Or install to current directory
-python install.py
 ```
 
 After installation, type `/cad-help` in Claude Code to get started.
@@ -22,13 +38,12 @@ After installation, type `/cad-help` in Claude Code to get started.
 ### Update
 
 ```bash
-cd cad-spec-gen
-git pull
+# PyPI
+pip install --upgrade cad-spec-gen
+cad-skill-setup --update
 
-# Check if update available
-python install.py --check
-
-# Apply update (preserves your config/gisbot.json)
+# Git
+cd cad-spec-gen && git pull
 python install.py --update
 ```
 
@@ -50,9 +65,9 @@ DESIGN_REVIEW.md (issues & recommendations, user iterates or proceeds)
     ↓ cad_spec_gen.py — extract 9 categories of structured data
 CAD_SPEC.md (single source of truth for all downstream CAD work)
     ↓ codegen/gen_*.py — Jinja2 templates → CadQuery scaffolds
-params.py + build_all.py + station_*.py + assembly.py
+params.py + build_all.py + station_*.py + std_*.py + assembly.py
     ↓ CadQuery parametric modeling
-STEP + DXF (GB/T national-standard 2D drawings) + GLB
+STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
     ↓ Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
     ↓ AI enhancement (reskin only, geometry locked)
@@ -117,7 +132,8 @@ Labeled JPG — with leader lines and component names
 │                                                                 │
 │  3. CODE GENERATION (Jinja2)                                      │
 │     CAD_SPEC.md → codegen/gen_*.py → params.py + build_all.py   │
-│     + station_*.py scaffolds + assembly.py                      │
+│     + station_*.py scaffolds + std_*.py (standard parts)         │
+│     + assembly.py (with standard parts integrated)               │
 │     Templates: templates/*.j2 (scaffold mode, never overwrites) │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
@@ -134,6 +150,8 @@ Labeled JPG — with leader lines and component names
 │  6. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
+│     Standard parts: simplified shapes → realistic appearance    │
+│     Model: configurable via pipeline_config.json (Nano Banana)  │
 │                                                                 │
 │  Output:  PNG → engineering review / machining reference        │
 │           JPG → presentations / proposals / business plans      │
@@ -171,9 +189,11 @@ Labeled JPG — with leader lines and component names
 
 ### AI Enhancement (Hybrid Rendering)
 - **Geometry-locked**: Blender PNG provides exact geometry; AI only changes surface appearance
+- **Standard parts**: simplified CadQuery shapes (motors, bearings, springs) enhanced to realistic appearance via `{standard_parts_description}` prompt
 - **Cross-view consistent**: all 5 views share the same 3D source
 - **Dual output**: PNG for engineering, JPG for presentation
 - **Prompt templates**: auto-generated from render config variables
+- **Model selection**: configurable via `pipeline_config.json` — Nano Banana / Nano Banana Pro / Nano Banana 2
 
 ## Quick Start
 
@@ -192,7 +212,7 @@ python cad_pipeline.py spec --design-doc docs/design/04-末端执行机构设计
 
 # Phase 2: Generate CadQuery scaffolds
 python cad_pipeline.py codegen --subsystem end_effector
-# → params.py, build_all.py, station_*.py, assembly.py
+# → params.py, build_all.py, station_*.py, std_*.py, assembly.py
 
 # Phase 3-4: Build + render
 python cad_pipeline.py build --subsystem end_effector
@@ -232,7 +252,7 @@ python gemini_gen.py --image V5_ortho_front.png \
 - `prompt_exploded.txt` — V4 exploded view (preserves gaps)
 - `prompt_ortho.txt` — V5 orthographic (no perspective)
 
-Fill `{product_name}`, `{view_description}`, `{material_descriptions}` from `render_config.json`.
+Fill `{product_name}`, `{view_description}`, `{material_descriptions}`, `{standard_parts_description}` from `render_config.json`.
 Output: ~6MB JPG per view, 5460×3072, photorealistic studio quality.
 
 ### Component Label Annotation
@@ -365,9 +385,10 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── annotate_render.py              # PIL-based component label annotation (CN/EN)
 ├── codegen/                        # Jinja2 code generation from CAD_SPEC.md
 │   ├── gen_params.py               # §1 params → params.py
-│   ├── gen_build.py                # §5 BOM → build_all.py
-│   ├── gen_parts.py                # §5 leaf parts → station_*.py scaffolds
-│   └── gen_assembly.py             # §4+§5+§6 → assembly.py
+│   ├── gen_build.py                # §5 BOM → build_all.py (STEP + STD + DXF)
+│   ├── gen_parts.py                # §5 custom leaf parts → station_*.py scaffolds
+│   ├── gen_std_parts.py            # §5 purchased parts → std_*.py (simplified geometry)
+│   └── gen_assembly.py             # §4+§5+§6 → assembly.py (incl. standard parts)
 ├── templates/
 │   ├── params.py.j2                # Jinja2: params.py generation
 │   ├── build_all.py.j2             # Jinja2: build_all.py generation

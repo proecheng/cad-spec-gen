@@ -71,6 +71,7 @@
       "cli": "python annotate_render.py <image.jpg> --config <render_config.json> --lang cn|en [--all --dir DIR] [--font-size 32] [--style dark|light]"
     }
   ],
+  "pypi": "cad-spec-gen",
   "adapters": {
     "claude-code": "adapters/claude-code/",
     "openai": "adapters/openai/",

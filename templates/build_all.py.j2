@@ -46,6 +46,12 @@ _DXF_BUILDS = [
 {% endfor %}
 ]
 
+_STD_STEP_BUILDS = [
+{% for b in std_step_builds %}
+    ("{{ b.label }}", "{{ b.module }}", "{{ b.func }}", "{{ b.filename }}"),
+{% endfor %}
+]
+
 
 def _build_step(label, module_name, func_name, filename):
     """Build a single STEP file."""
@@ -87,7 +93,12 @@ def build_all(render: bool = False, dry_run: bool = False, timestamp: bool = Fal
             mod = __import__(mod_name)
             assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
             log.info("  OK: %s.%s", mod_name, func_name)
-        log.info("All %d STEP + %d DXF targets validated", len(_STEP_BUILDS), len(_DXF_BUILDS))
+        for label, mod_name, func_name, _ in _STD_STEP_BUILDS:
+            mod = __import__(mod_name)
+            assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
+            log.info("  OK: %s.%s (std)", mod_name, func_name)
+        log.info("All %d STEP + %d STD + %d DXF targets validated",
+                 len(_STEP_BUILDS), len(_STD_STEP_BUILDS), len(_DXF_BUILDS))
         return
 
     # Build STEP files
@@ -95,6 +106,12 @@ def build_all(render: bool = False, dry_run: bool = False, timestamp: bool = Fal
     for args in _STEP_BUILDS:
         r = _build_step(*args)
         step_results.append(r)
+
+    # Build standard part STEP files
+    std_results = []
+    for args in _STD_STEP_BUILDS:
+        r = _build_step(*args)
+        std_results.append(r)
 
     # Build DXF files
     dxf_results = []
@@ -108,11 +125,13 @@ def build_all(render: bool = False, dry_run: bool = False, timestamp: bool = Fal
 
     # Summary
     ok_step = sum(1 for r in step_results if r)
+    ok_std = sum(1 for r in std_results if r)
     ok_dxf = sum(1 for r in dxf_results if r)
     log.info("=" * 60)
     log.info("  STEP: %d/%d OK", ok_step, len(_STEP_BUILDS))
+    log.info("  STD:  %d/%d OK", ok_std, len(_STD_STEP_BUILDS))
     log.info("  DXF:  %d/%d OK", ok_dxf, len(_DXF_BUILDS))
-    for r in step_results + dxf_results:
+    for r in step_results + std_results + dxf_results:
         if r:
             size_kb = os.path.getsize(r) / 1024
             log.info("    %-45s %7.1f KB", os.path.basename(r), size_kb)

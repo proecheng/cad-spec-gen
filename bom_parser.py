@@ -21,6 +21,37 @@ import re
 import sys
 from pathlib import Path
 
+# ─── Part classification ──────────────────────────────────────────────────
+
+# Keyword-based classification for purchased/standard parts
+_PART_CATEGORY_RULES = [
+    ("reducer",   ["减速器", "减速机", "减速组", "gearbox", "GP22", "GP32", "GP42", "行星"]),
+    ("motor",     ["电机", "motor", "ECX", "DC马达", "伺服", "servo"]),
+    ("spring",    ["弹簧", "spring", "DIN 2093", "碟簧", "弹性垫圈"]),
+    ("bearing",   ["轴承", "bearing", "MR1", "ZZ", "688", "608", "滚珠"]),
+    ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测"]),
+    ("pump",      ["泵", "pump", "齿轮泵"]),
+    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头"]),
+    ("seal",      ["O型圈", "O-ring", "FKM", "NBR"]),
+    ("tank",      ["储液罐", "储罐", "tank", "容器"]),
+    ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴"]),
+    ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt", "定位销"]),
+]
+
+
+def classify_part(name: str, material: str = "") -> str:
+    """Classify a BOM part by name/material keywords → category string.
+
+    Returns one of: motor, reducer, spring, bearing, sensor, pump,
+    connector, seal, tank, cable, fastener, other.
+    """
+    text = (name + " " + material).upper()
+    for category, keywords in _PART_CATEGORY_RULES:
+        if any(kw.upper() in text for kw in keywords):
+            return category
+    return "other"
+
+
 # Fix Windows console encoding
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -180,6 +211,7 @@ def parse_bom_from_markdown(filepath: str) -> dict:
                         "material": material,
                         "qty": qty,
                         "make_buy": make_buy,
+                        "part_category": classify_part(name, material) if "外购" in make_buy else "custom",
                         "unit_price": parse_unit_price(price_str),
                         "total_price": parse_price(price_str),
                     }

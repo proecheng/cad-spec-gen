@@ -35,14 +35,36 @@
 
 ### 生成内容
 
-代码生成分 4 步，使用 `codegen/` 目录下的生成器 + `templates/` 下的 Jinja2 模板：
+代码生成分 5 步，使用 `codegen/` 目录下的生成器 + `templates/` 下的 Jinja2 模板：
 
 | 步骤 | 生成器 | 模板 | 输入(CAD_SPEC) | 输出 |
 |------|--------|------|----------------|------|
 | 1 | `gen_params.py` | `params.py.j2` | §1 全局参数表 | `params.py` — 尺寸常量 |
-| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM树 | `build_all.py` — STEP/DXF 构建表 |
-| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(叶零件) | `station_*.py` — 零件脚手架 |
-| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构 |
+| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM树 | `build_all.py` — STEP/STD/DXF 构建表 |
+| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(自制叶零件) | `station_*.py` — 零件脚手架 |
+| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构（含标准件） |
+| 5 | `gen_std_parts.py` | — | §5 BOM(外购件) | `std_*.py` — 标准件简化几何 |
+
+### 标准件自动生成（步骤 5）
+
+`gen_std_parts.py` 从 BOM 中提取所有 `外购` 零件，按名称/型号自动分类后生成简化 CadQuery 几何：
+
+| 分类 | 简化几何 | 示例型号 |
+|------|---------|---------|
+| motor | 圆柱 + 轴 | Maxon ECX SPEED 22L |
+| reducer | 圆柱（较粗） | Maxon GP22C |
+| spring | 环形碟片 | DIN 2093 A6 |
+| bearing | 内外环 | MR105ZZ, 688ZZ |
+| sensor | 圆柱/方盒 | ATI Nano17, I300-UHF |
+| pump | 方盒 + 管口 | 齿轮泵 |
+| connector | 小圆柱 | LEMO FGG.0B |
+| seal | 圆环体 | FKM O型圈 |
+| tank | 圆柱 | 不锈钢储罐 |
+
+- 跳过 `fastener`（太小）和 `cable`（柔性体）
+- 尺寸来源: `cad_spec_defaults.py` → `STD_PART_DIMENSIONS` 查找表
+- 输出命名: `std_ee_001_05.py`（`std_` 前缀 + 料号后缀）
+- scaffold 模式下不覆盖已有文件
 
 ### scaffold vs force 模式
 

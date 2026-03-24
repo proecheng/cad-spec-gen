@@ -27,6 +27,12 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+from bom_parser import classify_part
+
+# Categories that get simplified CadQuery geometry (skip fastener/cable/other)
+_STD_PART_CATEGORIES = {"motor", "reducer", "spring", "bearing", "sensor",
+                        "pump", "connector", "seal", "tank"}
+
 
 def parse_bom_tree(spec_path: str) -> list:
     """Parse §5 BOM tree from CAD_SPEC.md.
@@ -125,9 +131,11 @@ def generate_build_tables(parts: list) -> dict:
 
     - Assembly-level parts (GIS-EE-001) → STEP builds
     - Custom-made leaf parts (GIS-EE-001-01, 自制) → DXF drawings
+    - Purchased standard parts with geometry (外购, motor/bearing/...) → STD STEP builds
     """
     step_builds = []
     dxf_builds = []
+    std_step_builds = []
 
     for p in parts:
         pno = p["part_no"]
@@ -157,10 +165,27 @@ def generate_build_tables(parts: list) -> dict:
                 "module": mod,
                 "func": func,
             })
+        elif "外购" in p.get("make_buy", ""):
+            # Purchased standard part → simplified STEP
+            category = classify_part(name, p.get("material", ""))
+            if category in _STD_PART_CATEGORIES:
+                suffix = re.sub(r"^GIS-", "", pno).lower().replace("-", "_")
+                mod = f"std_{suffix}"
+                func = f"make_std_{suffix}"
+                filename = f"{pno}_std.step"
+                label = f"[标准件] {re.sub(r'[（(].*$', '', name).strip()}"
+
+                std_step_builds.append({
+                    "label": label,
+                    "module": mod,
+                    "func": func,
+                    "filename": filename,
+                })
 
     return {
         "step_builds": step_builds,
         "dxf_builds": dxf_builds,
+        "std_step_builds": std_step_builds,
     }
 
 
@@ -183,6 +208,7 @@ def render_build_all(tables: dict, spec_path: str, cad_dir: str,
         cad_dir=cad_dir,
         step_builds=tables["step_builds"],
         dxf_builds=tables["dxf_builds"],
+        std_step_builds=tables.get("std_step_builds", []),
     )
 
 
@@ -210,7 +236,8 @@ def main():
 
     tables = generate_build_tables(parts)
     print(f"[gen_build] Generated {len(tables['step_builds'])} STEP + "
-          f"{len(tables['dxf_builds'])} DXF build targets")
+          f"{len(tables['dxf_builds'])} DXF + "
+          f"{len(tables.get('std_step_builds', []))} STD build targets")
 
     # Auto-detect subsystem name from spec header
     name_cn = args.subsystem_name

@@ -37,11 +37,19 @@ def make_assembly() -> cq.Assembly:
 {% for imp in part_imports %}
     from {{ imp.module }} import {{ imp.functions | join(", ") }}
 {% endfor %}
+{% for imp in std_part_imports %}
+    from {{ imp.module }} import {{ imp.func }}
+{% endfor %}
 
     assy = cq.Assembly()
 
-    # ── Colors ──
+    # ── Colors (custom parts) ──
 {% for c in colors %}
+    {{ c.name }} = cq.Color({{ c.r }}, {{ c.g }}, {{ c.b }})
+{% endfor %}
+
+    # ── Colors (standard/purchased parts) ──
+{% for c in std_colors %}
     {{ c.name }} = cq.Color({{ c.r }}, {{ c.g }}, {{ c.b }})
 {% endfor %}
 

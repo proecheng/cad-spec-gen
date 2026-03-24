@@ -59,6 +59,13 @@
 4. 用户确认「下一步」或「自动补全」后，运行完整生成
 5. **重要：不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
 
+### 管线断点
+
+`cad_pipeline.py full` 在 SPEC 完成后自动检查 `DESIGN_REVIEW.json`：
+- **CRITICAL** → 管线停止 (exit 1)，必须修复后重跑
+- **WARNING** → 管线停止 (exit 2)，需用 `--auto-fill` 或 `--force` 继续
+- **无问题** → 自动继续后续阶段
+
 ### 生成后汇总
 
 读取输出的 CAD_SPEC.md 并汇总：
