@@ -42,6 +42,7 @@ INSTALL_MANIFEST = {
         "bom_parser.py",
         "cad_paths.py", "cad_pipeline.py",
         "annotate_render.py",
+        "pipeline_config.json",
     ],
     "knowledge": [
         "skill_cad_help.md",
@@ -49,6 +50,7 @@ INSTALL_MANIFEST = {
     "directories": [
         "config",
         "templates",
+        "codegen",
     ],
 }
 

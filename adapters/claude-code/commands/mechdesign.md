@@ -6,6 +6,10 @@
 
 读取完整技能文档 `skill_mech_design.md`（项目根目录），然后根据用户输入执行：
 
+> **手动 vs 自动**：`/mechdesign` 用于**手动**精细建模（工程师逐步完善几何细节）。
+> 如需**自动**生成脚手架代码，使用 `/cad-codegen` 或 `python cad_pipeline.py full`。
+> 推荐工作流：`/cad-spec` → `/cad-codegen` → `/mechdesign`（先自动生成骨架，再手动完善）
+
 ### 子命令路由
 
 1. **无参数**（`$ARGUMENTS` 为空）→ 显示流程概览：
@@ -29,6 +33,7 @@
 
 4. **`<子系统名>`**（如 `充电对接机构`、`底盘`、`电池箱`）→ 启动全流程：
    - 确认目标子系统和对应设计文档（`docs/design/NN-*.md`）
+   - 检查是否已有 `/cad-codegen` 生成的脚手架代码；如有，在此基础上完善
    - 按 skill_mech_design.md 中的 6 阶段顺序执行：
      1. 参数提取 → `params.py` + `tolerances.py`
      2. BOM建模 → `bom.py`
@@ -50,3 +55,12 @@
 - 标注文字 3.5mm 纸面mm（不乘 view scale）
 - 每张图必须有：技术要求区 + 默认粗糙度 + 基准三角 + 剖切线 + 螺纹标注
 - 材料名使用中文国标格式（"铝合金"非"Al"）
+
+## 自动化管线替代
+
+如不需要手动精细建模，可使用自动化管线一键完成：
+```bash
+# 自动全流程：审查 → 代码生成 → 构建 → 渲染 → 增强 → 标注
+python cad_pipeline.py full --subsystem <name> --design-doc docs/design/NN-*.md --timestamp
+```
+或分步执行：`/cad-spec` → `/cad-codegen` → `python cad_pipeline.py build --render`
