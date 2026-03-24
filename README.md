@@ -49,9 +49,11 @@ Design Document (.md)
 DESIGN_REVIEW.md (issues & recommendations, user iterates or proceeds)
     ↓ cad_spec_gen.py — extract 9 categories of structured data
 CAD_SPEC.md (single source of truth for all downstream CAD work)
+    ↓ codegen/gen_*.py — Jinja2 templates → CadQuery scaffolds
+params.py + build_all.py + station_*.py + assembly.py
     ↓ CadQuery parametric modeling
 STEP + DXF (GB/T national-standard 2D drawings) + GLB
-    ↓ Blender Cycles CPU rendering
+    ↓ Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
     ↓ AI enhancement (reskin only, geometry locked)
 Photorealistic JPG — presentation / defense / business plan ready
@@ -87,10 +89,12 @@ Labeled JPG — with leader lines and component names
 │  └── skill_cad_help.md  → 16-intent knowledge base        │
 ├──────────────────────────────────────────────────────────┤
 │  Tool Layer  (pure Python CLI, no LLM dependency)         │
+│  ├── cad_pipeline.py    → unified 6-phase orchestrator    │
 │  ├── cad_spec_gen.py    → spec extraction                 │
 │  ├── cad_spec_reviewer.py → design review (4 categories)  │
+│  ├── codegen/gen_*.py   → Jinja2 code generation          │
 │  ├── bom_parser.py      → BOM parsing                     │
-│  └── config/templates/  → subsystem configs               │
+│  └── config/templates/  → subsystem configs + Jinja2 .j2  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -110,18 +114,23 @@ Labeled JPG — with leader lines and component names
 │     9 sections: params, tolerances, fasteners, connections,     │
 │     BOM tree, assembly pose, visual IDs, render plan, gaps      │
 │                                                                 │
-│  3. PARAMETRIC MODELING                                         │
-│     CAD_SPEC.md → CadQuery scripts → STEP + GLB + DXF          │
+│  3. CODE GENERATION (Jinja2)                                      │
+│     CAD_SPEC.md → codegen/gen_*.py → params.py + build_all.py   │
+│     + station_*.py scaffolds + assembly.py                      │
+│     Templates: templates/*.j2 (scaffold mode, never overwrites) │
+│                                                                 │
+│  4. PARAMETRIC MODELING                                         │
+│     CadQuery scripts → STEP + GLB + DXF                        │
 │     - 3D: assemblies with precise mate constraints              │
 │     - 2D: GB/T A3 drawings, 3-view + section views              │
 │                                                                 │
-│  4. 3D RENDERING (Blender Cycles CPU)                           │
+│  5. 3D RENDERING (Blender Cycles, GPU auto-detect)                │
 │     GLB → N-view PNG (geometry 100% accurate, default 5 views)  │
 │     15 PBR material presets · spherical camera system            │
 │     Default views: front-iso / rear / side / exploded / ortho   │
 │     Views are config-driven: render_config.json camera section   │
 │                                                                 │
-│  5. AI ENHANCEMENT (optional)                                   │
+│  6. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
 │                                                                 │
@@ -170,22 +179,33 @@ Labeled JPG — with leader lines and component names
 > **Example: End Effector subsystem** — adapt paths for your own subsystem.
 
 ```bash
-# Design review first (recommended)
-python cad_spec_gen.py examples/04-末端执行机构设计.md \
-    --config config/gisbot.json --review-only
-# → output/end_effector/DESIGN_REVIEW.md
+# One-click full pipeline (all 6 phases)
+python cad_pipeline.py full --subsystem end_effector \
+    --design-doc docs/design/04-末端执行机构设计.md --timestamp
 
-# Generate CAD spec from a design document
-python cad_spec_gen.py examples/04-末端执行机构设计.md \
-    --config config/gisbot.json \
-    --output-dir ./output
+# Or step-by-step:
 
-# Or do both in one pass
-python cad_spec_gen.py examples/04-末端执行机构设计.md \
-    --config config/gisbot.json --review
+# Phase 1: Design review + spec (recommended first)
+python cad_pipeline.py spec --design-doc docs/design/04-末端执行机构设计.md --auto-fill
+# → cad/end_effector/DESIGN_REVIEW.md + CAD_SPEC.md
 
-# Check output
-cat output/end_effector/CAD_SPEC.md
+# Phase 2: Generate CadQuery scaffolds
+python cad_pipeline.py codegen --subsystem end_effector
+# → params.py, build_all.py, station_*.py, assembly.py
+
+# Phase 3-4: Build + render
+python cad_pipeline.py build --subsystem end_effector
+python cad_pipeline.py render --subsystem end_effector --timestamp
+
+# Phase 5-6: AI enhance + annotate (optional)
+python cad_pipeline.py enhance --dir cad/output/renders
+python cad_pipeline.py annotate --subsystem end_effector --lang cn,en
+
+# Check pipeline status
+python cad_pipeline.py status
+
+# Check environment
+python cad_pipeline.py env-check
 ```
 
 ### AI Enhancement Quick Start
@@ -241,9 +261,18 @@ Labels are defined in `render_config.json`:
    ```
    Edit `render_config.json` — fill in subsystem info, materials, camera views, and components.
 
-2. **Parametric modeling**: Create CadQuery scripts, run `build_all.py` to generate STEP + DXF + GLB.
+2. **Auto-generate scaffolds** (if design doc exists):
+   ```bash
+   python cad_pipeline.py spec --design-doc docs/design/NN-*.md
+   python cad_pipeline.py codegen --subsystem <your_subsystem>
+   ```
 
-3. **Render**: `python build_all.py --render` for Blender PNG, then optionally AI-enhance and annotate.
+3. **Refine geometry**: Edit generated `station_*.py` scaffolds — replace placeholder boxes with actual CadQuery geometry.
+
+4. **Build + render**:
+   ```bash
+   python cad_pipeline.py full --subsystem <your_subsystem> --skip-spec --skip-codegen --timestamp
+   ```
 
 See `templates/render_config_template.json` for field documentation.
 
@@ -320,20 +349,39 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest (v1.1.0)
+├── skill.json                      # Machine-readable skill manifest (v1.2.0)
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── install.py                      # Cross-platform installer (with --update/--check)
-├── cad_spec_gen.py                 # Main generator (CLI entry point)
+├── cad_pipeline.py                 # Unified 6-phase pipeline orchestrator
+├── cad_paths.py                    # Centralized path resolution
+├── pipeline_config.json            # Persistent config (Blender path, render settings)
+├── cad_spec_gen.py                 # Spec extraction (CLI entry point)
 ├── cad_spec_extractors.py          # 8 extraction functions + table parser
-├── cad_spec_defaults.py            # Standard defaults, engineering constants & completeness rules
-├── cad_spec_reviewer.py            # Design review engine (mechanical/assembly/material/completeness)
+├── cad_spec_defaults.py            # Standard defaults, engineering constants
+├── cad_spec_reviewer.py            # Design review engine (4 categories)
 ├── bom_parser.py                   # BOM table parser (also standalone CLI)
 ├── annotate_render.py              # PIL-based component label annotation (CN/EN)
+├── codegen/                        # Jinja2 code generation from CAD_SPEC.md
+│   ├── gen_params.py               # §1 params → params.py
+│   ├── gen_build.py                # §5 BOM → build_all.py
+│   ├── gen_parts.py                # §5 leaf parts → station_*.py scaffolds
+│   └── gen_assembly.py             # §4+§5+§6 → assembly.py
+├── templates/
+│   ├── params.py.j2                # Jinja2: params.py generation
+│   ├── build_all.py.j2             # Jinja2: build_all.py generation
+│   ├── part_module.py.j2           # Jinja2: part module scaffold
+│   ├── assembly.py.j2              # Jinja2: assembly scaffold
+│   ├── cad_spec_template.md        # Output template reference
+│   ├── design_review_template.md   # Design review output template
+│   ├── prompt_enhance.txt          # AI prompt: standard views (V1-V3)
+│   ├── prompt_exploded.txt         # AI prompt: exploded view (V4)
+│   └── prompt_ortho.txt            # AI prompt: orthographic view (V5)
 ├── adapters/
 │   ├── claude-code/
 │   │   ├── commands/cad-help.md    # Claude Code slash command
 │   │   ├── commands/cad-spec.md    # Claude Code slash command
+│   │   ├── commands/cad-codegen.md # Claude Code slash command (code generation)
 │   │   ├── commands/cad-enhance.md # Claude Code slash command (AI enhance)
 │   │   ├── commands/mechdesign.md  # Claude Code slash command (parametric design)
 │   │   └── install.sh             # One-click Claude Code installer
@@ -347,12 +395,6 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │       └── README.md              # Dify / Coze setup guide
 ├── config/
 │   └── gisbot.json                # Example: 18-subsystem config
-├── templates/
-│   ├── cad_spec_template.md       # Output template reference
-│   ├── design_review_template.md  # Design review output template
-│   ├── prompt_enhance.txt         # AI prompt: standard views (V1-V3)
-│   ├── prompt_exploded.txt        # AI prompt: exploded view (V4)
-│   └── prompt_ortho.txt           # AI prompt: orthographic view (V5)
 ├── examples/
 │   └── 04-末端执行机构设计.md       # Example design document
 └── docs/

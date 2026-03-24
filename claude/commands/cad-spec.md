@@ -4,19 +4,22 @@
 
 ## 指令
 
-运行 CAD Spec 生成器，从设计文档提取结构化参数/公差/BOM等数据。
+运行 CAD Spec 生成器，从设计文档提取结构化参数/公差/BOM等数据。这是 6 阶段管线的 **Phase 1**。
 
 ### 路由规则
 
 1. **无参数** → 显示用法：
    ```
-   用法: /cad-spec <design_doc.md> [--force] [--review] [--review-only]
+   用法: /cad-spec <design_doc.md> [--force] [--review] [--review-only] [--auto-fill]
 
    示例:
      /cad-spec docs/design/04-末端执行机构设计.md
      /cad-spec docs/design/04-末端执行机构设计.md --review
      /cad-spec docs/design/05-电气系统与信号调理.md --force
      /cad-spec --all --review
+
+   也可通过统一管线执行:
+     python cad_pipeline.py spec --design-doc docs/design/04-*.md --auto-fill
    ```
 
 2. **`--all`** → 处理全部子系统：
@@ -59,3 +62,10 @@
 - 任何 CRITICAL 或 WARNING 缺失数据项
 - 设计审查结果（如有）
 - 输出文件位置
+
+### 下一步
+
+CAD_SPEC.md 生成后，建议用户：
+- **`/cad-codegen <子系统>`** → 自动生成 CadQuery 脚手架代码（Phase 2）
+- **`python cad_pipeline.py full`** → 一键执行全部 6 阶段管线
+- **`/mechdesign <子系统>`** → 手动参数化建模流程（需要更精细的几何控制时）

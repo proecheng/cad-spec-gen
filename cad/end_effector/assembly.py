@@ -118,10 +118,10 @@ def make_assembly() -> cq.Assembly:
     s1_bolts = _station_transform(s1_bolts, a, tx, ty, tz)
     assy.add(s1_bolts, name="fastener_s1_bolts", color=cq.Color(0.3, 0.3, 0.3))
 
-    # S1 LEMO connector on side
+    # S1 LEMO connector flush with body side wall
     s1_lemo = make_lemo_0b(LEMO_BORE_DIA)
     s1_lemo = s1_lemo.rotate((0, 0, 0), (0, 1, 0), 90).translate(
-        (-S1_BODY_D / 2.0 - 1, 0, S1_BODY_H * 0.7))
+        (-S1_BODY_D / 2.0, 0, S1_BODY_H * 0.7))
     s1_lemo = _station_transform(s1_lemo, a, tx, ty, tz)
     assy.add(s1_lemo, name="EE-002_applicator_lemo", color=C_SILVER)
 
@@ -169,9 +169,11 @@ def make_assembly() -> cq.Assembly:
     s4_bracket = _station_transform(s4_bracket, a, tx, ty, tz)
     assy.add(s4_bracket, name="EE-005_uhf_bracket", color=C_DARK)
 
-    sensor_z = S4_BRACKET_THICK + S4_BRACKET_H * 0.5 - S4_SENSOR_H / 2.0
+    # Sensor through bracket bore — align with bracket clamp hole center
+    sensor_center_z = S4_BRACKET_THICK + S4_BRACKET_H * 0.5
+    sensor_z = sensor_center_z - S4_SENSOR_H / 2.0
     s4_sensor = make_uhf_sensor().translate(
-        (0, -S4_BRACKET_D / 2.0 - S4_SENSOR_DIA * 0.3, sensor_z))
+        (0, -S4_BRACKET_D / 2.0, sensor_z))
     s4_sensor = _station_transform(s4_sensor, a, tx, ty, tz)
     assy.add(s4_sensor, name="EE-005_uhf_sensor", color=C_SILVER)
 

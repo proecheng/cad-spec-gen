@@ -149,10 +149,15 @@ def make_uhf_module() -> cq.Workplane:
     # Bracket at Z=0
     bracket = make_uhf_bracket()
 
-    # Sensor positioned in bracket bore
-    sensor_z = S4_BRACKET_THICK + S4_BRACKET_H * 0.5 - S4_SENSOR_H / 2.0
-    sensor = make_uhf_sensor().translate((0, -S4_BRACKET_D / 2.0 - S4_SENSOR_DIA * 0.3,
-                                           sensor_z))
+    # Sensor positioned through bracket bore (vertical plate clamp hole)
+    # Sensor center Z must align with bracket bore center
+    sensor_center_z = S4_BRACKET_THICK + S4_BRACKET_H * 0.5
+    sensor_z = sensor_center_z - S4_SENSOR_H / 2.0
+    # Y: sensor passes through bracket vertical plate, protruding forward
+    # Bracket vertical plate is at Y = -S4_BRACKET_D/2 + S4_BRACKET_THICK/2
+    # Sensor should be centered in the bore, protruding outward (-Y)
+    sensor_y = -S4_BRACKET_D / 2.0
+    sensor = make_uhf_sensor().translate((0, sensor_y, sensor_z))
 
     result = bracket.union(sensor)
     return result

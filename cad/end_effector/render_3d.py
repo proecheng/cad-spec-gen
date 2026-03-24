@@ -48,6 +48,8 @@ parser.add_argument("--resolution", type=int, nargs=2, default=[1920, 1080],
                     help="Width Height (default: 1920 1080)")
 parser.add_argument("--output-dir", default=None,
                     help="Output directory (default: cad/output/renders)")
+parser.add_argument("--timestamp", action="store_true",
+                    help="Append YYYYMMDD_HHMM to output filenames")
 parser.add_argument("--gpu", action="store_true", default=None,
                     help="Force GPU rendering (auto-detected if omitted)")
 parser.add_argument("--cpu", action="store_true", default=False,
@@ -582,12 +584,22 @@ def setup_render(samples, width, height, force_gpu=None, force_cpu=False):
     scene.render.threads_mode = "AUTO"
 
 
-def render_view(preset_key):
+def render_view(preset_key, timestamp=False):
     """Set up camera for a preset and render to file."""
     source = _CONFIG_CAMERAS if _CONFIG_CAMERAS else CAMERA_PRESETS
     preset = source[preset_key]
     view_name = preset.get("name", preset_key)
-    output_path = os.path.join(RENDER_DIR, f"{view_name}.png")
+
+    # Build output filename with optional timestamp
+    if timestamp:
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M")
+        output_path = os.path.join(RENDER_DIR, f"{view_name}_{ts}.png")
+    else:
+        output_path = os.path.join(RENDER_DIR, f"{view_name}.png")
+
+    # Always write a "latest" copy (no timestamp) for downstream tools
+    latest_path = os.path.join(RENDER_DIR, f"{view_name}.png")
 
     for obj in bpy.context.scene.objects:
         if obj.type == "CAMERA":
@@ -600,6 +612,12 @@ def render_view(preset_key):
     log.info("  Output: %s", output_path)
     bpy.ops.render.render(write_still=True)
     log.info("  Done: %s", output_path)
+
+    # Copy to latest (non-timestamped) for downstream tools
+    if timestamp and output_path != latest_path:
+        import shutil
+        shutil.copy2(output_path, latest_path)
+        log.info("  Latest: %s", latest_path)
 
     return output_path
 
@@ -668,7 +686,7 @@ def main():
 
     results = []
     for vk in views_to_render:
-        path = render_view(vk)
+        path = render_view(vk, timestamp=args.timestamp)
         results.append(path)
 
     log.info("=" * 60)

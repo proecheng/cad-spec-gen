@@ -2,28 +2,30 @@
 """
 cad_pipeline.py — Unified CLI for the CAD parametric pipeline.
 
-Chains: build → render → enhance → annotate in correct order,
+Chains: spec → codegen → build → render → enhance → annotate in correct order,
 with error propagation, progress tracking, and --dry-run support.
 
 Usage:
+    python cad_pipeline.py spec --design-doc docs/design/04-末端执行机构设计.md
+    python cad_pipeline.py codegen --subsystem end_effector
     python cad_pipeline.py build                         # STEP + DXF only
     python cad_pipeline.py build --render                # + Blender renders
-    python cad_pipeline.py render --subsystem end_effector
+    python cad_pipeline.py render --subsystem end_effector --timestamp
     python cad_pipeline.py enhance --dir cad/output/renders
     python cad_pipeline.py annotate --config render_config.json --lang cn
-    python cad_pipeline.py full --subsystem end_effector  # build+render+enhance+annotate
+    python cad_pipeline.py full --subsystem end_effector  # all 6 phases
     python cad_pipeline.py status                         # show pipeline status
     python cad_pipeline.py env-check                      # environment validation
 
 Examples:
-    # Full pipeline for end_effector:
-    python cad_pipeline.py full --subsystem end_effector
+    # Full pipeline for end_effector (spec→codegen→build→render→enhance→annotate):
+    python cad_pipeline.py full --subsystem end_effector --design-doc docs/design/04-末端执行机构设计.md
 
     # Dry-run (validate only, no actual builds):
     python cad_pipeline.py full --subsystem end_effector --dry-run
 
-    # Render a single view:
-    python cad_pipeline.py render --subsystem end_effector --view V1
+    # Render a single view with timestamp:
+    python cad_pipeline.py render --subsystem end_effector --view V1 --timestamp
 """
 
 import argparse
@@ -45,7 +47,40 @@ log = logging.getLogger("cad_pipeline")
 
 CAD_DIR = os.path.join(SKILL_ROOT, "cad")
 TOOLS_DIR = os.path.join(SKILL_ROOT, "tools")
+CONFIG_PATH = os.path.join(SKILL_ROOT, "config", "gisbot.json")
 DEFAULT_OUTPUT = get_output_dir()
+
+
+def _load_config():
+    """Load gisbot.json subsystem config."""
+    if os.path.isfile(CONFIG_PATH):
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
+    """Find the design doc for a subsystem from config mapping.
+
+    Returns path or None.
+    """
+    if config is None:
+        config = _load_config()
+    doc_base = doc_dir or config.get("doc_dir", "docs/design")
+    if not os.path.isabs(doc_base):
+        doc_base = os.path.join(SKILL_ROOT, doc_base)
+
+    # Find chapter number for this subsystem
+    for chapter, info in config.get("subsystems", {}).items():
+        cad_dir = info.get("cad_dir", "")
+        aliases = info.get("aliases", [])
+        if cad_dir == subsystem_name or subsystem_name in aliases:
+            # Look for NN-*.md matching this chapter
+            pattern = os.path.join(doc_base, f"{chapter}-*.md")
+            matches = glob.glob(pattern)
+            if matches:
+                return matches[0]
+    return None
 
 
 def _run_subprocess(cmd, label, dry_run=False, timeout=600):
@@ -80,6 +115,86 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
 # ═════════════════════════════════════════════════════════════════════════════
 # Commands
 # ═════════════════════════════════════════════════════════════════════════════
+
+def cmd_spec(args):
+    """Phase 1: Design review + CAD_SPEC.md generation."""
+    design_doc = getattr(args, "design_doc", None)
+    if not design_doc:
+        # Auto-resolve from subsystem name
+        design_doc = _resolve_design_doc(args.subsystem)
+    if not design_doc or not os.path.isfile(design_doc):
+        log.error("Design doc not found. Use --design-doc or ensure docs/design/%s exists",
+                  design_doc or "??-*.md")
+        return 1
+
+    spec_gen = os.path.join(SKILL_ROOT, "cad_spec_gen.py")
+    if not os.path.isfile(spec_gen):
+        log.error("cad_spec_gen.py not found at %s", spec_gen)
+        return 1
+
+    cmd = [sys.executable, spec_gen, design_doc,
+           "--config", CONFIG_PATH,
+           "--review"]
+    if getattr(args, "auto_fill", False):
+        cmd.append("--auto-fill")
+    if getattr(args, "force", False) or getattr(args, "force_spec", False):
+        cmd.append("--force")
+
+    ok, elapsed = _run_subprocess(cmd, f"spec-gen ({os.path.basename(design_doc)})",
+                                  dry_run=args.dry_run, timeout=120)
+    return 0 if ok else 1
+
+
+def cmd_codegen(args):
+    """Phase 2: Generate CadQuery scaffolds from CAD_SPEC.md."""
+    try:
+        import jinja2  # noqa: F401
+    except ImportError:
+        log.error("Jinja2 not installed. Run: pip install Jinja2")
+        return 1
+
+    sub_dir = get_subsystem_dir(args.subsystem)
+    if not sub_dir:
+        log.error("Subsystem '%s' not found in %s", args.subsystem, CAD_DIR)
+        return 1
+
+    spec_path = os.path.join(sub_dir, "CAD_SPEC.md")
+    if not os.path.isfile(spec_path):
+        log.error("CAD_SPEC.md not found in %s. Run 'spec' first.", sub_dir)
+        return 1
+
+    mode = "force" if getattr(args, "force", False) else "scaffold"
+    failures = 0
+
+    # 2a: params.py
+    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_params.py"),
+           spec_path, "--mode", mode]
+    ok, _ = _run_subprocess(cmd, "codegen params.py", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
+    # 2b: build_all.py
+    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_build.py"),
+           spec_path, "--mode", mode]
+    ok, _ = _run_subprocess(cmd, "codegen build_all.py", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
+    # 2c: part module scaffolds
+    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
+           spec_path, "--output-dir", sub_dir]
+    ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
+    # 2d: assembly.py
+    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_assembly.py"),
+           spec_path, "--mode", mode]
+    ok, _ = _run_subprocess(cmd, "codegen assembly.py", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
+    return 1 if failures else 0
 
 def cmd_build(args):
     """Build STEP + DXF for a subsystem."""
@@ -130,6 +245,8 @@ def cmd_render(args):
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
+    if getattr(args, "timestamp", False):
+        render_args.append("--timestamp")
 
     if args.view:
         # Single view
@@ -227,18 +344,33 @@ def cmd_annotate(args):
 
 
 def cmd_full(args):
-    """Full pipeline: build → render → enhance → annotate."""
+    """Full pipeline: spec → codegen → build → render → enhance → annotate."""
     log.info("=" * 60)
     log.info("  Full pipeline for: %s", args.subsystem)
     log.info("=" * 60)
     t0 = time.time()
 
-    steps = [
-        ("BUILD", lambda: cmd_build(args)),
-        ("RENDER", lambda: cmd_render(args)),
-    ]
+    steps = []
+
+    # Phase 1: Spec generation (requires --design-doc or auto-resolve)
+    if not args.skip_spec:
+        steps.append(("SPEC", lambda: cmd_spec(args)))
+
+    # Phase 2: Code generation
+    if not args.skip_codegen:
+        steps.append(("CODEGEN", lambda: cmd_codegen(args)))
+
+    # Phase 3: Build
+    steps.append(("BUILD", lambda: cmd_build(args)))
+
+    # Phase 4: Render
+    steps.append(("RENDER", lambda: cmd_render(args)))
+
+    # Phase 5: Enhance
     if not args.skip_enhance:
         steps.append(("ENHANCE", lambda: cmd_enhance(args)))
+
+    # Phase 6: Annotate
     if not args.skip_annotate:
         steps.append(("ANNOTATE", lambda: cmd_annotate(args)))
 
@@ -319,6 +451,13 @@ def cmd_env_check(args):
     except ImportError:
         log.error("  CadQuery: NOT INSTALLED (pip install cadquery)")
 
+    # Jinja2 (codegen templates)
+    try:
+        import jinja2
+        log.info("  Jinja2: %s", jinja2.__version__)
+    except ImportError:
+        log.error("  Jinja2: NOT INSTALLED (pip install Jinja2) — required by codegen/")
+
     # ezdxf
     try:
         import ezdxf
@@ -366,9 +505,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="CAD Parametric Pipeline — unified CLI",
         epilog="""Examples:
+  %(prog)s spec --design-doc docs/design/04-*.md
+  %(prog)s codegen --subsystem end_effector
   %(prog)s build --subsystem end_effector
-  %(prog)s render --subsystem end_effector --view V1
-  %(prog)s full --subsystem end_effector
+  %(prog)s render --subsystem end_effector --view V1 --timestamp
+  %(prog)s full --subsystem end_effector --design-doc docs/design/04-*.md
   %(prog)s status
   %(prog)s env-check
 """,
@@ -381,6 +522,18 @@ def main():
 
     sub = parser.add_subparsers(dest="command", help="Pipeline command")
 
+    # spec
+    p_spec = sub.add_parser("spec", help="Design review + CAD_SPEC.md generation")
+    p_spec.add_argument("--subsystem", "-s", default="end_effector")
+    p_spec.add_argument("--design-doc", help="Path to design document (NN-*.md)")
+    p_spec.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
+    p_spec.add_argument("--force", action="store_true", help="Force regeneration")
+
+    # codegen
+    p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
+    p_codegen.add_argument("--subsystem", "-s", default="end_effector")
+    p_codegen.add_argument("--force", action="store_true", help="Overwrite existing files")
+
     # build
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
     p_build.add_argument("--subsystem", "-s", default="end_effector")
@@ -390,6 +543,7 @@ def main():
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
     p_render.add_argument("--subsystem", "-s", default="end_effector")
     p_render.add_argument("--view", help="Single view (V1-V5)")
+    p_render.add_argument("--timestamp", action="store_true", help="Append timestamp to filenames")
 
     # enhance
     p_enhance = sub.add_parser("enhance", help="Gemini AI enhancement")
@@ -403,13 +557,20 @@ def main():
     p_annotate.add_argument("--lang", default="cn,en", help="Languages (default: cn,en)")
 
     # full
-    p_full = sub.add_parser("full", help="Full pipeline: build→render→enhance→annotate")
+    p_full = sub.add_parser("full", help="Full pipeline: spec→codegen→build→render→enhance→annotate")
     p_full.add_argument("--subsystem", "-s", default="end_effector")
+    p_full.add_argument("--design-doc", help="Path to design document (NN-*.md)")
+    p_full.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
+    p_full.add_argument("--force-spec", action="store_true", help="Force spec regeneration")
+    p_full.add_argument("--force", action="store_true", help="Force codegen overwrite")
     p_full.add_argument("--render", action="store_true", default=True)
     p_full.add_argument("--view", default=None)
     p_full.add_argument("--dir", default=None)
     p_full.add_argument("--config", default=None)
     p_full.add_argument("--lang", default="cn,en")
+    p_full.add_argument("--timestamp", action="store_true", help="Append timestamp to renders")
+    p_full.add_argument("--skip-spec", action="store_true", help="Skip spec generation")
+    p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
 
@@ -436,6 +597,8 @@ def main():
         return 0
 
     dispatch = {
+        "spec": cmd_spec,
+        "codegen": cmd_codegen,
         "build": cmd_build,
         "render": cmd_render,
         "enhance": cmd_enhance,

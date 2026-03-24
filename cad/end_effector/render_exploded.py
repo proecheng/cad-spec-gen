@@ -41,6 +41,8 @@ parser.add_argument("--z-spread", type=float, default=None,
 parser.add_argument("--samples", type=int, default=512)
 parser.add_argument("--resolution", type=int, nargs=2, default=[1920, 1080])
 parser.add_argument("--output-dir", default=None)
+parser.add_argument("--timestamp", action="store_true",
+                    help="Append YYYYMMDD_HHMM to output filenames")
 parser.add_argument("--gpu", action="store_true", default=None,
                     help="Force GPU rendering (auto-detected if omitted)")
 parser.add_argument("--cpu", action="store_true", default=False,
@@ -161,7 +163,13 @@ def main():
                            force_gpu=args.gpu, force_cpu=args.cpu)
 
     # 4. Render V4 preset
-    output_path = os.path.join(RENDER_DIR, "V4_exploded.png")
+    if args.timestamp:
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M")
+        output_path = os.path.join(RENDER_DIR, f"V4_exploded_{ts}.png")
+    else:
+        output_path = os.path.join(RENDER_DIR, "V4_exploded.png")
+    latest_path = os.path.join(RENDER_DIR, "V4_exploded.png")
 
     # Remove any existing camera
     for obj in bpy.context.scene.objects:
@@ -174,6 +182,12 @@ def main():
     log.info("Rendering V4 exploded view...")
     log.info("  Output: %s", output_path)
     bpy.ops.render.render(write_still=True)
+
+    # Copy to latest (non-timestamped) for downstream tools
+    if args.timestamp and output_path != latest_path:
+        import shutil
+        shutil.copy2(output_path, latest_path)
+        log.info("  Latest: %s", latest_path)
 
     size_kb = os.path.getsize(output_path) / 1024
     log.info("=" * 60)

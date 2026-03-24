@@ -1,0 +1,21 @@
+{
+  "_doc": "CAD pipeline persistent config. Auto-detected on first run; edit manually to override.",
+  "blender_path": "D:/cad-skill/tools/blender/blender.exe",
+  "cadquery_python": "python",
+  "output_base": "cad/output",
+  "render": {
+    "engine": "CYCLES",
+    "samples": 512,
+    "resolution": [1920, 1080],
+    "denoiser": "OPENIMAGEDENOISE"
+  },
+  "timestamp": {
+    "enabled": true,
+    "format": "%Y%m%d_%H%M",
+    "keep_latest_symlink": true
+  },
+  "archive": {
+    "enabled": true,
+    "max_versions": 10
+  }
+}

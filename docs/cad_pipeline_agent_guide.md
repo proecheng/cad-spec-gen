@@ -8,16 +8,23 @@
 ## 1. 管线概览
 
 ```
-设计文档 → 设计审查(DESIGN_REVIEW.md) → CadQuery 参数化3D → Blender Cycles渲染PNG → Gemini AI增强JPG
-                ↓                            ↓                      ↓                       ↓
-         力学/装配/材质/完整性校验       STEP/DXF/GLB          5视角PNG (几何精确)      照片级JPG (展示用)
+设计文档 → [Phase 1] 设计审查 → [Phase 2] 代码生成 → [Phase 3] CadQuery构建 → [Phase 4] Blender渲染 → [Phase 5] AI增强 → [Phase 6] 标注
+              ↓                      ↓                     ↓                      ↓                      ↓                    ↓
+      DESIGN_REVIEW.md        params.py等脚手架       STEP/DXF/GLB           N视角PNG              照片级JPG           标注JPG
+                               (Jinja2模板)           (几何精确)
+```
+
+**统一入口**: `cad_pipeline.py` 编排全部 6 阶段，支持 `--dry-run`、`--timestamp`、`--skip-*` 等标志。
+
+```bash
+python cad_pipeline.py full --subsystem end_effector --design-doc docs/design/04-*.md --timestamp
 ```
 
 **能力等级**（由 `check_env.py --json` 自动检测）：
 
 | 等级 | 能力 | 所需依赖 |
 |------|------|----------|
-| 5 FULL | 设计审查 + CAD + 2D + 3D渲染 + AI增强 | Python + CadQuery + ezdxf + matplotlib + Blender + Gemini |
+| 5 FULL | 设计审查 + 代码生成 + CAD + 2D + 3D渲染 + AI增强 | Python + Jinja2 + CadQuery + ezdxf + matplotlib + Blender + Gemini |
 | 4 RENDER | CAD + 2D + 3D渲染 | Python + CadQuery + ezdxf + matplotlib + Blender |
 | 3 CAD | CAD + 2D工程图 | Python + CadQuery + ezdxf + matplotlib |
 | 2 IMPORT | 仅导入GLB查看 | Blender |
@@ -37,7 +44,7 @@ python tools/hybrid_render/check_env.py --json  # 机器可读JSON
 ### 2.2 安装依赖
 
 ```bash
-pip install cadquery ezdxf matplotlib
+pip install cadquery ezdxf matplotlib Jinja2
 ```
 
 ### 2.3 Blender（3D渲染需要）
@@ -59,6 +66,59 @@ python gemini_gen.py --config
 ---
 
 ## 3. 工具清单与 CLI 接口
+
+### 3.0 cad_pipeline.py — 统一管线编排器
+
+```bash
+python cad_pipeline.py <command> [OPTIONS]
+```
+
+| 子命令 | 阶段 | 说明 |
+|--------|------|------|
+| `spec` | Phase 1 | 设计审查 + CAD_SPEC.md 生成 |
+| `codegen` | Phase 2 | 从 CAD_SPEC.md 生成 CadQuery 脚手架（Jinja2） |
+| `build` | Phase 3 | CadQuery 构建 STEP + DXF + GLB |
+| `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG |
+| `enhance` | Phase 5 | Gemini AI 增强 |
+| `annotate` | Phase 6 | PIL 标注组件名称 |
+| `full` | 全部 | 依次执行 Phase 1-6，任一阶段失败即停止 |
+| `status` | — | 显示所有子系统建模进度 |
+| `env-check` | — | 验证依赖环境 |
+
+常用标志：`--dry-run`（仅验证）、`--timestamp`（输出文件名加时间戳）、`--skip-spec`/`--skip-codegen`（跳过阶段）
+
+### 3.0b codegen/ — 代码生成器（Jinja2）
+
+```bash
+python cad_pipeline.py codegen --subsystem <name> [--force]
+```
+
+从 `cad/<subsystem>/CAD_SPEC.md` 读取结构化数据，通过 `templates/*.j2` 模板生成：
+
+| 生成器 | 输入(CAD_SPEC) | 输出 |
+|--------|----------------|------|
+| `codegen/gen_params.py` | §1 参数表 | `params.py` |
+| `codegen/gen_build.py` | §5 BOM树 | `build_all.py` |
+| `codegen/gen_parts.py` | §5 叶零件 | `station_*.py` 脚手架 |
+| `codegen/gen_assembly.py` | §4连接+§5BOM+§6姿态 | `assembly.py` |
+
+scaffold 模式（默认）不覆盖已有文件；`--force` 全部重新生成。
+
+### 3.0c pipeline_config.json — 持久化配置
+
+```json
+{
+  "blender_path": "D:/cad-skill/tools/blender/blender.exe",
+  "cadquery_python": "python",
+  "render": {"engine": "CYCLES", "samples": 512, "resolution": [1920, 1080]},
+  "timestamp": {"enabled": true, "format": "%Y%m%d_%H%M"}
+}
+```
+
+管线自动读取此文件获取 Blender 路径和渲染设置。也可通过环境变量覆盖：
+- `BLENDER_PATH` — Blender 可执行文件路径
+- `CAD_OUTPUT_DIR` — 输出目录
+- `GEMINI_GEN_PATH` — Gemini 脚本路径
 
 ### 3.1 build_all.py — 一键构建
 
@@ -218,19 +278,29 @@ python gemini_gen.py --config
 
 ```bash
 # Step 1: 检查环境
-python tools/hybrid_render/check_env.py
+python cad_pipeline.py env-check
 
-# Step 2: 参数化建模 + 构建
-python cad/end_effector/build_all.py --render
-# → 输出: STEP + DXF + GLB + 5张PNG
+# Step 2: 一键全流程（自动 6 阶段）
+python cad_pipeline.py full --subsystem end_effector \
+  --design-doc docs/design/04-末端执行机构设计.md --timestamp
+# → 输出: DESIGN_REVIEW.md + CAD_SPEC.md + *.py脚手架 + STEP/DXF/GLB + PNG + JPG
 
-# Step 3: 验证配置
-python tools/hybrid_render/validate_config.py cad/end_effector/render_config.json
+# 或者分步执行:
+# Step 2a: 设计审查 + 规范化
+python cad_pipeline.py spec --design-doc docs/design/04-*.md --auto-fill
 
-# Step 4: AI增强 (可选)
-python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json > prompt.txt
-python gemini_gen.py --image cad/output/renders/V1_front_iso.png "$(cat prompt.txt)"
-# → 输出: bananapro/gemini_*.jpg
+# Step 2b: 代码生成
+python cad_pipeline.py codegen --subsystem end_effector
+
+# Step 2c: 手动完善几何（可选）
+# 编辑 cad/end_effector/station_*.py 完善零件细节
+
+# Step 2d: 构建 + 渲染
+python cad_pipeline.py build --subsystem end_effector
+python cad_pipeline.py render --subsystem end_effector --timestamp
+
+# Step 2e: AI增强 (可选)
+python cad_pipeline.py enhance --dir cad/output/renders
 ```
 
 ### 5.2 仅渲染（已有GLB）
@@ -261,20 +331,22 @@ python gemini_gen.py --image V1_front_iso.png \
 ```
 你是一个 CAD 渲染助手。你可以执行 shell 命令来操作以下工具:
 
+- cad_pipeline.py: 统一管线编排器 (spec/codegen/build/render/enhance/annotate/full)
 - build_all.py: 参数化3D建模，生成 STEP/DXF/GLB
-- render_3d.py: Blender Cycles CPU 渲染 5视角PNG
+- render_3d.py: Blender Cycles CPU 渲染 N视角PNG
 - render_exploded.py: 爆炸图渲染
 - render_dxf.py: DXF工程图转PNG
+- codegen/gen_*.py: 从 CAD_SPEC.md 自动生成 CadQuery 脚手架（Jinja2 模板）
 - prompt_builder.py: 生成 Gemini AI增强 prompt
 - gemini_gen.py: Gemini 图生图
 - validate_config.py: 验证 render_config.json
 - check_env.py: 环境能力检测
 
 工作目录: <YOUR_PROJECT_ROOT>
-Blender路径: tools/blender/blender.exe
-配置文件: cad/<subsystem>/render_config.json
+配置文件: pipeline_config.json（Blender路径、渲染参数）
+子系统配置: cad/<subsystem>/render_config.json
 
-用户提出需求时，判断需要调用哪些工具，按顺序执行。
+推荐使用 cad_pipeline.py full 一键执行全流程。
 ```
 
 ### 6.2 Function/Tool 定义（OpenAI 格式）
@@ -321,6 +393,27 @@ agent.run("帮我渲染末端执行器的5个视角")
 ## 7. 目录结构
 
 ```
+cad_pipeline.py                    ← 统一管线编排器 (6 阶段)
+cad_paths.py                       ← 路径解析（Blender、子系统、输出目录）
+pipeline_config.json               ← 持久化配置（Blender路径、渲染参数、时间戳）
+
+codegen/                           ← 代码生成器（Jinja2）
+├── gen_params.py                  ← §1 参数表 → params.py
+├── gen_build.py                   ← §5 BOM → build_all.py
+├── gen_parts.py                   ← §5 叶零件 → station_*.py 脚手架
+└── gen_assembly.py                ← §4+§5+§6 → assembly.py
+
+templates/                         ← Jinja2 模板
+├── params.py.j2                   ← params.py 生成模板
+├── build_all.py.j2                ← build_all.py 生成模板
+├── part_module.py.j2              ← 零件模块脚手架模板
+├── assembly.py.j2                 ← 装配脚手架模板
+├── cad_spec_template.md           ← CAD_SPEC 输出格式模板
+├── design_review_template.md      ← 设计审查输出模板
+├── prompt_enhance.txt             ← AI prompt: 标准视角 (V1-V3)
+├── prompt_exploded.txt            ← AI prompt: 爆炸图 (V4)
+└── prompt_ortho.txt               ← AI prompt: 正交投影 (V5)
+
 cad/end_effector/              ← 参考实现 (§4末端执行器)
 ├── params.py                  ← 参数数据源
 ├── tolerances.py              ← 公差定义
