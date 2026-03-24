@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "CAD pipeline skill: design doc → design review → structured spec → code generation → 2D drawings → 3D renders → photorealistic images",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
@@ -27,14 +27,14 @@
       "id": "cad-codegen",
       "name": "CAD Code Generator",
       "trigger": "/cad-codegen",
-      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules) from CAD_SPEC.md using Jinja2 templates. Scaffold mode (default) never overwrites engineer-modified files.",
+      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). Scaffold mode (default) never overwrites engineer-modified files.",
       "entry_point": "python cad_pipeline.py codegen"
     },
     {
       "id": "cad-enhance",
       "name": "Gemini AI Enhancement",
       "trigger": "/cad-enhance",
-      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI (geometry locked, reskin only). 3 prompt templates for standard/exploded/orthographic views."
+      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI (geometry locked, reskin only). 3 prompt templates for standard/exploded/orthographic views. Standard parts enhancement via {standard_parts_description} from render_config.json. Model selection via pipeline_config.json enhance section."
     },
     {
       "id": "mechdesign",
@@ -63,7 +63,7 @@
     {
       "name": "gemini_enhance",
       "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked)",
-      "cli": "python gemini_gen.py --image <input.png> \"<prompt from templates/prompt_*.txt>\""
+      "cli": "python gemini_gen.py --image <input.png> --model <gemini_model_id> \"<prompt from templates/prompt_*.txt>\""
     },
     {
       "name": "annotate_render",
@@ -84,10 +84,10 @@
     "config": "pipeline_config.json",
     "stages": [
       "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review)",
-      "Phase 2 CODEGEN: Jinja2 templates → CadQuery scaffolds (codegen/gen_*.py)",
+      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py)",
       "Phase 3 BUILD: Parametric modeling → STEP + DXF + GLB (build_all.py)",
       "Phase 4 RENDER: Blender Cycles N-view PNG (render_3d.py + render_exploded.py)",
-      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini, geometry locked)",
+      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini, geometry locked, standard parts + model selection)",
       "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py)"
     ]
   }

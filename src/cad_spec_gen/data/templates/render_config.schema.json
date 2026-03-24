@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Render Configuration",
+  "description": "Configuration for the CAD parametric rendering pipeline (materials, cameras, explode rules, labels).",
+  "type": "object",
+  "required": ["version", "subsystem", "materials", "camera"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1,
+      "description": "Schema version (currently only 1)"
+    },
+    "subsystem": {
+      "type": "object",
+      "required": ["name", "glb_file"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "name_cn": { "type": "string" },
+        "part_prefix": { "type": "string", "pattern": "^GIS-" },
+        "glb_file": { "type": "string", "pattern": "\\.(glb|gltf)$" },
+        "bounding_radius_mm": { "type": "number", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "materials": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "enum": [
+              "brushed_aluminum", "anodized_blue", "anodized_green",
+              "anodized_purple", "anodized_red", "black_anodized",
+              "bronze", "copper", "gunmetal", "dark_steel", "stainless_304",
+              "peek_amber", "black_rubber", "white_nylon", "polycarbonate_clear"
+            ]
+          },
+          "overrides": {
+            "type": "object",
+            "properties": {
+              "color": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+              "metallic": { "type": "number", "minimum": 0, "maximum": 1 },
+              "roughness": { "type": "number", "minimum": 0, "maximum": 1 },
+              "anisotropic": { "type": "number", "minimum": 0, "maximum": 1 },
+              "ior": { "type": "number" },
+              "specular": { "type": "number" },
+              "sss": { "type": "number" },
+              "sss_color": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+            }
+          },
+          "label": { "type": "string" },
+          "color": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+          "metallic": { "type": "number", "minimum": 0, "maximum": 1 },
+          "roughness": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "location": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "target": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "azimuth_deg": { "type": "number" },
+          "elevation_deg": { "type": "number" },
+          "distance_factor": { "type": "number", "minimum": 0.1 },
+          "ortho": { "type": "boolean" },
+          "ortho_scale": { "type": "number", "minimum": 1 }
+        }
+      }
+    },
+    "explode": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["radial", "axial", "custom"] },
+        "spread_mm": { "type": "number", "minimum": 0 },
+        "z_spread_mm": { "type": "number", "minimum": 0 },
+        "station_angles_deg": { "type": "array", "items": { "type": "number" } },
+        "mount_radius_mm": { "type": "number", "minimum": 0 },
+        "rules": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "angle_deg": { "type": "number" },
+              "radial": { "type": "boolean" },
+              "z_offset": { "type": "number" },
+              "direction": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+            }
+          }
+        }
+      }
+    },
+    "prompt_vars": {
+      "type": "object",
+      "properties": {
+        "product_name": { "type": "string" },
+        "material_descriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["visual_cue", "material_desc"],
+            "properties": {
+              "visual_cue": { "type": "string" },
+              "material_desc": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name_cn": { "type": "string" },
+          "name_en": { "type": "string" },
+          "bom_id": { "type": "string" }
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["anchor", "label"],
+              "properties": {
+                "component": { "type": "string" },
+                "name_cn": { "type": "string" },
+                "name_en": { "type": "string" },
+                "anchor": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                "label": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "reference_resolution": {
+      "type": "object",
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "additionalProperties": true
+}

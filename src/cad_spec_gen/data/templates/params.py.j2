@@ -1,0 +1,30 @@
+"""
+{{ subsystem_name }} Parametric Dimensions — Single Source of Truth
+
+Auto-generated from CAD_SPEC.md by codegen/gen_params.py
+Source: {{ source_file }}
+Generated: {{ generated_at }}
+
+All values extracted from {{ design_doc }} ({{ total_lines }} lines).
+Units: mm, degrees, grams unless noted.
+"""
+
+import math
+{% for group in param_groups %}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# {{ group.title }}
+# ═══════════════════════════════════════════════════════════════════════════
+{% for p in group.params %}
+{{ p.name }} = {{ p.value }}{{ " " * (30 - p.name|length - p.value|string|length) }}# {{ p.unit }}{{ " — " + p.remark if p.remark else "" }}{{ " (" + p.source + ")" if p.source else "" }}{{ " " + p.tolerance if p.tolerance else "" }}
+{% endfor %}
+{% endfor %}
+{% if derived_params %}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Derived (computed)
+# ═══════════════════════════════════════════════════════════════════════════
+{% for p in derived_params %}
+{{ p.name }} = {{ p.expr }}{{ " " * (30 - p.name|length - p.expr|string|length) }}# {{ p.remark }}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,2 @@
+recursive-include src/cad_spec_gen/data *
+include README.md LICENSE

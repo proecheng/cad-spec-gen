@@ -1,0 +1,65 @@
+"""
+{{ part_name_cn }} ({{ part_no }})
+
+Auto-generated scaffold by codegen/gen_parts.py
+Source: {{ source_ref }}
+Material: {{ material }}
+
+BOM: {{ part_no }} {{ part_name_cn }}
+"""
+
+import cadquery as cq
+{% if param_imports %}
+from params import (
+{% for p in param_imports %}
+    {{ p }},
+{% endfor %}
+)
+{% else %}
+from params import *
+{% endif %}
+
+
+def make_{{ func_name }}() -> cq.Workplane:
+    """{{ part_no }}: {{ part_name_cn }} — {{ material }}
+
+    Envelope: {{ envelope_w }} x {{ envelope_d }} x {{ envelope_h }} mm
+    Weight: {{ weight }}g
+    """
+    # TODO: Replace placeholder box with actual geometry
+    body = cq.Workplane("XY").box(
+        {{ envelope_w }}, {{ envelope_d }}, {{ envelope_h }},
+        centered=(True, True, False))
+{% if has_mounting_holes %}
+
+    # Mounting face bolt holes
+    from fasteners import cut_mounting_holes
+    body = cut_mounting_holes(body, {{ mount_bolt_pcd }}, {{ mount_bolt_num }})
+{% endif %}
+
+    return body
+
+
+{% if has_dxf %}
+def draw_{{ func_name }}_sheet(output_dir: str = None) -> str:
+    """Generate DXF three-view drawing for {{ part_no }}."""
+    from drawing import ThreeViewSheet
+    solid = make_{{ func_name }}()
+    sheet = ThreeViewSheet(
+        solid,
+        title="{{ part_name_cn }}",
+        part_no="{{ part_no }}",
+        material="{{ material }}",
+    )
+    return sheet.save(output_dir)
+{% endif %}
+
+
+if __name__ == "__main__":
+    import os
+    out = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(out, exist_ok=True)
+    r = make_{{ func_name }}()
+    p = os.path.join(out, "{{ part_no }}.step")
+    cq.exporters.export(r, p)
+    print(f"Exported: {p}")

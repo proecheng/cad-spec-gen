@@ -1,0 +1,8 @@
+Keep ALL geometry, proportions, positions, and shapes EXACTLY unchanged.
+Do NOT crop, pan, zoom, or reframe — output must match the input image pixel-for-pixel in composition and resolution.
+This is a {view_description} of a {product_name}.
+Apply photorealistic studio-quality materials ONLY:
+{material_descriptions}
+{standard_parts_description}
+Studio lighting: soft key light from upper-left, fill from right, subtle rim light.
+Neutral gradient background. 8K product photography quality.

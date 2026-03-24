@@ -1,0 +1,97 @@
+"""
+Top-Level Assembly — {{ subsystem_name_cn }} ({{ assembly_part_no }})
+
+Auto-generated scaffold by codegen/gen_assembly.py
+Source: {{ source_file }}
+Generated: {{ generated_at }}
+
+Coordinate system:
+- Origin at {{ origin_desc }}
+- {{ axis_desc }}
+
+Assembly hierarchy:
+{% for node in bom_tree %}
+  {{ "  " * node.depth }}{{ "├── " if not node.is_last else "└── " }}{{ node.part_no }} {{ node.name_cn }}
+{% endfor %}
+"""
+
+import cadquery as cq
+import math
+import os
+from params import (
+{% for p in assembly_params %}
+    {{ p }},
+{% endfor %}
+)
+
+
+def _station_transform(part, angle: float, tx: float, ty: float, tz: float):
+    """Apply station rotation + translation."""
+    part = part.rotate((0, 0, 0), (0, 0, 1), angle)
+    part = part.translate((tx, ty, tz))
+    return part
+
+
+def make_assembly() -> cq.Assembly:
+    """Build CadQuery Assembly with split sub-components."""
+{% for imp in part_imports %}
+    from {{ imp.module }} import {{ imp.functions | join(", ") }}
+{% endfor %}
+{% for imp in std_part_imports %}
+    from {{ imp.module }} import {{ imp.func }}
+{% endfor %}
+
+    assy = cq.Assembly()
+
+    # ── Colors (custom parts) ──
+{% for c in colors %}
+    {{ c.name }} = cq.Color({{ c.r }}, {{ c.g }}, {{ c.b }})
+{% endfor %}
+
+    # ── Colors (standard/purchased parts) ──
+{% for c in std_colors %}
+    {{ c.name }} = cq.Color({{ c.r }}, {{ c.g }}, {{ c.b }})
+{% endfor %}
+
+{% for station in stations %}
+    # ═══════ {{ station.name_cn }} ({{ station.angle }}°) ═══════
+{% if station.is_radial %}
+    _a = {{ station.angle }}
+    _rad = math.radians(_a)
+    _tx = {{ station.mount_radius }} * math.cos(_rad)
+    _ty = {{ station.mount_radius }} * math.sin(_rad)
+    _tz = {{ station.base_z }}
+{% endif %}
+{% for part in station.parts %}
+
+    {{ part.var }} = {{ part.make_call }}
+{% if part.local_transform %}
+    {{ part.var }} = {{ part.local_transform }}
+{% endif %}
+{% if station.is_radial %}
+    {{ part.var }} = _station_transform({{ part.var }}, _a, _tx, _ty, _tz)
+{% endif %}
+    assy.add({{ part.var }}, name="{{ part.assy_name }}", color={{ part.color_var }})
+{% endfor %}
+
+{% endfor %}
+    return assy
+
+
+def export_assembly(output_dir: str, glb: bool = True) -> str:
+    """Build and export the full assembly STEP (and optionally GLB)."""
+    assy = make_assembly()
+    path = os.path.join(output_dir, "{{ assembly_part_no }}_assembly.step")
+    assy.save(path, "STEP")
+    print(f"Exported: {path}")
+    if glb:
+        glb_path = os.path.join(output_dir, "{{ assembly_part_no }}_assembly.glb")
+        assy.save(glb_path, "GLTF")
+        print(f"Exported: {glb_path}")
+    return path
+
+
+if __name__ == "__main__":
+    out = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(out, exist_ok=True)
+    export_assembly(out)
