@@ -820,7 +820,8 @@ def main():
     p_full.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
     p_full.add_argument("--force-spec", action="store_true", help="Force spec regeneration")
     p_full.add_argument("--force", action="store_true", help="Force codegen overwrite")
-    p_full.add_argument("--render", action="store_true", default=True)
+    p_full.add_argument("--render", action="store_true", default=False,
+                        help="Pass --render to build_all.py (normally handled by RENDER phase)")
     p_full.add_argument("--view", default=None)
     p_full.add_argument("--dir", default=None)
     p_full.add_argument("--config", default=None)

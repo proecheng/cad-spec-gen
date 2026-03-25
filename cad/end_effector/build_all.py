@@ -188,7 +188,8 @@ def run_blender(script, extra_args, blender_path):
     log.info("  Running: %s", " ".join(os.path.basename(c) for c in cmd[:5]))
     try:
         result = subprocess.run(
-            cmd, check=True, capture_output=True, text=True, timeout=600,
+            cmd, check=True, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=600,
         )
         # Print stdout (Blender output) at debug level
         if result.stdout:
