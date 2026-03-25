@@ -86,7 +86,7 @@ python cad_pipeline.py <command> [OPTIONS]
 
 | 子命令 | 阶段 | 说明 |
 |--------|------|------|
-| `spec` | Phase 1 | 设计审查 + CAD_SPEC.md 生成 |
+| `spec` | Phase 1 | 设计审查 + 交互式三选一 + CAD_SPEC.md 生成 |
 | `codegen` | Phase 2 | 从 CAD_SPEC.md 生成 CadQuery 脚手架（Jinja2） |
 | `build` | Phase 3 | CadQuery 构建 STEP + DXF + GLB |
 | `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG |
@@ -97,6 +97,34 @@ python cad_pipeline.py <command> [OPTIONS]
 | `env-check` | — | 验证依赖环境 |
 
 常用标志：`--dry-run`（仅验证）、`--timestamp`（输出文件名加时间戳）、`--skip-spec`/`--skip-codegen`（跳过阶段）
+
+### 3.0a Phase 1 交互式设计审查
+
+`spec` 和 `full` 子命令自动执行两阶段交互式审查：
+
+```
+Phase 1a: cad_spec_gen.py --review-only → DESIGN_REVIEW.md + .json
+                    ↓
+Phase 1b: 终端显示审查摘要（CRITICAL/WARNING/INFO/OK 各项计数）
+          用户交互式选择：
+          ┌─────────────────────────────────────────┐
+          │ 有 CRITICAL:                            │
+          │   1. 继续审查 → exit 2 (管线暂停)       │
+          │   2. 中止     → exit 1                  │
+          │                                         │
+          │ 有 WARNING (无 CRITICAL):               │
+          │   1. 继续审查 → exit 2                  │
+          │   2. 自动补全 → --auto-fill + 生成 SPEC │
+          │   3. 下一步   → 直接生成 SPEC           │
+          │                                         │
+          │ 无问题 → 自动进入下一步                  │
+          └─────────────────────────────────────────┘
+                    ↓
+Phase 1b': cad_spec_gen.py --review [--auto-fill] → CAD_SPEC.md
+```
+
+- `--auto-fill` CLI 标志可跳过交互，直接自动补全
+- `full` 命令中 exit 2 显示 "管线暂停于 SPEC — 用户选择继续审查" 后停止
 
 ### 3.0b codegen/ — 代码生成器（Jinja2）
 
