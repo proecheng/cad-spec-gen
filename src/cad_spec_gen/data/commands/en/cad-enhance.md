@@ -1,39 +1,40 @@
-# /cad-enhance — Gemini AI Enhancement (Blender PNG → Photo-Realistic JPG)
+# /cad-enhance — Gemini AI 增强（Blender PNG → 照片级 JPG）
 
-User input: $ARGUMENTS
+用户输入: $ARGUMENTS
 
-## Instructions
+## 指令
 
-Enhance Blender Cycles rendered PNG images into photo-realistic JPGs. Geometry is 100% locked — only surface material appearance is changed.
+将 Blender Cycles 渲染的 PNG 图片增强为照片级 JPG。几何形状 100% 锁定，仅更换表面材质外观。
 
-### Routing Rules
+### 路由规则
 
-1. **No arguments** → Show usage:
+1. **无参数** → 显示用法：
    ```
-   /cad-enhance <png_path>                    — Enhance a single image
-   /cad-enhance --all --dir <render_dir>      — Enhance all V*.png in directory
-   /cad-enhance --view V1 --dir <render_dir>  — Enhance specific view
+   /cad-enhance <png_path>                    — 增强单张图片
+   /cad-enhance --all --dir <render_dir>      — 增强目录下所有 V*.png
+   /cad-enhance --view V1 --dir <render_dir>  — 增强指定视角
    ```
 
-2. **With arguments** → Execute enhancement:
-   - Read the target subsystem's `render_config.json` for material descriptions (`prompt_vars.material_descriptions`)
-   - Select prompt template based on filename:
+2. **有参数** → 执行增强：
+   - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
+   - 根据文件名选择 prompt 模板：
      - V1/V2/V3 → `templates/prompt_enhance.txt`
      - V4 → `templates/prompt_exploded.txt`
      - V5 → `templates/prompt_ortho.txt`
-   - Fill template placeholders with variables from render_config.json
-   - Execute `python gemini_gen.py --image <input.png> "<filled prompt>"` (gemini_gen.py path located via `which gemini_gen.py` or env var `GEMINI_GEN_PATH`)
-   - Copy output JPG to same directory as input PNG, named `*_enhanced.jpg`
+   - 用 render_config.json 中的变量填充模板占位符
+   - 执行 `python gemini_gen.py --image <input.png> --model <model_id> "<filled prompt>"`（gemini_gen.py 路径通过 `cad_paths.get_gemini_script()` 或环境变量 `GEMINI_GEN_PATH` 定位）
+   - 捕获 gemini_gen.py 的 stdout，提取 `保存:` 后的路径
+   - 将输出文件重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录），时间戳防止覆盖历史版本
 
-### Core Principles
+### 核心原则
 
-- **Geometry lock**: First line of prompt must state "Keep ALL geometry EXACTLY unchanged"
-- **Material source**: All material descriptions read from render_config.json `prompt_vars`, never fabricated
-- **View consistency**: Different views use different templates — exploded views preserve spacing, orthographic views have no perspective
+- **几何锁定**：prompt 首行必须写 "Keep ALL geometry EXACTLY unchanged"
+- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 读取，不要凭空编造
+- **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
 
-### Standard Parts Enhancement
+### 标准件增强
 
-Prompt templates include `{standard_parts_description}` placeholder, filled from `render_config.json`'s `standard_parts` array:
+prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_config.json` 的 `standard_parts` 数组填充：
 
 ```json
 "standard_parts": [
@@ -42,11 +43,11 @@ Prompt templates include `{standard_parts_description}` placeholder, filled from
 ]
 ```
 
-Gemini receives simplified geometry location + real part appearance description, enhancing simplified shapes to realistic look. If `standard_parts` is empty, placeholder is replaced with empty string — no impact on existing workflow.
+Gemini 收到简化几何的位置描述 + 真实零件外观描述，将简化形状增强为逼真外观。如 `standard_parts` 为空，占位符替换为空字符串，不影响现有流程。
 
-### Model Selection
+### 模型选择
 
-`pipeline_config.json` `enhance` section configures Gemini model:
+`pipeline_config.json` 的 `enhance` 段配置 Gemini 模型：
 
 ```json
 "enhance": {
@@ -59,7 +60,7 @@ Gemini receives simplified geometry location + real part appearance description,
 }
 ```
 
-- `model` field selects current model alias
-- `models` dict maps alias → Gemini API model ID
-- Passed via `--model <id>` argument to `gemini_gen.py`
-- Switch models by changing `pipeline_config.json` `model` value only
+- `model` 字段选择当前使用的模型别名
+- `models` 字典映射别名 → Gemini API model ID
+- 通过 `--model <id>` 参数传递给 `gemini_gen.py`
+- 切换模型只需修改 `pipeline_config.json` 的 `model` 值

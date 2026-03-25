@@ -135,6 +135,9 @@ Labeled JPG — with leader lines and component names
 │     + station_*.py scaffolds + std_*.py (standard parts)         │
 │     + assembly.py (with standard parts integrated)               │
 │     Templates: templates/*.j2 (scaffold mode, never overwrites) │
+│     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
+│     build_all.py needs valid module refs, assembly.py needs       │
+│     hand-written mate logic. Complete before Phase 4.             │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
 │     CadQuery scripts → STEP + GLB + DXF                        │
@@ -288,7 +291,7 @@ Labels are defined in `render_config.json`:
    python cad_pipeline.py codegen --subsystem <your_subsystem>
    ```
 
-3. **Refine geometry**: Edit generated `station_*.py` scaffolds — replace placeholder boxes with actual CadQuery geometry.
+3. **Refine scaffolds**: Edit generated files — params.py needs correct descriptive parameter names (codegen produces line-number based names), build_all.py needs valid module references, assembly.py needs real mate logic. Replace placeholder boxes in station_*.py with actual CadQuery geometry.
 
 4. **Build + render**:
    ```bash
@@ -370,7 +373,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest (v1.2.0)
+├── skill.json                      # Machine-readable skill manifest (v1.3.0)
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── install.py                      # Cross-platform installer (with --update/--check)

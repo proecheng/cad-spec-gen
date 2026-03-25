@@ -317,7 +317,8 @@ def cmd_enhance(args):
 
     # Load render_config.json for standard_parts descriptions
     std_parts_desc = ""
-    sub_dir = get_subsystem_dir(getattr(args, "subsystem", None))
+    _sub_name = getattr(args, "subsystem", None)
+    sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
     rc_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
@@ -365,9 +366,53 @@ def cmd_enhance(args):
                       "to photo-realistic quality with proper lighting and reflections.")
 
         cmd = [sys.executable, gemini_script, prompt, "--image", png] + model_arg
-        ok, _ = _run_subprocess(cmd, f"enhance {os.path.basename(png)}",
-                                dry_run=args.dry_run, timeout=180)
-        if not ok:
+
+        if args.dry_run:
+            log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
+            continue
+
+        log.info("  Running: enhance %s", os.path.basename(png))
+        t0 = time.time()
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=180,
+                encoding="utf-8", errors="replace",
+            )
+            elapsed = time.time() - t0
+            if result.returncode != 0:
+                log.error("  FAILED enhance %s (exit %d, %.1fs)",
+                          os.path.basename(png), result.returncode, elapsed)
+                failures += 1
+                continue
+            log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
+
+            # Rename gemini output: V*_YYYYMMDD_HHMM_enhanced.ext → same dir as source
+            gemini_path = None
+            for line in (result.stdout or "").split("\n"):
+                if "图片已保存:" in line or "已保存:" in line:
+                    # Extract path after last colon (handle Windows drive letters)
+                    idx = line.rfind("保存:")
+                    if idx >= 0:
+                        gemini_path = line[idx + len("保存:"):].strip()
+                    break
+            if gemini_path and os.path.isfile(gemini_path):
+                from datetime import datetime as _dt
+                src_stem = os.path.splitext(os.path.basename(png))[0]
+                ts = _dt.now().strftime("%Y%m%d_%H%M")
+                ext = os.path.splitext(gemini_path)[1]  # .jpg or .png
+                new_name = f"{src_stem}_{ts}_enhanced{ext}"
+                new_path = os.path.join(os.path.dirname(png), new_name)
+                shutil.copy2(gemini_path, new_path)
+                os.remove(gemini_path)
+                log.info("  Saved: %s", new_path)
+            else:
+                log.warning("  Could not locate gemini output for %s", os.path.basename(png))
+
+        except subprocess.TimeoutExpired:
+            log.error("  TIMEOUT enhance %s (>180s)", os.path.basename(png))
+            failures += 1
+        except FileNotFoundError as e:
+            log.error("  NOT FOUND: %s", e)
             failures += 1
 
     return 1 if failures else 0

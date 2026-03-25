@@ -116,6 +116,8 @@ python cad_pipeline.py codegen --subsystem <name> [--force]
 
 scaffold 模式（默认）不覆盖已有文件；`--force` 全部重新生成。
 
+> **⚠ 重要**: codegen 生成的脚手架是**不完整的**。`params.py` 使用行号命名（如 `PARAM_L123`），需要手动改为描述性名称；`build_all.py` 的模块引用可能与实际文件名不匹配；`assembly.py` 的装配逻辑需手写。**在进入 Phase 3 BUILD 之前，必须手动完善这些文件。**
+
 ### 3.0c pipeline_config.json — 持久化配置
 
 ```json
@@ -251,7 +253,8 @@ python gemini_gen.py --config
 ```
 
 - **配置文件**: `~/.config/gemini_image_config.json`（路径可自定义）
-- **输出**: `<output_dir>/gemini_YYYYMMDD_HHMMSS.png`
+- **输出**: `<output_dir>/gemini_YYYYMMDD_HHMMSS.png`（直接调用时）
+- **管线调用时**: `cad_pipeline.py enhance` 自动重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录）
 - **模型选择**: `pipeline_config.json` 的 `enhance` 段配置模型别名→API model ID 映射
 
 #### 标准件增强

@@ -22,8 +22,9 @@
      - V4 → `templates/prompt_exploded.txt`
      - V5 → `templates/prompt_ortho.txt`
    - 用 render_config.json 中的变量填充模板占位符
-   - 执行 `python gemini_gen.py --image <input.png> "<filled prompt>"`（gemini_gen.py 路径通过 `which gemini_gen.py` 或环境变量 `GEMINI_GEN_PATH` 定位）
-   - 将输出 JPG 复制到与输入 PNG 同目录，命名为 `*_enhanced.jpg`
+   - 执行 `python gemini_gen.py --image <input.png> --model <model_id> "<filled prompt>"`（gemini_gen.py 路径通过 `cad_paths.get_gemini_script()` 或环境变量 `GEMINI_GEN_PATH` 定位）
+   - 捕获 gemini_gen.py 的 stdout，提取 `保存:` 后的路径
+   - 将输出文件重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录），时间戳防止覆盖历史版本
 
 ### 核心原则
 
