@@ -137,11 +137,105 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
 # Commands
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _resolve_review_json(args):
+    """Locate DESIGN_REVIEW.json for a subsystem (output_dir/cad_subdir/)."""
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
+        output_dir = cfg.get("output_dir", "./output")
+        sub_cfg = cfg.get("subsystems", {})
+        cad_subdir = None
+        sub_name = getattr(args, "subsystem", None) or "end_effector"
+        for _ch, info in sub_cfg.items():
+            aliases = [info.get("name", "")] + info.get("aliases", [])
+            if sub_name in aliases or sub_name == info.get("cad_dir"):
+                cad_subdir = info.get("cad_dir", sub_name)
+                break
+        if not cad_subdir:
+            cad_subdir = sub_name
+        return os.path.join(output_dir, cad_subdir, "DESIGN_REVIEW.json")
+    except (OSError, json.JSONDecodeError):
+        return os.path.join("./output", getattr(args, "subsystem", "end_effector"),
+                            "DESIGN_REVIEW.json")
+
+
+def _show_review_summary(review_json_path):
+    """Print review summary and return (critical, warning, auto_fill) counts."""
+    if not os.path.isfile(review_json_path):
+        return 0, 0, 0
+    with open(review_json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    c, w, af = data.get("critical", 0), data.get("warning", 0), data.get("auto_fill", 0)
+    ok_count = data.get("ok", 0)
+    info_count = data.get("info", 0)
+
+    review_md = review_json_path.replace("DESIGN_REVIEW.json", "DESIGN_REVIEW.md")
+    log.info("=" * 60)
+    log.info("  设计审查结果 (Design Review)")
+    log.info("=" * 60)
+    log.info("  CRITICAL: %d | WARNING: %d | INFO: %d | OK: %d", c, w, info_count, ok_count)
+    if af > 0:
+        log.info("  可自动补全: %d 项", af)
+    log.info("  详见: %s", review_md)
+
+    # Print review items summary
+    items = data.get("items", [])
+    for item in items:
+        severity = item.get("severity", "")
+        code = item.get("code", "")
+        msg = item.get("message", "")
+        if severity in ("CRITICAL", "WARNING"):
+            log.info("  [%s] %s: %s", severity, code, msg[:80])
+    log.info("=" * 60)
+    return c, w, af
+
+
+def _prompt_review_choice(critical, warning, auto_fill):
+    """Prompt user to choose next action after design review.
+
+    Returns: "iterate" | "auto_fill" | "proceed" | "abort"
+    """
+    if critical > 0:
+        log.error("存在 %d 个 CRITICAL 问题，必须修复后才能继续。", critical)
+        print("\n请选择:")
+        print("  1. 继续审查 — 逐项讨论问题并修正")
+        print("  2. 中止 — 先手动修正设计文档后重新运行")
+        while True:
+            choice = input("\n请输入选项 [1/2]: ").strip()
+            if choice == "1":
+                return "iterate"
+            elif choice == "2":
+                return "abort"
+            print("  无效输入，请输入 1 或 2")
+
+    if warning > 0:
+        print("\n请选择:")
+        print("  1. 继续审查 — 逐项讨论 WARNING 问题")
+        if auto_fill > 0:
+            print(f"  2. 自动补全 — 自动填入 {auto_fill} 项可计算的默认值，然后生成 CAD_SPEC.md")
+        else:
+            print("  2. (无可自动补全项)")
+        print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
+        valid = {"1", "3"} if auto_fill == 0 else {"1", "2", "3"}
+        while True:
+            choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
+            if choice == "1" and "1" in valid:
+                return "iterate"
+            elif choice == "2" and "2" in valid:
+                return "auto_fill"
+            elif choice == "3" and "3" in valid:
+                return "proceed"
+            print(f"  无效输入，请输入 {'/'.join(sorted(valid))}")
+
+    # No issues
+    log.info("审查通过，无 CRITICAL/WARNING 问题，自动进入下一步。")
+    return "proceed"
+
+
 def cmd_spec(args):
-    """Phase 1: Design review + CAD_SPEC.md generation."""
+    """Phase 1: Design review + CAD_SPEC.md generation (interactive)."""
     design_doc = getattr(args, "design_doc", None)
     if not design_doc:
-        # Auto-resolve from subsystem name
         design_doc = _resolve_design_doc(args.subsystem)
     if not design_doc or not os.path.isfile(design_doc):
         log.error("Design doc not found. Use --design-doc or ensure docs/design/%s exists",
@@ -153,16 +247,56 @@ def cmd_spec(args):
         log.error("cad_spec_gen.py not found at %s", spec_gen)
         return 1
 
-    cmd = [sys.executable, spec_gen, design_doc,
-           "--config", CONFIG_PATH,
-           "--review"]
-    if getattr(args, "auto_fill", False):
-        cmd.append("--auto-fill")
-    if getattr(args, "force", False) or getattr(args, "force_spec", False):
-        cmd.append("--force")
+    force_flag = getattr(args, "force", False) or getattr(args, "force_spec", False)
 
-    ok, elapsed = _run_subprocess(cmd, f"spec-gen ({os.path.basename(design_doc)})",
-                                  dry_run=args.dry_run, timeout=120)
+    # ── Step 1: Run review-only first ──
+    cmd_review = [sys.executable, spec_gen, design_doc,
+                  "--config", CONFIG_PATH,
+                  "--review-only"]
+    if force_flag:
+        cmd_review.append("--force")
+
+    log.info("Phase 1a: 生成设计审查报告...")
+    ok, _ = _run_subprocess(cmd_review, f"review ({os.path.basename(design_doc)})",
+                            dry_run=args.dry_run, timeout=120)
+    if not ok:
+        return 1
+
+    if args.dry_run:
+        return 0
+
+    # ── Step 2: Read review results and prompt user ──
+    review_json = _resolve_review_json(args)
+    critical, warning, auto_fill_count = _show_review_summary(review_json)
+
+    # If --auto-fill was pre-set via CLI, skip interactive prompt
+    if getattr(args, "auto_fill", False):
+        log.info("--auto-fill 已指定，自动补全并生成 CAD_SPEC.md")
+        choice = "auto_fill"
+    else:
+        choice = _prompt_review_choice(critical, warning, auto_fill_count)
+
+    # ── Step 3: Act on user choice ──
+    if choice == "abort":
+        log.info("用户选择中止。请修正设计文档后重新运行。")
+        return 1
+
+    if choice == "iterate":
+        log.info("用户选择继续审查。请查看 DESIGN_REVIEW.md 逐项讨论后重新运行。")
+        return 2  # Special exit code: review iteration
+
+    # "auto_fill" or "proceed" → generate CAD_SPEC.md
+    cmd_gen = [sys.executable, spec_gen, design_doc,
+               "--config", CONFIG_PATH,
+               "--review"]
+    if choice == "auto_fill":
+        cmd_gen.append("--auto-fill")
+    if force_flag:
+        cmd_gen.append("--force")
+
+    log.info("Phase 1b: 生成 CAD_SPEC.md...")
+    ok, _ = _run_subprocess(cmd_gen, f"spec-gen ({os.path.basename(design_doc)})",
+                            dry_run=args.dry_run, timeout=120)
     return 0 if ok else 1
 
 
@@ -446,28 +580,8 @@ def cmd_annotate(args):
 
 
 def _review_checkpoint(args):
-    """Halt pipeline if DESIGN_REVIEW has CRITICAL/WARNING (unless --auto-fill or --force)."""
-    # DESIGN_REVIEW.json is written by cad_spec_gen.py to the output dir, not the cad dir.
-    # Resolve output dir from config (same logic as cad_spec_gen.py).
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = json.load(f)
-        output_dir = cfg.get("output_dir", "./output")
-        sub_cfg = cfg.get("subsystems", {})
-        # Find subsystem cad_dir by name or alias
-        cad_subdir = None
-        for _ch, info in sub_cfg.items():
-            aliases = [info.get("name", "")] + info.get("aliases", [])
-            if args.subsystem in aliases or args.subsystem == info.get("cad_dir"):
-                cad_subdir = info.get("cad_dir", args.subsystem)
-                break
-        if not cad_subdir:
-            cad_subdir = args.subsystem
-        review_dir = os.path.join(output_dir, cad_subdir)
-    except (OSError, json.JSONDecodeError):
-        review_dir = os.path.join("./output", args.subsystem)
-
-    review_json = os.path.join(review_dir, "DESIGN_REVIEW.json")
+    """Check that review passed. Called from cmd_full after cmd_spec already handled interaction."""
+    review_json = _resolve_review_json(args)
     if not os.path.isfile(review_json):
         return 0  # No review data, continue
 
@@ -475,27 +589,10 @@ def _review_checkpoint(args):
         data = json.load(f)
 
     critical = data.get("critical", 0)
-    warning = data.get("warning", 0)
-    auto_fill = data.get("auto_fill", 0)
-
     if critical > 0:
-        log.error("DESIGN_REVIEW has %d CRITICAL issue(s). Fix before continuing.", critical)
-        log.error("See: %s", os.path.join(review_dir, "DESIGN_REVIEW.md"))
-        return 1  # Hard stop
+        log.error("DESIGN_REVIEW still has %d CRITICAL issue(s). Cannot continue.", critical)
+        return 1
 
-    if warning > 0:
-        if getattr(args, "auto_fill", False):
-            log.info("DESIGN_REVIEW has %d WARNING(s), --auto-fill active → continuing", warning)
-            return 0
-        if getattr(args, "force", False):
-            log.info("DESIGN_REVIEW has %d WARNING(s), --force active → continuing", warning)
-            return 0
-        log.warning("DESIGN_REVIEW has %d WARNING(s), %d auto-fillable.", warning, auto_fill)
-        log.warning("Options: --auto-fill (fill defaults) | --force (ignore) | fix manually")
-        log.warning("See: %s", os.path.join(review_dir, "DESIGN_REVIEW.md"))
-        return 2  # Halt, user must decide
-
-    log.info("DESIGN_REVIEW: no CRITICAL/WARNING issues — continuing.")
     return 0
 
 
@@ -535,7 +632,10 @@ def cmd_full(args):
         log.info("\n[%d/%d] %s", i, len(steps), name)
         rc = fn()
         if rc != 0:
-            log.error("Pipeline stopped at step %s (exit %d)", name, rc)
+            if rc == 2:
+                log.info("管线暂停于 %s — 用户选择继续审查。修正后重新运行。", name)
+            else:
+                log.error("Pipeline stopped at step %s (exit %d)", name, rc)
             return rc
 
     elapsed = time.time() - t0

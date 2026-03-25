@@ -9,7 +9,7 @@
     "cad_spec_reviewer.py": "b84e1a68ed4e17c67c0dba5069fd7f88",
     "bom_parser.py": "8de3f3221fd42e35f46aba780b7cdadd",
     "cad_paths.py": "2f37af91ebcab0dc64d1b91b426382d1",
-    "cad_pipeline.py": "f71cb6220a5ab4a5e0736000b6d28f8a",
+    "cad_pipeline.py": "a18c09e5fa93cf4e0e8a2ad9c3f33613",
     "annotate_render.py": "a9af7e25f30c4c79733a66d835d703e5",
     "pipeline_config.json": "409615415645c1819e24778ca38288f1",
     "skill_cad_help.md": "a3a8fdc9d110bc406ae33367f699b40d",
@@ -36,7 +36,7 @@
     ".claude/commands/cad-codegen.md": "3e591372b18ed6cbdcaffdb1aa48cf75",
     ".claude/commands/cad-enhance.md": "2e29db9998925f515637951f1130286b",
     ".claude/commands/cad-help.md": "d314ab407ba6f33acc2b6ee08ecb926f",
-    ".claude/commands/cad-spec.md": "3e79f26fe0d0849f65cfd6420bb4eac8",
+    ".claude/commands/cad-spec.md": "e7a1e8fe173c16f7a6ecc4177a73d9e3",
     ".claude/commands/mechdesign.md": "8a0cae68e6ac07be5eda69fe58401fd1"
   }
 }

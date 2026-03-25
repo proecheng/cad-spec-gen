@@ -41,30 +41,30 @@
    python cad_spec_gen.py <doc.md> --config config/gisbot.json --review --force
    ```
 
-### 审查工作流（当使用 --review 或 --review-only 时）
+### 审查工作流（当使用 --review 或通过管线执行时）
 
-1. 提取数据后自动运行设计审查引擎（力学/装配/材质/完整性）
-2. 读取生成的 `DESIGN_REVIEW.md`，向用户展示审查摘要：
-   - A. 力学审查结果（悬臂应力、螺栓剪切等）
-   - B. 装配审查结果（尺寸链、包络干涉等）
-   - C. 材质审查结果（电偶腐蚀、温度裕度等）
-   - D. 缺失数据（CRITICAL/WARNING/INFO）
-3. 向用户提供三个选项：
-   - **「继续审查」** → 逐项讨论 WARNING/CRITICAL，用户可调整参数，审查结果记入 CAD_SPEC.md 备注
-   - **「自动补全」** → 对可计算的缺失数据（螺栓力矩、单位、粗糙度等）自动填入默认值，再生成 CAD_SPEC.md
-     ```bash
-     python cad_spec_gen.py <doc.md> --config config/gisbot.json --review --auto-fill
-     ```
-   - **「下一步」** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
-4. 用户确认「下一步」或「自动补全」后，运行完整生成
-5. **重要：不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
+`cad_pipeline.py spec` 和 `cad_pipeline.py full` 自动执行两阶段交互式审查：
 
-### 管线断点
+**Phase 1a — 生成审查报告**：
+1. 运行 `cad_spec_gen.py --review-only`，提取数据并执行设计审查引擎（力学/装配/材质/完整性）
+2. 输出 `DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
 
-`cad_pipeline.py full` 在 SPEC 完成后自动检查 `DESIGN_REVIEW.json`：
-- **CRITICAL** → 管线停止 (exit 1)，必须修复后重跑
-- **WARNING** → 管线停止 (exit 2)，需用 `--auto-fill` 或 `--force` 继续
-- **无问题** → 自动继续后续阶段
+**Phase 1b — 交互式用户选择**：
+3. 在终端显示审查摘要（CRITICAL/WARNING/INFO/OK 计数 + 各问题条目）
+4. **交互式提示用户选择**：
+   - 有 CRITICAL 时：
+     - **「1. 继续审查」** → 管线暂停 (exit 2)，用户逐项修正后重新运行
+     - **「2. 中止」** → 管线停止 (exit 1)，先手动修正设计文档
+   - 有 WARNING（无 CRITICAL）时：
+     - **「1. 继续审查」** → 暂停，逐项讨论问题
+     - **「2. 自动补全」** → 自动填入可计算的默认值（螺栓力矩、单位、粗糙度等），然后生成 CAD_SPEC.md
+     - **「3. 下一步」** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
+   - 无问题时 → 自动进入下一步
+5. 用户选择后，运行 `cad_spec_gen.py --review [--auto-fill]` 生成 CAD_SPEC.md
+
+**注意**：
+- 通过 `--auto-fill` CLI 标志可跳过交互，直接执行自动补全
+- **不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
 
 ### 生成后汇总
 
