@@ -60,6 +60,7 @@ INSTALL_MANIFEST = {
     ],
     "knowledge": [
         "skill_cad_help.md",
+        "skill_mech_design.md",
     ],
     "directories": [
         "config",

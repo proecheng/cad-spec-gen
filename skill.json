@@ -62,8 +62,8 @@
     },
     {
       "name": "gemini_enhance",
-      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked)",
-      "cli": "python gemini_gen.py --image <input.png> --model <gemini_model_id> \"<prompt from templates/prompt_*.txt>\""
+      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). NOTE: gemini_gen.py is an EXTERNAL script (not in this repo), located via env var GEMINI_GEN_PATH or cad_paths.get_gemini_script(). Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
+      "cli": "python cad_pipeline.py enhance --dir <render_dir>"
     },
     {
       "name": "annotate_render",
