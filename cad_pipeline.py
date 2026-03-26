@@ -217,6 +217,13 @@ def _prompt_review_choice(critical, warning, auto_fill):
             print("  2. (无可自动补全项)")
         print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
         valid = {"1", "3"} if auto_fill == 0 else {"1", "2", "3"}
+        if not sys.stdin.isatty():
+            log.error(
+                "交互式门控需要在终端中运行。请在终端执行：\n"
+                "  python cad_pipeline.py spec --subsystem <name> --design-doc <file> --review\n"
+                "非交互模式请加 --auto-fill 跳过交互。"
+            )
+            sys.exit(1)
         while True:
             choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
             if choice == "1" and "1" in valid:
