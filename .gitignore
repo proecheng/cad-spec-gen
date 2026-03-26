@@ -8,3 +8,4 @@ dist/
 build/
 tools/blender/
 .pytest_cache/
+bananapro/
