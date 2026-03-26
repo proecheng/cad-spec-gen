@@ -351,11 +351,20 @@ def _interactive_fill_warnings(review_json_path):
                     infer_label = f"为 {parts[0]} 推断材质候选"
 
             if inferred:
-                print(f"  可推断建议值（{infer_label}）：")
+                print(f"\n  推断值（{infer_label}）：")
+                print(f"  {'─'*56}")
                 for ln in inferred.splitlines():
-                    print(f"    {ln}")
-                print("  i. 采用推断值（可在下方修改后确认）")
-                print("  b. 手动填写")
+                    print(f"  {ln}")
+                print(f"  {'─'*56}")
+                # Tell user where to manually edit if they want to change later
+                spec_path = review_json_path.replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+                if not os.path.isfile(spec_path):
+                    spec_path = review_json_path.replace(
+                        os.path.join("output", ""), os.path.join("cad", "")
+                    ).replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+                print(f"  ℹ 如需后续修改，请编辑: {spec_path} 的 §10 节")
+                print("  i. 采用推断值并写入")
+                print("  b. 手动填写（替换推断值）")
                 print("  s. 跳过")
                 try:
                     sub = input("  选择 [i/b/s]: ").strip().lower()
@@ -363,13 +372,7 @@ def _interactive_fill_warnings(review_json_path):
                     log.error("交互式填写需要终端输入，stdin 已关闭。")
                     sys.exit(1)
                 if sub == "i":
-                    print("  确认推断值（直接回车接受，或修改后回车）：")
-                    try:
-                        edited = input(f"  > ").strip()
-                    except EOFError:
-                        edited = ""
-                    result = edited if edited else inferred
-                    supplements[item_id] = result
+                    supplements[item_id] = inferred
                     print(f"  [已记录 {item_id}]")
                     continue
                 elif sub == "s":
