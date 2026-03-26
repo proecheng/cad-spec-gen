@@ -24,7 +24,7 @@ from params import (
     S2_AE_DIA, S2_AE_H,
     S2_FORCE_DIA, S2_FORCE_H, S2_FORCE_BOLT_PCD, S2_FORCE_BOLT_DIA,
     S2_FORCE_BOLT_NUM, S2_FORCE_CENTER_HOLE,
-    S2_SPRING_OD, S2_SPRING_FREE_L,
+    S2_SPRING_OD, S2_SPRING_FREE_L, S2_SPRING_WIRE, S2_SPRING_TURNS,
     S2_GUIDE_DIA, S2_GUIDE_LENGTH, S2_GUIDE_BORE,
     S2_ENDPLATE_DIA, S2_ENDPLATE_THICK,
     S2_SLEEVE_OD, S2_SLEEVE_ID, S2_SLEEVE_H,
@@ -40,12 +40,13 @@ from params import (
     MOUNT_PIN_DIA, MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y,
     LEMO_BORE_DIA,
 )
+from fasteners import make_helix_spring
 
 
 # ─── Individual BOM parts ────────────────────────────────────────────────
 
 def make_force_sensor() -> cq.Workplane:
-    """GIS-EE-003-02: Six-axis force sensor KWR42 (Φ42×12mm)."""
+    """GIS-EE-003-02: Six-axis force sensor KWR42 (Φ42×12mm, per design doc spring limiter parts table)."""
     fs = cq.Workplane("XY").circle(S2_FORCE_DIA / 2.0).extrude(S2_FORCE_H)
     # Center through hole
     ch = cq.Workplane("XY").circle(S2_FORCE_CENTER_HOLE / 2.0).extrude(S2_FORCE_H)
@@ -97,10 +98,13 @@ def make_guide_shaft() -> cq.Workplane:
 
 
 def make_spring() -> cq.Workplane:
-    """压缩弹簧 Φ8mm OD × 12mm free length (approximated as hollow cylinder)."""
-    outer = cq.Workplane("XY").circle(S2_SPRING_OD / 2.0).extrude(S2_SPRING_FREE_L)
-    inner = cq.Workplane("XY").circle(S2_SPRING_OD / 2.0 - S2_SPRING_OD * 0.15).extrude(S2_SPRING_FREE_L)
-    return outer.cut(inner)
+    """压缩弹簧 OD=8mm × 12mm free length, 6 turns, wire=0.5mm (helix coil)."""
+    return make_helix_spring(
+        od=S2_SPRING_OD,              # 8.0
+        wire_dia=S2_SPRING_WIRE,      # 0.5
+        free_length=S2_SPRING_FREE_L, # 12.0
+        n_coils=S2_SPRING_TURNS,      # 6
+    )
 
 
 def make_sleeve() -> cq.Workplane:
@@ -268,18 +272,18 @@ def make_ae_module() -> cq.Workplane:
 
       Z=0:        Mounting plate (interface to arm, 4×M3 bolts)
       Z=0→3:      Mounting adapter plate (3mm, bolt-through + spacer)
-      Z=3→23:     Force sensor KWR42 (20mm, ⚠️estimated)
-      Z=23→26:    Interface plate force→limiter (3mm, 4×M3)
-      Z=26→44.5:  Spring limiter (2+14+0.5+2 = 18.5mm)
-      Z=44.5→47.5: Interface plate limiter→gimbal (3mm, 4×M3)
-      Z=47.5→68.5: Gimbal assy (3+15+3 = 21mm)
-      Z=68.5→70.5: Damper pad (2mm)
-      Z=70.5→71:   Pressure array (0.5mm)
-      Z=71→97:     AE probe (26mm)
+      Z=3→15:     Force sensor KWR42 (12mm, per design doc)
+      Z=15→18:    Interface plate force→limiter (3mm, 4×M3)
+      Z=18→36.5:  Spring limiter (2+14+0.5+2 = 18.5mm)
+      Z=36.5→39.5: Interface plate limiter→gimbal (3mm, 4×M3)
+      Z=39.5→60.5: Gimbal assy (3+15+3 = 21mm)
+      Z=60.5→62.5: Damper pad (2mm)
+      Z=62.5→63:   Pressure array (0.5mm)
+      Z=63→89:     AE probe (26mm)
     Side:
       Counterweight near mount face end (Z≈5, §4 line 162 "far from AE probe end")
 
-    Total stack ≈ 97mm. With mounting hardware tolerances → ~100mm active stack.
+    Total stack ≈ 89mm. With mounting hardware tolerances → ~92mm active stack.
     120mm envelope includes safety margin for bolt heads, cable exits, etc.
     """
     z = 0.0

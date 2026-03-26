@@ -410,10 +410,15 @@ def cmd_render(args):
     if _should_timestamp(args):
         render_args.append("--timestamp")
 
+    section_script = os.path.join(sub_dir, "render_section.py")
+
     if args.view:
         # Single view
-        if args.view.upper() == "V4" and os.path.isfile(exploded_script):
+        view_upper = args.view.upper()
+        if view_upper == "V4" and os.path.isfile(exploded_script):
             cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
+        elif view_upper == "V6" and os.path.isfile(section_script):
+            cmd = [blender, "-b", "-P", section_script, "--"] + render_args
         else:
             cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--view", args.view]
         ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200)
@@ -432,37 +437,39 @@ def cmd_render(args):
             if not ok:
                 failures += 1
 
+        if os.path.isfile(section_script):
+            cmd = [blender, "-b", "-P", section_script, "--"] + render_args
+            ok, _ = _run_subprocess(cmd, "render section view", dry_run=args.dry_run, timeout=600)
+            if not ok:
+                failures += 1
+
     return 1 if failures else 0
 
 
 def cmd_enhance(args):
     """Run Gemini AI enhancement on rendered PNGs."""
+    from enhance_prompt import build_enhance_prompt, extract_view_key, view_sort_key
+
     gemini_script = get_gemini_script()
     if not gemini_script:
-        log.error("gemini_gen.py not found at %s", gemini_script)
+        log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
         log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
         return 1
 
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")))
+    pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")), key=view_sort_key)
     if not pngs:
         log.error("No V*.png files found in %s", render_dir)
         return 1
 
-    # Load render_config.json for standard_parts descriptions
-    std_parts_desc = ""
+    # Load render_config.json (full dict for prompt building)
+    rc = {}
     _sub_name = getattr(args, "subsystem", None)
     sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
     rc_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
             rc = json.load(f)
-        std_parts = rc.get("standard_parts", [])
-        if std_parts:
-            lines = ["\n[Standard Components — enhance simplified shapes to real-world appearance]"]
-            for sp in std_parts:
-                lines.append(f"- {sp.get('visual_cue', '')}: {sp.get('real_part', '')}")
-            std_parts_desc = "\n".join(lines)
 
     # Load model config
     model_arg = []
@@ -477,37 +484,51 @@ def cmd_enhance(args):
         if model_id:
             model_arg = ["--model", model_id]
 
-    # Load prompt template
-    prompt_dir = os.path.join(TOOLS_DIR, "hybrid_render", "prompts")
     failures = 0
+    v1_done = False
 
     for png in pngs:
-        basename = os.path.basename(png).upper()
-        if "V4" in basename:
-            tmpl_file = os.path.join(prompt_dir, "prompt_exploded.txt")
-        elif "V5" in basename:
-            tmpl_file = os.path.join(prompt_dir, "prompt_ortho.txt")
-        else:
-            tmpl_file = os.path.join(prompt_dir, "prompt_enhance.txt")
+        view_key = extract_view_key(png)
 
-        if os.path.isfile(tmpl_file):
-            with open(tmpl_file, encoding="utf-8") as f:
-                prompt = f.read().strip()
-            # Fill standard_parts_description (empty string if no data)
-            prompt = prompt.replace("{standard_parts_description}", std_parts_desc)
-        else:
+        # Build prompt with all placeholders filled
+        try:
+            prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
+        except FileNotFoundError:
             prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
                       "to photo-realistic quality with proper lighting and reflections.")
 
-        cmd = [sys.executable, gemini_script, prompt, "--image", png] + model_arg
-
         if args.dry_run:
-            log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
+            log.info("  [DRY-RUN] %s prompt (%d chars):", view_key, len(prompt))
+            log.info("  --- prompt start ---")
+            for line in prompt.split("\n"):
+                log.info("  %s", line)
+            log.info("  --- prompt end ---")
+            # Check for unfilled placeholders
+            import re as _re
+            residual = _re.findall(r'\{[a-z_]+\}', prompt)
+            if residual:
+                log.warning("  UNFILLED placeholders: %s", residual)
+            if view_key == "V1":
+                v1_done = True
             continue
 
-        log.info("  Running: enhance %s", os.path.basename(png))
-        t0 = time.time()
+        # Write prompt to temp file (avoid Windows argv length limit)
+        import tempfile
+        prompt_file = None
         try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8"
+            ) as f:
+                f.write(prompt)
+                prompt_file = f.name
+
+            cmd = [sys.executable, gemini_script,
+                   "--prompt-file", prompt_file,
+                   "--image", png] + model_arg
+
+            log.info("  Running: enhance %s (%s, %d chars)",
+                     os.path.basename(png), view_key, len(prompt))
+            t0 = time.time()
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=180,
                 encoding="utf-8", errors="replace",
@@ -516,15 +537,21 @@ def cmd_enhance(args):
             if result.returncode != 0:
                 log.error("  FAILED enhance %s (exit %d, %.1fs)",
                           os.path.basename(png), result.returncode, elapsed)
+                if result.stderr:
+                    for line in result.stderr.strip().split("\n")[-5:]:
+                        log.error("    %s", line)
                 failures += 1
                 continue
             log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
+
+            # Mark V1 done for consistency anchor on subsequent views
+            if view_key == "V1":
+                v1_done = True
 
             # Rename gemini output: V*_YYYYMMDD_HHMM_enhanced.ext → same dir as source
             gemini_path = None
             for line in (result.stdout or "").split("\n"):
                 if "图片已保存:" in line or "已保存:" in line:
-                    # Extract path after last colon (handle Windows drive letters)
                     idx = line.rfind("保存:")
                     if idx >= 0:
                         gemini_path = line[idx + len("保存:"):].strip()
@@ -533,14 +560,18 @@ def cmd_enhance(args):
                 from datetime import datetime as _dt
                 src_stem = os.path.splitext(os.path.basename(png))[0]
                 ts = _dt.now().strftime("%Y%m%d_%H%M")
-                ext = os.path.splitext(gemini_path)[1]  # .jpg or .png
+                ext = os.path.splitext(gemini_path)[1]
                 new_name = f"{src_stem}_{ts}_enhanced{ext}"
                 new_path = os.path.join(os.path.dirname(png), new_name)
                 shutil.copy2(gemini_path, new_path)
-                os.remove(gemini_path)
+                try:
+                    os.remove(gemini_path)
+                except OSError:
+                    pass  # copied successfully, removal is best-effort
                 log.info("  Saved: %s", new_path)
             else:
-                log.warning("  Could not locate gemini output for %s", os.path.basename(png))
+                log.warning("  Could not locate gemini output for %s",
+                            os.path.basename(png))
 
         except subprocess.TimeoutExpired:
             log.error("  TIMEOUT enhance %s (>180s)", os.path.basename(png))
@@ -548,6 +579,9 @@ def cmd_enhance(args):
         except FileNotFoundError as e:
             log.error("  NOT FOUND: %s", e)
             failures += 1
+        finally:
+            if prompt_file and os.path.isfile(prompt_file):
+                os.unlink(prompt_file)
 
     return 1 if failures else 0
 
@@ -804,6 +838,7 @@ def main():
 
     # enhance
     p_enhance = sub.add_parser("enhance", help="Gemini AI enhancement")
+    p_enhance.add_argument("--subsystem", "-s", default="end_effector")
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
 
     # annotate

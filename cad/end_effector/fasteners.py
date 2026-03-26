@@ -179,6 +179,215 @@ def make_compression_spring(od: float, wire_dia: float, free_length: float,
     return result
 
 
+def make_helix_spring(od: float, wire_dia: float, free_length: float,
+                      n_coils: int = 6) -> cq.Workplane:
+    """Helical spring using Wire.makeHelix + sweep.
+
+    Creates a true helix coil spring. Falls back to stacked tori
+    (make_compression_spring) if the CadQuery helix API is unavailable.
+
+    Args:
+        od: Outer diameter (mm)
+        wire_dia: Wire diameter (mm)
+        free_length: Free length (mm)
+        n_coils: Number of active coils
+    Returns:
+        CadQuery Workplane. Origin at bottom center, spring extends in +Z.
+    """
+    mean_r = (od - wire_dia) / 2.0
+    pitch = free_length / n_coils
+
+    try:
+        wire = cq.Wire.makeHelix(pitch, free_length, mean_r)
+        helix_path = cq.Workplane("XY").newObject([wire])
+        spring = (
+            cq.Workplane("XZ")
+            .center(mean_r, 0)
+            .circle(wire_dia / 2.0)
+            .sweep(helix_path, isFrenet=True)
+        )
+        return spring
+    except Exception:
+        # Fallback to stacked tori if makeHelix/sweep fails
+        return make_compression_spring(od, wire_dia, free_length, n_coils)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Belleville (disc/conical) spring washer — DIN 2093
+# ═══════════════════════════════════════════════════════════════════
+
+def make_belleville_washer(od: float, id: float, thick: float) -> cq.Workplane:
+    """DIN 2093 conical spring washer (simplified flat annulus).
+
+    Args:
+        od: Outer diameter (e.g. 12.5 for A6)
+        id: Inner diameter (e.g. 6.2)
+        thick: Material thickness
+    Returns:
+        CadQuery Workplane. Origin at bottom center.
+    """
+    washer = (
+        cq.Workplane("XY")
+        .circle(od / 2.0)
+        .circle(id / 2.0)
+        .extrude(thick)
+    )
+    return washer
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ZIF connector (visual block)
+# ═══════════════════════════════════════════════════════════════════
+
+def make_zif_connector(length: float = 15.0, width: float = 10.0,
+                       height: float = 3.0) -> cq.Workplane:
+    """ZIF FFC connector simplified visual model.
+
+    Origin at bottom center, connector extends in +Z.
+    """
+    body = (
+        cq.Workplane("XY")
+        .rect(length, width)
+        .extrude(height)
+    )
+    # Actuator lever (thin flap on top)
+    lever = (
+        cq.Workplane("XY")
+        .workplane(offset=height)
+        .center(0, -width / 4.0)
+        .rect(length * 0.9, width * 0.3)
+        .extrude(0.5)
+    )
+    return body.union(lever)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Locating pin (dowel pin)
+# ═══════════════════════════════════════════════════════════════════
+
+def make_locating_pin(dia: float, length: float) -> cq.Workplane:
+    """Cylindrical dowel / locating pin.
+
+    Origin at top center, pin extends in -Z.
+    """
+    pin = cq.Workplane("XY").circle(dia / 2.0).extrude(-length)
+    return pin
+
+
+# ═══════════════════════════════════════════════════════════════════
+# FFC flat flexible cable (simplified ribbon)
+# ═══════════════════════════════════════════════════════════════════
+
+def make_ffc_ribbon(width: float, thick: float,
+                    length: float) -> cq.Workplane:
+    """FFC ribbon cable as a flat rectangular strip.
+
+    Origin at one end center, cable extends in +X.
+    """
+    ribbon = (
+        cq.Workplane("XY")
+        .rect(length, width, centered=False)
+        .extrude(thick)
+        .translate((-length / 2.0, -width / 2.0, -thick / 2.0))
+    )
+    return ribbon
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Igus E2 micro energy chain (simplified segmented tube)
+# ═══════════════════════════════════════════════════════════════════
+
+def make_igus_chain(inner_dia: float, outer_dia: float,
+                    length: float, segment_len: float = 5.0) -> cq.Workplane:
+    """Igus E2 micro cable chain — simplified as segmented annuli.
+
+    Origin at one end center, chain extends in +Z.
+    """
+    n_seg = max(1, int(length / segment_len))
+    gap = 0.5  # gap between segments
+    result = None
+    for i in range(n_seg):
+        z = i * segment_len
+        seg = (
+            cq.Workplane("XY")
+            .workplane(offset=z)
+            .circle(outer_dia / 2.0)
+            .circle(inner_dia / 2.0)
+            .extrude(segment_len - gap)
+        )
+        if result is None:
+            result = seg
+        else:
+            result = result.union(seg)
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SMA 50Ω bulkhead connector
+# ═══════════════════════════════════════════════════════════════════
+
+def make_sma_connector(bore_dia: float = 6.5,
+                       body_len: float = 12.0) -> cq.Workplane:
+    """SMA bulkhead RF connector simplified model.
+
+    Origin at panel face center, connector extends in +Z.
+    """
+    # Panel nut (hex)
+    nut_af = 8.0
+    hex_r = nut_af / (2.0 * math.cos(math.radians(30)))
+    nut = cq.Workplane("XY").polygon(6, hex_r * 2).extrude(2.5)
+
+    # Body cylinder
+    body = (
+        cq.Workplane("XY")
+        .workplane(offset=2.5)
+        .circle(bore_dia / 2.0 - 0.3)
+        .extrude(body_len - 2.5)
+    )
+    nut = nut.union(body)
+
+    # Center pin
+    pin = (
+        cq.Workplane("XY")
+        .workplane(offset=body_len)
+        .circle(0.65)
+        .extrude(3.0)
+    )
+    return nut.union(pin)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# M12 circular connector (diagnostic port)
+# ═══════════════════════════════════════════════════════════════════
+
+def make_m12_connector(bore_dia: float = 12.0,
+                       length: float = 25.0) -> cq.Workplane:
+    """M12 A-coded circular connector simplified model.
+
+    Origin at panel face center, connector extends in +Z.
+    """
+    # Knurled nut (simplified as cylinder with grooves)
+    nut = cq.Workplane("XY").circle(bore_dia / 2.0 + 1.5).extrude(8.0)
+
+    # Body
+    body = (
+        cq.Workplane("XY")
+        .workplane(offset=8.0)
+        .circle(bore_dia / 2.0)
+        .extrude(length - 8.0)
+    )
+    nut = nut.union(body)
+
+    # Panel flange
+    flange = (
+        cq.Workplane("XY")
+        .workplane(offset=-2.0)
+        .circle(bore_dia / 2.0 + 3.0)
+        .extrude(2.0)
+    )
+    return nut.union(flange)
+
+
 if __name__ == "__main__":
     import os
     out = os.path.join(os.path.dirname(__file__), "..", "output")

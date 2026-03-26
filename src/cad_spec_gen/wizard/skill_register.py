@@ -20,7 +20,9 @@ USER_CONFIG_FILES = ["config/gisbot.json"]
 PYTHON_TOOLS = [
     "cad_pipeline.py", "cad_spec_gen.py", "cad_spec_extractors.py",
     "cad_spec_defaults.py", "cad_spec_reviewer.py", "cad_paths.py",
-    "bom_parser.py", "annotate_render.py", "pipeline_config.json",
+    "bom_parser.py", "annotate_render.py",
+    "enhance_prompt.py", "prompt_data_builder.py",
+    "pipeline_config.json",
 ]
 
 # Directories to copy from data/{name}/ → target/{name}/
@@ -122,7 +124,7 @@ def _write_version_marker(target, version):
     )
 
 
-def register_skill(target_dir, lang="zh", version="1.2.0", update=False):
+def register_skill(target_dir, lang="zh", version="1.4.0", update=False):
     """Copy all skill files to the target project directory.
 
     Args:

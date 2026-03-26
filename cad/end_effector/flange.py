@@ -26,7 +26,7 @@ from params import (
     SPRING_PIN_R, SPRING_PIN_DIA, SPRING_PIN_DEPTH,
     PEEK_OD, PEEK_ID, PEEK_THICK, PEEK_STEP_HEIGHT,
     PEEK_BOLT_NUM, PEEK_BOLT_DIA, PEEK_BOLT_PCD,
-    ORING_CENTER_DIA, ORING_GROOVE_WIDTH, ORING_GROOVE_DEPTH,
+    ORING_CENTER_DIA, ORING_CS, ORING_GROOVE_WIDTH, ORING_GROOVE_DEPTH,
     REDUCER_MOUNT_PCD, REDUCER_MOUNT_BOLT_DIA, REDUCER_MOUNT_BOLT_NUM,
     ZIF_COVER_L, ZIF_COVER_W, ZIF_COVER_H, ZIF_BOLT_DIA,
     LEMO_BORE_DIA,
@@ -285,31 +285,22 @@ def make_peek_ring() -> cq.Workplane:
 
 
 def make_oring() -> cq.Workplane:
-    """O-ring FKM Φ80×2.4mm (GIS-EE-001-03)."""
-    oring_r = ORING_CENTER_DIA / 2.0
-    cs_r = 2.4 / 2.0  # cross-section radius
+    """O-ring FKM Φ80×2.4mm (GIS-EE-001-03).
 
-    # Create torus by revolving a circle
-    path = cq.Workplane("XY").circle(oring_r)
-    oring = (
-        cq.Workplane("XZ")
-        .workplane(offset=oring_r)
-        .center(0, FLANGE_AL_THICK - ORING_GROOVE_DEPTH + cs_r)
-        .circle(cs_r)
-        .revolve(360, (0, 0, 0), (-1, 0, 0))
-    )
-    # Simpler approach: make it as a swept torus
-    # Use CQ torus approach
-    oring = (
+    Approximated as annular ring (rectangular cross-section) for CadQuery compatibility.
+    Origin at bottom center of ring, matching flange groove position.
+    """
+    oring_r = ORING_CENTER_DIA / 2.0
+    cs_r = ORING_CS / 2.0  # cross-section radius 1.2mm
+    z_base = FLANGE_AL_THICK - ORING_GROOVE_DEPTH
+    ring = (
         cq.Workplane("XY")
-        .workplane(offset=FLANGE_AL_THICK - ORING_GROOVE_DEPTH + cs_r)
-        .center(0, 0)
+        .workplane(offset=z_base)
+        .circle(oring_r + cs_r)
+        .circle(oring_r - cs_r)
+        .extrude(ORING_CS)
     )
-    # CadQuery doesn't have a direct torus, approximate with shell
-    outer = cq.Workplane("XY").workplane(offset=FLANGE_AL_THICK - ORING_GROOVE_DEPTH + cs_r)
-    outer = outer.circle(oring_r + cs_r).circle(oring_r - cs_r).extrude(cs_r * 2)
-    # This is an approximation (rectangular cross-section ring). Good enough for concept.
-    return outer
+    return ring
 
 
 def make_flange_assembly() -> tuple:

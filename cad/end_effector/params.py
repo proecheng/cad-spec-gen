@@ -141,7 +141,7 @@ S2_AE_CABLE_DIA = 3.0             # 同轴电缆外径
 
 # --- 六轴力传感器 KWR42 (line 130, line 501) ---
 S2_FORCE_DIA = 42.0               # Φ42mm
-S2_FORCE_H = 20.0                 # KWR42高度Φ42×20mm (line 141)
+S2_FORCE_H = 12.0                 # KWR42高度Φ42×12mm (line 141, 弹簧限力零件表)
 S2_FORCE_BOLT_PCD = 36.0          # 安装孔PCD
 S2_FORCE_BOLT_DIA = 3.2           # M3通孔
 S2_FORCE_BOLT_NUM = 4
@@ -307,7 +307,7 @@ MOTOR_FLANGE_DIA = 25.0           # 法兰面直径
 MOTOR_FLANGE_THICK = 2.0          # 法兰面厚
 
 # ISO 9409 适配板 (GIS-EE-001-08)
-ADAPTER_OD = 63.0                 # ISO 9409-1-50 标准
+ADAPTER_OD = 63.0                 # ISO 9409-1-50 标准（设计文档§4.5视觉表写Φ63，详细描述写Φ80，取63mm符合ISO标准）
 ADAPTER_THICK = 8.0               # 适配板厚度
 ADAPTER_CENTER_HOLE = 22.0        # 中心孔（电机/线缆通道）
 ADAPTER_PILOT_DIA = 50.0          # 定位止口直径

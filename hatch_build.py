@@ -21,6 +21,8 @@ PYTHON_TOOLS = [
     "cad_paths.py",
     "bom_parser.py",
     "annotate_render.py",
+    "enhance_prompt.py",
+    "prompt_data_builder.py",
     "pipeline_config.json",
 ]
 

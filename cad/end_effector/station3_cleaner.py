@@ -325,6 +325,84 @@ def make_tape_cassette() -> cq.Workplane:
     return frame
 
 
+def make_gear_set() -> cq.Workplane:
+    """GIS-EE-004-04: Gear reduction set (3 spur gears, simplified).
+
+    Motor pinion → idler → take-up gear. Origin at motor pinion center.
+    """
+    # Pinion (motor output): Φ5 × 4mm
+    pinion = cq.Workplane("XY").circle(2.5).extrude(4.0)
+    pinion_bore = cq.Workplane("XY").circle(1.5).extrude(4.0)
+    pinion = pinion.cut(pinion_bore)
+
+    # Idler: Φ10 × 4mm, center offset 7.5mm from pinion
+    idler = cq.Workplane("XY").circle(5.0).extrude(4.0).translate((7.5, 0, 0))
+    idler_bore = cq.Workplane("XY").center(7.5, 0).circle(2.0).extrude(4.0)
+    idler = idler.cut(idler_bore)
+    pinion = pinion.union(idler)
+
+    # Output gear: Φ14 × 4mm, center offset 12mm from idler
+    output = cq.Workplane("XY").circle(7.0).extrude(4.0).translate((19.5, 0, 0))
+    output_bore = cq.Workplane("XY").center(19.5, 0).circle(S3_SHAFT_DIA / 2.0).extrude(4.0)
+    output = output.cut(output_bore)
+    pinion = pinion.union(output)
+
+    return pinion
+
+
+def make_constant_force_spring() -> cq.Workplane:
+    """GIS-EE-004-06: Constant-force spring for tape tension (0.3N).
+
+    Simplified as a coiled thin strip. Origin at mounting point.
+    """
+    # Coiled drum (resting state): Φ10 × 6mm
+    coil = (
+        cq.Workplane("XY")
+        .circle(5.0)
+        .circle(3.0)
+        .extrude(6.0)
+    )
+    # Extended strip (simplified as flat bar)
+    strip = (
+        cq.Workplane("XY")
+        .workplane(offset=2.5)
+        .center(5.0, 0)
+        .rect(15.0, 3.0)
+        .extrude(0.3)
+    )
+    return coil.union(strip)
+
+
+def make_optical_encoder() -> cq.Workplane:
+    """GIS-EE-004-07: Optical encoder for tape-out detection (5×5×3mm)."""
+    body = cq.Workplane("XY").box(5.0, 5.0, 3.0, centered=(True, True, False))
+    # Sensor slot
+    slot = (
+        cq.Workplane("XY")
+        .workplane(offset=1.0)
+        .box(1.5, 6.0, 1.0, centered=(True, True, False))
+    )
+    body = body.cut(slot)
+    return body
+
+
+def make_micro_pump() -> cq.Workplane:
+    """GIS-EE-004-09: Micro diaphragm pump for solvent (Φ8×15mm)."""
+    body = cq.Workplane("XY").circle(4.0).extrude(15.0)
+    # Inlet port (-Z end)
+    inlet = cq.Workplane("XY").circle(1.5).extrude(-3.0)
+    body = body.union(inlet)
+    # Outlet port (+Z end)
+    outlet = (
+        cq.Workplane("XY")
+        .workplane(offset=15.0)
+        .circle(1.5)
+        .extrude(3.0)
+    )
+    body = body.union(outlet)
+    return body
+
+
 def make_cleaner() -> cq.Workplane:
     """
     Full cleaner assembly (GIS-EE-004).
@@ -395,6 +473,37 @@ def make_cleaner() -> cq.Workplane:
         .translate((S3_BODY_W / 2.0, 0, S3_BODY_H * 0.5))
     )
     body = body.union(tank)
+
+    # Gear set (between motor output and take-up spool)
+    gear_z = motor_z - S3_MOTOR_DIA / 2.0 - 3
+    gears = (
+        make_gear_set()
+        .rotate((0, 0, 0), (1, 0, 0), 90)
+        .translate((spool_x_takeup - 5, S3_BODY_D / 2.0 - S3_WALL_THICK - 2, gear_z))
+    )
+    body = body.union(gears)
+
+    # Constant-force spring (near supply spool floating guide)
+    cf_spring = (
+        make_constant_force_spring()
+        .translate((spool_x_supply, 0, spool_z - S3_SUPPLY_FULL_OD / 2.0 - 8))
+    )
+    body = body.union(cf_spring)
+
+    # Optical encoder (near take-up spool)
+    encoder = (
+        make_optical_encoder()
+        .translate((spool_x_takeup + S3_TAKEUP_FULL_OD / 2.0 + 3, 0, spool_z))
+    )
+    body = body.union(encoder)
+
+    # Micro pump (in solvent path, inside shell near tank bore)
+    pump = (
+        make_micro_pump()
+        .rotate((0, 0, 0), (0, 1, 0), -90)
+        .translate((S3_BODY_W / 2.0 - S3_WALL_THICK - 5, 0, S3_BODY_H * 0.35))
+    )
+    body = body.union(pump)
 
     # Counterweight at top
     cw = make_counterweight().translate((0, 0, S3_BODY_H))

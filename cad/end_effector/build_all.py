@@ -41,7 +41,8 @@ _STEP_BUILDS = [
     ("station 2",    "station2_ae",         "make_ae_module",     "EE-003_station2_ae.step"),
     ("station 3",    "station3_cleaner",    "make_cleaner",       "EE-004_station3_cleaner.step"),
     ("station 4",    "station4_uhf",        "make_uhf_module",    "EE-005_station4_uhf.step"),
-    ("drive",        "drive_assembly",      "make_drive_assembly","EE-006_drive.step"),
+    ("drive",        "drive_assembly",      "make_drive_assembly","EE-001_drive.step"),
+    ("signal cond",  "signal_conditioning", "make_sig_cond_assembly", "EE-006_signal_conditioning.step"),
 ]
 
 _DXF_BUILDS = [

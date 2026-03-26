@@ -77,7 +77,7 @@
     },
     {
       "name": "cad_enhance",
-      "description": "Enhance a Blender-rendered PNG to photorealistic JPG via Gemini AI. Geometry is locked — only surface materials change. Uses prompt templates per view type: prompt_enhance.txt (standard), prompt_exploded.txt (exploded), prompt_ortho.txt (orthographic). Views are config-driven via render_config.json.",
+      "description": "Enhance a Blender-rendered PNG to photorealistic JPG via Gemini AI. Geometry is locked — only surface materials change. Uses unified template prompt_enhance_unified.txt with view-type auto-switching via render_config.json camera.type field. Views are config-driven via render_config.json.",
       "parameters": {
         "type": "object",
         "properties": {

@@ -1,0 +1,31 @@
+GEOMETRY LOCK — HIGHEST PRIORITY:
+- Keep ALL geometry, proportions, positions, orientations, and shapes EXACTLY as in the input image.
+- Do NOT crop, pan, zoom, or reframe — output MUST match input pixel-for-pixel in composition and resolution.
+- Do NOT add, remove, or reposition any parts. ONLY enhance visible surface materials.
+- Do NOT add text, labels, dimensions, or annotations.
+- If a part is partially outside frame or occluded, leave it as-is — do NOT "complete" or extend it.
+- If the input image shows only part of the assembly (close-up), do NOT try to show the full assembly.
+
+COORDINATE SYSTEM:
+{coordinate_system}
+
+VIEW: This is a {view_description} of a {product_name}.
+{view_type_note}
+
+ASSEMBLY STRUCTURE (visible in THIS view, from +Z arm-side down to -Z workstation-side):
+{assembly_description}
+
+MATERIAL ENHANCEMENT (apply ONLY to surfaces visible in the input image):
+{material_descriptions}
+
+{section_face_treatment}
+
+{standard_parts_description}
+
+CRITICAL CONSTRAINTS:
+{negative_constraints}
+
+MULTI-VIEW CONSISTENCY:
+{consistency_rules}
+
+{environment}

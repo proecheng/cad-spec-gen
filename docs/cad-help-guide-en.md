@@ -152,32 +152,19 @@ After Blender renders exist, enhance all views to photorealistic JPGs:
 # Step 1: Read render_config.json for material descriptions
 cat cad/end_effector/render_config.json | jq '.prompt_vars'
 
-# Step 2: Fill prompt template and run for each view
-# V1/V2/V3 → templates/prompt_enhance.txt (standard views)
-python gemini_gen.py --image V1_front_iso.png \
-  "Keep ALL geometry EXACTLY unchanged. This is a front-left isometric view
-   of a precision robotic end effector. Apply photorealistic materials:
-   - Silver flange: brushed aluminum 7075-T6
-   - Amber ring: PEEK translucent
-   - Blue/Green/Bronze/Purple stations: anodized aluminum
-   Studio lighting, neutral gradient background. 8K quality."
-
-# V4 → templates/prompt_exploded.txt (preserves explosion gaps)
-python gemini_gen.py --image V4_exploded.png \
-  "Keep ALL geometry EXACTLY unchanged. Exploded view — keep gaps visible..."
-
-# V5 → templates/prompt_ortho.txt (no perspective distortion)
-python gemini_gen.py --image V5_ortho_front.png \
-  "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+# All views → templates/prompt_enhance_unified.txt (unified)
+# prompt_data_builder.py auto-generates assembly/material data from params.py
+python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json --view V1
 ```
 
 **Key principles:**
 - Prompt line 1 MUST say "Keep ALL geometry EXACTLY unchanged"
 - Material descriptions come from `render_config.json` `prompt_vars`
 - Standard parts enhancement descriptions come from `render_config.json` `standard_parts` array (`{standard_parts_description}` placeholder)
-- 3 templates for different view types (standard / exploded / ortho)
-- Model selection: `pipeline_config.json` `enhance.model` field selects Gemini model alias (nano_banana / nano_banana_pro / nano_banana_2)
+- 1 unified template auto-switches by camera type (standard / exploded / ortho)
+- Model selection: `pipeline_config.json` `enhance.model` field selects Gemini model alias (nano_banana / nano_banana_pro / nano_banana_2 / nano_banana_4k)
 - Output: ~6MB JPG per view, photorealistic studio quality
+- Timestamp versioning: files named `V*_viewname_YYYYMMDD_HHMM_enhanced.ext` to prevent overwriting
 
 ### Component Label Annotation (CN/EN)
 

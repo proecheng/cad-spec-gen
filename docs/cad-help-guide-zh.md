@@ -153,32 +153,19 @@ Blender渲染完成后，将所有PNG增强为照片级JPG：
 # 步骤1: 读取 render_config.json 中的材质描述
 cat cad/end_effector/render_config.json | jq '.prompt_vars'
 
-# 步骤2: 填充prompt模板并逐视角执行
-# V1/V2/V3 → templates/prompt_enhance.txt（标准视角）
-python gemini_gen.py --image V1_front_iso.png \
-  "Keep ALL geometry EXACTLY unchanged. This is a front-left isometric view
-   of a precision robotic end effector. Apply photorealistic materials:
-   - 银色法兰: 拉丝铝合金 7075-T6
-   - 琥珀色环: PEEK工程塑料，半透明
-   - 蓝/绿/铜/紫工位: 阳极氧化铝
-   Studio lighting, neutral gradient background. 8K quality."
-
-# V4 → templates/prompt_exploded.txt（爆炸图，保留间距）
-python gemini_gen.py --image V4_exploded.png \
-  "Keep ALL geometry EXACTLY unchanged. Exploded view — keep gaps visible..."
-
-# V5 → templates/prompt_ortho.txt（正交图，无透视畸变）
-python gemini_gen.py --image V5_ortho_front.png \
-  "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+# 所有视角 → templates/prompt_enhance_unified.txt（统一模板）
+# prompt_data_builder.py 从 params.py 自动生成装配/材质数据
+python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json --view V1
 ```
 
 **核心原则：**
 - Prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
 - 材质描述来源于 `render_config.json` 的 `prompt_vars` 字段
 - 标准件增强描述来源于 `render_config.json` 的 `standard_parts` 数组（`{standard_parts_description}` 占位符）
-- 3套模板对应不同视角类型（标准/爆炸/正交）
-- 模型选择：`pipeline_config.json` 的 `enhance.model` 字段选择 Gemini 模型别名（nano_banana / nano_banana_pro / nano_banana_2）
+- 1套统一模板按相机类型自动切换（标准/爆炸/正交）
+- 模型选择：`pipeline_config.json` 的 `enhance.model` 字段选择 Gemini 模型别名（nano_banana / nano_banana_pro / nano_banana_2 / nano_banana_4k）
 - 输出：每张约6MB JPG，照片级影棚品质
+- 时间戳版本：文件命名 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`，防止覆盖历史版本
 - 双输出：PNG用于工程审图/加工参考，JPG用于答辩/展示/商业计划书
 
 ### 元件标注（中文/英文）

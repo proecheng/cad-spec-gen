@@ -303,9 +303,7 @@ Core tools:
   check_env.py:      tools/hybrid_render/check_env.py (environment check)
 
 Prompt templates (templates/ directory):
-  templates/prompt_enhance.txt  — V1~V3 standard views (materials/lighting/environment)
-  templates/prompt_exploded.txt — V4 exploded view specific (preserve explosion spacing and assembly lines)
-  templates/prompt_ortho.txt    — V5 orthographic specific (no perspective distortion)
+  templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
 
 Template variables (filled from render_config.json prompt_vars):
   {product_name}           ← prompt_vars.product_name
@@ -315,18 +313,15 @@ Template variables (filled from render_config.json prompt_vars):
 Core principles:
   1. First line of prompt must state "Keep ALL geometry EXACTLY unchanged"
   2. Material descriptions are read from render_config.json — never fabricated
-  3. Different views use different templates (exploded preserves spacing, orthographic has no perspective)
+  3. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
   4. Geometry is 100% locked — Gemini only "re-skins", never alters shapes
 
 5-view enhancement standard workflow:
   1. Confirm 5 Blender PNGs exist (V1~V5)
   2. Read prompt_vars field from render_config.json
-  3. Fill templates per view and execute:
-     V1: gemini_gen.py --image V1_front_iso.png "<prompt_enhance filled>"
-     V2: gemini_gen.py --image V2_rear_oblique.png "<prompt_enhance filled>"
-     V3: gemini_gen.py --image V3_side_elevation.png "<prompt_enhance filled>"
-     V4: gemini_gen.py --image V4_exploded.png "<prompt_exploded filled>"
-     V5: gemini_gen.py --image V5_ortho_front.png "<prompt_ortho filled>"
+  3. Fill unified template per view and execute:
+     python tools/hybrid_render/prompt_builder.py --config cad/<subsystem>/render_config.json --view V1
+     (V1~V5 all use prompt_enhance_unified.txt, auto-switches by camera type)
   4. Output: ~6MB JPG each, 5460x3072, photo studio quality
   5. Optional: Add component labels (Chinese/English):
      python annotate_render.py --all --dir <output_dir> --config render_config.json --lang cn
@@ -429,9 +424,10 @@ cad/output/                    ← Output directory
 templates/                     ← Templates
 ├── render_config_template.json← Blank render config template (starting point for new subsystems)
 ├── cad_spec_template.md       ← CAD Spec template
-├── prompt_enhance.txt         ← AI enhancement prompt (standard views)
-├── prompt_exploded.txt        ← AI enhancement prompt (exploded view)
-└── prompt_ortho.txt           ← AI enhancement prompt (orthographic view)
+├── prompt_enhance_unified.txt ← AI enhancement prompt: all views (unified template)
+├── prompt_enhance.txt         ← (legacy, unused)
+├── prompt_exploded.txt        ← (legacy, unused)
+└── prompt_ortho.txt           ← (legacy, unused)
 
 tools/hybrid_render/           ← Hybrid render tools
 ├── check_env.py               ← Environment check script

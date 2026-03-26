@@ -19,11 +19,12 @@
     "max_versions": 10
   },
   "enhance": {
-    "model": "nano_banana_2",
+    "model": "nano_banana_4k",
     "models": {
       "nano_banana": "gemini-2.5-flash-image",
       "nano_banana_pro": "gemini-3-pro-image-preview",
-      "nano_banana_2": "gemini-3.1-flash-image"
+      "nano_banana_2": "gemini-3.1-flash-image",
+      "nano_banana_4k": "gemini-3-pro-image-preview-4k"
     },
     "resolution": "2k",
     "timeout": 180

@@ -56,6 +56,7 @@ INSTALL_MANIFEST = {
         "bom_parser.py",
         "cad_paths.py", "cad_pipeline.py",
         "annotate_render.py",
+        "enhance_prompt.py", "prompt_data_builder.py",
         "pipeline_config.json",
     ],
     "knowledge": [

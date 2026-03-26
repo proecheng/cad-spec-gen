@@ -687,37 +687,28 @@ CadQuery Assembly → GLB → Blender Cycles CPU → 基础PNG（几何精确）
    cp D:/GISBOT/cad/output/renders/V*.png bananapro/
    ```
 
-4. **Gemini AI增强**（每张图用对应prompt模板）：
+4. **Gemini AI增强**（统一模板，按视角类型自动切换）：
    ```bash
-   # 标准视角（V1/V2/V3）— 使用 prompt_enhance.txt
-   python D:/imageProduce/gemini_gen.py "$(cat bananapro/prompt_enhance.txt)" --image bananapro/V1_front_iso.png
-   python D:/imageProduce/gemini_gen.py "$(cat bananapro/prompt_enhance.txt)" --image bananapro/V2_rear_oblique.png
-   python D:/imageProduce/gemini_gen.py "$(cat bananapro/prompt_enhance.txt)" --image bananapro/V3_side_elevation.png
-
-   # 爆炸图（V4）— 使用 prompt_exploded.txt（暗背景+装配线+rim light）
-   python D:/imageProduce/gemini_gen.py "$(cat bananapro/prompt_exploded.txt)" --image bananapro/V4_exploded.png
-
-   # 正投影（V5）— 使用 prompt_ortho.txt（白背景+无阴影+数据手册风格）
-   python D:/imageProduce/gemini_gen.py "$(cat bananapro/prompt_ortho.txt)" --image bananapro/V5_ortho_front.png
+   # 所有视角使用统一模板 prompt_enhance_unified.txt
+   # prompt_data_builder.py 从 params.py 自动生成装配/材质/约束数据
+   python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json --view V1
+   # 或通过 cad_pipeline.py enhance --subsystem end_effector 批量增强
    ```
    输出：`bananapro/gemini_YYYYMMDD_HHMMSS.jpg`（5张增强图）
 
 **Prompt模板生成**：
 
-从`render_config.json`的`prompt_vars`节读取材质描述，填入3种模板：
+统一模板 `prompt_enhance_unified.txt`，9 段结构（§1几何锁定 §2坐标系 §3视角 §4装配结构 §5材质 §6标准件 §7否定约束 §8多视角一致性 §9环境灯光）。
 
-| 模板类型 | 适用视角 | 风格要点 |
-|---------|---------|---------|
-| ENHANCE | V1/V2/V3 | 产品摄影：白地面+3点布光+金属反射 |
-| EXPLODED | V4 | 暗室：rim light+白虚线装配线+阴影 |
-| ORTHO | V5 | 数据手册：白studio+无阴影+均匀光 |
+按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容：
+| type | 用途 | 风格要点 |
+|------|------|---------|
+| standard | V1/V2/V3 | 产品摄影：3点布光+金属反射 |
+| exploded | V4 | 爆炸图：保留间距+浮动阴影 |
+| ortho | V5 | 正交投影：无透视畸变 |
+| section | V6 | 剖面图：切面材质+截面线 |
 
-模板结构（所有模板共用）：
-```
-[首行] Keep ALL geometry EXACTLY as shown — do NOT move/resize/add parts.
-[材质] MATERIAL ENHANCEMENT: 逐零件按visual_cue→material_desc映射
-[灯光] LIGHTING: 视角特定风格（见上表）
-```
+装配/材质/约束数据由 `prompt_data_builder.py` 从 `params.py` 自动生成。
 
 **Prompt编写要点**（R8-R11验证）：
 - **第一行必须写**："Keep ALL geometry and proportions EXACTLY as shown"
@@ -806,7 +797,7 @@ def build_all():
 | Blender渲染材质太平/不明显 | 用混合管线(阶段5c)：Blender出PNG，Gemini AI增强材质 |
 | Gemini增强后几何变形 | prompt首行写"Keep ALL geometry EXACTLY"，只描述材质不描述几何 |
 | Gemini API连接失败 | 直接重试，不改prompt；偶发性连接问题 |
-| 新子系统无prompt模板 | 复制bananapro/prompt_enhance.txt，修改零件颜色/材质描述 |
+| 新子系统无prompt数据 | 运行 `python prompt_data_builder.py --cad-dir cad/<subsystem> --update-config` 自动生成 |
 
 ## 质量检查清单
 

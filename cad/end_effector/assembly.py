@@ -4,10 +4,10 @@ Top-Level Assembly — End Effector (GIS-EE-000)
 Combines all sub-assemblies into a single multi-body STEP.
 
 Coordinate system:
-- Origin at flange rotation center
-- Z=0: back face (RM65-B interface), Z+=30: workstation side
-- Stations at 0° (S1), 90° (S2), 180° (S3), 270° (S4)
-- Drive assembly extends in -Z direction
+- Origin at flange rotation center (Z=0 at flange back face / ISO 9409 interface)
+- Z-axis vertical: +Z = workstation side (stations mount at Z=25mm on arm tips)
+- -Z = arm/robot side (drive assembly: adapter→reducer→motor stack below flange)
+- Stations at 0° (S1 applicator), 90° (S2 AE), 180° (S3 cleaner), 270° (S4 UHF)
 
 Assembly hierarchy (matching §4.8 BOM):
   GIS-EE-001  法兰总成
@@ -30,15 +30,23 @@ import math
 import os
 from params import (
     STATION_ANGLES, MOUNT_CENTER_R,
-    FLANGE_AL_THICK,
+    FLANGE_AL_THICK, FLANGE_OD, FLANGE_TOTAL_THICK,
     S1_BODY_H, S1_BODY_D, S1_WALL_THICK,
     S1_PUMP_CAVITY_DIA, S1_PUMP_CAVITY_DEPTH,
     S1_SCRAPER_W, S1_SCRAPER_H, S1_SCRAPER_D,
+    S2_FORCE_DIA, S2_FORCE_H, S2_AE_CABLE_DIA,
     S3_BODY_W, S3_BODY_H,
-    S4_BRACKET_THICK, S4_BRACKET_H, S4_BRACKET_D,
+    S4_BRACKET_THICK, S4_BRACKET_H, S4_BRACKET_D, S4_BRACKET_W,
     S4_SENSOR_DIA, S4_SENSOR_H,
     PEEK_BOLT_PCD, PEEK_BOLT_NUM,
+    PEEK_BELLEVILLE_OD, PEEK_BELLEVILLE_ID,
     MOUNT_BOLT_PCD,
+    MOUNT_PIN_DIA, MOUNT_PIN_DEPTH, MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y,
+    ORING_CENTER_DIA, ORING_CS, ORING_GROOVE_DEPTH,
+    FFC_WIDTH, FFC_THICK,
+    ZIF_COVER_L, ZIF_COVER_W, ZIF_COVER_H,
+    IGUS_CHAIN_ID, IGUS_CHAIN_OD,
+    LEMO_BORE_DIA, ARM_LENGTH,
 )
 
 
@@ -57,9 +65,12 @@ def make_assembly() -> cq.Assembly:
     from station3_cleaner import make_cleaner_body, make_solvent_tank
     from station4_uhf import make_uhf_bracket, make_uhf_sensor
     from drive_assembly import make_motor, make_reducer, make_adapter_plate, make_spring_pin_assembly
-    from fasteners import make_bolt_ring, make_bolt_square, make_lemo_0b
+    from fasteners import (make_bolt_ring, make_bolt_square, make_lemo_0b,
+                           make_belleville_washer, make_zif_connector,
+                           make_locating_pin, make_ffc_ribbon, make_igus_chain)
+    from flange import make_oring
     from params import (ADAPTER_THICK, REDUCER_LENGTH, MOTOR_BODY_LENGTH,
-                        MOTOR_FLANGE_THICK, LEMO_BORE_DIA)
+                        MOTOR_FLANGE_THICK)
 
     assy = cq.Assembly()
 
@@ -81,6 +92,43 @@ def make_assembly() -> cq.Assembly:
     peek_bolts = make_bolt_ring(3, 10, PEEK_BOLT_PCD, PEEK_BOLT_NUM, start_angle=30.0)
     peek_bolts = peek_bolts.translate((0, 0, FLANGE_AL_THICK))
     assy.add(peek_bolts, name="fastener_peek_bolts", color=cq.Color(0.3, 0.3, 0.3))
+
+    # ── O-ring (GIS-EE-001-03) on flange/PEEK interface ──
+    # make_oring() already positions at correct Z (FLANGE_AL_THICK - groove_depth)
+    oring = make_oring()
+    assy.add(oring, name="GIS-EE-001-03_oring", color=C_RUBBER)
+
+    # ── Belleville washers ×6 (GIS-EE-001-04) at PEEK bolt locations ──
+    for i in range(PEEK_BOLT_NUM):
+        angle = math.radians(30.0 + i * 360.0 / PEEK_BOLT_NUM)
+        bx = (PEEK_BOLT_PCD / 2.0) * math.cos(angle)
+        by = (PEEK_BOLT_PCD / 2.0) * math.sin(angle)
+        bw = make_belleville_washer(PEEK_BELLEVILLE_OD, PEEK_BELLEVILLE_ID, 0.7)
+        bw = bw.translate((bx, by, FLANGE_AL_THICK - 0.2))
+        assy.add(bw, name=f"GIS-EE-001-04_belleville_{i}", color=C_SILVER)
+
+    # ── FFC ribbon cable (GIS-EE-001-09) from ZIF to center ──
+    ffc_len = FLANGE_OD / 2.0 - 5  # from edge toward center
+    ffc = make_ffc_ribbon(FFC_WIDTH, FFC_THICK, ffc_len)
+    ffc = ffc.rotate((0, 0, 0), (0, 0, 1), 0).translate(
+        (FLANGE_OD / 2.0 - 5, 0, FLANGE_AL_THICK + 1))
+    assy.add(ffc, name="GIS-EE-001-09_ffc", color=cq.Color(0.9, 0.6, 0.2))
+
+    # ── ZIF connectors ×2 (GIS-EE-001-10) at 0° edge ──
+    for zi, zoff in enumerate([3.0, -3.0]):
+        zif = make_zif_connector(ZIF_COVER_L, ZIF_COVER_W, ZIF_COVER_H)
+        zif = zif.translate((FLANGE_OD / 2.0 - 2, zoff - ZIF_COVER_W / 2.0,
+                             FLANGE_AL_THICK + 0.5))
+        assy.add(zif, name=f"GIS-EE-001-10_zif_{zi}", color=cq.Color(0.2, 0.2, 0.2))
+
+    # ── Igus drag chain (GIS-EE-001-11) from 0° edge ──
+    chain = make_igus_chain(IGUS_CHAIN_ID, IGUS_CHAIN_OD, 40.0)
+    chain = chain.rotate((0, 0, 0), (0, 1, 0), 90).translate(
+        (FLANGE_OD / 2.0 + 5, 0, FLANGE_AL_THICK + 5))
+    assy.add(chain, name="GIS-EE-001-11_igus_chain", color=cq.Color(0.15, 0.15, 0.15))
+
+    # ── Locating pins ×4 (GIS-EE-001-12) at each station mount face ──
+    # (placed via station transforms below)
 
     # ── Station transforms ──
     def _stn_pos(i):
@@ -125,6 +173,12 @@ def make_assembly() -> cq.Assembly:
     s1_lemo = _station_transform(s1_lemo, a, tx, ty, tz)
     assy.add(s1_lemo, name="EE-002_applicator_lemo", color=C_SILVER)
 
+    # S1 locating pin
+    s1_pin = make_locating_pin(MOUNT_PIN_DIA, MOUNT_PIN_DEPTH)
+    s1_pin = s1_pin.translate((MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y, 0))
+    s1_pin = _station_transform(s1_pin, a, tx, ty, tz)
+    assy.add(s1_pin, name="GIS-EE-001-12_pin_s1", color=C_SILVER)
+
     # ═══════ Station 2: AE (90°) — kept as single body (complex internal stack) ═══════
     a, tx, ty, tz = _stn_pos(1)
     s2 = make_ae_module()
@@ -135,6 +189,26 @@ def make_assembly() -> cq.Assembly:
     s2_bolts = make_bolt_square(3, 8, MOUNT_BOLT_PCD / 2.0)
     s2_bolts = _station_transform(s2_bolts, a, tx, ty, tz)
     assy.add(s2_bolts, name="fastener_s2_bolts", color=cq.Color(0.3, 0.3, 0.3))
+
+    # S2 LEMO connector (GIS-EE-003-08) on module side
+    s2_lemo = make_lemo_0b(LEMO_BORE_DIA)
+    s2_lemo = s2_lemo.rotate((0, 0, 0), (0, 1, 0), 90).translate(
+        (-20, 0, S2_FORCE_H + 5))
+    s2_lemo = _station_transform(s2_lemo, a, tx, ty, tz)
+    assy.add(s2_lemo, name="GIS-EE-003-08_lemo", color=C_SILVER)
+
+    # S2 coaxial cable (GIS-EE-003-09) from AE probe
+    s2_cable = cq.Workplane("XY").circle(S2_AE_CABLE_DIA / 2.0).extrude(30.0)
+    s2_cable = s2_cable.rotate((0, 0, 0), (0, 1, 0), 90).translate(
+        (-15, 0, 3))
+    s2_cable = _station_transform(s2_cable, a, tx, ty, tz)
+    assy.add(s2_cable, name="GIS-EE-003-09_coax_cable", color=cq.Color(0.1, 0.1, 0.1))
+
+    # S2 locating pin
+    s2_pin = make_locating_pin(MOUNT_PIN_DIA, MOUNT_PIN_DEPTH)
+    s2_pin = s2_pin.translate((MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y, 0))
+    s2_pin = _station_transform(s2_pin, a, tx, ty, tz)
+    assy.add(s2_pin, name="GIS-EE-001-12_pin_s2", color=C_SILVER)
 
     # ═══════ Station 3: Cleaner (180°) — split body + solvent tank ═══════
     a, tx, ty, tz = _stn_pos(2)
@@ -162,6 +236,19 @@ def make_assembly() -> cq.Assembly:
     s3_bolts = _station_transform(s3_bolts, a, tx, ty, tz)
     assy.add(s3_bolts, name="fastener_s3_bolts", color=cq.Color(0.3, 0.3, 0.3))
 
+    # S3 LEMO connector (GIS-EE-004-13)
+    s3_lemo = make_lemo_0b(LEMO_BORE_DIA)
+    s3_lemo = s3_lemo.rotate((0, 0, 0), (0, 1, 0), -90).translate(
+        (-S3_BODY_W / 2.0 - 1, 0, S3_BODY_H * 0.7))
+    s3_lemo = _station_transform(s3_lemo, a, tx, ty, tz)
+    assy.add(s3_lemo, name="GIS-EE-004-13_lemo", color=C_SILVER)
+
+    # S3 locating pin
+    s3_pin = make_locating_pin(MOUNT_PIN_DIA, MOUNT_PIN_DEPTH)
+    s3_pin = s3_pin.translate((MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y, 0))
+    s3_pin = _station_transform(s3_pin, a, tx, ty, tz)
+    assy.add(s3_pin, name="GIS-EE-001-12_pin_s3", color=C_SILVER)
+
     # ═══════ Station 4: UHF (270°) — split bracket + sensor ═══════
     a, tx, ty, tz = _stn_pos(3)
 
@@ -180,22 +267,35 @@ def make_assembly() -> cq.Assembly:
     s4_bolts = _station_transform(s4_bolts, a, tx, ty, tz)
     assy.add(s4_bolts, name="fastener_s4_bolts", color=cq.Color(0.3, 0.3, 0.3))
 
+    # S4 LEMO connector (GIS-EE-005-03)
+    s4_lemo = make_lemo_0b(LEMO_BORE_DIA)
+    s4_lemo = s4_lemo.rotate((0, 0, 0), (0, 1, 0), -90).translate(
+        (S4_BRACKET_W / 2.0 + 1, 0, S4_BRACKET_THICK / 2.0))
+    s4_lemo = _station_transform(s4_lemo, a, tx, ty, tz)
+    assy.add(s4_lemo, name="GIS-EE-005-03_lemo", color=C_SILVER)
+
+    # S4 locating pin
+    s4_pin = make_locating_pin(MOUNT_PIN_DIA, MOUNT_PIN_DEPTH)
+    s4_pin = s4_pin.translate((MOUNT_PIN_OFFSET_X, MOUNT_PIN_OFFSET_Y, 0))
+    s4_pin = _station_transform(s4_pin, a, tx, ty, tz)
+    assy.add(s4_pin, name="GIS-EE-001-12_pin_s4", color=C_SILVER)
+
     # ═══════ Drive assembly — split motor + reducer+adapter ═══════
     gap = 1.0
     reducer_z = -ADAPTER_THICK - gap
 
     adapter = make_adapter_plate().translate((0, 0, -ADAPTER_THICK))
-    assy.add(adapter, name="EE-006_drive_adapter", color=C_SILVER)
+    assy.add(adapter, name="EE-001_drive_adapter", color=C_SILVER)
 
     reducer = make_reducer().translate((0, 0, reducer_z - REDUCER_LENGTH))
-    assy.add(reducer, name="EE-006_drive_reducer", color=C_SILVER)
+    assy.add(reducer, name="EE-001_drive_reducer", color=C_SILVER)
 
     motor_z = reducer_z - REDUCER_LENGTH - MOTOR_FLANGE_THICK
     motor = make_motor().translate((0, 0, motor_z - MOTOR_BODY_LENGTH))
-    assy.add(motor, name="EE-006_drive_motor", color=C_SILVER)
+    assy.add(motor, name="EE-001_drive_motor", color=C_SILVER)
 
     pins = make_spring_pin_assembly().translate((0, 0, -3))
-    assy.add(pins, name="EE-006_drive_pins", color=C_SILVER)
+    assy.add(pins, name="EE-001_drive_pins", color=C_SILVER)
 
     return assy
 

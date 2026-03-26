@@ -303,9 +303,7 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
   check_env.py:      tools/hybrid_render/check_env.py (环境检查)
 
 prompt模板 (templates/ 目录):
-  templates/prompt_enhance.txt  — V1~V3 标准视角 (材质/光照/环境)
-  templates/prompt_exploded.txt — V4 爆炸图专用 (保留爆炸间距和装配线)
-  templates/prompt_ortho.txt    — V5 正交图专用 (无透视畸变)
+  templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
 
 模板变量 (从 render_config.json prompt_vars 填充):
   {product_name}                ← prompt_vars.product_name
@@ -320,28 +318,26 @@ prompt模板 (templates/ 目录):
   如 standard_parts 为空，占位符替换为空字符串，不影响原有流程
 
 模型选择 (pipeline_config.json enhance 段):
-  model: nano_banana_2  ← 当前使用的模型别名
+  model: nano_banana_4k  ← 当前使用的模型别名
   可选: nano_banana (gemini-2.5-flash-image)
         nano_banana_pro (gemini-3-pro-image-preview)
         nano_banana_2 (gemini-3.1-flash-image)
+        nano_banana_4k (gemini-3-pro-image-preview-4k)
   切换: 修改 pipeline_config.json 的 enhance.model 值
   传递: --model <id> 参数传给 gemini_gen.py
 
 核心原则:
   1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
   2. 材质描述从 render_config.json 读取，不凭空编造
-  3. 不同视角用不同模板（爆炸图保留间距，正交图无透视）
+  3. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
   4. 几何100%锁定，Gemini只"换皮"不改形状
 
 5视角增强标准工作流:
   1. 确认5张 Blender PNG 已存在 (V1~V5)
   2. 读取 render_config.json 的 prompt_vars 字段
-  3. 逐视角填充模板并执行:
-     V1: gemini_gen.py --image V1_front_iso.png "<prompt_enhance填充>"
-     V2: gemini_gen.py --image V2_rear_oblique.png "<prompt_enhance填充>"
-     V3: gemini_gen.py --image V3_side_elevation.png "<prompt_enhance填充>"
-     V4: gemini_gen.py --image V4_exploded.png "<prompt_exploded填充>"
-     V5: gemini_gen.py --image V5_ortho_front.png "<prompt_ortho填充>"
+  3. 逐视角用统一模板填充并执行:
+     python tools/hybrid_render/prompt_builder.py --config cad/<subsystem>/render_config.json --view V1
+     (V1~V5 均使用 prompt_enhance_unified.txt，按 camera type 自动切换)
   4. 输出: ~6MB JPG/张, 5460×3072, 照片级影棚品质
   5. 可选: 添加元件标注 (中文/英文):
      python annotate_render.py --all --dir <输出目录> --config render_config.json --lang cn
@@ -445,9 +441,10 @@ cad/output/                    ← 输出目录
 templates/                     ← 模板
 ├── render_config_template.json← 空白渲染配置模板（新子系统起点）
 ├── cad_spec_template.md       ← CAD Spec模板
-├── prompt_enhance.txt         ← AI增强prompt (标准视角)
-├── prompt_exploded.txt        ← AI增强prompt (爆炸图)
-└── prompt_ortho.txt           ← AI增强prompt (正交图)
+├── prompt_enhance_unified.txt ← AI增强prompt: all views (unified template)
+├── prompt_enhance.txt         ← (legacy, unused)
+├── prompt_exploded.txt        ← (legacy, unused)
+└── prompt_ortho.txt           ← (legacy, unused)
 
 tools/hybrid_render/           ← 混合渲染工具
 ├── check_env.py               ← 环境检查脚本

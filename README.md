@@ -250,10 +250,8 @@ python gemini_gen.py --image V5_ortho_front.png \
     "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
 ```
 
-3 prompt templates provided in `templates/`:
-- `prompt_enhance.txt` — V1/V2/V3 standard views
-- `prompt_exploded.txt` — V4 exploded view (preserves gaps)
-- `prompt_ortho.txt` — V5 orthographic (no perspective)
+Prompt template provided in `templates/`:
+- `prompt_enhance_unified.txt` — unified AI enhancement prompt (all views, auto-switches by camera type)
 
 Fill `{product_name}`, `{view_description}`, `{material_descriptions}`, `{standard_parts_description}` from `render_config.json`.
 Output: ~6MB JPG per view, 5460×3072, photorealistic studio quality.
@@ -368,12 +366,12 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 | [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、16种意图、典型工作流 |
 | [Agent Integration Guide](docs/cad_pipeline_agent_guide.md) | 中文 | LLM/Agent framework integration (GPT, GLM, LangChain, etc.) |
 | [CAD Spec Template](templates/cad_spec_template.md) | — | Output format reference with all 9 sections |
-| [AI Prompt Templates](templates/) | EN | 3 prompt templates for Gemini AI enhancement (standard/exploded/ortho) |
+| [AI Prompt Templates](templates/) | EN | Unified prompt template (`prompt_enhance_unified.txt`) with auto view-type switching (standard/exploded/ortho/section) |
 
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest (v1.3.0)
+├── skill.json                      # Machine-readable skill manifest (v1.4.0)
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── install.py                      # Cross-platform installer (with --update/--check)
@@ -399,9 +397,10 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   ├── assembly.py.j2              # Jinja2: assembly scaffold
 │   ├── cad_spec_template.md        # Output template reference
 │   ├── design_review_template.md   # Design review output template
-│   ├── prompt_enhance.txt          # AI prompt: standard views (V1-V3)
-│   ├── prompt_exploded.txt         # AI prompt: exploded view (V4)
-│   └── prompt_ortho.txt            # AI prompt: orthographic view (V5)
+│   ├── prompt_enhance_unified.txt  # AI prompt: all views (unified template)
+│   ├── prompt_enhance.txt          # (legacy, unused)
+│   ├── prompt_exploded.txt         # (legacy, unused)
+│   └── prompt_ortho.txt            # (legacy, unused)
 ├── adapters/
 │   ├── claude-code/
 │   │   ├── commands/cad-help.md    # Claude Code slash command

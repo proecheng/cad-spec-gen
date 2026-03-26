@@ -1,9 +1,22 @@
 Keep ALL geometry, proportions, positions, spacing, and shapes EXACTLY unchanged.
 Do NOT crop, pan, zoom, or reframe — output must match the input image pixel-for-pixel in composition and resolution.
-This is an exploded view of a {product_name}.
-Each module is displaced radially outward from the central assembly to show assembly relationships.
-Apply photorealistic studio-quality materials ONLY:
+Do NOT add text, labels, dimensions, or annotations to the image.
+
+This is an exploded assembly view of a {product_name}.
+Each module is displaced radially outward from the central hub to show assembly relationships.
+
+ASSEMBLY STRUCTURE (what you see in this image):
+{assembly_description}
+
+MATERIAL ENHANCEMENT (apply to each visible component):
 {material_descriptions}
+
 {standard_parts_description}
-Keep explosion gaps and assembly lines visible.
+
+CRITICAL CONSTRAINTS:
+{negative_constraints}
+
+{consistency_anchor}
+
+Keep explosion gaps clearly visible. Add subtle shadows beneath floating components.
 Studio lighting, neutral gradient background. 8K exploded-view product photography.
