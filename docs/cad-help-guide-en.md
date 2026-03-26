@@ -22,7 +22,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 1 | Environment Check | "what do I need?" "check env" | Detect 7 dependencies: Python, CadQuery, Blender, Gemini, etc. |
 | 2 | Validate Config | "validate config" "is my config correct?" | Check render_config.json completeness (6 checks) |
 | 3 | Next Step | "what's next?" "what should I do?" | Scan project artifacts, recommend next action by priority |
-| 4 | New Subsystem | "how to start a new subsystem?" | Quick Start 3-step guide |
+| 4 | New Subsystem | "how to start a new subsystem?" "init" | Quick Start guide + `init` scaffold command |
 | 5 | Materials | "what materials?" "colors" | List 15 PBR engineering material presets + custom examples |
 | 6 | Camera | "how to configure camera?" "views" | Spherical / Cartesian coords + N configurable views |
 | 7 | Exploded View | "how to set up exploded view?" | radial / axial / custom explosion configuration |
@@ -130,6 +130,10 @@ tools/
 > **Example: End Effector subsystem** — adapt paths for your own subsystem.
 
 ```bash
+# 0. Scaffold a new subsystem (for brand-new projects)
+python cad_pipeline.py init --subsystem my_device --name-cn 我的设备 --prefix GIS-MD
+# → Generates: output/my_device/render_config.json, params.py, docs/design/XX-my_device.md
+
 # 1. Check environment
 python tools/hybrid_render/check_env.py
 

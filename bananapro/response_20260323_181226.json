@@ -1,0 +1,27 @@
+{
+  "id": "chatcmpl-89Dir73cgGC7C2CtLxy6oFNuDHJfC",
+  "object": "chat.completion",
+  "created": 1774260747,
+  "model": "gemini-3-pro-image-preview-4k-vip",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "\n\n> unknown finish reason: [NO_IMAGE]"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 9,
+    "completion_tokens": 10,
+    "total_tokens": 19,
+    "prompt_tokens_details": {
+      "text_tokens": 2
+    },
+    "completion_tokens_details": {
+      "content_tokens": 10
+    }
+  }
+}

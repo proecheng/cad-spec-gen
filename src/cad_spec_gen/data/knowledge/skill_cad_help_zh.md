@@ -32,7 +32,7 @@
 | env_check | 运行环境, 安装, 环境, 依赖, 需要什么, requirements, install, env | → 环境检查 |
 | validate | 验证, 检查配置, config对不对, validate, 配置正确 | → 验证配置 |
 | next_step | 下一步, 接下来, 做什么, 怎么继续, next, what to do | → 推荐下一步 |
-| new_subsys | 新子系统, 新建, 开始, 怎么开始, quick start, 从零, 初始化 | → Quick Start引导 |
+| new_subsys | 新子系统, 新建, 开始, 怎么开始, quick start, 从零, 初始化, init | → Quick Start引导 + init命令 |
 | material | 材质, 颜色, preset, 外观, material, 铝, 钢, 塑料, PBR | → 材质预设表 |
 | camera | 相机, 视角, 角度, camera, 拍摄, 视图, view | → 相机配置说明 |
 | explode | 爆炸, explode, 分解, 拆开, 展开图 | → 爆炸图配置 |
@@ -141,20 +141,31 @@
 ```
 ═══ 新子系统 Quick Start ═══
 
-Step 1: 创建目录和配置
-  mkdir cad/<subsystem_name>/
-  复制模板: docs/templates/render_config_template.json → cad/<name>/render_config.json
-  编辑 render_config.json 填写子系统信息（视角数、零件列表、材质等均可自定义）
+Step 0: 一键脚手架（推荐）
+  python cad_pipeline.py init --subsystem <名称> [--name-cn <中文名>] [--prefix <前缀>]
+  → 自动生成三个文件:
+      cad/<名称>/render_config.json   (V1-V5视角 + 15种材质 + components中英文名)
+      cad/<名称>/params.py            (参数骨架，含包络尺寸、材质标识、装配名)
+      docs/design/XX-<名称>.md        (章节模板，提示填写需求)
+  → 生成后按提示编辑三个文件，再运行 full 管线
 
-Step 2: 参数化建模
+Step 1: 设计规范化
   从设计文档 docs/design/NN-*.md 提取参数
-  运行 /mechdesign <子系统名> 启动全流程
-  (或手动创建 params.py → 3D脚本 → assembly.py → build_all.py)
+  python cad_pipeline.py spec --design-doc docs/design/NN-*.md [--auto-fill]
+  → 输出 DESIGN_REVIEW.md + CAD_SPEC.md
 
-Step 3: 渲染出图
-  python build_all.py --render    # 生成 STEP + DXF + GLB + Blender PNG
-  # 可选: AI增强
-  python render_3d.py --config render_config.json   # 单独渲染
+Step 2: 代码生成 + 参数化建模
+  python cad_pipeline.py codegen --subsystem <名称>
+  → 生成 params.py / build_all.py / station_*.py / assembly.py 脚手架
+  (注意: 脚手架不完整，需手工补全几何逻辑后再进入 BUILD)
+  运行 /mechdesign <子系统名> 可启动交互式全流程
+
+Step 3: 构建 + 渲染出图
+  python cad_pipeline.py build --subsystem <名称>   # STEP + DXF + GLB
+  python cad_pipeline.py render --subsystem <名称>  # Blender PNG (视角由render_config.json驱动)
+  python cad_pipeline.py enhance --subsystem <名称> # Gemini AI增强
+  # 或一键全流程:
+  python cad_pipeline.py full --subsystem <名称> --design-doc docs/design/NN-*.md --timestamp
 ```
 
 ### 5. material — 材质预设表

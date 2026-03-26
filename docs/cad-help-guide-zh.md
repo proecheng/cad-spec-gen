@@ -22,7 +22,7 @@
 | 1 | 环境检查 | "需要安装什么？" "运行环境" | 逐项检测 Python / CadQuery / Blender / Gemini 等 7 项依赖 |
 | 2 | 验证配置 | "验证配置" "config对不对" | 校验 render_config.json 的 6 项完整性 |
 | 3 | 下一步 | "下一步做什么？" "怎么继续" | 扫描项目产物，按优先级推荐下一步操作 |
-| 4 | 新子系统 | "怎么开始新子系统？" | Quick Start 3 步引导 |
+| 4 | 新子系统 | "怎么开始新子系统？" "init" | Quick Start引导 + `init` 脚手架命令 |
 | 5 | 材质 | "有哪些材质？" "颜色/外观" | 列出 15 种 PBR 工程材质预设 + 自定义示例 |
 | 6 | 相机 | "相机怎么配置？" "视角" | 球坐标 / 笛卡尔坐标 + 5 标准视角说明 |
 | 7 | 爆炸图 | "爆炸图怎么设置？" | radial / axial / custom 三种爆炸方式配置 |
@@ -131,6 +131,10 @@ tools/
 > **示例：末端执行器子系统** — 替换路径为你的子系统。
 
 ```bash
+# 0. 脚手架新子系统（如果是全新项目）
+python cad_pipeline.py init --subsystem my_device --name-cn 我的设备 --prefix GIS-MD
+# → 自动生成: output/my_device/render_config.json, params.py, docs/design/XX-my_device.md
+
 # 1. 检查环境
 python tools/hybrid_render/check_env.py
 

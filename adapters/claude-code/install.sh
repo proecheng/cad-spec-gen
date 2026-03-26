@@ -18,21 +18,24 @@ cp "$SCRIPT_DIR/commands/cad-help.md" "$TARGET/.claude/commands/"
 cp "$SCRIPT_DIR/commands/cad-spec.md" "$TARGET/.claude/commands/"
 echo "  ✅ Slash commands → .claude/commands/"
 
-# 2. Copy skill knowledge file
+# 2. Copy skill knowledge files
 cp "$REPO_ROOT/skill_cad_help.md" "$TARGET/"
-echo "  ✅ Skill knowledge → skill_cad_help.md"
+cp "$REPO_ROOT/skill_mech_design.md" "$TARGET/"
+echo "  ✅ Skill knowledge → skill_cad_help.md, skill_mech_design.md"
 
 # 3. Copy core Python tools
-for f in cad_spec_gen.py cad_spec_extractors.py cad_spec_defaults.py bom_parser.py; do
-  cp "$REPO_ROOT/$f" "$TARGET/"
+for f in cad_spec_gen.py cad_spec_extractors.py cad_spec_defaults.py bom_parser.py orientation_check.py; do
+  cp "$REPO_ROOT/$f" "$TARGET/" 2>/dev/null || true
 done
-echo "  ✅ Python tools → cad_spec_gen.py, bom_parser.py, ..."
+echo "  [OK] Python tools → cad_spec_gen.py, bom_parser.py, orientation_check.py, ..."
 
-# 4. Copy config and templates
-mkdir -p "$TARGET/config" "$TARGET/templates"
+# 4. Copy config, templates, codegen, docs
+mkdir -p "$TARGET/config" "$TARGET/templates" "$TARGET/codegen" "$TARGET/docs"
 cp -r "$REPO_ROOT/config/"* "$TARGET/config/" 2>/dev/null || true
 cp -r "$REPO_ROOT/templates/"* "$TARGET/templates/" 2>/dev/null || true
-echo "  ✅ Config & templates"
+cp -r "$REPO_ROOT/codegen/"* "$TARGET/codegen/" 2>/dev/null || true
+cp -r "$REPO_ROOT/docs/"* "$TARGET/docs/" 2>/dev/null || true
+echo "  [OK] Config, templates, codegen, docs"
 
 echo ""
 echo "Done! Now in Claude Code, type:"

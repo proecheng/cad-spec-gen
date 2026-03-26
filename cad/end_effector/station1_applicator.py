@@ -73,10 +73,12 @@ def make_applicator_body() -> cq.Workplane:
     )
     body = body.cut(scraper_slot)
 
-    # Tank bore (through top wall for tank insertion)
+    # Tank bore (through +Y side wall for radial tank insertion)
+    # Per §4.1.2 L176: tank axis is radial (∥XY plane, along +Y悬臂方向)
     tank_bore = (
-        cq.Workplane("XY")
-        .workplane(offset=S1_BODY_H - S1_WALL_THICK - 0.1)
+        cq.Workplane("XZ")
+        .workplane(offset=S1_BODY_D / 2.0 - S1_WALL_THICK - 0.1)
+        .center(0, S1_BODY_H * 0.5)
         .circle(S1_TANK_OD / 2.0 + 0.5)
         .extrude(S1_WALL_THICK + 0.2)
     )

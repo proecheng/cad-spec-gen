@@ -788,12 +788,6 @@ def derive_material_descriptions_from_rc(rc):
     return result
 
 
-
-    """Merge generated prompt data into render_config dict (in-place).
-
-    Generated data OVERRIDES manual entries for assembly_description,
-    prompt_vars.material_descriptions, standard_parts, negative_constraints.
-    """
 def merge_into_config(rc, generated):
     """Merge generated prompt data into render_config dict (non-destructive, in-place).
 

@@ -32,7 +32,7 @@
 | env_check | 运行环境, 安装, 环境, 依赖, 需要什么, requirements, install, env | → 环境检查 |
 | validate | 验证, 检查配置, config对不对, validate, 配置正确 | → 验证配置 |
 | next_step | 下一步, 接下来, 做什么, 怎么继续, next, what to do | → 推荐下一步 |
-| new_subsys | 新子系统, 新建, 开始, 怎么开始, quick start, 从零, 初始化 | → Quick Start引导 |
+| new_subsys | 新子系统, 新建, 开始, 怎么开始, quick start, 从零, 初始化, init | → Quick Start引导 + init命令 |
 | material | 材质, 颜色, preset, 外观, material, 铝, 钢, 塑料, PBR | → 材质预设表 |
 | camera | 相机, 视角, 角度, camera, 拍摄, 视图, view | → 相机配置说明 |
 | explode | 爆炸, explode, 分解, 拆开, 展开图 | → 爆炸图配置 |
@@ -136,25 +136,33 @@
   e. 全部完成 → "选择下一个子系统" (按成熟度排序推荐)
 ```
 
-### 4. new_subsys — Quick Start 3步引导
+### 4. new_subsys — Quick Start 引导 + init 命令
 
 ```
 ═══ 新子系统 Quick Start ═══
 
-Step 1: 创建目录和配置
-  mkdir cad/<subsystem_name>/
-  复制模板: docs/templates/render_config_template.json → cad/<name>/render_config.json
-  编辑 render_config.json 填写子系统信息（视角数、零件列表、材质等均可自定义）
+方式一：一键脚手架（推荐）
+  python cad_pipeline.py init --subsystem <名称> --name-cn <中文名> --prefix <前缀>
+
+  例如:
+    python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix GIS-RA
+
+  自动生成:
+    output/<名称>/render_config.json   ← 含 V1-V4 标准视角模板、components 带 name_cn/name_en
+    output/<名称>/params.py            ← 参数化建模起点
+    docs/design/XX-<名称>.md           ← 设计文档模板
+
+Step 1: 编辑生成的文件
+  填写 params.py 中的实际尺寸
+  填写设计文档 docs/design/XX-<名称>.md
+  编辑 render_config.json 更新相机视角和标注坐标
 
 Step 2: 参数化建模
-  从设计文档 docs/design/NN-*.md 提取参数
   运行 /mechdesign <子系统名> 启动全流程
-  (或手动创建 params.py → 3D脚本 → assembly.py → build_all.py)
+  (或手动创建 3D脚本 → assembly.py → build_all.py)
 
-Step 3: 渲染出图
-  python build_all.py --render    # 生成 STEP + DXF + GLB + Blender PNG
-  # 可选: AI增强
-  python render_3d.py --config render_config.json   # 单独渲染
+Step 3: 全管线
+  python cad_pipeline.py full --subsystem <名称> --design-doc docs/design/XX-<名称>.md
 ```
 
 ### 5. material — 材质预设表
@@ -211,8 +219,16 @@ Step 3: 渲染出图
   V1_front_iso     — 正面等距 (az=35, el=25)  → 主展示图
   V2_rear_oblique  — 背面斜视 (az=215, el=20) → 背部细节
   V3_side_elevation — 侧视图 (az=90, el=0)    → 轮廓/尺寸
-  V4_exploded      — 爆炸图 (az=35, el=35)    → 装配关系
-  V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影
+  V4_exploded      — 爆炸图 (az=35, el=35)    → 装配关系  type="exploded"
+  V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影  type="ortho"
+
+视图类型 (type 字段驱动渲染脚本选择):
+  standard  — 普通 Blender 渲染 (render_3d.py)
+  exploded  — 爆炸图渲染 (render_exploded.py)
+  ortho     — 正交投影 (render_3d.py, ortho=true)
+  section   — 截面图 (render_section.py)
+
+  注意: 无需硬编码 V4=爆炸图，type 字段自动决定调用哪个脚本。
 
 render_config.json 示例:
   "camera": {
@@ -506,7 +522,9 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   │ 脚本                          用途          CLI参数            │
   │ cad_pipeline.py              6阶段统一入口  spec/codegen/build/│
   │                                             render/enhance/   │
-  │                                             annotate/full     │
+  │                                             annotate/full/    │
+  │                                             init/status/      │
+  │                                             env-check         │
   │ build_all.py                 一键构建      --render           │
   │ render_3d.py (Blender内)     3D渲染        --config --view --all │
   │ render_exploded.py (Blender内) 爆炸图      --config --spread  │

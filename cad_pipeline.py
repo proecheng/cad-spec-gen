@@ -387,6 +387,22 @@ def cmd_build(args):
         log.error("No build_all.py found in %s", sub_dir)
         return 1
 
+    # ── Pre-build orientation gate ────────────────────────────────────────────
+    orientation_script = os.path.join(sub_dir, "orientation_check.py")
+    if os.path.isfile(orientation_script) and not getattr(args, 'skip_orientation', False):
+        log.info("[Phase 3 pre-check] Running orientation_check.py ...")
+        ok_orient, _ = _run_subprocess(
+            [sys.executable, orientation_script],
+            "orientation_check", dry_run=args.dry_run, timeout=120
+        )
+        if not ok_orient:
+            log.error("Orientation check FAILED — aborting build. "
+                      "Fix assembly directions then re-run. "
+                      "Use --skip-orientation to bypass (not recommended).")
+            return 1
+        log.info("Orientation check passed.")
+    # ─────────────────────────────────────────────────────────────────────────
+
     cmd = [sys.executable, build_script]
     if args.render:
         cmd.append("--render")
@@ -429,20 +445,35 @@ def cmd_render(args):
 
     section_script = os.path.join(sub_dir, "render_section.py")
 
+    # P4: Load view-type map from render_config.json (exploded/section/ortho/standard)
+    _view_type_map = {}  # view_key -> type string
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, encoding="utf-8") as _rcf:
+                _rc_data = json.load(_rcf)
+            for _vk, _vcfg in _rc_data.get("camera", {}).items():
+                _view_type_map[_vk.upper()] = _vcfg.get("type", "standard")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def _script_for_view(view_key):
+        """Return (script_path, extra_args) based on view type from render_config."""
+        vtype = _view_type_map.get(view_key.upper(), "standard")
+        if vtype == "exploded" and os.path.isfile(exploded_script):
+            return exploded_script, []
+        if vtype == "section" and os.path.isfile(section_script):
+            return section_script, []
+        return render_script, ["--view", view_key]
+
     if args.view:
-        # Single view
-        view_upper = args.view.upper()
-        if view_upper == "V4" and os.path.isfile(exploded_script):
-            cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
-        elif view_upper == "V6" and os.path.isfile(section_script):
-            cmd = [blender, "-b", "-P", section_script, "--"] + render_args
-        else:
-            cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--view", args.view]
+        # Single view — dispatch by type from config
+        script, extra = _script_for_view(args.view)
+        cmd = [blender, "-b", "-P", script, "--"] + render_args + extra
         ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200)
         if not ok:
             failures += 1
     else:
-        # All views
+        # All views — run standard first, then any exploded/section scripts present
         cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--all"]
         ok, _ = _run_subprocess(cmd, "render standard views", dry_run=args.dry_run, timeout=1200)
         if not ok:
@@ -487,21 +518,7 @@ def cmd_enhance(args):
         log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
         return 1
 
-    render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
-    if not args.dir and os.path.isfile(manifest_path):
-        with open(manifest_path, encoding="utf-8") as _mf:
-            _manifest = json.load(_mf)
-        pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)], key=view_sort_key)
-        log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
-                 len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
-    else:
-        pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")), key=view_sort_key)
-    if not pngs:
-        log.error("No V*.png files found in %s", render_dir)
-        return 1
-
-    # Load render_config.json (full dict for prompt building)
+    # Load render_config.json (full dict for prompt building) — must come before PNG sorting
     rc = {}
     _sub_name = getattr(args, "subsystem", None)
     sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
@@ -520,6 +537,21 @@ def cmd_enhance(args):
         except Exception as _e:
             log.warning("prompt_data_builder auto-enrich failed (non-fatal): %s", _e)
 
+    render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
+    manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
+    if not args.dir and os.path.isfile(manifest_path):
+        with open(manifest_path, encoding="utf-8") as _mf:
+            _manifest = json.load(_mf)
+        pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)],
+                     key=lambda p: view_sort_key(p, rc))
+        log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
+                 len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
+    else:
+        pngs = sorted(glob.glob(os.path.join(render_dir, "*.png")), key=lambda p: view_sort_key(p, rc))
+    if not pngs:
+        log.error("No V*.png files found in %s", render_dir)
+        return 1
+
     # Load model config
     model_arg = []
     pcfg_path = os.path.join(SKILL_ROOT, "pipeline_config.json")
@@ -537,7 +569,7 @@ def cmd_enhance(args):
     v1_done = False
 
     for png in pngs:
-        view_key = extract_view_key(png)
+        view_key = extract_view_key(png, rc)
 
         # Build prompt with all placeholders filled
         try:
@@ -866,6 +898,170 @@ def cmd_env_check(args):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+def cmd_init(args):
+    """Scaffold a new subsystem directory with template files."""
+    sub_name = args.subsystem
+    if not sub_name:
+        log.error("--subsystem is required for init")
+        return 1
+
+    # Determine output dir
+    config = _load_config()
+    output_dir = config.get("output_dir", "./output")
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(SKILL_ROOT, output_dir)
+    sub_dir = os.path.join(output_dir, sub_name)
+
+    if os.path.exists(sub_dir) and not args.force:
+        log.error("Directory already exists: %s  (use --force to overwrite)", sub_dir)
+        return 1
+
+    os.makedirs(sub_dir, exist_ok=True)
+    log.info("Scaffolding subsystem '%s' → %s", sub_name, sub_dir)
+
+    # ── render_config.json template ──────────────────────────────────────────
+    rc_template = {
+        "version": 1,
+        "subsystem": {
+            "name": sub_name,
+            "name_cn": args.name_cn or sub_name,
+            "part_prefix": (args.prefix or sub_name.upper()),
+            "glb_file": f"{sub_name}_assembly.glb",
+            "bounding_radius_mm": 300
+        },
+        "coordinate_system": "Z-axis vertical. Describe your coordinate convention here.",
+        "materials": {
+            "body": {"preset": "brushed_aluminum", "label": "Main body",
+                     "name_cn": "主体", "name_en": "Main Body"},
+            "fastener": {"preset": "stainless_304", "label": "Fasteners",
+                         "name_cn": "紧固件", "name_en": "Fasteners"}
+        },
+        "camera": {
+            "V1": {
+                "name": "V1_front_iso",
+                "type": "standard",
+                "location": [350, -380, 320],
+                "target": [0, 0, 50],
+                "lens_mm": 50,
+                "description": "Front isometric view"
+            },
+            "V2": {
+                "name": "V2_rear_oblique",
+                "type": "standard",
+                "location": [-320, 350, 400],
+                "target": [0, 0, 50],
+                "lens_mm": 50,
+                "description": "Rear oblique view"
+            },
+            "V3": {
+                "name": "V3_exploded",
+                "type": "exploded",
+                "location": [400, -400, 500],
+                "target": [0, 0, 0],
+                "description": "Exploded view (use render_exploded.py)"
+            },
+            "V4": {
+                "name": "V4_ortho_front",
+                "type": "ortho",
+                "location": [0, -500, 80],
+                "target": [0, 0, 80],
+                "ortho": True,
+                "ortho_scale": 400,
+                "description": "Front orthographic view"
+            }
+        },
+        "components": {
+            "body": {
+                "name_cn": "主体",
+                "name_en": "Main Body"
+            }
+        },
+        "labels": {
+            "_doc": "Only visible components per view. Coords at 1920x1080 ref, auto-scaled.",
+            "V1": [
+                {
+                    "component": "body",
+                    "anchor": [600, 400],
+                    "label": [1600, 200]
+                }
+            ]
+        }
+    }
+
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if not os.path.isfile(rc_path) or args.force:
+        with open(rc_path, "w", encoding="utf-8") as f:
+            json.dump(rc_template, f, indent=2, ensure_ascii=False)
+        log.info("  Created: render_config.json")
+    else:
+        log.info("  Skipped (exists): render_config.json")
+
+    # ── params.py template ───────────────────────────────────────────────────
+    params_path = os.path.join(sub_dir, "params.py")
+    params_content = f'''#!/usr/bin/env python3
+"""
+params.py — Single source of truth for {sub_name} dimensions.
+Edit this file to change part geometry.
+"""
+
+# ── Global dimensions ────────────────────────────────────────────────────────
+OVERALL_DIA   = 200  # mm  overall envelope diameter
+OVERALL_H     = 100  # mm  overall height
+
+# ── Material identifiers ─────────────────────────────────────────────────────
+MATERIAL_BODY    = "7075-T6 aluminum alloy"
+MATERIAL_SEALS   = "NBR rubber"
+
+# ── Assembly metadata ────────────────────────────────────────────────────────
+PART_PREFIX      = "{args.prefix or sub_name.upper()}"
+ASSEMBLY_NAME    = "{sub_name}_assembly"
+'''
+    if not os.path.isfile(params_path) or args.force:
+        with open(params_path, "w", encoding="utf-8") as f:
+            f.write(params_content)
+        log.info("  Created: params.py")
+    else:
+        log.info("  Skipped (exists): params.py")
+
+    # ── design doc placeholder ───────────────────────────────────────────────
+    doc_base = config.get("doc_dir", "docs/design")
+    if not os.path.isabs(doc_base):
+        doc_base = os.path.join(SKILL_ROOT, doc_base)
+    os.makedirs(doc_base, exist_ok=True)
+    doc_path = os.path.join(doc_base, f"XX-{sub_name}.md")
+    doc_content = f"""# {args.name_cn or sub_name} 设计文档
+
+<!-- Replace XX with the chapter number and rename this file -->
+
+## 1. 设计目标
+
+TODO: 描述本子系统的设计目标
+
+## 2. 关键参数
+
+TODO: 列出关键尺寸和参数
+
+## 3. 装配关系
+
+TODO: 描述部件间的装配关系
+"""
+    if not os.path.isfile(doc_path) or args.force:
+        with open(doc_path, "w", encoding="utf-8") as f:
+            f.write(doc_content)
+        log.info("  Created: %s", doc_path)
+    else:
+        log.info("  Skipped (exists): %s", doc_path)
+
+    log.info("")
+    log.info("Next steps:")
+    log.info("  1. Edit %s/params.py with real dimensions", sub_dir)
+    log.info("  2. Edit %s with your design requirements", doc_path)
+    log.info("  3. Edit %s/render_config.json — update camera views and labels", sub_dir)
+    log.info("  4. Run: python cad_pipeline.py full --subsystem %s --design-doc %s",
+             sub_name, doc_path)
+    return 0
+
+
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -910,6 +1106,8 @@ def main():
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
     p_build.add_argument("--subsystem", "-s", default="end_effector")
     p_build.add_argument("--render", action="store_true", help="Also render after build")
+    p_build.add_argument("--skip-orientation", dest="skip_orientation", action="store_true",
+                         help="Bypass orientation_check.py pre-gate (not recommended)")
 
     # render
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
@@ -950,6 +1148,13 @@ def main():
     p_full.add_argument("--agent-review", action="store_true",
                         help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process")
 
+    # init
+    p_init = sub.add_parser("init", help="Scaffold a new subsystem directory")
+    p_init.add_argument("--subsystem", required=True, help="Subsystem directory name (e.g. my_device)")
+    p_init.add_argument("--name-cn", default="", help="Chinese display name (e.g. 末端执行机构)")
+    p_init.add_argument("--prefix", default="", help="Part number prefix (e.g. GIS-EE)")
+    p_init.add_argument("--force", action="store_true", help="Overwrite existing files")
+
     # status
     sub.add_parser("status", help="Show pipeline status")
 
@@ -980,6 +1185,7 @@ def main():
         "enhance": cmd_enhance,
         "annotate": cmd_annotate,
         "full": cmd_full,
+        "init": cmd_init,
         "status": cmd_status,
         "env-check": cmd_env_check,
     }

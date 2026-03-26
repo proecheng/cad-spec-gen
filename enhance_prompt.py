@@ -89,50 +89,28 @@ _CONSISTENCY_RULES = """\
 
 
 def _build_consistency_rules(rc):
-    """Build consistency rules, using dimensions from auto-generated negative_constraints if available."""
-    # If rc has auto-generated negative_constraints with precise dims, extract them
-    # Otherwise fall back to static rules
+    """Build generic consistency rules from render_config; no hardcoded subsystem dims."""
     nc = rc.get("negative_constraints", [])
-    # Extract tank dims from N3 if present
-    s1_tank = "Phi38x280mm"
-    s3_tank = "Phi25x110mm"
-    motor = "Phi22x73mm"
-    peek = "Phi86mm"
-    flange = "Phi90mm"
-    for c in nc:
-        if "N3:" in c:
-            import re as _re
-            m1 = _re.search(r"LONG reservoir \((Phi\d+mm?x\d+mm)\)", c)
-            m2 = _re.search(r"SHORT solvent tank \((Phi\d+mm?x\d+mm)\)", c)
-            if m1:
-                s1_tank = m1.group(1)
-            if m2:
-                s3_tank = m2.group(1)
-        if "N2:" in c:
-            import re as _re
-            m = _re.search(r"Motor\+gearbox cylinder \((Phi\d+mm?x\d+mm)\)", c)
-            if m:
-                motor = m.group(1)
-        if "N6:" in c:
-            import re as _re
-            m1 = _re.search(r"PEEK ring \((Phi\d+mm)\)", c)
-            m2 = _re.search(r"flange \((Phi\d+mm)\)", c)
-            if m1:
-                peek = m1.group(1)
-            if m2:
-                flange = m2.group(1)
 
-    return (
-        f"- All views (V1-V6) depict the SAME physical assembly — use IDENTICAL materials, colors, textures in every view.\n"
-        f"- Part orientations are FIXED by the coordinate system and NEVER change between views:\n"
-        f"  * LONG tank ({s1_tank}): ALWAYS horizontal (axis parallel to XY, extending radially outward)\n"
-        f"  * SHORT tank ({s3_tank}): ALWAYS vertical (axis parallel to Z, parallel to module body)\n"
-        f"  * Motor+gearbox ({motor}): ALWAYS below flange center (-Z), NEVER on workstation-side\n"
-        f"  * PEEK ring ({peek}): ALWAYS slightly smaller than flange ({flange}), 5mm thin amber ring\n"
-        f"  * AE spring limiter axis: ALWAYS perpendicular to flange face (along -Z), NEVER horizontal\n"
-        f"- Do NOT alter any part orientation to \"look better\" from this camera angle — geometry is physically fixed.\n"
-        f"- Material consistency: same dark gray anodization shade, same amber PEEK translucency, same brushed stainless grain, same matte black rubber in every view."
+    # Derive constraint lines from negative_constraints entries (if any)
+    dim_lines = ""
+    if nc:
+        # Format the top N constraints as bullet points for the consistency block
+        dim_lines = "".join(f"- {c}\n" for c in nc[:6])
+
+    rules = (
+        "- All views depict the SAME physical assembly — use IDENTICAL materials, colors, "
+        "textures in every view.\n"
+        "- Part orientations are FIXED by the coordinate system and NEVER change between views.\n"
     )
+    if dim_lines:
+        rules += "- Key dimensional constraints to maintain:\n" + dim_lines
+    rules += (
+        "- Do NOT alter any part orientation to \"look better\" from a camera angle — "
+        "geometry is physically fixed.\n"
+        "- Material consistency: repeat identical surface treatments, sheen, and colour in every view."
+    )
+    return rules
 
 
 def load_template():
@@ -306,20 +284,49 @@ def build_enhance_prompt(view_key, rc, is_v1_done=False, cad_dir=None, auto_enri
     return fill_prompt_template(tmpl, view_key, rc, is_v1_done)
 
 
-def extract_view_key(png_path):
-    """Extract view key (V1, V2, ...) from a PNG filename."""
+def extract_view_key(png_path, rc=None):
+    """Extract view key from a PNG filename.
+
+    If rc is provided, matches against known camera keys first (e.g. 'V1', 'FRONT', 'ISO').
+    Falls back to generic V+digits pattern, then the bare stem.
+    """
     import warnings
-    m = re.search(r"(V\d+)", os.path.basename(png_path), re.IGNORECASE)
-    if not m:
-        warnings.warn(
-            f"No view key found in filename '{png_path}'; defaulting to 'V1'",
-            stacklevel=2,
-        )
-        return "V1"
-    return m.group(1).upper()
+    basename = os.path.basename(png_path)
+    stem = os.path.splitext(basename)[0]
+
+    # Match against config-defined view keys (longest first to avoid prefix collisions)
+    if rc:
+        known = sorted(rc.get("camera", {}).keys(), key=len, reverse=True)
+        stem_up = stem.upper()
+        for k in known:
+            if k.upper() in stem_up:
+                return k
+
+    # Generic V+digits fallback
+    m = re.search(r"(V\d+)", basename, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+
+    warnings.warn(
+        f"No view key found in filename '{png_path}'; defaulting to stem '{stem}'",
+        stacklevel=2,
+    )
+    return stem
 
 
-def view_sort_key(path):
-    """Sort key to ensure V1 is processed first."""
-    m = re.search(r"V(\d+)", os.path.basename(path).upper())
-    return int(m.group(1)) if m else 99
+def view_sort_key(path, rc=None):
+    """Sort key: config-defined order first, then numeric V\d+, then alphabetic."""
+    basename = os.path.basename(path)
+    stem = os.path.splitext(basename)[0]
+
+    if rc:
+        order = list(rc.get("camera", {}).keys())
+        stem_up = stem.upper()
+        for i, k in enumerate(order):
+            if k.upper() in stem_up:
+                return (0, i, stem)
+
+    m = re.search(r"V(\d+)", basename.upper())
+    if m:
+        return (1, int(m.group(1)), stem)
+    return (2, 0, stem)

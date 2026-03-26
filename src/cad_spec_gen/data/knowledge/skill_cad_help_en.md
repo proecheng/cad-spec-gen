@@ -32,7 +32,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | env_check | environment, install, setup, dependencies, requirements, what do I need, env | → Environment Check |
 | validate | validate, check config, is config correct, verify, configuration valid | → Validate Configuration |
 | next_step | next step, what's next, what to do, how to continue, next, proceed | → Recommend Next Step |
-| new_subsys | new subsystem, create new, start, how to begin, quick start, from scratch, initialize | → Quick Start Guide |
+| new_subsys | new subsystem, create new, start, how to begin, quick start, from scratch, initialize, init | → Quick Start Guide + init scaffold |
 | material | material, color, preset, appearance, aluminum, steel, plastic, PBR | → Material Preset Table |
 | camera | camera, angle, viewpoint, view, shot, perspective | → Camera Configuration |
 | explode | explode, exploded, disassemble, take apart, exploded view | → Exploded View Configuration |
@@ -141,20 +141,31 @@ Recommendation priority:
 ```
 === New Subsystem Quick Start ===
 
-Step 1: Create directory and configuration
-  mkdir cad/<subsystem_name>/
-  Copy template: docs/templates/render_config_template.json → cad/<name>/render_config.json
-  Edit render_config.json to fill in subsystem info (views, part list, materials, etc. are all customizable)
+Step 0: One-command scaffold (recommended)
+  python cad_pipeline.py init --subsystem <name> [--name-cn <Chinese name>] [--prefix <prefix>]
+  → Auto-generates three files:
+      cad/<name>/render_config.json   (V1-V5 views + 15 materials + components with name_cn/name_en)
+      cad/<name>/params.py            (parameter skeleton: envelope dims, material IDs, assembly name)
+      docs/design/XX-<name>.md        (chapter template prompting user to fill requirements)
+  → Edit the three files as prompted, then run the full pipeline
 
-Step 2: Parametric modeling
+Step 1: Design normalization
   Extract parameters from design document docs/design/NN-*.md
-  Run /mechdesign <subsystem_name> to launch full workflow
-  (Or manually create params.py → 3D scripts → assembly.py → build_all.py)
+  python cad_pipeline.py spec --design-doc docs/design/NN-*.md [--auto-fill]
+  → Outputs DESIGN_REVIEW.md + CAD_SPEC.md
 
-Step 3: Render output
-  python build_all.py --render    # Generate STEP + DXF + GLB + Blender PNG
-  # Optional: AI enhancement
-  python render_3d.py --config render_config.json   # Standalone rendering
+Step 2: Code generation + parametric modeling
+  python cad_pipeline.py codegen --subsystem <name>
+  → Generates params.py / build_all.py / station_*.py / assembly.py scaffolds
+  (Note: scaffolds are incomplete — manually complete geometry logic before entering BUILD)
+  Run /mechdesign <subsystem_name> to launch interactive full workflow
+
+Step 3: Build + render output
+  python cad_pipeline.py build --subsystem <name>   # STEP + DXF + GLB
+  python cad_pipeline.py render --subsystem <name>  # Blender PNG (views driven by render_config.json)
+  python cad_pipeline.py enhance --subsystem <name> # Gemini AI enhancement
+  # Or full pipeline in one command:
+  python cad_pipeline.py full --subsystem <name> --design-doc docs/design/NN-*.md --timestamp
 ```
 
 ### 5. material — Material Preset Table

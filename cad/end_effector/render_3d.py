@@ -460,11 +460,32 @@ def setup_lighting():
     bpy.context.scene.collection.objects.link(bounce_obj)
 
 
+def _get_bounding_sphere():
+    """Return (center, radius) of all non-ground mesh objects in scene."""
+    verts = []
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and obj.name not in ("Ground",):
+            matrix = obj.matrix_world
+            for v in obj.data.vertices:
+                verts.append(matrix @ v.co)
+    if not verts:
+        return Vector((0.0, 0.0, 0.0)), float(_BOUNDING_R)
+    center = sum(verts, Vector()) / len(verts)
+    radius = max((v - center).length for v in verts)
+    return center, radius
+
+
 def setup_camera(preset_key):
     """Create and position camera from preset.
 
     Uses _CONFIG_CAMERAS from render_config.json if loaded,
     otherwise falls back to hardcoded CAMERA_PRESETS.
+
+    Auto-framing (enabled by default for perspective cameras):
+      Computes the scene bounding sphere after GLB import, then moves the
+      camera along its view direction so the object fills `frame_fill`
+      (default 0.75) of the vertical field of view — independent of which
+      direction the camera points. Disable per-view with "auto_frame": false.
     """
     source = _CONFIG_CAMERAS if _CONFIG_CAMERAS else CAMERA_PRESETS
 
@@ -487,7 +508,7 @@ def setup_camera(preset_key):
         cam_data.ortho_scale = preset.get("ortho_scale", 200)
     else:
         cam_data.type = "PERSP"
-        cam_data.lens = 65       # 65mm portrait lens, less distortion
+        cam_data.lens = preset.get("lens_mm", 65)  # from render_config.json, fallback 65mm
         cam_data.clip_start = 1
         cam_data.clip_end = 5000
 
@@ -507,6 +528,32 @@ def setup_camera(preset_key):
     direction = target - cam_obj.location
     rot_quat = direction.to_track_quat("-Z", "Y")
     cam_obj.rotation_euler = rot_quat.to_euler()
+
+    # ── Auto-frame: normalize distance so object fills frame_fill of vertical FOV ──
+    # Works for any view direction; disable per-view with "auto_frame": false
+    auto_frame = preset.get("auto_frame", True)
+    if cam_data.type == "PERSP" and auto_frame:
+        try:
+            bs_center, bs_radius = _get_bounding_sphere()
+            frame_fill = (_CONFIG.get("frame_fill", 0.75) if _CONFIG else 0.75)
+            scene = bpy.context.scene
+            sensor_w = cam_data.sensor_width  # Blender default 36mm
+            aspect = scene.render.resolution_x / scene.render.resolution_y
+            sensor_h = sensor_w / aspect
+            fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
+            required_dist = bs_radius / math.sin(fov_half) / frame_fill
+            # Direction: from bounding-sphere center toward camera
+            view_dir = (cam_obj.location - Vector(tgt)).normalized()
+            cam_obj.location = bs_center + view_dir * required_dist
+            # Re-aim at bounding-sphere center
+            aim = bs_center - cam_obj.location
+            cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+            log.info("  Auto-frame [%s]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
+                     preset_key,
+                     bs_center.x, bs_center.y, bs_center.z,
+                     bs_radius, required_dist, frame_fill * 100)
+        except Exception as _af_err:
+            log.warning("  Auto-frame skipped: %s", _af_err)
 
     return cam_obj
 

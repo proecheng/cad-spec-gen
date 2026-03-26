@@ -117,7 +117,27 @@ def generate_part_files(spec_path: str, output_dir: str) -> list:
     return generated, skipped
 
 
-def main():
+def scan_todos(files: list) -> dict:
+    """Scan generated files for unfilled TODO markers.
+
+    Returns dict of {filepath: [line_numbers]} for files with TODOs.
+    """
+    result = {}
+    for f in files:
+        todos = []
+        try:
+            lines = Path(f).read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines, 1):
+                if "TODO:" in line:
+                    todos.append((i, line.strip()))
+        except OSError:
+            pass
+        if todos:
+            result[f] = todos
+    return result
+
+
+
     parser = argparse.ArgumentParser(
         description="Generate part module scaffolds from CAD_SPEC.md §5 BOM")
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
@@ -136,6 +156,19 @@ def main():
         print(f"  + {os.path.basename(f)}")
     if skipped:
         print(f"  (skipped: {', '.join(os.path.basename(f) for f in skipped)})")
+
+    # ── TODO scan: warn on unfilled coordinate system blocks ─────────────────
+    todos = scan_todos(generated)
+    if todos:
+        print(f"\n[gen_parts] WARNING: {len(todos)} file(s) have unfilled TODO markers")
+        print("  Fill these before running 'cad_pipeline.py build' or orientation_check will fail:")
+        for fpath, items in todos.items():
+            print(f"  {os.path.basename(fpath)}:")
+            for lineno, text in items:
+                print(f"    L{lineno}: {text}")
+        sys.exit(2)  # exit code 2 = scaffold generated but TODOs remain
+    else:
+        print("[gen_parts] All coordinate system blocks filled. Ready for build.")
 
 
 if __name__ == "__main__":

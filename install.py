@@ -67,6 +67,11 @@ INSTALL_MANIFEST = {
         "config",
         "templates",
         "codegen",
+        "docs",
+    ],
+    "subsystem_tools": [
+        # Per-subsystem tools copied alongside CAD files
+        "orientation_check.py",
     ],
 }
 

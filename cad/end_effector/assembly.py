@@ -35,7 +35,7 @@ from params import (
     S1_PUMP_CAVITY_DIA, S1_PUMP_CAVITY_DEPTH,
     S1_SCRAPER_W, S1_SCRAPER_H, S1_SCRAPER_D,
     S2_FORCE_DIA, S2_FORCE_H, S2_AE_CABLE_DIA,
-    S3_BODY_W, S3_BODY_H,
+    S3_BODY_W, S3_BODY_H, S3_TANK_OD, S3_TANK_LENGTH,
     S4_BRACKET_THICK, S4_BRACKET_H, S4_BRACKET_D, S4_BRACKET_W,
     S4_SENSOR_DIA, S4_SENSOR_H,
     PEEK_BOLT_PCD, PEEK_BOLT_NUM,
@@ -146,7 +146,14 @@ def make_assembly() -> cq.Assembly:
     s1_body = _station_transform(s1_body, a, tx, ty, tz)
     assy.add(s1_body, name="EE-002_applicator_body", color=C_DARK)
 
-    s1_tank = make_tank().translate((0, 0, S1_BODY_H))
+    # Per §4.1.2 L176: tank axis ∥XY plane, radial (+Y direction in local frame)
+    # make_tank() builds along +Z → rotate X+90° to lay it along +Y, then
+    # translate so tank base aligns with +Y face of body at mid-height.
+    s1_tank = (
+        make_tank()
+        .rotate((0, 0, 0), (1, 0, 0), 90)          # +Z → +Y (radial outward)
+        .translate((0, S1_BODY_D / 2.0, S1_BODY_H * 0.5))  # flush to +Y wall, mid-height
+    )
     s1_tank = _station_transform(s1_tank, a, tx, ty, tz)
     assy.add(s1_tank, name="EE-002_applicator_tank", color=C_SILVER)
 
@@ -223,10 +230,11 @@ def make_assembly() -> cq.Assembly:
 
     # Solvent tank as separate object (overlaps with body union, but Blender
     # will see it as distinct named mesh → different material)
+    # Per §4.1.2 L266/L748: solvent tank axis ∥Z (vertical, parallel to rotation axis)
+    # make_solvent_tank() builds along +Z — no rotation needed, just side translate
     s3_tank = (
         make_solvent_tank()
-        .rotate((0, 0, 0), (0, 1, 0), -90)
-        .translate((S3_BODY_W / 2.0, 0, S3_BODY_H * 0.5))
+        .translate((S3_BODY_W / 2.0 + S3_TANK_OD / 2.0, 0, S3_BODY_H * 0.5 - S3_TANK_LENGTH / 2.0))
     )
     s3_tank = _station_transform(s3_tank, a, tx, ty, tz)
     assy.add(s3_tank, name="EE-004_cleaner_tank", color=C_SILVER)

@@ -161,6 +161,18 @@ Labeled JPG — with leader lines and component names
 └────────────────────────────────────────────────────────────────┘
 ```
 
+## Quality Gates
+
+Three mandatory checkpoints block the pipeline on failure:
+
+| Gate | Phase | Check | Exit code |
+|------|-------|-------|-----------|
+| Gate 1 — CRITICAL review | SPEC | `cad_spec_reviewer.py` finds CRITICAL issues | non-0, user must confirm |
+| Gate 2 — TODO scan | CODEGEN | Generated scaffold files contain unfilled `TODO:` markers | 2, prints file:line list |
+| Gate 3 — Orientation check | BUILD (pre) | `orientation_check.py` asserts bounding-box principal axes match design doc | non-0; bypass with `--skip-orientation` |
+
+Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem directory (non-mandatory for new subsystems).
+
 ## Key Features
 
 ### Spec Extraction (`cad_spec_gen.py`)
@@ -203,6 +215,10 @@ Labeled JPG — with leader lines and component names
 > **Example: End Effector subsystem** — adapt paths for your own subsystem.
 
 ```bash
+# Scaffold a new subsystem (generates render_config.json, params.py, design doc template)
+python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix GIS-RA
+# → output/robot_arm/render_config.json, output/robot_arm/params.py, docs/design/XX-robot_arm.md
+
 # One-click full pipeline (all 6 phases)
 python cad_pipeline.py full --subsystem end_effector \
     --design-doc docs/design/04-末端执行机构设计.md --timestamp
@@ -220,6 +236,8 @@ python cad_pipeline.py codegen --subsystem end_effector
 # Phase 3-4: Build + render
 python cad_pipeline.py build --subsystem end_effector
 python cad_pipeline.py render --subsystem end_effector --timestamp
+# Note: view script selection is automatic from render_config.json `type` field
+# (type=exploded → render_exploded.py, type=section → render_section.py, etc.)
 
 # Phase 5-6: AI enhance + annotate (optional)
 python cad_pipeline.py enhance --dir cad/output/renders
@@ -275,6 +293,24 @@ Labels are defined in `render_config.json`:
 - Coordinates at 1920×1080 reference (configurable via `reference_resolution`), auto-scaled to actual image size
 
 ## Adding a New Subsystem
+
+### Option A: One-command scaffold (recommended)
+
+```bash
+python cad_pipeline.py init --subsystem <your_subsystem> --name-cn <中文名> --prefix <PREFIX>
+```
+
+Generates three files automatically:
+- `output/<your_subsystem>/render_config.json` — camera views (V1-V5), materials, CN/EN component names
+- `output/<your_subsystem>/params.py` — dimension skeleton
+- `docs/design/XX-<your_subsystem>.md` — design doc template
+
+Then edit each file and run the full pipeline:
+```bash
+python cad_pipeline.py full --subsystem <your_subsystem> --design-doc docs/design/XX-<your_subsystem>.md
+```
+
+### Option B: Manual setup
 
 1. **Create directory and config**:
    ```bash

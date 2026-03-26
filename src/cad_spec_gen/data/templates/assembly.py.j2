@@ -66,6 +66,8 @@ def make_assembly() -> cq.Assembly:
 
     {{ part.var }} = {{ part.make_call }}
 {% if part.local_transform %}
+    # Orient: {{ part.orient_doc_ref | default('TODO: cite design-doc line for this rotation/translate') }}
+    # Rule:   {{ part.orient_rule | default('TODO: e.g. "tank axis radial (+Y) per §4.1.2 L176 — rotate X+90deg"') }}
     {{ part.var }} = {{ part.local_transform }}
 {% endif %}
 {% if station.is_radial %}

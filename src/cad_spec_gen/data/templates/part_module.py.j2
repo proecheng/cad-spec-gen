@@ -6,13 +6,24 @@ Source: {{ source_ref }}
 Material: {{ material }}
 
 BOM: {{ part_no }} {{ part_name_cn }}
+
+┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+│ Local origin : {{ local_origin_desc | default('TODO: e.g. bottom-left corner of mounting face') }}
+│ Principal axis: {{ principal_axis_desc | default('TODO: e.g. extrude along +Z (axial), body height = PARAM_H') }}
+│ Assembly orient: {{ assembly_orient_desc | default('TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)') }}
+│ Design doc ref : {{ axis_source_ref | default('TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"') }}
+└──────────────────────────────────────────────────────────────────────────┘
+
+DO NOT extrude / rotate based on assumption. Every axis choice must cite
+a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
+before writing geometry.
 """
 
 import cadquery as cq
 {% if param_imports %}
 from params import (
 {% for p in param_imports %}
-    {{ p }},
+    {{ p }},   # {{ param_sources[p] | default('TODO: add source line ref') }}
 {% endfor %}
 )
 {% else %}
@@ -25,19 +36,44 @@ def make_{{ func_name }}() -> cq.Workplane:
 
     Envelope: {{ envelope_w }} x {{ envelope_d }} x {{ envelope_h }} mm
     Weight: {{ weight }}g
+
+    Axis: {{ principal_axis_desc | default('TODO — must match COORDINATE SYSTEM block above') }}
+    Doc:  {{ axis_source_ref | default('TODO — cite design doc section + line') }}
     """
-    # TODO: Replace placeholder box with actual geometry
+    # ── Geometry source: {{ source_ref }} ─────────────────────────────────────
+    # Principal axis: {{ principal_axis_desc | default('TODO') }}
+    # If this part needs a non-Z extrusion direction, document WHY here.
+    #
+    # TODO: Replace placeholder box with actual geometry.
+    #       Each .extrude() / .circle() / .box() call must reference the
+    #       param name whose value comes from the design doc (see params.py).
     body = cq.Workplane("XY").box(
         {{ envelope_w }}, {{ envelope_d }}, {{ envelope_h }},
-        centered=(True, True, False))
+        centered=(True, True, False))  # § replace with real geometry
 {% if has_mounting_holes %}
 
-    # Mounting face bolt holes
+    # Mounting face bolt holes — per {{ mount_source_ref | default('TODO: cite doc line') }}
     from fasteners import cut_mounting_holes
     body = cut_mounting_holes(body, {{ mount_bolt_pcd }}, {{ mount_bolt_num }})
 {% endif %}
 
     return body
+
+
+# ── Orientation self-check (called by orientation_check.py) ───────────────
+def _orientation_spec():
+    """Return expected bounding-box axis for orientation_check.py.
+
+    Fill this in when implementing make_{{ func_name }}().
+    Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
+    Example: {'principal_axis': 'z', 'min_ratio': 2.0}
+    """
+    # TODO: fill after geometry is implemented
+    return {
+        "principal_axis": "{{ expected_principal_axis | default('z') }}",
+        "min_ratio": {{ expected_min_ratio | default(1.0) }},
+        "doc_ref": "{{ axis_source_ref | default('TODO') }}",
+    }
 
 
 {% if has_dxf %}

@@ -89,14 +89,44 @@ python cad_pipeline.py <command> [OPTIONS]
 | `spec` | Phase 1 | 设计审查 + 交互式三选一 + CAD_SPEC.md 生成 |
 | `codegen` | Phase 2 | 从 CAD_SPEC.md 生成 CadQuery 脚手架（Jinja2） |
 | `build` | Phase 3 | CadQuery 构建 STEP + DXF + GLB |
-| `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG |
+| `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG（视角类型由 render_config.json 驱动） |
 | `enhance` | Phase 5 | Gemini AI 增强 |
 | `annotate` | Phase 6 | PIL 标注组件名称 |
 | `full` | 全部 | 依次执行 Phase 1-6，任一阶段失败即停止 |
+| `init` | — | 脚手架新子系统目录（render_config.json + params.py + 设计文档模板） |
 | `status` | — | 显示所有子系统建模进度 |
 | `env-check` | — | 验证依赖环境 |
 
 常用标志：`--dry-run`（仅验证）、`--timestamp`（输出文件名加时间戳）、`--skip-spec`/`--skip-codegen`（跳过阶段）
+
+### 3.0z init — 新子系统脚手架
+
+```bash
+python cad_pipeline.py init --subsystem <名称> [--name-cn <中文名>] [--prefix <前缀>] [--force]
+```
+
+为全新子系统自动生成三个模板文件：
+
+| 生成文件 | 路径 | 说明 |
+|----------|------|------|
+| `render_config.json` | `output/<名称>/render_config.json` | 含 V1-V5 视角（standard/exploded/ortho）、15种材质、components中英文名 |
+| `params.py` | `output/<名称>/params.py` | 参数骨架，含包络尺寸、材质标识、装配名 |
+| 设计文档 | `docs/design/XX-<名称>.md` | 章节模板，提示用户填写需求 |
+
+生成后按提示编辑三个文件，再运行 `full` 管线。
+
+### 3.0a Phase 4 视角类型驱动渲染（P4）
+
+`render` 命令读取 `render_config.json` 中每个视角的 `"type"` 字段，自动选择渲染脚本：
+
+| `type` 值 | 调用脚本 | 说明 |
+|-----------|----------|------|
+| `standard` | `render_3d.py --view <VN>` | 标准透视视角 |
+| `exploded` | `render_exploded.py` | 爆炸图（如存在） |
+| `section` | `render_section.py` | 截面图（如存在） |
+| `ortho` | `render_3d.py --view <VN>` | 正交投影（由脚本内部处理） |
+
+视角数量和名称完全由 `render_config.json` 决定，不再硬编码 V4=爆炸、V6=截面。
 
 ### 3.0a Phase 1 交互式设计审查
 
@@ -497,7 +527,37 @@ agent.run("帮我渲染末端执行器的5个视角")
 
 ---
 
-## 7. 目录结构
+## 7. 三道门控（质量关卡）
+
+管线在三个节点设有强制质量关卡，任一失败均中止后续阶段，Agent 需感知并处理这些退出码。
+
+| 门控 | 阶段 | 触发条件 | exit code | Agent 处理建议 |
+|------|------|----------|-----------|----------------|
+| **门控1** DESIGN_REVIEW CRITICAL | SPEC | `cad_spec_reviewer.py` 发现 CRITICAL 问题 | 非0 | 向用户展示问题列表，等待确认后重试 |
+| **门控2** TODO 扫描 | CODEGEN | 新生成文件含未填 `TODO:` 标记 | 2 | 打印文件名+行号，提示用户手动完善后重跑 codegen |
+| **门控3** 方位检查 | BUILD（前置） | `orientation_check.py` 断言包围盒主轴失败 | 非0 | 打印轴向偏差，提示检查 params.py；可加 `--skip-orientation` 临时绕过 |
+
+### 门控2 退出码处理
+
+```python
+result = subprocess.run(["python", "cad_pipeline.py", "codegen", ...], capture_output=True)
+if result.returncode == 2:
+    # TODO items exist — surface to user
+    print(result.stdout)  # contains WARNING lines with file:line:content
+elif result.returncode != 0:
+    raise RuntimeError(f"codegen failed: {result.stderr}")
+```
+
+### 门控3 跳过标志
+
+```bash
+# 仅调试时使用，不推荐用于生产
+python cad_pipeline.py build --subsystem my_device --skip-orientation
+```
+
+---
+
+## 8. 目录结构
 
 ```
 cad_pipeline.py                    ← 统一管线编排器 (6 阶段)

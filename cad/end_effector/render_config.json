@@ -7,6 +7,7 @@
     "glb_file": "EE-000_assembly.glb",
     "bounding_radius_mm": 300
   },
+  "frame_fill": 0.75,
   "coordinate_system": "Z-axis vertical (parallel to gravity). Flange disc HORIZONTAL in XY plane (like a tabletop). +Z = arm-side (top), -Z = workstation-side (bottom toward GIS shell). 'Horizontal' = parallel to flange face (in XY plane). 'Vertical' = perpendicular to flange face (along Z-axis). All four station modules hang vertically DOWN (-Z) from cantilever arm tips at R=65mm from rotation center.",
   "materials": {
     "fastener": {
@@ -123,7 +124,7 @@
       "location": [
         -320,
         350,
-        400
+        290
       ],
       "target": [
         0,
@@ -131,7 +132,7 @@
         50
       ],
       "lens_mm": 50,
-      "description": "Rear-right overhead — back face, drive assembly visible"
+      "description": "Rear-left oblique — back face, drive assembly visible (Z=290 matched to V1 ~27deg elevation)"
     },
     "V3": {
       "name": "V3_side_elevation",
@@ -179,6 +180,7 @@
       ],
       "ortho": true,
       "ortho_scale": 400,
+      "auto_frame": false,
       "description": "Front orthographic — tighter framing"
     },
     "V6": {
@@ -195,6 +197,7 @@
         140
       ],
       "lens_mm": 35,
+      "auto_frame": false,
       "description": "Quarter-cut cross-section — oblique isometric exposing two perpendicular internal faces (use render_section.py)"
     },
     "V7": {
@@ -211,6 +214,7 @@
         100
       ],
       "lens_mm": 40,
+      "auto_frame": false,
       "description": "XZ-plane half-cut section — rear-left oblique, exposing drive assembly internals and station mounting (use render_section.py)",
       "section": {
         "cut_type": "half",

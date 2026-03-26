@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "CAD pipeline skill: design doc → design review → structured spec → code generation → 2D drawings → 3D renders → photorealistic images",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
@@ -27,7 +27,7 @@
       "id": "cad-codegen",
       "name": "CAD Code Generator",
       "trigger": "/cad-codegen",
-      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). Scaffold mode (default) never overwrites engineer-modified files. NOTE: generated params.py/build_all.py/assembly.py are incomplete scaffolds — hand-written completion with correct parameter names, module references, and assembly logic is required before BUILD phase.",
+      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). Scaffold mode (default) never overwrites engineer-modified files. GATE-2: gen_parts.py auto-scans generated files for unfilled TODO: markers in coordinate system blocks — exits with code 2 if any found, listing file+line. NOTE: scaffolds need hand-written completion with correct axis orientation (cite design-doc line) before BUILD phase.",
       "entry_point": "python cad_pipeline.py codegen"
     },
     {
@@ -83,11 +83,11 @@
     "orchestrator": "cad_pipeline.py",
     "config": "pipeline_config.json",
     "stages": [
-      "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review)",
-      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). NOTE: scaffolds need hand-written completion",
-      "Phase 3 BUILD: Parametric modeling → STEP + DXF + GLB (build_all.py)",
-      "Phase 4 RENDER: Blender Cycles N-view PNG (render_3d.py + render_exploded.py)",
-      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini, geometry locked, standard parts + model selection)",
+      "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review). GATE-1: CRITICAL issues block Phase 2.",
+      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). GATE-2: gen_parts.py scans TODO markers in coord-system blocks → exit(2) if unfilled.",
+      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py).",
+      "Phase 4 RENDER: Blender Cycles N-view PNG from render_config.json camera dict (dynamic, not hardcoded). render_3d.py + render_exploded.py + render_section.py dispatched by view type.",
+      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini, geometry locked, standard parts + model selection). Auto-enriches rc from params.py via prompt_data_builder.",
       "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py)"
     ]
   }
