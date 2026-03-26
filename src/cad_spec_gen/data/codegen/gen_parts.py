@@ -138,6 +138,7 @@ def scan_todos(files: list) -> dict:
 
 
 
+def main():
     parser = argparse.ArgumentParser(
         description="Generate part module scaffolds from CAD_SPEC.md §5 BOM")
     parser.add_argument("spec", help="Path to CAD_SPEC.md")

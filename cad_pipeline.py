@@ -36,6 +36,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+# Force UTF-8 output on Windows to avoid GBK encoding issues
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import time
 
 from cad_paths import (
@@ -160,9 +166,9 @@ def _resolve_review_json(args):
 
 
 def _show_review_summary(review_json_path):
-    """Print review summary and return (critical, warning, auto_fill) counts."""
+    """Print review summary and return (critical, warning, auto_fill, auto_fill_items) counts."""
     if not os.path.isfile(review_json_path):
-        return 0, 0, 0
+        return 0, 0, 0, []
     with open(review_json_path, encoding="utf-8") as f:
         data = json.load(f)
     c, w, af = data.get("critical", 0), data.get("warning", 0), data.get("auto_fill", 0)
@@ -181,16 +187,29 @@ def _show_review_summary(review_json_path):
     # Print review items summary
     items = data.get("items", [])
     for item in items:
-        severity = item.get("severity", "")
-        code = item.get("code", "")
-        msg = item.get("message", "")
-        if severity in ("CRITICAL", "WARNING"):
-            log.info("  [%s] %s: %s", severity, code, msg[:80])
+        severity = item.get("verdict", "")
+        code = item.get("id", "")
+        check = item.get("check", "")
+        detail = item.get("detail", "")
+        suggestion = item.get("suggestion", "")
+        label = f"{code} {check}".strip() if check else code
+        msg = detail
+        if severity == "CRITICAL":
+            log.info("  [CRITICAL] %s: %s", label, msg)
+            if suggestion:
+                log.info("    建议: %s", suggestion)
+        elif severity == "WARNING":
+            log.info("  [WARNING]  %s: %s", label, msg)
+            if suggestion:
+                log.info("    建议: %s", suggestion)
+        elif severity == "INFO":
+            log.info("  [INFO]     %s: %s", label, msg)
     log.info("=" * 60)
-    return c, w, af
+    auto_fill_items = [item.get("id", "") for item in items if item.get("auto_fill") == "是"]
+    return c, w, af, auto_fill_items
 
 
-def _prompt_review_choice(critical, warning, auto_fill):
+def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
     """Prompt user to choose next action after design review.
 
     Returns: "iterate" | "auto_fill" | "proceed" | "abort"
@@ -212,20 +231,21 @@ def _prompt_review_choice(critical, warning, auto_fill):
         print("\n请选择:")
         print("  1. 继续审查 — 逐项讨论 WARNING 问题")
         if auto_fill > 0:
-            print(f"  2. 自动补全 — 自动填入 {auto_fill} 项可计算的默认值，然后生成 CAD_SPEC.md")
+            items_str = ", ".join(auto_fill_items) if auto_fill_items else f"{auto_fill}项"
+            print(f"  2. 自动补全 — 自动填入 {items_str} 共{auto_fill}项可计算的默认值，然后生成 CAD_SPEC.md")
         else:
             print("  2. (无可自动补全项)")
         print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
         valid = {"1", "3"} if auto_fill == 0 else {"1", "2", "3"}
-        if not sys.stdin.isatty():
-            log.error(
-                "交互式门控需要在终端中运行。请在终端执行：\n"
-                "  python cad_pipeline.py spec --subsystem <name> --design-doc <file> --review\n"
-                "非交互模式请加 --auto-fill 跳过交互。"
-            )
-            sys.exit(1)
         while True:
-            choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
+            try:
+                choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
+            except EOFError:
+                log.error(
+                    "交互式门控需要终端输入，stdin 已关闭。\n"
+                    "请在终端直接运行本命令，或加 --auto-fill 使用非交互模式。"
+                )
+                sys.exit(1)
             if choice == "1" and "1" in valid:
                 return "iterate"
             elif choice == "2" and "2" in valid:
@@ -281,7 +301,7 @@ def cmd_spec(args):
 
     # ── Step 2: Read review results ──
     review_json = _resolve_review_json(args)
-    critical, warning, auto_fill_count = _show_review_summary(review_json)
+    critical, warning, auto_fill_count, auto_fill_items = _show_review_summary(review_json)
 
     # ── Step 2b: Determine mode ──
     review_only = getattr(args, "review_only", False)
@@ -298,7 +318,7 @@ def cmd_spec(args):
         log.info("--proceed 已指定，按现有数据生成 CAD_SPEC.md")
         choice = "proceed"
     else:
-        choice = _prompt_review_choice(critical, warning, auto_fill_count)
+        choice = _prompt_review_choice(critical, warning, auto_fill_count, auto_fill_items)
 
     # ── Step 3: Act on user choice ──
     if choice == "abort":
@@ -1178,7 +1198,12 @@ def main():
         level=level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
+        handlers=[logging.StreamHandler(stream=sys.stderr)],
     )
+    # Ensure log handler uses UTF-8 on Windows
+    for handler in logging.root.handlers:
+        if hasattr(handler, "stream") and hasattr(handler.stream, "reconfigure"):
+            handler.stream.reconfigure(encoding="utf-8", errors="replace")
 
     if not args.command:
         parser.print_help()
