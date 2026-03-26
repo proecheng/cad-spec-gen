@@ -209,6 +209,77 @@ def _show_review_summary(review_json_path):
     return c, w, af, auto_fill_items
 
 
+def _infer_assembly_layers(review_json_path):
+    """从 CAD_SPEC.md BOM树推断装配层叠表初稿。"""
+    spec_path = review_json_path.replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+    # Try cad/ path too
+    if not os.path.isfile(spec_path):
+        # output/end_effector/DESIGN_REVIEW.json -> cad/end_effector/CAD_SPEC.md
+        spec_path = spec_path.replace(os.sep + "output" + os.sep,
+                                      os.sep + "cad" + os.sep)
+    if not os.path.isfile(spec_path):
+        return None
+    lines = open(spec_path, encoding="utf-8", errors="replace").readlines()
+    # Find BOM table rows
+    in_bom = False
+    rows = []
+    for line in lines:
+        if "## 5." in line and "BOM" in line:
+            in_bom = True
+            continue
+        if in_bom and line.startswith("## "):
+            break
+        if in_bom and line.startswith("| ") and "---" not in line and "料号" not in line:
+            cols = [c.strip().strip("*") for c in line.strip().split("|")[1:-1]]
+            if len(cols) >= 2:
+                part_no = cols[0].strip()
+                name = cols[1].strip()
+                rows.append((part_no, name))
+    if not rows:
+        return None
+    # Generate layers table
+    result = ["层级|零件名称|固定/运动|连接方式|偏移"]
+    current_assembly = None
+    for part_no, name in rows:
+        if not part_no:
+            continue
+        # Assembly header (bold, no sub-number)
+        if part_no.count("-") <= 2 and not any(c.isdigit() for c in part_no.split("-")[-1:][0] if part_no.split("-")[-1:]):
+            pass
+        is_assembly = part_no.count("-") == 2  # GIS-EE-001
+        is_part = part_no.count("-") == 3       # GIS-EE-001-01
+        if is_assembly:
+            current_assembly = name
+            result.append(f"1|{name}|固定|法兰螺栓|0")
+        elif is_part and current_assembly:
+            result.append(f"2|{name}|固定|螺栓/粘接|0")
+    return "\n".join(result)
+
+
+MATERIAL_CANDIDATES = {
+    "泵": ["铸铁", "球墨铸铁", "不锈钢", "铝合金"],
+    "电机": ["铝合金壳体", "不锈钢轴"],
+    "阀": ["不锈钢", "铜合金"],
+    "传感器": ["铝合金", "不锈钢"],
+    "支架": ["铝合金", "不锈钢"],
+    "壳体": ["铝合金", "工程塑料"],
+    "轴": ["不锈钢", "42CrMo"],
+    "弹簧": ["SUS301", "65Mn"],
+    "齿轮": ["45#钢", "塑料PA66"],
+    "密封": ["FKM", "NBR", "硅橡胶"],
+    "线束": ["铜芯"],
+    "接头": ["不锈钢", "铜合金"],
+}
+
+
+def _infer_material_candidates(part_name):
+    """从零件名称推断材质候选列表。"""
+    for keyword, candidates in MATERIAL_CANDIDATES.items():
+        if keyword in part_name:
+            return candidates
+    return ["铝合金", "不锈钢", "工程塑料"]
+
+
 def _interactive_fill_warnings(review_json_path):
     """逐项引导用户处理所有 WARNING/CRITICAL 项（含自动补全和手动填写）。
 
@@ -265,7 +336,48 @@ def _interactive_fill_warnings(review_json_path):
                 continue
             # else fall through to manual input
         else:
-            print("  此项需要手动填写（不可自动补全）。")
+            # Check if we can infer a value for this item
+            inferred = None
+            infer_label = None
+            if "M02" in item_id or "装配层叠" in check:
+                inferred = _infer_assembly_layers(review_json_path)
+                infer_label = "从BOM树推断装配层叠表"
+            elif "D5" in item_id or "BOM缺少材质" in check:
+                # Extract part names from detail
+                parts = [p.strip() for p in detail.replace("缺失:", "").split(",") if p.strip()]
+                if parts:
+                    cands = _infer_material_candidates(parts[0])
+                    inferred = f"{parts[0]} 材质候选: {' / '.join(cands)}"
+                    infer_label = f"为 {parts[0]} 推断材质候选"
+
+            if inferred:
+                print(f"  可推断建议值（{infer_label}）：")
+                for ln in inferred.splitlines():
+                    print(f"    {ln}")
+                print("  i. 采用推断值（可在下方修改后确认）")
+                print("  b. 手动填写")
+                print("  s. 跳过")
+                try:
+                    sub = input("  选择 [i/b/s]: ").strip().lower()
+                except EOFError:
+                    log.error("交互式填写需要终端输入，stdin 已关闭。")
+                    sys.exit(1)
+                if sub == "i":
+                    print("  确认推断值（直接回车接受，或修改后回车）：")
+                    try:
+                        edited = input(f"  > ").strip()
+                    except EOFError:
+                        edited = ""
+                    result = edited if edited else inferred
+                    supplements[item_id] = result
+                    print(f"  [已记录 {item_id}]")
+                    continue
+                elif sub == "s":
+                    print(f"  [跳过 {item_id}]")
+                    continue
+                # else fall through to manual input
+            else:
+                print("  此项需要手动填写（不可自动补全）。")
             print("  输入补充内容（多行请按 Enter 换行，空行结束；直接空行跳过）:")
 
         lines = []
