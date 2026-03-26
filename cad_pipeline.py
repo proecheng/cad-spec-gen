@@ -209,10 +209,81 @@ def _show_review_summary(review_json_path):
     return c, w, af, auto_fill_items
 
 
+def _interactive_fill_warnings(review_json_path):
+    """逐项引导用户填写不可自动补全的 WARNING 项。
+
+    Returns: dict of {item_id: user_input} saved to user_supplements.json
+    """
+    if not os.path.isfile(review_json_path):
+        return {}
+    with open(review_json_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    # 只处理不可自动补全的 WARNING 项
+    manual_items = [
+        item for item in data.get("items", [])
+        if item.get("verdict") == "WARNING" and item.get("auto_fill") != "是"
+    ]
+    if not manual_items:
+        return {}
+
+    supplements = {}
+    print(f"\n共 {len(manual_items)} 项需要手动补充：")
+    for item in manual_items:
+        item_id = item.get("id", "?")
+        check = item.get("check", "") or item.get("id", "")
+        detail = item.get("detail", "")
+        suggestion = item.get("suggestion", "")
+
+        print(f"\n{'─'*60}")
+        print(f"[{item_id}] {check}")
+        print(f"  问题: {detail}")
+        if suggestion and suggestion != "—":
+            print(f"  建议格式: {suggestion}")
+        print(f"{'─'*60}")
+        print("  输入补充内容（多行请按 Enter 换行，空行结束；直接空行跳过）:")
+
+        lines = []
+        try:
+            while True:
+                line = input("  > ").rstrip()
+                if line == "" and not lines:
+                    print(f"  [跳过 {item_id}]")
+                    break
+                if line == "" and lines:
+                    break
+                lines.append(line.encode("utf-8", errors="replace").decode("utf-8"))
+        except EOFError:
+            log.error("交互式填写需要终端输入，stdin 已关闭。")
+            sys.exit(1)
+
+        if lines:
+            supplements[item_id] = "\n".join(lines)
+            print(f"  [已记录 {item_id}]")
+
+    return supplements
+
+
+def _save_supplements(supplements, review_json_path):
+    """Save user supplements to user_supplements.json next to DESIGN_REVIEW.json."""
+    if not supplements:
+        return None
+    out_path = review_json_path.replace("DESIGN_REVIEW.json", "user_supplements.json")
+    existing = {}
+    if os.path.isfile(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            existing = json.load(f)
+    existing.update(supplements)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
+    log.info("补充内容已保存: %s", out_path)
+    return out_path
+
+
 def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
     """Prompt user to choose next action after design review.
 
-    Returns: "iterate" | "auto_fill" | "proceed" | "abort"
+    Returns: "iterate" | "auto_fill" | "proceed" | "abort" | "guided_fill"
     """
     if critical > 0:
         log.error("存在 %d 个 CRITICAL 问题，必须修复后才能继续。", critical)
@@ -229,14 +300,15 @@ def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
 
     if warning > 0:
         print("\n请选择:")
-        print("  1. 继续审查 — 逐项讨论 WARNING 问题")
+        print("  1. 继续审查 — 查看 DESIGN_REVIEW.md 后手动修改设计文档再重跑")
         if auto_fill > 0:
             items_str = ", ".join(auto_fill_items) if auto_fill_items else f"{auto_fill}项"
             print(f"  2. 自动补全 — 自动填入 {items_str} 共{auto_fill}项可计算的默认值，然后生成 CAD_SPEC.md")
         else:
             print("  2. (无可自动补全项)")
         print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
-        valid = {"1", "3"} if auto_fill == 0 else {"1", "2", "3"}
+        print("  4. 逐项填写 — 由 AI 引导逐项补充不可自动填充的 WARNING 项，确认后生成 CAD_SPEC.md")
+        valid = {"1", "3", "4"} if auto_fill == 0 else {"1", "2", "3", "4"}
         while True:
             try:
                 choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
@@ -252,6 +324,8 @@ def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
                 return "auto_fill"
             elif choice == "3" and "3" in valid:
                 return "proceed"
+            elif choice == "4" and "4" in valid:
+                return "guided_fill"
             print(f"  无效输入，请输入 {'/'.join(sorted(valid))}")
 
     # No issues
@@ -329,7 +403,20 @@ def cmd_spec(args):
         log.info("用户选择继续审查。请查看 DESIGN_REVIEW.md 逐项讨论后重新运行。")
         return 2  # Special exit code: review iteration
 
-    # "auto_fill" or "proceed" → generate CAD_SPEC.md
+    supplements = None
+    if choice == "guided_fill":
+        # Load non-auto-fillable WARNING items for guided interaction
+        items = []
+        if os.path.isfile(review_json):
+            with open(review_json, encoding="utf-8") as _f:
+                _rj = json.load(_f)
+            items = [it for it in _rj.get("items", [])
+                     if it.get("verdict") in ("WARNING", "CRITICAL")
+                     and it.get("auto_fill") != "是"]
+        supplements = _interactive_fill_warnings(review_json)
+        choice = "proceed"  # after guided fill, proceed to generate
+
+    # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
                "--config", CONFIG_PATH,
                "--review"]
@@ -341,7 +428,32 @@ def cmd_spec(args):
     log.info("Phase 1b: 生成 CAD_SPEC.md...")
     ok, _ = _run_subprocess(cmd_gen, f"spec-gen ({os.path.basename(design_doc)})",
                             dry_run=args.dry_run, timeout=120)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # Append user supplements to CAD_SPEC.md if any were collected
+    if supplements:
+        sub_dir = get_subsystem_dir(args.subsystem)
+        spec_path = os.path.join(sub_dir, "CAD_SPEC.md") if sub_dir else None
+        if os.path.isfile(spec_path):
+            existing = open(spec_path, encoding="utf-8", errors="replace").read()
+            if "## §10 用户补充数据" not in existing:
+                with open(spec_path, "a", encoding="utf-8", errors="replace") as _sf:
+                    _sf.write("\n\n## §10 用户补充数据 (User Supplements)\n\n")
+                    for item_id, content in supplements.items():
+                        _sf.write(f"### {item_id}\n\n{content}\n\n")
+            else:
+                # Overwrite existing §10 section
+                import re
+                new_section = "\n\n## §10 用户补充数据 (User Supplements)\n\n"
+                for item_id, content in supplements.items():
+                    new_section += f"### {item_id}\n\n{content}\n\n"
+                updated = re.sub(r'\n+## §10 用户补充数据.*$', new_section, existing,
+                                 flags=re.DOTALL)
+                with open(spec_path, "w", encoding="utf-8", errors="replace") as _sf:
+                    _sf.write(updated)
+            log.info("用户补充数据已追加到 CAD_SPEC.md (%d 项)", len(supplements))
+    return 0
 
 
 def cmd_codegen(args):
