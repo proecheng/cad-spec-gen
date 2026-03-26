@@ -210,38 +210,63 @@ def _show_review_summary(review_json_path):
 
 
 def _interactive_fill_warnings(review_json_path):
-    """逐项引导用户填写不可自动补全的 WARNING 项。
+    """逐项引导用户处理所有 WARNING/CRITICAL 项（含自动补全和手动填写）。
 
-    Returns: dict of {item_id: user_input} saved to user_supplements.json
+    Returns: dict of {item_id: user_input}
     """
     if not os.path.isfile(review_json_path):
         return {}
     with open(review_json_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    # 只处理不可自动补全的 WARNING 项
-    manual_items = [
-        item for item in data.get("items", [])
-        if item.get("verdict") == "WARNING" and item.get("auto_fill") != "是"
-    ]
-    if not manual_items:
+    all_items = [item for item in data.get("items", [])
+                 if item.get("verdict") in ("WARNING", "CRITICAL")]
+    info_items = [item for item in data.get("items", [])
+                  if item.get("verdict") == "INFO" and item.get("auto_fill") == "是"]
+    all_guide = all_items + info_items
+    if not all_guide:
         return {}
 
     supplements = {}
-    print(f"\n共 {len(manual_items)} 项需要手动补充：")
-    for item in manual_items:
+    print(f"\n共 {len(all_guide)} 项需要逐项处理：")
+    for item in all_guide:
         item_id = item.get("id", "?")
         check = item.get("check", "") or item.get("id", "")
         detail = item.get("detail", "")
         suggestion = item.get("suggestion", "")
+        can_auto = item.get("auto_fill") == "是"
+        verdict = item.get("verdict", "")
 
         print(f"\n{'─'*60}")
-        print(f"[{item_id}] {check}")
-        print(f"  问题: {detail}")
+        print(f"[{verdict}] {item_id}: {check or detail}")
+        if detail and check:
+            print(f"  详情: {detail}")
         if suggestion and suggestion != "—":
             print(f"  建议格式: {suggestion}")
         print(f"{'─'*60}")
-        print("  输入补充内容（多行请按 Enter 换行，空行结束；直接空行跳过）:")
+
+        if can_auto:
+            print("  此项可自动补全。")
+            print("  a. 自动补全（使用建议默认值）")
+            print("  b. 手动填写")
+            print("  s. 跳过")
+            try:
+                sub = input("  选择 [a/b/s]: ").strip().lower()
+            except EOFError:
+                log.error("交互式填写需要终端输入，stdin 已关闭。")
+                sys.exit(1)
+            if sub == "a":
+                # Mark as auto-fill
+                supplements[item_id] = "__AUTO_FILL__"
+                print(f"  [自动补全 {item_id}]")
+                continue
+            elif sub == "s":
+                print(f"  [跳过 {item_id}]")
+                continue
+            # else fall through to manual input
+        else:
+            print("  此项需要手动填写（不可自动补全）。")
+            print("  输入补充内容（多行请按 Enter 换行，空行结束；直接空行跳过）:")
 
         lines = []
         try:
@@ -300,33 +325,22 @@ def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
 
     if warning > 0:
         print("\n请选择:")
-        print("  1. 继续审查 — 查看 DESIGN_REVIEW.md 后手动修改设计文档再重跑")
-        if auto_fill > 0:
-            items_str = ", ".join(auto_fill_items) if auto_fill_items else f"{auto_fill}项"
-            print(f"  2. 自动补全 — 自动填入 {items_str} 共{auto_fill}项可计算的默认值，然后生成 CAD_SPEC.md")
-        else:
-            print("  2. (无可自动补全项)")
-        print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
-        print("  4. 逐项填写 — 由 AI 引导逐项补充不可自动填充的 WARNING 项，确认后生成 CAD_SPEC.md")
-        valid = {"1", "3", "4"} if auto_fill == 0 else {"1", "2", "3", "4"}
+        print("  1. 逐项引导 — 逐项查看问题，可选自动补全或手动填写")
+        print("  2. 跳过 — 按现有数据直接生成 CAD_SPEC.md")
         while True:
             try:
-                choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
+                choice = input("\n请输入选项 [1/2]: ").strip()
             except EOFError:
                 log.error(
                     "交互式门控需要终端输入，stdin 已关闭。\n"
                     "请在终端直接运行本命令，或加 --auto-fill 使用非交互模式。"
                 )
                 sys.exit(1)
-            if choice == "1" and "1" in valid:
-                return "iterate"
-            elif choice == "2" and "2" in valid:
-                return "auto_fill"
-            elif choice == "3" and "3" in valid:
-                return "proceed"
-            elif choice == "4" and "4" in valid:
+            if choice == "1":
                 return "guided_fill"
-            print(f"  无效输入，请输入 {'/'.join(sorted(valid))}")
+            elif choice == "2":
+                return "proceed"
+            print("  无效输入，请输入 1 或 2")
 
     # No issues
     log.info("审查通过，无 CRITICAL/WARNING 问题，自动进入下一步。")
@@ -404,23 +418,19 @@ def cmd_spec(args):
         return 2  # Special exit code: review iteration
 
     supplements = None
+    guided_auto_fill = False
     if choice == "guided_fill":
-        # Load non-auto-fillable WARNING items for guided interaction
-        items = []
-        if os.path.isfile(review_json):
-            with open(review_json, encoding="utf-8") as _f:
-                _rj = json.load(_f)
-            items = [it for it in _rj.get("items", [])
-                     if it.get("verdict") in ("WARNING", "CRITICAL")
-                     and it.get("auto_fill") != "是"]
         supplements = _interactive_fill_warnings(review_json)
+        guided_auto_fill = any(v == "__AUTO_FILL__" for v in supplements.values())
+        # Remove __AUTO_FILL__ markers from supplements (handled by --auto-fill flag)
+        supplements = {k: v for k, v in supplements.items() if v != "__AUTO_FILL__"}
         choice = "proceed"  # after guided fill, proceed to generate
 
     # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
                "--config", CONFIG_PATH,
                "--review"]
-    if choice == "auto_fill":
+    if choice == "auto_fill" or guided_auto_fill:
         cmd_gen.append("--auto-fill")
     if force_flag:
         cmd_gen.append("--force")
