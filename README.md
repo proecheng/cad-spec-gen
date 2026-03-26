@@ -124,6 +124,7 @@ Labeled JPG — with leader lines and component names
 │     → DESIGN_REVIEW.md (A.mechanical / B.assembly incl. B5-B8    │
 │       floating parts & connection checks / C.material / D.gaps)  │
 │     User: "继续审查" / "自动补全" (--auto-fill) / "下一步"          │
+│  ✋ [GATE-1] CRITICAL issues block SPEC phase until confirmed     │
 │                                                                 │
 │  2. SPEC EXTRACTION (this repo)                                   │
 │     Design doc (.md) → cad_spec_gen.py → CAD_SPEC.md            │
@@ -138,8 +139,10 @@ Labeled JPG — with leader lines and component names
 │     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
 │     build_all.py needs valid module refs, assembly.py needs       │
 │     hand-written mate logic. Complete before Phase 4.             │
+│  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
+│  ✋ [GATE-3] orientation_check.py — asserts bounding-box axes    │
 │     CadQuery scripts → STEP + GLB + DXF                        │
 │     - 3D: assemblies with precise mate constraints              │
 │     - 2D: GB/T A3 drawings, 3-view + section views              │
