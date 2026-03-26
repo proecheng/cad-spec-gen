@@ -308,8 +308,17 @@ prompt模板 (templates/ 目录):
 模板变量 (从 render_config.json prompt_vars 填充):
   {product_name}                ← prompt_vars.product_name
   {view_description}            ← camera.V*.description
-  {material_descriptions}       ← prompt_vars.material_descriptions[]
+  {material_descriptions}       ← prompt_vars.material_descriptions[] (或 params.py auto-enrich)
   {standard_parts_description}  ← standard_parts[] (简化几何→真实外观映射)
+
+Auto-enrich (P2):
+  若子系统含 params.py，enhance 阶段启动时自动调用 prompt_data_builder.generate_prompt_data()
+  并在内存中合并到 rc，无需手动 --update-config。失败时 warning 不阻断管线。
+
+Manifest-based 文件选择 (P1):
+  render 阶段成功后写 output/<subsystem>/renders/render_manifest.json
+  enhance/annotate 未指定 --dir 时优先读 manifest，只处理本次渲染产出文件
+  指定 --dir 时 fallback 到 glob 全目录（兼容旧用法）
 
 标准件增强:
   render_config.json 的 standard_parts 数组描述简化几何与真实零件的映射:

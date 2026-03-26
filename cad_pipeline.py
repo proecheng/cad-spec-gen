@@ -233,7 +233,14 @@ def _prompt_review_choice(critical, warning, auto_fill):
 
 
 def cmd_spec(args):
-    """Phase 1: Design review + CAD_SPEC.md generation (interactive)."""
+    """Phase 1: Design review + CAD_SPEC.md generation.
+
+    Modes (in priority order):
+      --review-only   Generate DESIGN_REVIEW.md + .json only, no interaction, exit 0.
+      --auto-fill     Auto-fill computable defaults + generate CAD_SPEC.md, no interaction.
+      --proceed       Skip interaction, generate CAD_SPEC.md with existing data.
+      (default)       Interactive: prompt user to iterate / auto-fill / proceed / abort.
+    """
     design_doc = getattr(args, "design_doc", None)
     if not design_doc:
         design_doc = _resolve_design_doc(args.subsystem)
@@ -265,14 +272,24 @@ def cmd_spec(args):
     if args.dry_run:
         return 0
 
-    # ── Step 2: Read review results and prompt user ──
+    # ── Step 2: Read review results ──
     review_json = _resolve_review_json(args)
     critical, warning, auto_fill_count = _show_review_summary(review_json)
 
-    # If --auto-fill was pre-set via CLI, skip interactive prompt
+    # ── Step 2b: Determine mode ──
+    review_only = getattr(args, "review_only", False)
+    if review_only:
+        # Agent mode: just generate review, no spec generation
+        log.info("--review-only: 审查报告已生成，等待 Agent 逐项审查。")
+        log.info("  DESIGN_REVIEW.json: %s", review_json)
+        return 0
+
     if getattr(args, "auto_fill", False):
         log.info("--auto-fill 已指定，自动补全并生成 CAD_SPEC.md")
         choice = "auto_fill"
+    elif getattr(args, "proceed", False):
+        log.info("--proceed 已指定，按现有数据生成 CAD_SPEC.md")
+        choice = "proceed"
     else:
         choice = _prompt_review_choice(critical, warning, auto_fill_count)
 
@@ -443,6 +460,20 @@ def cmd_render(args):
             if not ok:
                 failures += 1
 
+    if not failures and not args.dry_run:
+        import time as _time
+        _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
+        manifest = {
+            "subsystem": getattr(args, "subsystem", ""),
+            "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "render_dir": _renders_dir,
+            "files": sorted(glob.glob(os.path.join(_renders_dir, "V*.png"))),
+        }
+        manifest_path = os.path.join(_renders_dir, "render_manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as _mf:
+            json.dump(manifest, _mf, indent=2)
+        log.info("Manifest written: %s (%d files)", manifest_path, len(manifest["files"]))
+
     return 1 if failures else 0
 
 
@@ -457,7 +488,15 @@ def cmd_enhance(args):
         return 1
 
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")), key=view_sort_key)
+    manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
+    if not args.dir and os.path.isfile(manifest_path):
+        with open(manifest_path, encoding="utf-8") as _mf:
+            _manifest = json.load(_mf)
+        pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)], key=view_sort_key)
+        log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
+                 len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
+    else:
+        pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")), key=view_sort_key)
     if not pngs:
         log.error("No V*.png files found in %s", render_dir)
         return 1
@@ -470,6 +509,16 @@ def cmd_enhance(args):
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
             rc = json.load(f)
+
+    # P2: Auto-enrich rc with generated prompt data from params.py (in-memory only)
+    if sub_dir and os.path.isfile(os.path.join(sub_dir, "params.py")):
+        try:
+            from prompt_data_builder import generate_prompt_data, merge_into_config
+            _generated = generate_prompt_data(sub_dir, rc=rc)
+            rc = merge_into_config(rc, _generated)
+            log.info("Auto-enriched render_config from params.py")
+        except Exception as _e:
+            log.warning("prompt_data_builder auto-enrich failed (non-fatal): %s", _e)
 
     # Load model config
     model_arg = []
@@ -530,16 +579,19 @@ def cmd_enhance(args):
                      os.path.basename(png), view_key, len(prompt))
             t0 = time.time()
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=180,
+                cmd, capture_output=True, text=True, timeout=360,
                 encoding="utf-8", errors="replace",
             )
             elapsed = time.time() - t0
             if result.returncode != 0:
                 log.error("  FAILED enhance %s (exit %d, %.1fs)",
                           os.path.basename(png), result.returncode, elapsed)
+                if result.stdout:
+                    for line in result.stdout.strip().split("\n")[-10:]:
+                        log.error("    STDOUT: %s", line)
                 if result.stderr:
                     for line in result.stderr.strip().split("\n")[-5:]:
-                        log.error("    %s", line)
+                        log.error("    STDERR: %s", line)
                 failures += 1
                 continue
             log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
@@ -601,7 +653,16 @@ def cmd_annotate(args):
         log.error("No render_config.json found. Use --config or --subsystem.")
         return 1
 
-    img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
+    img_dir = args.dir
+    if not img_dir:
+        _manifest_path = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+        if os.path.isfile(_manifest_path):
+            with open(_manifest_path, encoding="utf-8") as _mf:
+                _manifest = json.load(_mf)
+            img_dir = _manifest.get("render_dir", os.path.join(DEFAULT_OUTPUT, "renders"))
+            log.info("Annotate using manifest render_dir: %s", img_dir)
+        else:
+            img_dir = os.path.join(DEFAULT_OUTPUT, "renders")
     for lang in (args.lang.split(",") if "," in args.lang else [args.lang]):
         cmd = [sys.executable, annotate_script,
                "--all", "--dir", img_dir,
@@ -630,6 +691,15 @@ def _review_checkpoint(args):
     return 0
 
 
+def _agent_review_pause(args):
+    """Pause pipeline for Agent-driven review. Exit 10 = waiting for Agent."""
+    review_json = _resolve_review_json(args)
+    if os.path.isfile(review_json):
+        log.info("AGENT_REVIEW_JSON=%s", review_json)
+        log.info("Agent 审查模式: 请读取上述 JSON，逐项审查后用 --skip-spec 继续。")
+    return 10
+
+
 def cmd_full(args):
     """Full pipeline: spec → codegen → build → render → enhance → annotate."""
     log.info("=" * 60)
@@ -641,8 +711,15 @@ def cmd_full(args):
 
     # Phase 1: Spec generation (requires --design-doc or auto-resolve)
     if not args.skip_spec:
-        steps.append(("SPEC", lambda: cmd_spec(args)))
-        steps.append(("REVIEW_CHECK", lambda: _review_checkpoint(args)))
+        if getattr(args, "agent_review", False):
+            # Agent mode: run review-only, output JSON path, exit for Agent processing
+            args.review_only = True
+            steps.append(("SPEC_REVIEW", lambda: cmd_spec(args)))
+            # After review-only, return exit code 10 for Agent to process
+            steps.append(("AGENT_WAIT", lambda: _agent_review_pause(args)))
+        else:
+            steps.append(("SPEC", lambda: cmd_spec(args)))
+            steps.append(("REVIEW_CHECK", lambda: _review_checkpoint(args)))
 
     # Phase 2: Code generation
     if not args.skip_codegen:
@@ -819,6 +896,10 @@ def main():
     p_spec.add_argument("--design-doc", help="Path to design document (NN-*.md)")
     p_spec.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
     p_spec.add_argument("--force", action="store_true", help="Force regeneration")
+    p_spec.add_argument("--review-only", action="store_true",
+                        help="Generate DESIGN_REVIEW only (no interaction, no CAD_SPEC.md). For Agent-driven review.")
+    p_spec.add_argument("--proceed", action="store_true",
+                        help="Skip interaction, generate CAD_SPEC.md with existing data")
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
@@ -866,6 +947,8 @@ def main():
     p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
+    p_full.add_argument("--agent-review", action="store_true",
+                        help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process")
 
     # status
     sub.add_parser("status", help="Show pipeline status")

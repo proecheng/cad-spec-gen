@@ -16,10 +16,11 @@
    ```
 
 2. **有参数** → 执行增强：
+   - **文件选择（manifest-based）**：若未指定 `--dir`，优先读取 `output/<subsystem>/renders/render_manifest.json`（由 `render` 阶段写入），只处理本次渲染产出的文件，忽略历史遗留文件；若指定 `--dir` 则 fallback 到 glob 全目录
    - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
+   - **Auto-enrich**：若子系统目录含 `params.py`，`prompt_data_builder.py` 自动生成并在内存中合并 `assembly_description`/`material_descriptions`/`standard_parts`/`negative_constraints`，无需手动运行 `--update-config`；失败时 warning 不阻断管线
    - 使用统一 prompt 模板 `templates/prompt_enhance_unified.txt`
      - 按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容
-     - `prompt_data_builder.py` 从 `params.py` 自动生成材质/装配/约束数据
    - 用 render_config.json 中的变量填充模板占位符
    - 执行 `python gemini_gen.py --image <input.png> --model <model_id> "<filled prompt>"`（gemini_gen.py 路径通过 `cad_paths.get_gemini_script()` 或环境变量 `GEMINI_GEN_PATH` 定位）
    - 捕获 gemini_gen.py 的 stdout，提取 `保存:` 后的路径

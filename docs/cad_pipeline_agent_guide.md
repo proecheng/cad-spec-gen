@@ -301,6 +301,23 @@ python gemini_gen.py --config
 - **管线调用时**: `cad_pipeline.py enhance` 自动重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录）
 - **模型选择**: `pipeline_config.json` 的 `enhance` 段配置模型别名→API model ID 映射
 
+#### Manifest-based 文件选择（P1）
+
+`render` 阶段成功后，自动写入 `output/<subsystem>/renders/render_manifest.json`：
+```json
+{
+  "subsystem": "end_effector",
+  "timestamp": "2025-01-01T12:00:00",
+  "render_dir": "output/end_effector/renders",
+  "files": ["output/end_effector/renders/V1_front_iso.png", "..."]
+}
+```
+`enhance` 和 `annotate` 未指定 `--dir` 时优先读此 manifest，只处理本次渲染产出文件，避免历史文件重复消费。指定 `--dir` 时 fallback 到 glob 全目录（兼容旧用法）。
+
+#### Auto-enrich（P2）
+
+`enhance` 阶段启动后，若子系统目录含 `params.py`，自动调用 `prompt_data_builder.generate_prompt_data()` 并在内存中合并到 `rc`，补全 `assembly_description`/`material_descriptions`/`standard_parts`/`negative_constraints` 等字段，无需手动执行 `--update-config`。合并失败时仅输出 warning，不阻断管线。
+
 #### 标准件增强
 
 prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_config.json` 的 `standard_parts` 数组填充：

@@ -247,9 +247,12 @@ def main():
         # Discover files by scanning all JPGs and matching against config view IDs
         labels_cfg = config.get("labels", {})
         valid_views = [k for k in labels_cfg if not k.startswith("_")]
-        all_jpgs = sorted(glob.glob(os.path.join(args.dir, "*.jpg")))
+        all_imgs = sorted(
+            glob.glob(os.path.join(args.dir, "*.jpg")) +
+            glob.glob(os.path.join(args.dir, "*.png"))
+        )
         # Exclude already-labeled files, then filter to those matching a valid view
-        files = [f for f in all_jpgs
+        files = [f for f in all_imgs
                  if "_labeled_" not in f
                  and detect_view_id(os.path.basename(f), valid_views)]
         if not files:

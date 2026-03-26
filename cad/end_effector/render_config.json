@@ -196,6 +196,27 @@
       ],
       "lens_mm": 35,
       "description": "Quarter-cut cross-section — oblique isometric exposing two perpendicular internal faces (use render_section.py)"
+    },
+    "V7": {
+      "name": "V7_section_side",
+      "type": "section",
+      "location": [
+        -500,
+        600,
+        400
+      ],
+      "target": [
+        0,
+        0,
+        100
+      ],
+      "lens_mm": 40,
+      "description": "XZ-plane half-cut section — rear-left oblique, exposing drive assembly internals and station mounting (use render_section.py)",
+      "section": {
+        "cut_type": "half",
+        "cut_plane": "XZ",
+        "offset_mm": 0.0
+      }
     }
   },
   "section": {
@@ -264,7 +285,8 @@
     "V3": "low side-oblique view (elevation ~17deg, azimuth ~67deg)",
     "V4": "exploded assembly view (elevation 30deg, azimuth 45deg)",
     "V5": "front orthographic projection (no perspective distortion)",
-    "V6": "longitudinal cross-section view (YZ plane cut, internal structures exposed)"
+    "V6": "longitudinal cross-section view (YZ plane cut, internal structures exposed)",
+    "V7": "lateral cross-section view (XZ plane half-cut, drive assembly and station mounting exposed)"
   },
   "assembly_description": {
     "V1": "Center: cross-shaped dark gray flange disc (Phi90mmx25mm) lying HORIZONTAL like a tabletop. Four cantilever arms extend at 0/90/180/270 degrees, each ending in a 40mmx40mm mounting face at R=65mm from center. Below flange: thin golden amber PEEK insulation ring (Phi86mmx5mm, slightly smaller than flange). Below flange center: flat brushed adapter plate (Phi63mmx8mm) with motor+gearbox cylinder (Phi22mmx73mm) hanging down from it. Foreground (0deg arm, Applicator module, visible): Applicator housing: dark gray box (60mmx40mmx55mm), hanging DOWN from 0deg arm tip at R=65mm. gear pump cavity, scraper at bottom, NTC sensor bore; Applicator reservoir tank: brushed silver long cylinder (Phi38mmx280mm), HORIZONTAL, axis in XY plane, extending RADIALLY OUTWARD from station body. LONGEST part in assembly (280mm), M14 quick-release thread at outer end; Scraper head: tan/brownish small block (15mmx5mmx10mm), at bottom of applicator body. soft matte surface, scraper profile. Foreground (270deg arm, UHF module, visible): UHF bracket: dark gray L-bracket (50mmx40mmx25mm), mounted to 270deg arm face at R=65mm. short edge bolted to mount face, long edge extending down; UHF sensor: dark grey ABS housing cylinder (Phi45mmx60mm), vertical, sensing face DOWN. gold SMA RF connector facing UP. Background (90deg arm, AE detection module, partially occluded): Force sensor: silver aluminum flat disc (Phi42mmx12mm), horizontal disc at top of S2 stack, mounted to 90deg arm face. center wire-through hole Phi10mm; Spring limiter: silver with visible chrome coil cylindrical sleeve with internal spring (sleeve Phi12mmx14mm, spring OD 8mm), vertical axis PERPENDICULAR to flange face (along -Z), NEVER horizontal. ~6 visible turns, guide shaft Phi4mm, end plates Phi12mm; Rubber gimbal joint: matte black annular rubber joint (Phi30mmx15mm), horizontal disc connecting spring limiter to probe. flange PCD Phi22mm, 4xM2 bolts; AE probe: dark cylindrical body cylinder (Phi28mmx26mm), vertical, sensing face pointing DOWN (-Z). coaxial cable exit (3mm dia). Background (180deg arm, Cleaner module, partially occluded): Cleaner housing: dark gray tall box (50mmx40mmx120mm), hanging DOWN from 180deg arm tip at R=65mm. dual spool chambers, silicone flip-cover at bottom, tungsten counterweight (Phi14mmx13mm) at top; Solvent tank: polished silver short cylinder (Phi25mmx110mm), VERTICAL, axis parallel to Z, parallel to cleaner body. MUCH smaller than applicator tank (Phi25mm vs Phi38mm), M8 quick-release. Black cable chain arc along flange edge near 0deg position.",
@@ -728,6 +750,50 @@
           1680,
           720
         ]
+      }
+    ],
+    "V6": [
+      {
+        "component": "flange",
+        "anchor": [614, 300],
+        "label": [1680, 200]
+      },
+      {
+        "component": "peek",
+        "anchor": [614, 380],
+        "label": [1680, 380]
+      },
+      {
+        "component": "adapter",
+        "anchor": [614, 500],
+        "label": [1680, 500]
+      },
+      {
+        "component": "sig_cond",
+        "anchor": [614, 650],
+        "label": [1680, 650]
+      }
+    ],
+    "V7": [
+      {
+        "component": "flange",
+        "anchor": [614, 300],
+        "label": [80, 200]
+      },
+      {
+        "component": "peek",
+        "anchor": [614, 380],
+        "label": [80, 380]
+      },
+      {
+        "component": "adapter",
+        "anchor": [614, 500],
+        "label": [80, 500]
+      },
+      {
+        "component": "sig_cond",
+        "anchor": [614, 650],
+        "label": [80, 650]
       }
     ]
   }

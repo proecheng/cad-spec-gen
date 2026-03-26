@@ -307,7 +307,14 @@ prompt模板 (templates/ 目录):
 模板变量 (从 render_config.json prompt_vars 填充):
   {product_name}           ← prompt_vars.product_name
   {view_description}       ← camera.V*.description
-  {material_descriptions}  ← prompt_vars.material_descriptions[]
+  {material_descriptions}  ← prompt_vars.material_descriptions[] (或 params.py auto-enrich)
+
+Auto-enrich (P2):
+  若子系统含 params.py，enhance 启动时自动调用 prompt_data_builder 在内存中合并 rc，无需 --update-config
+
+Manifest-based 文件选择 (P1):
+  render 成功后写 renders/render_manifest.json
+  enhance/annotate 未指定 --dir 时只处理 manifest 列出的文件，指定 --dir 时 fallback glob
 
 核心原则:
   1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
