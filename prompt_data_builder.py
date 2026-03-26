@@ -737,8 +737,10 @@ def generate_prompt_data(cad_dir, rc=None):
         view_type = cam.get("type", "standard")
         assembly_desc[vk] = generate_assembly_description(parts, cam_loc, view_type, p)
 
-    # Material descriptions
+    # Material descriptions — fallback to rc['materials'] for non-EE subsystems
     mat_descs = generate_material_descriptions(parts, p)
+    if not mat_descs and rc.get("materials"):
+        mat_descs = derive_material_descriptions_from_rc(rc)
 
     # Standard parts
     std_parts = generate_standard_parts(p)
@@ -757,19 +759,56 @@ def generate_prompt_data(cad_dir, rc=None):
     }
 
 
-def merge_into_config(rc, generated):
+def derive_material_descriptions_from_rc(rc):
+    """Fallback: derive material_descriptions from rc['materials'] label+preset.
+
+    Used when params.py-based generation yields no results (e.g. non-EE subsystems).
+    Returns list of {visual_cue, material_desc} dicts.
+    """
+    _PRESET_APPEARANCE = {
+        "stainless_304": "stainless steel 304, brushed satin finish, cool silver tone",
+        "brushed_aluminum": "brushed 6061 aluminum, fine parallel grain marks, silver-gray",
+        "black_anodized": "hard anodized aluminum, matte dark charcoal, micro-porous surface",
+        "peek_amber": "PEEK engineering plastic, warm amber semi-translucent, smooth polished",
+        "black_rubber": "black rubber/elastomer, matte, Shore A ~70 hardness appearance",
+        "chrome_steel": "hardened chrome steel, mirror-polished, high specular highlight",
+        "pcb_green": "FR4 PCB, matte green soldermask, gold pads visible",
+        "copper": "copper, warm reddish-brown, oxidized traces visible",
+        "abs_black": "ABS plastic, matte black injection-molded finish",
+        "carbon_fiber": "carbon fiber composite, woven 2x2 twill pattern, gloss clearcoat",
+    }
+    materials = rc.get("materials", {})
+    result = []
+    for mat_id, mat_cfg in materials.items():
+        label = mat_cfg.get("label", mat_id)
+        preset = mat_cfg.get("preset", "")
+        appearance = _PRESET_APPEARANCE.get(preset, preset.replace("_", " "))
+        if label and appearance:
+            result.append({"visual_cue": label, "material_desc": appearance})
+    return result
+
+
+
     """Merge generated prompt data into render_config dict (in-place).
 
     Generated data OVERRIDES manual entries for assembly_description,
     prompt_vars.material_descriptions, standard_parts, negative_constraints.
     """
-    rc["assembly_description"] = generated["assembly_description"]
+def merge_into_config(rc, generated):
+    """Merge generated prompt data into render_config dict (non-destructive, in-place).
+
+    Only fills fields that are absent or empty in rc — preserves manually curated data.
+    """
+    rc["assembly_description"] = rc.get("assembly_description") or generated["assembly_description"]
     rc.setdefault("prompt_vars", {})
-    rc["prompt_vars"]["material_descriptions"] = generated["prompt_vars"]["material_descriptions"]
-    if generated["prompt_vars"].get("product_name"):
+    if not rc["prompt_vars"].get("material_descriptions"):
+        rc["prompt_vars"]["material_descriptions"] = generated["prompt_vars"]["material_descriptions"]
+    if not rc["prompt_vars"].get("product_name") and generated["prompt_vars"].get("product_name"):
         rc["prompt_vars"]["product_name"] = generated["prompt_vars"]["product_name"]
-    rc["standard_parts"] = generated["standard_parts"]
-    rc["negative_constraints"] = generated["negative_constraints"]
+    if not rc.get("standard_parts"):
+        rc["standard_parts"] = generated["standard_parts"]
+    if not rc.get("negative_constraints"):
+        rc["negative_constraints"] = generated["negative_constraints"]
     return rc
 
 
