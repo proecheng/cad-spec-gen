@@ -281,8 +281,8 @@ def _flatten_review_items(review_data):
                 items.append({
                     "id": it.get("id", ""),
                     "category": category,
-                    "check": it.get("check", ""),
-                    "detail": it.get("detail", ""),
+                    "check": it.get("item", "") or it.get("check", ""),
+                    "detail": it.get("calc_value", "") or it.get("detail", ""),
                     "verdict": verdict,
                     "suggestion": it.get("suggestion", ""),
                     "auto_fill": it.get("auto_fill", "否"),

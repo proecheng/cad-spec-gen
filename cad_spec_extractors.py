@@ -506,16 +506,22 @@ def extract_connection_matrix(lines: list, fasteners: list,
     conn_tables = extract_tables(lines, column_keywords=["零件A", "零件B"])
     if not conn_tables:
         conn_tables = extract_tables(lines, heading_pattern=r"连接矩阵|连接关系")
+    existing_pairs = {(c["partA"], c["partB"]) for c in connections}
     for tbl in conn_tables:
         cols = [c.lower() for c in tbl["columns"]]
         a_i = next((i for i, c in enumerate(cols) if "零件a" in c or "部件a" in c), 0)
         b_i = next((i for i, c in enumerate(cols) if "零件b" in c or "部件b" in c), 1)
         type_i = next((i for i, c in enumerate(cols) if "类型" in c or "连接" in c), -1)
         for row in tbl["rows"]:
+            pa = row[a_i].strip() if a_i < len(row) else ""
+            pb = row[b_i].strip() if b_i < len(row) else ""
+            if (pa, pb) in existing_pairs or (pb, pa) in existing_pairs:
+                continue
+            existing_pairs.add((pa, pb))
             order += 1
             connections.append({
-                "partA": row[a_i].strip() if a_i < len(row) else "",
-                "partB": row[b_i].strip() if b_i < len(row) else "",
+                "partA": pa,
+                "partB": pb,
                 "type": row[type_i].strip() if type_i >= 0 and type_i < len(row) else "",
                 "fit": "", "torque": "", "order": order,
             })
@@ -655,7 +661,7 @@ def extract_render_plan(lines: list) -> dict:
     view_tables = extract_tables(lines, column_keywords=["视角"])
     for tbl in view_tables:
         cols = [c.lower() for c in tbl["columns"]]
-        id_i = next((i for i, c in enumerate(cols) if "视角" in c and "id" in c), 0)
+        id_i = next((i for i, c in enumerate(cols) if "视角" in c and "id" in c), -1)
         name_i = next((i for i, c in enumerate(cols) if "名称" in c), -1)
         angle_i = next((i for i, c in enumerate(cols) if "仰角" in c or "方位" in c), -1)
         visible_i = next((i for i, c in enumerate(cols) if "可见" in c), -1)
@@ -664,7 +670,7 @@ def extract_render_plan(lines: list) -> dict:
 
         for row in tbl["rows"]:
             result["views"].append({
-                "id": row[id_i].strip() if id_i < len(row) else "",
+                "id": row[id_i].strip() if id_i >= 0 and id_i < len(row) else "",
                 "name": row[name_i].strip() if name_i >= 0 and name_i < len(row) else "",
                 "angle": row[angle_i].strip() if angle_i >= 0 and angle_i < len(row) else "",
                 "visible": row[visible_i].strip() if visible_i >= 0 and visible_i < len(row) else "",
