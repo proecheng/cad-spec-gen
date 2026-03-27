@@ -701,6 +701,8 @@ def cmd_render(args):
         return 1
 
     failures = 0
+    _renders_dir_pre = os.path.join(DEFAULT_OUTPUT, "renders")
+    _pre_existing = set(glob.glob(os.path.join(_renders_dir_pre, "V*.png"))) if os.path.isdir(_renders_dir_pre) else set()
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
@@ -758,11 +760,13 @@ def cmd_render(args):
     if not failures and not args.dry_run:
         import time as _time
         _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
+        _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
+        _new_files = sorted(_all_now - _pre_existing)
         manifest = {
             "subsystem": getattr(args, "subsystem", ""),
             "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
             "render_dir": _renders_dir,
-            "files": sorted(glob.glob(os.path.join(_renders_dir, "V*.png"))),
+            "files": _new_files,
         }
         manifest_path = os.path.join(_renders_dir, "render_manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as _mf:

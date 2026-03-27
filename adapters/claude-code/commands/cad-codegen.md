@@ -33,7 +33,25 @@
    python cad_pipeline.py codegen --subsystem <subsystem> --force
    ```
 
-### 生成内容
+### 生成后自动检查（门控2）
+
+`gen_parts.py` 生成脚手架后立即扫描所有新文件中的 `TODO:` 标记：
+
+- **有未填 TODO** → 打印 WARNING 列表（文件名 + 行号 + 内容），以 **exit code 2** 退出
+- **全部填写完毕** → 打印 `All coordinate system blocks filled. Ready for build.`
+
+每个生成的 `<part>.py` 文件头包含强制坐标系声明块，**必须**填写后才能进入 Phase 3：
+
+```python
+# ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+# Local origin : <填写：如 bottom-left corner of mounting face>
+# Principal axis: <填写：如 extrude along +Z (axial), body height = PARAM_H>
+# Assembly orient: <填写：如 rotate X+90deg → axis becomes +Y (radial)>
+# Design doc ref : <填写：如 §4.1.2 L176 — "储罐轴线与悬臂共线（径向）">
+# └──────────────────────────────────────────────────────────────────────────┘
+```
+
+> 三道门控：门控1（DESIGN_REVIEW CRITICAL）→ 门控2（TODO扫描）→ 门控3（orientation_check.py）
 
 代码生成分 5 步，使用 `codegen/` 目录下的生成器 + `templates/` 下的 Jinja2 模板：
 
