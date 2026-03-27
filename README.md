@@ -243,7 +243,8 @@ python cad_pipeline.py render --subsystem end_effector --timestamp
 # (type=exploded → render_exploded.py, type=section → render_section.py, etc.)
 
 # Phase 5-6: AI enhance + annotate (optional)
-python cad_pipeline.py enhance --dir cad/output/renders
+# enhance auto-reads render_manifest.json (only current-session renders); use --dir to override
+python cad_pipeline.py enhance --subsystem end_effector
 python cad_pipeline.py annotate --subsystem end_effector --lang cn,en
 
 # Check pipeline status
@@ -255,27 +256,23 @@ python cad_pipeline.py env-check
 
 ### AI Enhancement Quick Start
 
-After Blender renders your PNGs, enhance them to photorealistic JPGs:
+After Blender renders your PNGs, enhance them to photorealistic JPGs via the pipeline:
 
 ```bash
-# Enhance standard views (V1/V2/V3) using prompt template
-python gemini_gen.py --image V1_front_iso.png \
-    "Keep ALL geometry EXACTLY unchanged. Apply photorealistic materials..."
+# Recommended: let pipeline auto-read render_manifest.json (only current-session renders)
+python cad_pipeline.py enhance --subsystem end_effector
 
-# Enhance exploded view (V4) — preserves explosion gaps
-python gemini_gen.py --image V4_exploded.png \
-    "Keep ALL geometry EXACTLY unchanged. This is an exploded view..."
-
-# Enhance orthographic view (V5) — no perspective distortion
-python gemini_gen.py --image V5_ortho_front.png \
-    "Keep ALL geometry EXACTLY unchanged. Front orthographic projection..."
+# Override: process a specific directory instead of manifest
+python cad_pipeline.py enhance --subsystem end_effector --dir cad/output/renders_latest
 ```
 
-Prompt template provided in `templates/`:
-- `prompt_enhance_unified.txt` — unified AI enhancement prompt (all views, auto-switches by camera type)
+The enhance step automatically:
+- Reads `render_manifest.json` to process only files from the latest render run (not historical files)
+- Auto-enriches prompt data from `params.py` via `prompt_data_builder.py` (materials, assembly description, constraints)
+- Selects prompt template from `templates/prompt_enhance_unified.txt` (auto-switches by camera type)
+- Passes model from `pipeline_config.json` `enhance.model` field
 
-Fill `{product_name}`, `{view_description}`, `{material_descriptions}`, `{standard_parts_description}` from `render_config.json`.
-Output: ~6MB JPG per view, 5460×3072, photorealistic studio quality.
+Output: `cad/output/renders/<VN>_<name>_enhanced.jpg`, ~6MB JPG per view, photorealistic studio quality.
 
 ### Component Label Annotation
 

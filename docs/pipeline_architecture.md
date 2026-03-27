@@ -179,7 +179,7 @@ res.check(
   - 不依赖视角数量，N个视角全部自适应
 
 输出：cad/output/renders/<VN>_<name>_<timestamp>.png
-输出：cad/output/renders/render_manifest.json  （文件列表 + 元数据）
+输出：cad/output/renders/render_manifest.json  （本次渲染新增文件列表 + 元数据；不含历史遗留文件）
 ```
 
 ---

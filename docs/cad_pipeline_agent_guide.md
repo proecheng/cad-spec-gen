@@ -437,7 +437,8 @@ python cad_pipeline.py build --subsystem end_effector
 python cad_pipeline.py render --subsystem end_effector --timestamp
 
 # Step 2e: AI增强 (可选)
-python cad_pipeline.py enhance --dir cad/output/renders
+# enhance 自动读取 render_manifest.json，只处理本次渲染文件；--dir 可覆盖为指定目录
+python cad_pipeline.py enhance --subsystem end_effector
 ```
 
 ### 5.2 仅渲染（已有GLB）
