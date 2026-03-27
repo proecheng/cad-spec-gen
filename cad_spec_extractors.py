@@ -99,12 +99,14 @@ def extract_tables(lines: list, heading_pattern: str = None,
     """
     results = []
     in_section = heading_pattern is None  # 无标题过滤 → 全文搜索
+    current_heading = ""
     i = 0
     while i < len(lines):
         line = lines[i].strip()
 
         # Track section headings
         if line.startswith("#"):
+            current_heading = line.lstrip("#").strip()
             if heading_pattern is not None:
                 in_section = bool(re.search(heading_pattern, line))
             elif results and stop_at_heading:
@@ -158,7 +160,7 @@ def extract_tables(lines: list, heading_pattern: str = None,
                 i += 1
 
             results.append({
-                "heading": "",
+                "heading": current_heading,
                 "columns": columns,
                 "rows": rows,
                 "start_line": start_line,
@@ -230,6 +232,7 @@ def extract_params(lines: list) -> list:
 
     params = []
     for tbl in unique_tables:
+        tbl_heading = tbl.get("heading", "")
         cols_lower = [c.lower() for c in tbl["columns"]]
         # Find key column indices
         param_idx = next((i for i, c in enumerate(cols_lower)
@@ -261,7 +264,7 @@ def extract_params(lines: list) -> list:
                 remark = row[remark_idx].replace("**", "").strip()
 
             line_no = tbl["start_line"] + row_i + 1
-            name = _cn_to_upper(cn_name, context=remark, line_no=line_no)
+            name = _cn_to_upper(cn_name, context=tbl_heading + " " + remark, line_no=line_no)
 
             params.append({
                 "name": name,
@@ -272,6 +275,18 @@ def extract_params(lines: list) -> list:
                 "remark": remark,
                 "cn_name": cn_name,
             })
+
+    # Deduplicate param names: if same name appears >1 time, append _2, _3 ...
+    name_count: dict = {}
+    for p in params:
+        name_count[p["name"]] = name_count.get(p["name"], 0) + 1
+    name_seen: dict = {}
+    for p in params:
+        n = p["name"]
+        if name_count[n] > 1:
+            name_seen[n] = name_seen.get(n, 0) + 1
+            if name_seen[n] > 1:
+                p["name"] = f"{n}_{name_seen[n]}"
 
     return params
 
