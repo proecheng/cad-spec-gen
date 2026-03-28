@@ -72,7 +72,10 @@
    b. 检查环境变量 GEMINI_API_KEY / GOOGLE_API_KEY
    c. 检查 gemini_gen.py 是否存在: gemini_gen.py 或 $GEMINI_GEN_PATH
    d. 运行 tools/hybrid_render/check_env.py (如存在)
-8. 字体: 检查 FangSong (仿宋) 字体是否可用
+8. ComfyUI AI增强 (可选，本地GPU方案):
+   a. 运行 python comfyui_env_check.py → 自动检测GPU/服务/模型/依赖
+   b. 显示就绪状态 ✅/❌，缺少项给出安装指引
+9. 字体: 检查 FangSong (仿宋) 字体是否可用
 ```
 
 输出格式（用实际搜索到的值填充）：
