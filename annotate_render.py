@@ -108,6 +108,32 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
         print(f"  SKIP: no labels defined for {view_id}")
         return None
 
+    # Load sidecar projected coords (written by Blender render scripts)
+    # Sidecar lives next to the source PNG: V1_front_iso_labels.json
+    # Strip _enhanced suffix before looking up sidecar (enhanced file is V1_*_enhanced.jpg)
+    _base_stem = os.path.splitext(img_path)[0]
+    _base_stem = re.sub(r'_\d{8}_\d{4}_enhanced$', '', _base_stem)  # timestamped enhanced
+    _base_stem = re.sub(r'_enhanced$', '', _base_stem)  # non-timestamped enhanced
+    _sidecar_path = _base_stem + "_labels.json"
+    _sidecar_anchors = {}  # component -> [px, py]
+    if os.path.isfile(_sidecar_path):
+        try:
+            with open(_sidecar_path, encoding="utf-8") as _sf:
+                _sidecar = json.load(_sf)
+            _sidecar_anchors = {item["component"]: item["anchor"]
+                                for item in _sidecar.get("labels", [])}
+            if _sidecar_anchors:
+                print(f"  Sidecar: {len(_sidecar_anchors)} anchors from {os.path.basename(_sidecar_path)}")
+        except Exception as _se:
+            print(f"  WARN: failed to load sidecar {_sidecar_path}: {_se}")
+
+    # Apply sidecar anchor overrides into labels list
+    labels = [
+        {**lbl, "anchor": _sidecar_anchors[lbl["component"]]}
+        if lbl.get("component") in _sidecar_anchors else lbl
+        for lbl in labels
+    ]
+
     # Component name lookup dict (names sourced from design doc BOM)
     components = config.get("components", {})
 

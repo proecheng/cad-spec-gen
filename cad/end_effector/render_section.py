@@ -270,6 +270,21 @@ def render_section_view(view_id, cam_cfg, section_override):
     bpy.ops.render.render(write_still=True)
     log.info("Saved: %s", base_path)
 
+    # Write label sidecar (2D projected anchor coords for this section view)
+    try:
+        import sys as _sys, os as _os
+        _skill_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        if _skill_root not in _sys.path:
+            _sys.path.insert(0, _skill_root)
+        _r3 = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "render_3d.py")
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("render_3d", _r3)
+        _r3m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_r3m)
+        _r3m._write_label_sidecar(view_id, base_path)
+    except Exception as _se:
+        log.warning("Label sidecar skipped for %s: %s", view_id, _se)
+
     if args.timestamp:
         from datetime import datetime
         ts = datetime.now().strftime("%Y%m%d_%H%M")

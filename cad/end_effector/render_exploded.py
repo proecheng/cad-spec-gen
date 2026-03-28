@@ -183,6 +183,17 @@ def main():
     log.info("  Output: %s", output_path)
     bpy.ops.render.render(write_still=True)
 
+    # Write label sidecar (2D projected anchor coords for V4)
+    try:
+        _r3_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "render_3d.py")
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("render_3d", _r3_path)
+        _r3m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_r3m)
+        _r3m._write_label_sidecar("V4", latest_path)
+    except Exception as _se:
+        log.warning("Label sidecar skipped for V4: %s", _se)
+
     # Copy to latest (non-timestamped) for downstream tools
     if args.timestamp and output_path != latest_path:
         import shutil

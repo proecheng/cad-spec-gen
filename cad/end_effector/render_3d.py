@@ -631,6 +631,64 @@ def setup_render(samples, width, height, force_gpu=None, force_cpu=False):
     scene.render.threads_mode = "AUTO"
 
 
+def _write_label_sidecar(preset_key, png_path):
+    """
+    After rendering, project each component's world-space origin (obj.location)
+    into 2D pixel coords using Blender's camera, and write a sidecar JSON:
+        V1_front_iso_labels.json  (same dir as png_path)
+
+    Sidecar format:
+        {"V1": [{"component": "applicator", "anchor": [x, y]}, ...]}
+
+    Uses the label list from render_config.json to know which component names
+    to project. Only components that exist as Blender objects are included.
+    Label positions (leader endpoints) are NOT written — annotate_render.py
+    will keep its existing layout logic for those; only anchors are updated.
+    """
+    if not _CONFIG:
+        return
+    labels_cfg = _CONFIG.get("labels", {}).get(preset_key, [])
+    if not labels_cfg:
+        return
+
+    import bpy_extras.object_utils as _bou
+
+    scene = bpy.context.scene
+    cam = scene.camera
+    if cam is None:
+        log.warning("_write_label_sidecar: no active camera for %s", preset_key)
+        return
+
+    res_x = scene.render.resolution_x
+    res_y = scene.render.resolution_y
+
+    entries = []
+    for item in labels_cfg:
+        comp = item.get("component", "")
+        obj = bpy.data.objects.get(comp)
+        if obj is None:
+            # fallback: case-insensitive search
+            obj = next((o for o in bpy.data.objects if o.name.lower() == comp.lower()), None)
+        if obj is None:
+            log.warning("  Label sidecar: object '%s' not found in scene", comp)
+            entries.append({"component": comp, "anchor": item.get("anchor", [0, 0])})
+            continue
+        # world_to_camera_view returns (u, v, depth) in [0,1] with v=0 at bottom
+        co_2d = _bou.world_to_camera_view(scene, cam, obj.location)
+        px = int(co_2d.x * res_x)
+        py = int((1.0 - co_2d.y) * res_y)  # flip Y: Blender v=0 bottom → pixel y=0 top
+        entries.append({"component": comp, "anchor": [px, py]})
+        log.info("  Label sidecar [%s] %s: (%d, %d)", preset_key, comp, px, py)
+
+    sidecar = {"view": preset_key, "labels": entries}
+    stem = os.path.splitext(png_path)[0]
+    sidecar_path = stem + "_labels.json"
+    import json as _json
+    with open(sidecar_path, "w", encoding="utf-8") as _f:
+        _json.dump(sidecar, _f, indent=2)
+    log.info("  Label sidecar written: %s", sidecar_path)
+
+
 def render_view(preset_key, timestamp=False):
     """Set up camera for a preset and render to file."""
     source = _CONFIG_CAMERAS if _CONFIG_CAMERAS else CAMERA_PRESETS
@@ -659,6 +717,9 @@ def render_view(preset_key, timestamp=False):
     log.info("  Output: %s", output_path)
     bpy.ops.render.render(write_still=True)
     log.info("  Done: %s", output_path)
+
+    # Write label sidecar (2D projected anchor coords)
+    _write_label_sidecar(preset_key, latest_path)
 
     # Copy to latest (non-timestamped) for downstream tools
     if timestamp and output_path != latest_path:
