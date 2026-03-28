@@ -31,6 +31,7 @@
     "resolution": "2k",
     "timeout": 180,
     "comfyui": {
+      "root": "D:/ComfyUI",
       "host": "127.0.0.1",
       "port": 8188,
       "workflow_template": "templates/comfyui_workflow_template.json",

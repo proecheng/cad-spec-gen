@@ -30,6 +30,20 @@ def _load_comfyui_config():
     return cfg.get("enhance", {}).get("comfyui", {})
 
 
+def _get_comfyui_root():
+    """Return ComfyUI root dir: pipeline_config > COMFYUI_ROOT env > common defaults."""
+    cfg = _load_comfyui_config()
+    if cfg.get("root") and os.path.isdir(cfg["root"]):
+        return cfg["root"]
+    env = os.environ.get("COMFYUI_ROOT", "")
+    if env and os.path.isdir(env):
+        return env
+    for p in [os.path.expanduser("~/ComfyUI"), "D:/ComfyUI", "C:/ComfyUI"]:
+        if os.path.isdir(p):
+            return p
+    return ""
+
+
 def check_python_deps():
     """Return list of missing Python packages."""
     required = ["requests", "PIL", "cv2", "numpy"]
@@ -76,12 +90,8 @@ def check_models(cfg):
     depth_model = cfg.get("controlnet_depth_model", "")
     canny_model = cfg.get("controlnet_canny_model", "")
 
-    comfyui_roots = [
-        os.environ.get("COMFYUI_ROOT", ""),
-        os.path.expanduser("~/ComfyUI"),
-        "C:/ComfyUI",
-        "D:/ComfyUI",
-    ]
+    _detected_root = _get_comfyui_root()
+    comfyui_roots = [r for r in [_detected_root] if r]
 
     results = []
     for model_name, subdir in [
@@ -99,7 +109,8 @@ def check_models(cfg):
             if os.path.isfile(candidate):
                 found = True
                 break
-        results.append((model_name, found, f"Expected under {{ComfyUI_root}}/{subdir}/"))
+        _root_display = _get_comfyui_root() or "<ComfyUI_root>"
+        results.append((model_name, found, f"Expected under {_root_display}/{subdir}/"))
     return results
 
 
@@ -140,8 +151,8 @@ def run_check(quiet=False):
         issues.append(
             f"{server_msg}\n"
             "  Fix: Start ComfyUI first:\n"
-            "    cd <ComfyUI_root> && python main.py --listen 127.0.0.1 --port 8188\n"
-            "  Or set COMFYUI_ROOT env var and run: python comfyui_env_check.py"
+            f"    cd {_get_comfyui_root() or '<ComfyUI_root>'} && python main.py --listen 127.0.0.1 --port 8188\n"
+            "  Or run: D:\\ComfyUI\\start_comfyui.bat"
         )
     else:
         info.append(f"Server: {server_msg}")
