@@ -18,8 +18,26 @@
    /cad-enhance --env-check                           — 检测 ComfyUI 环境是否就绪
    ```
 
-2. **有参数** → 执行增强：
-   - 读取 `pipeline_config.json` 的 `enhance.backend` 决定后端（CLI `--backend` 参数可覆盖）
+2. **有参数但未指定 `--backend`** → 先询问用户选择后端：
+
+   读取 `pipeline_config.json` 的 `enhance.backend` 当前值，然后向用户展示：
+
+   ```
+   当前默认后端：<backend>（来自 pipeline_config.json）
+
+   请选择增强后端：
+   A. Gemini（推荐）— 云端 API，无需 GPU，开箱即用
+   B. ComfyUI       — 本地 GPU，ControlNet 几何硬锁，多视角一致性更强（需 GPU 8GB+）
+   C. 保持默认（<backend>）
+   ```
+
+   - 用户选 A → 使用 `gemini` 后端执行
+   - 用户选 B → 先运行 `python comfyui_env_check.py` 检测环境，环境就绪后执行；若缺少组件，展示安装指引并询问是否继续
+   - 用户选 C 或直接回车 → 使用当前默认后端执行
+   - 用户回复中含 `gemini` / `A` → 使用 gemini
+   - 用户回复中含 `comfyui` / `B` → 使用 comfyui
+
+3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
    - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
    - 使用统一 prompt 模板 `templates/prompt_enhance_unified.txt`
      - 按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容
