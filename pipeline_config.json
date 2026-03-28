@@ -41,7 +41,7 @@
       "denoise_strength": 0.45,
       "cfg_scale": 7.0,
       "steps": 25,
-      "timeout": 300
+      "timeout": 7200
     }
   }
 }

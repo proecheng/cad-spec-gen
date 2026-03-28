@@ -138,12 +138,12 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
   "host": "127.0.0.1",
   "port": 8188,
   "workflow_template": "templates/comfyui_workflow_template.json",
-  "sd_model": "realisticVisionV60B1.safetensors",
-  "controlnet_depth": "control_v11p_sd15_depth.pth",
-  "controlnet_canny": "control_v11p_sd15_canny.pth",
-  "steps": 28,
+  "checkpoint": "realisticVisionV60B1_v51VAE.safetensors",
+  "controlnet_depth_model": "control_v11f1p_sd15_depth.pth",
+  "controlnet_canny_model": "control_v11p_sd15_canny.pth",
+  "steps": 25,
   "cfg_scale": 7.0,
-  "denoise_strength": 0.55,
-  "timeout": 300
+  "denoise_strength": 0.45,
+  "timeout": 7200
 }
 ```

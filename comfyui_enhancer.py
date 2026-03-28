@@ -132,6 +132,9 @@ def _submit_workflow(workflow, cfg):
     client_id = str(uuid.uuid4())
     payload = {"prompt": workflow, "client_id": client_id}
     resp = requests.post(_api_url(cfg, "/prompt"), json=payload, timeout=30)
+    if not resp.ok:
+        import logging as _log
+        _log.getLogger(__name__).error("ComfyUI /prompt error: %s", resp.text[:2000])
     resp.raise_for_status()
     data = resp.json()
     if "error" in data:
@@ -208,9 +211,24 @@ def enhance_image(png_path, prompt, comfyui_cfg, view_key, rc):
     negative = _build_negative_prompt()
     log.debug("  ComfyUI positive prompt: %s", positive[:120])
 
+    # Upload input image to ComfyUI
+    import requests as _req
+    _host = comfyui_cfg.get("host", "127.0.0.1")
+    _port = comfyui_cfg.get("port", 8188)
+    with open(png_path, "rb") as _f:
+        _up = _req.post(
+            f"http://{_host}:{_port}/upload/image",
+            files={"image": (os.path.basename(png_path), _f, "image/png")},
+            data={"overwrite": "true"},
+            timeout=30,
+        )
+    _up.raise_for_status()
+    _uploaded_name = _up.json()["name"]
+    log.info("  [comfyui] Uploaded input image as %s", _uploaded_name)
+
     # Load and patch workflow
     workflow = _load_workflow(comfyui_cfg)
-    workflow = _patch_workflow(workflow, png_path, positive, negative, comfyui_cfg)
+    workflow = _patch_workflow(workflow, _uploaded_name, positive, negative, comfyui_cfg)
 
     # Submit
     log.info("  [comfyui] Submitting workflow for %s", os.path.basename(png_path))

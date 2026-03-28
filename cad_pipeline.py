@@ -822,7 +822,7 @@ def cmd_enhance(args):
     log.info("Enhance backend: %s", backend)
 
     if backend == "comfyui":
-        from comfyui_enhancer import enhance_with_comfyui
+        from comfyui_enhancer import enhance_image as enhance_with_comfyui
     else:
         backend = "gemini"  # normalise
         gemini_script = get_gemini_script()
@@ -909,6 +909,7 @@ def cmd_enhance(args):
         # Write prompt to temp file (avoid Windows argv length limit)
         import tempfile
         prompt_file = None
+        _compressed_tmp = None
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -922,7 +923,7 @@ def cmd_enhance(args):
                          os.path.basename(png), view_key)
                 t0 = time.time()
                 try:
-                    raw_path = enhance_with_comfyui(png, prompt, view_key, _pcfg)
+                    raw_path = enhance_with_comfyui(png, prompt, _pcfg.get("enhance", {}).get("comfyui", {}), view_key, rc)
                 except Exception as _ce:
                     log.error("  ComfyUI enhance failed for %s: %s",
                               os.path.basename(png), _ce)
