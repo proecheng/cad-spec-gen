@@ -221,6 +221,8 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="Annotate all V*_enhanced.jpg in --dir")
     parser.add_argument("--dir", default=".", help="Directory for --all mode")
+    parser.add_argument("--manifest", default=None,
+                        help="render_manifest.json path; sets --dir from manifest render_dir")
     parser.add_argument("--font-size", type=int, default=20,
                         help="Base font size at 1080p (default: 20)")
     parser.add_argument("--style", default="clean", choices=["clean", "dark", "light"],
@@ -242,6 +244,16 @@ def main():
     if not config.get("labels"):
         print("ERROR: No 'labels' section in config file.")
         sys.exit(1)
+
+    if args.manifest:
+        if not os.path.isfile(args.manifest):
+            print(f"ERROR: manifest not found: {args.manifest}")
+            sys.exit(1)
+        with open(args.manifest, encoding="utf-8") as _mf:
+            _mdata = json.load(_mf)
+        args.dir = _mdata.get("render_dir", args.dir)
+        args.all = True
+        print(f"Manifest loaded: render_dir={args.dir}")
 
     if args.all:
         # Discover files by scanning all JPGs and matching against config view IDs

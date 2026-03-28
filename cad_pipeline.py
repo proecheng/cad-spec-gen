@@ -1065,21 +1065,22 @@ def cmd_annotate(args):
         log.error("No render_config.json found. Use --config or --subsystem.")
         return 1
 
-    img_dir = args.dir
-    if not img_dir:
-        _manifest_path = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
-        if os.path.isfile(_manifest_path):
-            with open(_manifest_path, encoding="utf-8") as _mf:
-                _manifest = json.load(_mf)
-            img_dir = _manifest.get("render_dir", os.path.join(DEFAULT_OUTPUT, "renders"))
-            log.info("Annotate using manifest render_dir: %s", img_dir)
-        else:
-            img_dir = os.path.join(DEFAULT_OUTPUT, "renders")
+    _manifest_path = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+    _use_manifest = not args.dir and os.path.isfile(_manifest_path)
+    if _use_manifest:
+        log.info("Annotate using manifest: %s", _manifest_path)
+    img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     for lang in (args.lang.split(",") if "," in args.lang else [args.lang]):
-        cmd = [sys.executable, annotate_script,
-               "--all", "--dir", img_dir,
-               "--config", config_path,
-               "--lang", lang.strip()]
+        if _use_manifest:
+            cmd = [sys.executable, annotate_script,
+                   "--manifest", _manifest_path,
+                   "--config", config_path,
+                   "--lang", lang.strip()]
+        else:
+            cmd = [sys.executable, annotate_script,
+                   "--all", "--dir", img_dir,
+                   "--config", config_path,
+                   "--lang", lang.strip()]
         ok, _ = _run_subprocess(cmd, f"annotate ({lang})", dry_run=args.dry_run)
         if not ok:
             return 1
