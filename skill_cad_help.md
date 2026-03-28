@@ -301,22 +301,25 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 
 ### 9. ai_enhance — AI增强说明
 
-**搜索优先**：先读 `~/.config/gemini_image_config.json` 获取实际配置，再回答。
+**搜索优先**：先读 `pipeline_config.json` enhance 段获取实际后端配置，再回答。
 
 ```
-═══ Gemini AI 混合增强 ═══
+═══ AI 混合增强（双后端）═══
 
-技术路线: Blender PNG (几何精确) → Gemini --image模式 → 照片级 JPG
+技术路线: Blender PNG (几何精确) → AI增强后端 → 照片级 JPG
 
-实际配置 (~/.config/gemini_image_config.json):
-  API:    https://generativelanguage.googleapis.com/v1beta (或自定义代理)
-  模型:   gemini-2.0-flash-preview-image-generation
-  Key:    *** (已配置)
-  超时:   120s
+后端选择 (优先级: CLI --backend > pipeline_config.json backend > 默认gemini):
+  gemini   — 云端API，开箱即用，需 GEMINI_API_KEY
+  comfyui  — 本地GPU，ControlNet几何硬锁，多视角一致性更强
+
+环境检查:
+  gemini:   gemini_gen.py 需配置 GEMINI_API_KEY
+  comfyui:  python comfyui_env_check.py  (检测GPU/服务/模型/依赖)
 
 核心工具:
-  gemini_gen.py:     gemini_gen.py (全局命令行工具)
-  check_env.py:      tools/hybrid_render/check_env.py (环境检查)
+  gemini_gen.py:        全局命令行工具 (Gemini后端)
+  comfyui_enhancer.py:  ComfyUI REST API适配器 (ComfyUI后端)
+  comfyui_env_check.py: ComfyUI环境检测与安装引导
 
 prompt模板 (templates/ 目录):
   templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
@@ -342,31 +345,38 @@ Manifest-based 文件选择 (P1):
   Gemini 收到位置描述+外观描述，将简化形状增强为逼真外观
   如 standard_parts 为空，占位符替换为空字符串，不影响原有流程
 
-模型选择 (pipeline_config.json enhance 段):
+后端配置 (pipeline_config.json enhance 段):
+  backend: gemini        ← 切换为 comfyui 启用本地GPU后端
+
+  [Gemini后端]
   model: nano_banana_4k  ← 当前使用的模型别名
   可选: nano_banana (gemini-2.5-flash-image)
         nano_banana_pro (gemini-3-pro-image-preview)
         nano_banana_2 (gemini-3.1-flash-image)
         nano_banana_4k (gemini-3-pro-image-preview-4k)
   切换: 修改 pipeline_config.json 的 enhance.model 值
-  传递: --model <id> 参数传给 gemini_gen.py
+
+  [ComfyUI后端]
+  comfyui.host: 127.0.0.1  comfyui.port: 8188
+  comfyui.workflow_template: templates/comfyui_workflow.json
+  comfyui.controlnet_model: control_v11p_sd15_depth.pth
+  comfyui.sd_model: v1-5-pruned-emaonly.ckpt
+  GPU要求: NVIDIA 6GB+ VRAM (推荐 8GB+)
 
 核心原则:
   1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
   2. 材质描述从 render_config.json 读取，不凭空编造
   3. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
-  4. 几何100%锁定，Gemini只"换皮"不改形状
+  4. 几何锁定: Gemini靠prompt约束; ComfyUI靠ControlNet depth+canny硬约束
 
-5视角增强标准工作流:
-  1. 确认5张 Blender PNG 已存在 (V1~V5)
+标准工作流:
+  1. 确认 Blender PNG 已存在 (V1~VN，来自 render_manifest.json)
   2. 读取 render_config.json 的 prompt_vars 字段
-  3. 逐视角用统一模板填充并执行:
-     python tools/hybrid_render/prompt_builder.py --config cad/<subsystem>/render_config.json --view V1
-     (V1~V5 均使用 prompt_enhance_unified.txt，按 camera type 自动切换)
-  4. 输出: ~6MB JPG/张, 5460×3072, 照片级影棚品质
+  3. 执行: python cad_pipeline.py enhance --subsystem <name> [--backend gemini|comfyui]
+     (V1先处理作为风格锚点，V2~VN依次处理)
+  4. 输出: 照片级 JPG，时间戳命名防止覆盖历史版本
   5. 可选: 添加元件标注 (中文/英文):
      python annotate_render.py --all --dir <输出目录> --config render_config.json --lang cn
-     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang en
      输出: *_labeled_cn.jpg / *_labeled_en.jpg
      注意: 中文文字用PIL+SimHei字体程序化绘制，不经过AI生成
 

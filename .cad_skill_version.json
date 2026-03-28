@@ -1,7 +1,7 @@
 {
   "skill": "cad-spec-gen",
   "version": "1.7.1",
-  "installed_at": "2026-03-28T11:48:44.307778",
+  "installed_at": "2026-03-28T12:20:56.407827",
   "files": {
     "cad_spec_gen.py": "1e5ba8a449872a4ad5582d4e5a627342",
     "cad_spec_extractors.py": "aaeaa97067fda0cc00c364418918ba19",
@@ -50,6 +50,6 @@
     ".claude/commands/cad-codegen.md": "fc09a8f2f4f68b408f0bbc37a83a5ed0",
     ".claude/commands/cad-enhance.md": "1690d685ed7d1dd077351e0116e1a08d",
     ".claude/commands/cad-help.md": "d314ab407ba6f33acc2b6ee08ecb926f",
-    ".claude/commands/cad-spec.md": "650ca605ab000a515de16d0beab25c20"
+    ".claude/commands/cad-spec.md": "95eb5586d26ac723587aaf65c8e87717"
   }
 }

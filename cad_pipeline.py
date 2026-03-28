@@ -809,14 +809,23 @@ def cmd_render(args):
 
 
 def cmd_enhance(args):
-    """Run Gemini AI enhancement on rendered PNGs."""
+    """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
     from enhance_prompt import build_enhance_prompt, extract_view_key, view_sort_key
 
-    gemini_script = get_gemini_script()
-    if not gemini_script:
-        log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
-        log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
-        return 1
+    # Determine backend: CLI arg > pipeline_config.json > default gemini
+    _pcfg = _load_pipeline_config()
+    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
+    log.info("Enhance backend: %s", backend)
+
+    if backend == "comfyui":
+        from comfyui_enhancer import enhance_with_comfyui
+    else:
+        backend = "gemini"  # normalise
+        gemini_script = get_gemini_script()
+        if not gemini_script:
+            log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
+            log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
+            return 1
 
     # Load render_config.json (full dict for prompt building) — must come before PNG sorting
     rc = {}
@@ -903,6 +912,41 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
+            # ── ComfyUI backend ──────────────────────────────────────────
+            if backend == "comfyui":
+                log.info("  Running: enhance %s (%s, comfyui)",
+                         os.path.basename(png), view_key)
+                t0 = time.time()
+                try:
+                    raw_path = enhance_with_comfyui(png, prompt, view_key, _pcfg)
+                except Exception as _ce:
+                    log.error("  ComfyUI enhance failed for %s: %s",
+                              os.path.basename(png), _ce)
+                    failures += 1
+                    continue
+                elapsed = time.time() - t0
+                log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
+                if view_key == "V1":
+                    v1_done = True
+                if raw_path and os.path.isfile(raw_path):
+                    from datetime import datetime as _dt
+                    src_stem = os.path.splitext(os.path.basename(png))[0]
+                    ts = _dt.now().strftime("%Y%m%d_%H%M")
+                    ext = os.path.splitext(raw_path)[1]
+                    new_name = f"{src_stem}_{ts}_enhanced{ext}"
+                    new_path = os.path.join(os.path.dirname(png), new_name)
+                    shutil.copy2(raw_path, new_path)
+                    try:
+                        os.remove(raw_path)
+                    except OSError:
+                        pass
+                    log.info("  Saved: %s", new_path)
+                else:
+                    log.warning("  Could not locate ComfyUI output for %s",
+                                os.path.basename(png))
+                continue  # skip Gemini block
+
+            # ── Gemini backend ───────────────────────────────────────────
             # Compress image to JPEG before sending (API rejects large base64)
             import tempfile as _tf
             _img_to_send = png
@@ -1455,9 +1499,11 @@ def main():
     p_render.add_argument("--timestamp", action="store_true", help="Append timestamp to filenames")
 
     # enhance
-    p_enhance = sub.add_parser("enhance", help="Gemini AI enhancement")
+    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default="end_effector")
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
+                           help="Override enhance backend (default: from pipeline_config.json)")
 
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")

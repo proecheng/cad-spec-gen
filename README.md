@@ -256,21 +256,34 @@ python cad_pipeline.py env-check
 
 ### AI Enhancement Quick Start
 
-After Blender renders your PNGs, enhance them to photorealistic JPGs via the pipeline:
+After Blender renders your PNGs, enhance them to photorealistic JPGs via the pipeline.
+Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local GPU, better multi-view consistency).
 
 ```bash
-# Recommended: let pipeline auto-read render_manifest.json (only current-session renders)
+# Default: Gemini backend, auto-read render_manifest.json
 python cad_pipeline.py enhance --subsystem end_effector
+
+# ComfyUI backend (requires local GPU + ComfyUI running)
+python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
 
 # Override: process a specific directory instead of manifest
 python cad_pipeline.py enhance --subsystem end_effector --dir cad/output/renders_latest
+
+# Check ComfyUI environment before first use
+python comfyui_env_check.py
 ```
 
 The enhance step automatically:
 - Reads `render_manifest.json` to process only files from the latest render run (not historical files)
 - Auto-enriches prompt data from `params.py` via `prompt_data_builder.py` (materials, assembly description, constraints)
 - Selects prompt template from `templates/prompt_enhance_unified.txt` (auto-switches by camera type)
-- Passes model from `pipeline_config.json` `enhance.model` field
+- **Gemini**: passes model from `pipeline_config.json` `enhance.model` field; geometry locked via prompt instructions
+- **ComfyUI**: uses ControlNet depth+canny to hard-lock geometry; better multi-view consistency; requires local GPU
+
+Switch backend permanently in `pipeline_config.json`:
+```json
+"enhance": { "backend": "comfyui" }
+```
 
 Output: `cad/output/renders/<VN>_<name>_enhanced.jpg`, ~6MB JPG per view, photorealistic studio quality.
 

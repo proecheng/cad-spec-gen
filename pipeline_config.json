@@ -19,6 +19,8 @@
     "max_versions": 10
   },
   "enhance": {
+    "backend": "gemini",
+    "_backend_doc": "Options: 'gemini' (cloud API, no GPU needed) | 'comfyui' (local GPU, free)",
     "model": "nano_banana_4k",
     "models": {
       "nano_banana": "gemini-2.5-flash-image",
@@ -27,6 +29,18 @@
       "nano_banana_4k": "gemini-3-pro-image-preview-4k"
     },
     "resolution": "2k",
-    "timeout": 180
+    "timeout": 180,
+    "comfyui": {
+      "host": "127.0.0.1",
+      "port": 8188,
+      "workflow_template": "templates/comfyui_workflow_template.json",
+      "checkpoint": "realisticVisionV60B1_v51VAE.safetensors",
+      "controlnet_depth_model": "control_v11f1p_sd15_depth.pth",
+      "controlnet_canny_model": "control_v11p_sd15_canny.pth",
+      "denoise_strength": 0.45,
+      "cfg_scale": 7.0,
+      "steps": 25,
+      "timeout": 300
+    }
   }
 }

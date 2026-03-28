@@ -184,7 +184,9 @@ res.check(
 
 ---
 
-### Phase 5 — ENHANCE（Gemini AI 图像增强）
+### Phase 5 — ENHANCE（AI 图像增强）
+
+支持两种后端，由 `pipeline_config.json` 的 `enhance.backend` 字段或 `--backend` CLI 参数控制。
 
 ```
 render_manifest.json
@@ -196,15 +198,35 @@ render_manifest.json
         │
         ▼
   build_enhance_prompt(view_key, rc)
-    → 为每个视角构建 Gemini prompt
+    → 为每个视角构建增强 prompt
         │
-        ▼
-  gemini_gen.py  --prompt <prompt> --input <VN.png>
+        ├─► [backend=gemini]
+        │     gemini_gen.py  --prompt-file <tmp.txt> --image <VN_compressed.jpg>
+        │     V1（基准视角）先处理，建立风格一致性锚点
+        │     V2~VN 依次处理，引用 V1 作为风格参考
+        │     几何锁定：依赖 prompt 文字指令（"Do NOT crop/pan/zoom/reframe"）
         │
-        ├─► V1（基准视角）先处理，建立风格一致性锚点
-        └─► V2~VN 依次处理，引用 V1 作为风格参考
+        └─► [backend=comfyui]
+              comfyui_enhancer.py
+              1. 生成 depth map（MiDaS）+ canny 边缘图
+              2. 提交 workflow JSON 至 localhost:8188
+              3. ControlNet depth + canny 双约束硬锁几何
+              4. 轮询结果，超时重试
+              几何锁定：由控制图像硬约束，不依赖文字指令
 
-输出：cad/output/renders/<VN>_<name>_enhanced.jpg
+输出：cad/output/renders/<VN>_<name>_<timestamp>_enhanced.jpg
+```
+
+**后端对比：**
+
+| 后端 | GPU 要求 | 一致性 | 适用场景 |
+|------|----------|--------|----------|
+| `gemini` | 无（云端） | 中 | 快速试用，无 GPU 环境 |
+| `comfyui` | 本地 8GB+ | 高 | 追求多视角一致性 |
+
+**环境检测（ComfyUI）：**
+```bash
+python comfyui_env_check.py
 ```
 
 ---

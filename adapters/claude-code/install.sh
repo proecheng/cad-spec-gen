@@ -27,10 +27,11 @@ echo "  OK Skill knowledge → skill_cad_help.md, skill_mech_design.md"
 # 3. Copy core Python tools
 for f in cad_pipeline.py cad_spec_gen.py cad_spec_extractors.py cad_spec_defaults.py \
          cad_spec_reviewer.py bom_parser.py orientation_check.py \
-         enhance_prompt.py prompt_data_builder.py annotate_render.py cad_paths.py; do
+         enhance_prompt.py prompt_data_builder.py annotate_render.py cad_paths.py \
+         comfyui_enhancer.py comfyui_env_check.py; do
   cp "$REPO_ROOT/$f" "$TARGET/" 2>/dev/null || true
 done
-echo "  OK Python tools → cad_pipeline.py, cad_spec_gen.py, enhance_prompt.py, prompt_data_builder.py, ..."
+echo "  OK Python tools → cad_pipeline.py, cad_spec_gen.py, enhance_prompt.py, comfyui_enhancer.py, comfyui_env_check.py, ..."
 
 # 4. Copy config, templates, codegen, docs
 mkdir -p "$TARGET/config" "$TARGET/templates" "$TARGET/codegen" "$TARGET/docs"
