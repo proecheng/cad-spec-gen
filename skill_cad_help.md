@@ -302,6 +302,11 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 情况C: 用户想渲染其他子系统 → 检查是否有 render_config.json
 ```
 
+渲染后自动产出:
+- `cad/output/renders/V1_front_iso.png` 等PNG文件
+- `cad/output/renders/render_manifest.json` — 本次会话新增文件列表
+- `cad/output/renders/V1_front_iso_labels.json` — 各组件2D投影锚点（Blender精确坐标，供annotate使用）
+
 ### 9. ai_enhance — AI增强说明
 
 **搜索优先**：先读 `pipeline_config.json` enhance 段获取实际后端配置，再回答。
@@ -323,6 +328,19 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
   gemini_gen.py:        全局命令行工具 (Gemini后端)
   comfyui_enhancer.py:  ComfyUI REST API适配器 (ComfyUI后端)
   comfyui_env_check.py: ComfyUI环境检测与安装引导
+
+渲染文件追踪 (Manifest-based):
+  render步骤结束后写出 cad/output/renders/render_manifest.json
+  格式: {"subsystem":"...", "timestamp":"...", "render_dir":"...", "files":[...], "partial":false}
+  partial=true 表示本次渲染有部分视角失败，files 仅含成功的PNG
+  enhance 优先读 manifest 中的 files 列表（避免处理历史文件）
+  传 --dir 时 manifest bypass，改为 glob 该目录下所有 *.png
+
+Prompt自动填充 (Auto-enrich):
+  enhance 启动时自动读取 params.py，调用 prompt_data_builder.generate_prompt_data()
+  在内存中合并 assembly_description / material_descriptions 等字段到 render_config
+  不修改磁盘上的 render_config.json
+  若 params.py 不存在或 auto-enrich 失败，继续使用 render_config.json 静态值（非致命）
 
 prompt模板 (templates/ 目录):
   templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
@@ -390,12 +408,20 @@ Manifest-based 文件选择 (P1):
 
 标注工具 (annotate_render.py):
   依赖: Pillow (PIL)
-  数据源: render_config.json 的 components 段(从设计文档BOM提取的中英文名) + labels 段(每视角每元件的2D锚点+标签位置)
-  数据架构:
+  锚点数据源 (优先级):
+    1. Blender投影sidecar (精确) — render_3d/exploded/section.py 渲染后自动写出
+       文件: <PNG同名>_labels.json，例 V1_front_iso_labels.json
+       格式: {"view": "V1", "labels": [{"component": "part_id", "anchor": [px, py]}]}
+       原理: bpy_extras.object_utils.world_to_camera_view(scene, cam, obj.location)
+              Y轴翻转 (Blender v=0 底→像素 y=0 顶)
+    2. render_config.json labels 段 (fallback，手工坐标)
+       格式: "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
+  标签文字位置: 始终取 render_config.json labels[VN][i].label（不被sidecar覆盖）
+  components 数据源: render_config.json components 段
     "components": {"part_id": {"name_cn": "...", "name_en": "...", "bom_id": "GIS-XX-NNN"}}
-    "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
   关键规范:
     - components 名称必须从设计文档§X.8 BOM原文提取，不可自行编造
+    - Blender对象名 = render_config.json components 键名（保持一致）
     - labels 每视角仅标注该视角可见的元件（被遮挡的不标）
     - 坐标基于1920×1080参考分辨率，自动按实际图片尺寸缩放
   样式: dark(白字黑底) / light(黑字白底)，引线+圆点+半透明背景矩形
