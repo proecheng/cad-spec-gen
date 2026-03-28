@@ -57,6 +57,7 @@ INSTALL_MANIFEST = {
         "cad_paths.py", "cad_pipeline.py",
         "annotate_render.py",
         "enhance_prompt.py", "prompt_data_builder.py",
+        "comfyui_enhancer.py", "comfyui_env_check.py",
         "pipeline_config.json",
     ],
     "knowledge": [

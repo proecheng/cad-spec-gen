@@ -38,7 +38,7 @@
    - 用户回复中含 `comfyui` / `B` → 使用 comfyui
 
 3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
-   - 若 `--backend comfyui`：先运行 `python comfyui_env_check.py`，若环境未就绪则展示安装指引并询问是否继续
+   - 若 `--backend comfyui`：`cad_pipeline.py` 会自动运行 `python comfyui_env_check.py --quiet` 预检；若环境未就绪（含 CPU-only 模式），打印详情并退出 exit 1，**不提交任何 ComfyUI 任务**。用户修复问题后重试
    - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
    - 使用统一 prompt 模板 `templates/prompt_enhance_unified.txt`
      - 按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容
@@ -138,12 +138,12 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
   "host": "127.0.0.1",
   "port": 8188,
   "workflow_template": "templates/comfyui_workflow_template.json",
-  "sd_model": "realisticVisionV60B1.safetensors",
-  "controlnet_depth": "control_v11p_sd15_depth.pth",
-  "controlnet_canny": "control_v11p_sd15_canny.pth",
-  "steps": 28,
+  "checkpoint": "realisticVisionV60B1_v51VAE.safetensors",
+  "controlnet_depth_model": "control_v11f1p_sd15_depth.pth",
+  "controlnet_canny_model": "control_v11p_sd15_canny.pth",
+  "steps": 25,
   "cfg_scale": 7.0,
-  "denoise_strength": 0.55,
-  "timeout": 300
+  "denoise_strength": 0.45,
+  "timeout": 7200
 }
 ```

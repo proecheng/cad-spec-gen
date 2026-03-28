@@ -22,6 +22,7 @@ PYTHON_TOOLS = [
     "cad_spec_defaults.py", "cad_spec_reviewer.py", "cad_paths.py",
     "bom_parser.py", "annotate_render.py",
     "enhance_prompt.py", "prompt_data_builder.py",
+    "comfyui_enhancer.py", "comfyui_env_check.py",
     "pipeline_config.json",
 ]
 
