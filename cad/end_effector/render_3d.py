@@ -779,8 +779,8 @@ def main():
     available = _CONFIG_CAMERAS if _CONFIG_CAMERAS else CAMERA_PRESETS
     views_to_render = []
     if args.all:
-        # All views except V4 (exploded) and V6 (section) — they need their own scripts
-        skip = {"V4", "V6"}
+        # Skip any view with type "section" or "exploded" — handled by dedicated scripts
+        skip = {k for k, v in available.items() if v.get("type") in ("section", "exploded")}
         views_to_render = [k for k in available if k not in skip]
         log.info("Rendering all standard views: %s", views_to_render)
         log.info("  (V4/V6 require render_exploded.py / render_section.py)")
