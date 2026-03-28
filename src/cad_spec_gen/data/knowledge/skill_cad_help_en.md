@@ -436,9 +436,7 @@ templates/                     ← Templates
 ├── render_config_template.json← Blank render config template (starting point for new subsystems)
 ├── cad_spec_template.md       ← CAD Spec template
 ├── prompt_enhance_unified.txt ← AI enhancement prompt: all views (unified template)
-├── prompt_enhance.txt         ← (legacy, unused)
-├── prompt_exploded.txt        ← (legacy, unused)
-└── prompt_ortho.txt           ← (legacy, unused)
+└── prompt_section.txt         ← Section view prompt template
 
 tools/hybrid_render/           ← Hybrid render tools
 ├── check_env.py               ← Environment check script
@@ -505,7 +503,7 @@ Layer 2: Skill knowledge documents (can be used directly as system prompt)
   docs/cad_pipeline_agent_guide.md     ← Detailed Agent integration guide
 
 Layer 3: Platform adapters (install as needed)
-  adapters/claude-code/commands/       ← Claude Code slash commands
+  .claude/commands/                    ← Claude Code slash commands
   adapters/openai/functions.json       ← OpenAI Function Calling
   adapters/langchain/tools.py          ← LangChain Tool wrapper
   adapters/dify/README.md              ← Dify/Coze knowledge base import
@@ -535,9 +533,7 @@ Installation (PyPI recommended):
   cad-skill-setup              # Interactive wizard (language/env/deps/register)
   cad-skill-check              # Check environment status
 
-Universal export (git clone method):
-  python install.py --platform system-prompt  # Export universal system prompt
-  python install.py --platform openai         # Export OpenAI Function schema
+Adapters for other platforms: see adapters/ directory (openai, langchain, dify)
 ```
 
 ### 14. parts — Parts/BOM Parsing

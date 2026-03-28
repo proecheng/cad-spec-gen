@@ -1,7 +1,7 @@
 {
   "skill": "cad-spec-gen",
-  "version": "1.8.0",
-  "installed_at": "2026-03-28T14:00:00.000000",
+  "version": "1.9.0",
+  "installed_at": "2026-03-29T01:00:00.000000",
   "files": {
     "cad_spec_gen.py": "1e5ba8a449872a4ad5582d4e5a627342",
     "cad_spec_extractors.py": "aaeaa97067fda0cc00c364418918ba19",
@@ -25,17 +25,11 @@
     "templates/design_review_template.md": "e86962bde917980ec714c269e4140942",
     "templates/params.py.j2": "558f5ed725a428aacb506b0629b2555e",
     "templates/part_module.py.j2": "302753c10906062c3ef5a70c26d37605",
-    "templates/prompt_enhance.txt": "9ae414aa9f18a1f747c4446bc2ee829b",
     "templates/prompt_enhance_unified.txt": "4d900e8178879594ac399e18156c88a2",
-    "templates/prompt_exploded.txt": "5cc8ddb0ff520fb63b23079baf772dec",
-    "templates/prompt_ortho.txt": "405ff2952ffcd5de54c1c0bd062c434a",
     "templates/prompt_section.txt": "aabe973ec143981ee8355ba9417c3d42",
     "templates/render_config.schema.json": "1a0299e87b39b3eee45280e9e76d34ba",
     "templates/render_config_template.json": "5bb1ae63c9e0706190d4ed6d31f5217b",
     "codegen/__init__.py": "716d053fc1dfd205d001ffc5c34c3a17",
-    "codegen/__pycache__/__init__.cpython-311.pyc": "25761561d786b9033196ebec23c82fcc",
-    "codegen/__pycache__/gen_build.cpython-311.pyc": "367ad24e2e0608e9321fa482ff4d6b11",
-    "codegen/__pycache__/gen_parts.cpython-311.pyc": "070d5f5e5e0a0c203bdfb6250f887013",
     "codegen/gen_assembly.py": "7ced5c6cd8ca7eac389817b2743ce553",
     "codegen/gen_build.py": "c084360b6825d14cb4888438be20c181",
     "codegen/gen_params.py": "449036ddb1816e575f13bb4b6fd46f49",
@@ -52,6 +46,7 @@
     ".claude/commands/cad-codegen.md": "fc09a8f2f4f68b408f0bbc37a83a5ed0",
     ".claude/commands/cad-enhance.md": "98b23916ff3f683adc79ec744393fe92",
     ".claude/commands/cad-help.md": "d314ab407ba6f33acc2b6ee08ecb926f",
-    ".claude/commands/cad-spec.md": "95eb5586d26ac723587aaf65c8e87717"
+    ".claude/commands/cad-spec.md": "95eb5586d26ac723587aaf65c8e87717",
+    ".claude/commands/mechdesign.md": "mechdesign_placeholder"
   }
 }

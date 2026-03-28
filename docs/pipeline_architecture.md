@@ -180,7 +180,24 @@ res.check(
 
 输出：cad/output/renders/<VN>_<name>_<timestamp>.png
 输出：cad/output/renders/render_manifest.json  （本次渲染新增文件列表 + 元数据；不含历史遗留文件）
+输出：cad/output/renders/<VN>_<name>_labels.json  （标注锚点 sidecar，下详）
 ```
+
+**标注锚点 sidecar（Object Index Mask）：**
+
+每个视图渲染时，`render_label_utils.py` 自动生成标注锚点 sidecar JSON：
+
+1. 渲染前：给 render_config.json 中标注的零件分配 `pass_index`，通过 Compositor 注入 Object Index 输出节点
+2. 渲染时：Cycles 在同一次渲染中同时输出颜色图 + Object Index EXR（零额外开销）
+3. 渲染后：读取 EXR，对每个零件计算可见像素质心 → 换算到 1920×1080 参考分辨率 → 写入 sidecar JSON
+4. 清理：删除临时 EXR，恢复 Blender 原始状态（compositor 节点、pass_index、use_nodes）
+
+**相比旧方案（`obj.location` 投影）的改进：**
+- 锚点位于零件**实际可见面积的中心**，不依赖建模原点位置
+- 自动处理遮挡：被遮挡的像素不计入质心
+- 分辨率无关：质心像素坐标自动换算到参考分辨率
+
+**Fallback 链：** mask 质心 → `world_to_camera_view` 投影 → render_config.json 默认坐标
 
 ---
 
@@ -236,14 +253,16 @@ python comfyui_env_check.py
 ```
 enhanced.jpg × N
         │
-  render_config.json["labels"]
-        │  动态读取标注配置，N个视角各有独立 labels 列表
+  render_config.json["labels"]    ← 引线端点 label:[x,y] + 文字
+  <VN>_<name>_labels.json         ← 锚点 anchor:[x,y]（由 render 阶段的 Object Index Mask 生成）
+        │  sidecar 优先覆盖 config 中的 anchor 坐标
         ▼
-  draw_labels.py  --lang cn|en
-        │
-        └─► 在每张图上绘制引线 + 零件编号 +名称
+  annotate_render.py  --lang cn|en --style clean|dark|light
+        │  anchor × (actual_w/ref_w) → 实际像素坐标
+        │  绘制：锚点红圆 + 引线 + 文字标签
+        └─► 输出标注图
 
-输出：cad/output/renders/<VN>_<name>_annotated.jpg
+输出：cad/output/renders/<VN>_<name>_labeled_{cn|en}.jpg
 ```
 
 ---
@@ -384,6 +403,7 @@ cad/<subsystem>/
   ├── render_3d.py             # [P4] Blender标准渲染
   ├── render_exploded.py       # [P4] 爆炸图渲染（可选）
   ├── render_section.py        # [P4] 剖面图渲染（可选）
+  ├── render_label_utils.py    # [P4] 标注锚点 Object Index Mask（共享模块）
   └── render_config.json       # [P4~P6] 视角+标注配置
 
 cad/output/
@@ -393,6 +413,7 @@ cad/output/
   └── renders/
         ├── render_manifest.json
         ├── V1_<name>_<ts>.png
-        ├── V1_<name>_enhanced.jpg
-        └── V1_<name>_annotated.jpg
+        ├── V1_<name>_labels.json       # 标注锚点 sidecar（Object Index Mask 质心）
+        ├── V1_<name>_<ts>_enhanced.jpg
+        └── V1_<name>_labeled_{cn|en}.jpg
 ```

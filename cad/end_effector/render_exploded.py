@@ -179,44 +179,32 @@ def main():
     render_3d.setup_camera("V4")
     bpy.context.scene.render.filepath = output_path
 
+    # ── Label pass setup (Object Index mask — before render) ──
+    _label_ctx = None
+    try:
+        import render_label_utils as _rlu
+        _label_ctx = _rlu.setup_label_pass(_CONFIG, "V4")
+    except ImportError:
+        pass
+
     log.info("Rendering V4 exploded view...")
     log.info("  Output: %s", output_path)
-    bpy.ops.render.render(write_still=True)
-
-    # Write label sidecar (2D projected anchor coords for V4)
-    # Inline implementation — cannot use importlib because _CONFIG lives in THIS module's globals
     try:
-        if _CONFIG:
-            import bpy_extras.object_utils as _bou, json as _json
-            _labels_cfg = _CONFIG.get("labels", {}).get("V4", [])
-            _scene = bpy.context.scene
-            _cam = _scene.camera
-            if _cam and _labels_cfg:
-                _res_x = _scene.render.resolution_x
-                _res_y = _scene.render.resolution_y
-                _entries = []
-                for _item in _labels_cfg:
-                    _comp = _item.get("component", "")
-                    _obj = bpy.data.objects.get(_comp)
-                    if _obj is None:
-                        _entries.append({"component": _comp, "anchor": _item.get("anchor", [0, 0])})
-                        continue
-                    _co2d = _bou.world_to_camera_view(_scene, _cam, _obj.location)
-                    _px = int(_co2d.x * _res_x)
-                    _py = int((1.0 - _co2d.y) * _res_y)
-                    _entries.append({"component": _comp, "anchor": [_px, _py]})
-                _sidecar_path = os.path.splitext(latest_path)[0] + "_labels.json"
-                with open(_sidecar_path, "w", encoding="utf-8") as _sf:
-                    _json.dump({"view": "V4", "labels": _entries}, _sf, indent=2)
-                log.info("  Label sidecar written: %s", _sidecar_path)
-    except Exception as _se:
-        log.warning("Label sidecar skipped for V4: %s", _se)
+        bpy.ops.render.render(write_still=True)
 
-    # Copy to latest (non-timestamped) for downstream tools
-    if args.timestamp and output_path != latest_path:
-        import shutil
-        shutil.copy2(output_path, latest_path)
-        log.info("  Latest: %s", latest_path)
+        # Copy to latest BEFORE sidecar (sidecar references latest_path)
+        if args.timestamp and output_path != latest_path:
+            import shutil
+            shutil.copy2(output_path, latest_path)
+            log.info("  Latest: %s", latest_path)
+    finally:
+        # ── Label pass finalize (compute centroids, write sidecar, cleanup) ──
+        if _label_ctx:
+            try:
+                import render_label_utils as _rlu
+                _rlu.finalize_label_pass(_label_ctx, latest_path)
+            except Exception as _se:
+                log.warning("Label sidecar skipped for V4: %s", _se)
 
     size_kb = os.path.getsize(output_path) / 1024
     log.info("=" * 60)

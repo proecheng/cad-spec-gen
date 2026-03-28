@@ -503,9 +503,7 @@ templates/                         ← Jinja2 模板
 ├── cad_spec_template.md           ← CAD_SPEC 输出格式模板
 ├── design_review_template.md      ← 设计审查输出模板
 ├── prompt_enhance_unified.txt     ← AI prompt: all views (unified template)
-├── prompt_enhance.txt             ← (legacy, unused)
-├── prompt_exploded.txt            ← (legacy, unused)
-└── prompt_ortho.txt               ← (legacy, unused)
+└── prompt_section.txt             ← 剖面视图prompt模板
 
 cad/end_effector/              ← 参考实现 (§4末端执行器)
 ├── params.py                  ← 参数数据源

@@ -190,9 +190,10 @@ python annotate_render.py --all --dir assets/images/mechanical \
   --config cad/end_effector/render_config.json --lang en
 ```
 
-标注数据在 `render_config.json` 中分两段：
-- `components`：元件ID→中英文名+BOM编号（从设计文档§X.8 BOM提取）
-- `labels`：每视角仅列出**可见**元件的坐标（被遮挡的不标注）
+标注数据来源：
+- `render_config.json` 中 `components` 段：元件ID→中英文名+BOM编号（从设计文档§X.8 BOM提取）
+- `render_config.json` 中 `labels` 段：每视角可见元件的引线端点坐标 `label:[x,y]`
+- **锚点坐标**由渲染阶段自动生成（`render_label_utils.py` 通过 Object Index Mask 计算零件可见像素质心），写入 `<VN>_<name>_labels.json` sidecar 文件。annotate 阶段优先使用 sidecar 中的锚点，确保锚点始终落在零件上
 
 ### 单独渲染（已有 GLB）
 

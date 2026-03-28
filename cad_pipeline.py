@@ -794,6 +794,14 @@ def cmd_render(args):
         _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
         _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
         _new_files = sorted(_all_now - _pre_existing)
+        # Deduplicate: when --timestamp is used, both V1_name_TS.png and
+        # V1_name.png (latest copy) are new.  Keep only the timestamped one
+        # to avoid enhance processing the same image twice.
+        if _should_timestamp(args) and len(_new_files) > 1:
+            import re as _re
+            _ts_files = [f for f in _new_files if _re.search(r'_\d{8}_\d{4}\.png$', f)]
+            if _ts_files:
+                _new_files = _ts_files
         if _new_files:
             manifest = {
                 "subsystem": getattr(args, "subsystem", ""),
@@ -814,12 +822,14 @@ def cmd_render(args):
 
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
-    from enhance_prompt import build_enhance_prompt, extract_view_key, view_sort_key
+    from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
     # Determine backend: CLI arg > pipeline_config.json > default gemini
     _pcfg = _load_pipeline_config()
     backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
     log.info("Enhance backend: %s", backend)
+    if getattr(args, "labeled", False) and backend != "gemini":
+        log.warning("--labeled is only supported with gemini backend; ignoring")
 
     if backend == "comfyui":
         # Pre-flight env check — catches CPU-only, missing models, server down
@@ -919,6 +929,11 @@ def cmd_enhance(args):
             residual = _re.findall(r'\{[a-z_]+\}', prompt)
             if residual:
                 log.warning("  UNFILLED placeholders: %s", residual)
+            if getattr(args, "labeled", False) and backend == "gemini":
+                _lbl_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
+                if _lbl_prompt != prompt:
+                    log.info("  [DRY-RUN] labeled prompt (%d chars, +%d label chars)",
+                             len(_lbl_prompt), len(_lbl_prompt) - len(prompt))
             if view_key == "V1":
                 v1_done = True
             continue
@@ -1068,8 +1083,71 @@ def cmd_enhance(args):
         finally:
             if prompt_file and os.path.isfile(prompt_file):
                 os.unlink(prompt_file)
-            if _compressed_tmp and os.path.isfile(_compressed_tmp):
-                os.unlink(_compressed_tmp)
+            # Note: _compressed_tmp cleanup deferred until after labeled call
+
+        # ── Labeled version (second Gemini call, --labeled only) ────────────
+        _has_labels = bool(rc.get("labels", {}).get(view_key))
+        if (getattr(args, "labeled", False) and backend == "gemini"
+                and not args.dry_run and _has_labels):
+            _labeled_prompt_file = None
+            # Use compressed image if available, else original PNG
+            _labeled_img = _compressed_tmp if (_compressed_tmp and os.path.isfile(_compressed_tmp)) else png
+            try:
+                labeled_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
+                import tempfile as _tf2
+                with _tf2.NamedTemporaryFile(
+                    mode="w", suffix=".txt", delete=False, encoding="utf-8"
+                ) as _lf:
+                    _lf.write(labeled_prompt)
+                    _labeled_prompt_file = _lf.name
+
+                log.info("  Running: labeled enhance %s (%s)", os.path.basename(png), view_key)
+                t0_l = time.time()
+                _cmd_l = [sys.executable, gemini_script,
+                          "--prompt-file", _labeled_prompt_file,
+                          "--image", _labeled_img]
+                _cmd_l += model_arg
+                _res_l = subprocess.run(
+                    _cmd_l, capture_output=True, timeout=300,
+                    encoding="utf-8", errors="replace"
+                )
+                elapsed_l = time.time() - t0_l
+                if _res_l.returncode == 0:
+                    _lbl_path = None
+                    for _line in (_res_l.stdout or "").split("\n"):
+                        if "图片已保存:" in _line:
+                            _lbl_path = _line[_line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                            break
+                        if "已保存:" in _line:
+                            _lbl_path = _line[_line.rfind("已保存:") + len("已保存:"):].strip()
+                            break
+                    if _lbl_path and os.path.isfile(_lbl_path):
+                        from datetime import datetime as _dt2
+                        _src_stem = os.path.splitext(os.path.basename(png))[0]
+                        _ts2 = _dt2.now().strftime("%Y%m%d_%H%M")
+                        _ext2 = os.path.splitext(_lbl_path)[1]
+                        _lbl_name = f"{_src_stem}_{_ts2}_enhanced_labeled_en{_ext2}"
+                        _lbl_dest = os.path.join(os.path.dirname(png), _lbl_name)
+                        shutil.copy2(_lbl_path, _lbl_dest)
+                        try:
+                            os.remove(_lbl_path)
+                        except OSError:
+                            pass
+                        log.info("  Labeled: %s (%.1fs)", _lbl_name, elapsed_l)
+                    else:
+                        log.warning("  Labeled output not found for %s", os.path.basename(png))
+                else:
+                    log.warning("  Labeled enhance failed for %s (exit %d, %.1fs)",
+                                os.path.basename(png), _res_l.returncode, elapsed_l)
+            except Exception as _le:
+                log.warning("  Labeled enhance error for %s: %s", os.path.basename(png), _le)
+            finally:
+                if _labeled_prompt_file and os.path.isfile(_labeled_prompt_file):
+                    os.unlink(_labeled_prompt_file)
+
+        # Clean up compressed temp image (deferred from first call's finally)
+        if _compressed_tmp and os.path.isfile(_compressed_tmp):
+            os.unlink(_compressed_tmp)
 
     return 1 if failures else 0
 
@@ -1529,6 +1607,8 @@ def main():
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
     p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
                            help="Override enhance backend (default: from pipeline_config.json)")
+    p_enhance.add_argument("--labeled", action="store_true",
+                           help="Also generate English-labeled version via Gemini (gemini backend only)")
 
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
@@ -1555,6 +1635,8 @@ def main():
     p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
+    p_full.add_argument("--labeled", action="store_true",
+                        help="Generate English-labeled enhanced images (gemini only)")
     p_full.add_argument("--agent-review", action="store_true",
                         help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process")
 

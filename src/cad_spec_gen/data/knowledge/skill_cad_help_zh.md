@@ -453,9 +453,7 @@ templates/                     ← 模板
 ├── render_config_template.json← 空白渲染配置模板（新子系统起点）
 ├── cad_spec_template.md       ← CAD Spec模板
 ├── prompt_enhance_unified.txt ← AI增强prompt: all views (unified template)
-├── prompt_enhance.txt         ← (legacy, unused)
-├── prompt_exploded.txt        ← (legacy, unused)
-└── prompt_ortho.txt           ← (legacy, unused)
+└── prompt_section.txt         ← 剖面视图prompt模板
 
 tools/hybrid_render/           ← 混合渲染工具
 ├── check_env.py               ← 环境检查脚本
@@ -525,7 +523,7 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   docs/cad_pipeline_agent_guide.md     ← 详细Agent集成指南
 
 第3层: 平台适配器 (按需选装)
-  adapters/claude-code/commands/       ← Claude Code 斜杠命令
+  .claude/commands/                    ← Claude Code 斜杠命令
   adapters/openai/functions.json       ← OpenAI Function Calling
   adapters/langchain/tools.py          ← LangChain Tool wrapper
   adapters/dify/README.md              ← Dify/Coze 知识库导入
@@ -555,9 +553,7 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   cad-skill-setup              # 交互式向导（语言/环境/依赖/注册）
   cad-skill-check              # 检查环境状态
 
-通用版导出（git clone 方式）:
-  python install.py --platform system-prompt  # 导出通用系统提示词
-  python install.py --platform openai         # 导出 OpenAI Function schema
+其他平台适配器: 见 adapters/ 目录 (openai, langchain, dify)
 ```
 
 ### 14. parts — 零件/BOM 解析

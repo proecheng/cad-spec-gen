@@ -25,7 +25,7 @@
       - 「继续审查」→ 逐项讨论 WARNING/CRITICAL，用户可调整参数
       - 「自动补全」→ 运行 `--auto-fill` 后继续后续阶段
       - 「下一步」→ 按现有数据直接继续 Phase 2+
-   4. 用户确认后，再执行后续阶段（codegen → build → render → enhance → annotate）
+   4. 用户确认后，询问 enhance 后端（gemini/comfyui），再执行后续阶段（codegen → build → render → enhance → annotate）
    5. **不可**跳过此步骤直接执行 `cad_pipeline.py full`（管线层也有断点保护）
 
 ### 执行约束

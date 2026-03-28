@@ -73,7 +73,7 @@
   ],
   "pypi": "cad-spec-gen",
   "adapters": {
-    "claude-code": "adapters/claude-code/",
+    "claude-code": ".claude/commands/",
     "openai": "adapters/openai/",
     "langchain": "adapters/langchain/",
     "dify": "adapters/dify/"

@@ -188,9 +188,10 @@ python annotate_render.py --all --dir assets/images/mechanical \
   --config cad/end_effector/render_config.json --lang en
 ```
 
-Label data in `render_config.json` has two sections:
-- `components`: maps IDs to CN/EN names + BOM IDs (sourced from design doc §X.8 BOM)
-- `labels`: per-view coordinates for **visible** components only (occluded components not labeled)
+Label data sources:
+- `render_config.json` `components` section: maps IDs to CN/EN names + BOM IDs (from design doc §X.8 BOM)
+- `render_config.json` `labels` section: per-view leader line endpoints `label:[x,y]` for visible components
+- **Anchor coordinates** are auto-generated during rendering (`render_label_utils.py` computes visible-pixel centroids via Object Index Mask), written to `<VN>_<name>_labels.json` sidecar files. The annotate phase uses sidecar anchors first, ensuring anchors always land on the component
 
 ### Render Only (GLB already exists)
 

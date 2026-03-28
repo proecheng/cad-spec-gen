@@ -330,3 +330,50 @@ def view_sort_key(path, rc=None):
     if m:
         return (1, int(m.group(1)), stem)
     return (2, 0, stem)
+
+
+def build_labeled_prompt(view_key, rc, **kwargs):
+    """Build enhance prompt WITH English label instructions appended.
+
+    The base enhance prompt is generated normally, then:
+    1. The "Do NOT add text, labels" constraint is relaxed to allow labels
+    2. A COMPONENT LABELS section is appended listing visible components
+
+    If no labels are configured for this view, returns the base prompt unchanged.
+    """
+    base = build_enhance_prompt(view_key, rc, **kwargs)
+
+    labels_cfg = rc.get("labels", {}).get(view_key, [])
+    components = rc.get("components", {})
+    if not labels_cfg:
+        return base
+
+    # Relax the no-labels constraint (allow component labels only)
+    _NO_LABEL_LINE = "- Do NOT add text, labels, dimensions, or annotations."
+    result = base.replace(_NO_LABEL_LINE,
+                          "- Do NOT add dimensions or measurement annotations.")
+    if _NO_LABEL_LINE in result:
+        import warnings
+        warnings.warn("build_labeled_prompt: failed to relax no-labels constraint — "
+                      "template may have changed", stacklevel=2)
+
+    # Build label instructions
+    lines = [
+        "",
+        "COMPONENT LABELS:",
+        "Add clean engineering-style labels to the enhanced image:",
+        "- Thin dark gray leader lines from each component to its label text",
+        "- Small red anchor dot on each component's visible surface",
+        "- English text in clean sans-serif font (e.g. Arial, Helvetica)",
+        "- Place labels outside the assembly body, avoid overlapping",
+        "- Keep ALL geometry and materials EXACTLY as enhanced above",
+        "",
+        "Components to label (use EXACTLY these English names):",
+    ]
+    for lbl in labels_cfg:
+        comp_id = lbl.get("component", "")
+        comp = components.get(comp_id, {})
+        name_en = comp.get("name_en", comp_id)
+        lines.append(f"  - {name_en}")
+
+    return result + "\n".join(lines) + "\n"

@@ -33,8 +33,8 @@ COPY_DIRS = {
     "templates": "templates",
 }
 
-# Command files (zh from adapters, en hand-written in data/commands/en/)
-COMMAND_SOURCE = "adapters/claude-code/commands"
+# Command files (zh from .claude/commands/, en hand-written in data/commands/en/)
+COMMAND_SOURCE = ".claude/commands"
 
 
 class CustomBuildHook(BuildHookInterface):

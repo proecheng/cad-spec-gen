@@ -267,37 +267,26 @@ def render_section_view(view_id, cam_cfg, section_override):
     # 7. Render
     base_path = os.path.join(RENDER_DIR, f"{view_name}.png")
     bpy.context.scene.render.filepath = base_path
-    bpy.ops.render.render(write_still=True)
-    log.info("Saved: %s", base_path)
 
-    # Write label sidecar (2D projected anchor coords for this section view)
-    # Inline implementation — _CONFIG lives in THIS module's globals
+    # ── Label pass setup (Object Index mask — before render) ──
+    _label_ctx = None
     try:
-        if _CONFIG:
-            import bpy_extras.object_utils as _bou, json as _json
-            _labels_cfg = _CONFIG.get("labels", {}).get(view_id, [])
-            _scene = bpy.context.scene
-            _cam = _scene.camera
-            if _cam and _labels_cfg:
-                _res_x = _scene.render.resolution_x
-                _res_y = _scene.render.resolution_y
-                _entries = []
-                for _item in _labels_cfg:
-                    _comp = _item.get("component", "")
-                    _obj = bpy.data.objects.get(_comp)
-                    if _obj is None:
-                        _entries.append({"component": _comp, "anchor": _item.get("anchor", [0, 0])})
-                        continue
-                    _co2d = _bou.world_to_camera_view(_scene, _cam, _obj.location)
-                    _px = int(_co2d.x * _res_x)
-                    _py = int((1.0 - _co2d.y) * _res_y)
-                    _entries.append({"component": _comp, "anchor": [_px, _py]})
-                _sidecar_path = os.path.splitext(base_path)[0] + "_labels.json"
-                with open(_sidecar_path, "w", encoding="utf-8") as _sf:
-                    _json.dump({"view": view_id, "labels": _entries}, _sf, indent=2)
-                log.info("  Label sidecar written: %s", _sidecar_path)
-    except Exception as _se:
-        log.warning("Label sidecar skipped for %s: %s", view_id, _se)
+        import render_label_utils as _rlu
+        _label_ctx = _rlu.setup_label_pass(_CONFIG, view_id)
+    except ImportError:
+        pass
+
+    try:
+        bpy.ops.render.render(write_still=True)
+        log.info("Saved: %s", base_path)
+    finally:
+        # ── Label pass finalize (compute centroids, write sidecar, cleanup) ──
+        if _label_ctx:
+            try:
+                import render_label_utils as _rlu
+                _rlu.finalize_label_pass(_label_ctx, base_path)
+            except Exception as _se:
+                log.warning("Label sidecar skipped for %s: %s", view_id, _se)
 
     if args.timestamp:
         from datetime import datetime

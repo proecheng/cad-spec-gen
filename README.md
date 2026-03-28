@@ -25,26 +25,13 @@ Non-interactive mode: `cad-skill-setup --lang en --target . --skip-deps`
 
 Check environment: `cad-skill-check`
 
-### From Git (Legacy)
-
-```bash
-git clone https://github.com/proecheng/cad-spec-gen.git
-cd cad-spec-gen
-python install.py --target /path/to/your-project
-```
-
 After installation, type `/cad-help` in Claude Code to get started.
 
 ### Update
 
 ```bash
-# PyPI
 pip install --upgrade cad-spec-gen
 cad-skill-setup --update
-
-# Git
-cd cad-spec-gen && git pull
-python install.py --update
 ```
 
 ### Other Platforms
@@ -93,7 +80,7 @@ Labeled JPG — with leader lines and component names
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Platform Adapters  (pick one, or use system_prompt.md)   │
-│  ├── claude-code/  → .claude/commands/ slash commands     │
+│  ├── .claude/commands/ → Claude Code slash commands        │
 │  ├── openai/       → Function Calling JSON schema         │
 │  ├── langchain/    → LangChain/AutoGen Tool wrapper       │
 │  └── dify/         → Knowledge base import guide          │
@@ -421,10 +408,9 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest (v1.4.0)
+├── skill.json                      # Machine-readable skill manifest (v1.9.0)
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
-├── install.py                      # Cross-platform installer (with --update/--check)
 ├── cad_pipeline.py                 # Unified 6-phase pipeline orchestrator
 ├── cad_paths.py                    # Centralized path resolution
 ├── pipeline_config.json            # Persistent config (Blender path, render settings)
@@ -452,17 +438,9 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   ├── cad_spec_template.md        # Output template reference
 │   ├── design_review_template.md   # Design review output template
 │   ├── prompt_enhance_unified.txt  # AI prompt: all views (unified template)
-│   ├── prompt_enhance.txt          # (legacy, unused)
-│   ├── prompt_exploded.txt         # (legacy, unused)
-│   └── prompt_ortho.txt            # (legacy, unused)
+│   └── prompt_section.txt          # Section view prompt template
+├── .claude/commands/               # Claude Code slash commands (5 commands)
 ├── adapters/
-│   ├── claude-code/
-│   │   ├── commands/cad-help.md    # Claude Code slash command
-│   │   ├── commands/cad-spec.md    # Claude Code slash command
-│   │   ├── commands/cad-codegen.md # Claude Code slash command (code generation)
-│   │   ├── commands/cad-enhance.md # Claude Code slash command (AI enhance)
-│   │   ├── commands/mechdesign.md  # Claude Code slash command (parametric design)
-│   │   └── install.sh             # One-click Claude Code installer
 │   ├── openai/
 │   │   ├── functions.json         # OpenAI Function Calling schema
 │   │   └── README.md              # GPT-4 / Assistants setup guide

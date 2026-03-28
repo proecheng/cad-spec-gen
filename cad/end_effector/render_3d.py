@@ -631,64 +631,6 @@ def setup_render(samples, width, height, force_gpu=None, force_cpu=False):
     scene.render.threads_mode = "AUTO"
 
 
-def _write_label_sidecar(preset_key, png_path):
-    """
-    After rendering, project each component's world-space origin (obj.location)
-    into 2D pixel coords using Blender's camera, and write a sidecar JSON:
-        V1_front_iso_labels.json  (same dir as png_path)
-
-    Sidecar format:
-        {"V1": [{"component": "applicator", "anchor": [x, y]}, ...]}
-
-    Uses the label list from render_config.json to know which component names
-    to project. Only components that exist as Blender objects are included.
-    Label positions (leader endpoints) are NOT written — annotate_render.py
-    will keep its existing layout logic for those; only anchors are updated.
-    """
-    if not _CONFIG:
-        return
-    labels_cfg = _CONFIG.get("labels", {}).get(preset_key, [])
-    if not labels_cfg:
-        return
-
-    import bpy_extras.object_utils as _bou
-
-    scene = bpy.context.scene
-    cam = scene.camera
-    if cam is None:
-        log.warning("_write_label_sidecar: no active camera for %s", preset_key)
-        return
-
-    res_x = scene.render.resolution_x
-    res_y = scene.render.resolution_y
-
-    entries = []
-    for item in labels_cfg:
-        comp = item.get("component", "")
-        obj = bpy.data.objects.get(comp)
-        if obj is None:
-            # fallback: case-insensitive search
-            obj = next((o for o in bpy.data.objects if o.name.lower() == comp.lower()), None)
-        if obj is None:
-            log.warning("  Label sidecar: object '%s' not found in scene", comp)
-            entries.append({"component": comp, "anchor": item.get("anchor", [0, 0])})
-            continue
-        # world_to_camera_view returns (u, v, depth) in [0,1] with v=0 at bottom
-        co_2d = _bou.world_to_camera_view(scene, cam, obj.location)
-        px = int(co_2d.x * res_x)
-        py = int((1.0 - co_2d.y) * res_y)  # flip Y: Blender v=0 bottom → pixel y=0 top
-        entries.append({"component": comp, "anchor": [px, py]})
-        log.info("  Label sidecar [%s] %s: (%d, %d)", preset_key, comp, px, py)
-
-    sidecar = {"view": preset_key, "labels": entries}
-    stem = os.path.splitext(png_path)[0]
-    sidecar_path = stem + "_labels.json"
-    import json as _json
-    with open(sidecar_path, "w", encoding="utf-8") as _f:
-        _json.dump(sidecar, _f, indent=2)
-    log.info("  Label sidecar written: %s", sidecar_path)
-
-
 def render_view(preset_key, timestamp=False):
     """Set up camera for a preset and render to file."""
     source = _CONFIG_CAMERAS if _CONFIG_CAMERAS else CAMERA_PRESETS
@@ -713,19 +655,33 @@ def render_view(preset_key, timestamp=False):
     setup_camera(preset_key)
     bpy.context.scene.render.filepath = output_path
 
+    # ── Label pass setup (Object Index mask — before render) ──
+    _label_ctx = None
+    try:
+        import render_label_utils as _rlu
+        _label_ctx = _rlu.setup_label_pass(_CONFIG, preset_key)
+    except ImportError:
+        pass
+
     log.info("\nRendering %s: %s", preset_key, preset.get('description', ''))
     log.info("  Output: %s", output_path)
-    bpy.ops.render.render(write_still=True)
-    log.info("  Done: %s", output_path)
+    try:
+        bpy.ops.render.render(write_still=True)
+        log.info("  Done: %s", output_path)
 
-    # Write label sidecar (2D projected anchor coords)
-    _write_label_sidecar(preset_key, latest_path)
-
-    # Copy to latest (non-timestamped) for downstream tools
-    if timestamp and output_path != latest_path:
-        import shutil
-        shutil.copy2(output_path, latest_path)
-        log.info("  Latest: %s", latest_path)
+        # Copy to latest BEFORE sidecar (sidecar references latest_path)
+        if timestamp and output_path != latest_path:
+            import shutil
+            shutil.copy2(output_path, latest_path)
+            log.info("  Latest: %s", latest_path)
+    finally:
+        # ── Label pass finalize (compute centroids, write sidecar, cleanup) ──
+        if _label_ctx:
+            try:
+                import render_label_utils as _rlu
+                _rlu.finalize_label_pass(_label_ctx, latest_path)
+            except Exception as _le:
+                log.warning("Label sidecar failed: %s", _le)
 
     return output_path
 
