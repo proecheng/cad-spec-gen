@@ -520,26 +520,53 @@ def cmd_spec(args):
     elif getattr(args, "proceed", False):
         log.info("--proceed 已指定，按现有数据生成 CAD_SPEC.md")
         choice = "proceed"
+    elif getattr(args, "supplements", None):
+        # Agent passed supplements as JSON string → write to file then proceed
+        try:
+            sup_data = json.loads(args.supplements)
+        except json.JSONDecodeError as e:
+            log.error("--supplements JSON 解析失败: %s", e)
+            return 1
+        _save_supplements(sup_data, review_json)
+        log.info("--supplements 已写入 user_supplements.json，生成 CAD_SPEC.md")
+        choice = "proceed"
     else:
-        choice = _prompt_review_choice(critical, warning, auto_fill_count, auto_fill_items)
+        # Default (no flags): Agent mode — print summary and exit.
+        # Agent reads DESIGN_REVIEW.json, discusses with user, then calls
+        # spec --supplements '{...}' or spec --auto-fill / --proceed.
+        if critical > 0:
+            log.error("存在 %d 个 CRITICAL 问题，必须修复后才能继续。", critical)
+            log.info("请修正设计文档后重新运行，或使用 --proceed 强制生成。")
+            return 1
+        if warning > 0:
+            log.info("存在 %d 个 WARNING。Agent 请读取 DESIGN_REVIEW.json 逐项处理后"
+                     " 调用 spec --supplements '{}' 或 spec --auto-fill。", warning)
+        log.info("审查报告: %s", review_json)
+        return 0
 
-    # ── Step 3: Act on user choice ──
-    if choice == "abort":
-        log.info("用户选择中止。请修正设计文档后重新运行。")
-        return 1
-
-    if choice == "iterate":
-        log.info("用户选择继续审查。请查看 DESIGN_REVIEW.md 逐项讨论后重新运行。")
-        return 2  # Special exit code: review iteration
+    # Parse --supplements even when combined with --auto-fill or --proceed
+    sup_data = None
+    if getattr(args, "supplements", None):
+        try:
+            sup_data = json.loads(args.supplements)
+        except json.JSONDecodeError as e:
+            log.error("--supplements JSON 解析失败: %s", e)
+            return 1
+        _save_supplements(sup_data, review_json)
+        log.info("--supplements 已写入 user_supplements.json")
 
     supplements = None
     guided_auto_fill = False
     if choice == "guided_fill":
         supplements = _interactive_fill_warnings(review_json)
         guided_auto_fill = any(v == "__AUTO_FILL__" for v in supplements.values())
-        # Remove __AUTO_FILL__ markers from supplements (handled by --auto-fill flag)
         supplements = {k: v for k, v in supplements.items() if v != "__AUTO_FILL__"}
-        choice = "proceed"  # after guided fill, proceed to generate
+        choice = "proceed"
+    elif sup_data is not None:
+        # --supplements path: carry non-AUTO entries to §10, AUTO entries trigger --auto-fill
+        supplements = {k: v for k, v in sup_data.items()
+                       if v not in ("__AUTO__", "__AUTO_FILL__")}
+        guided_auto_fill = any(v in ("__AUTO__", "__AUTO_FILL__") for v in sup_data.values())
 
     # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
@@ -558,8 +585,13 @@ def cmd_spec(args):
 
     # Append user supplements to CAD_SPEC.md if any were collected
     if supplements:
-        sub_dir = get_subsystem_dir(args.subsystem)
-        spec_path = os.path.join(sub_dir, "CAD_SPEC.md") if sub_dir else None
+        # CAD_SPEC.md is written to output/<subsystem>/ by cad_spec_gen.py
+        output_dir = os.path.join(SKILL_ROOT, "output", args.subsystem)
+        spec_path = os.path.join(output_dir, "CAD_SPEC.md")
+        if not os.path.isfile(spec_path):
+            # Fallback: cad/<subsystem>/
+            sub_dir = get_subsystem_dir(args.subsystem)
+            spec_path = os.path.join(sub_dir, "CAD_SPEC.md") if sub_dir else None
         if os.path.isfile(spec_path):
             existing = open(spec_path, encoding="utf-8", errors="replace").read()
             if "## §10 用户补充数据" not in existing:
@@ -1364,6 +1396,9 @@ def main():
                         help="Generate DESIGN_REVIEW only (no interaction, no CAD_SPEC.md). For Agent-driven review.")
     p_spec.add_argument("--proceed", action="store_true",
                         help="Skip interaction, generate CAD_SPEC.md with existing data")
+    p_spec.add_argument("--supplements", default=None,
+                        help="JSON string of Agent-collected supplements, e.g. '{\"B3\":\"4xM4\",\"D2\":\"__AUTO__\"}'. "
+                             "Written to user_supplements.json then spec is generated.")
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
