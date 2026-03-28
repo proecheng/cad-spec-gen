@@ -264,12 +264,13 @@ Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local G
 python cad_pipeline.py enhance --subsystem end_effector
 
 # ComfyUI backend (requires local GPU + ComfyUI running)
+# Automatically runs comfyui_env_check.py before submitting — exits if CPU-only or models missing
 python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
 
 # Override: process a specific directory instead of manifest
 python cad_pipeline.py enhance --subsystem end_effector --dir cad/output/renders_latest
 
-# Check ComfyUI environment before first use
+# Check ComfyUI environment manually before first use
 python comfyui_env_check.py
 ```
 
@@ -433,6 +434,10 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── cad_spec_reviewer.py            # Design review engine (4 categories)
 ├── bom_parser.py                   # BOM table parser (also standalone CLI)
 ├── annotate_render.py              # PIL-based component label annotation (CN/EN)
+├── enhance_prompt.py               # Prompt builder for AI enhancement phase
+├── prompt_data_builder.py          # Auto-generates material/assembly data from params.py
+├── comfyui_enhancer.py             # ComfyUI backend: ControlNet depth+canny geometry lock
+├── comfyui_env_check.py            # ComfyUI environment validator (GPU, models, server mode)
 ├── codegen/                        # Jinja2 code generation from CAD_SPEC.md
 │   ├── gen_params.py               # §1 params → params.py
 │   ├── gen_build.py                # §5 BOM → build_all.py (STEP + STD + DXF)
