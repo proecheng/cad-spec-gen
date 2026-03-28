@@ -10,13 +10,13 @@
 
 1. **无参数** → 显示用法：
    ```
-   用法: /cad-spec <design_doc.md> [--force] [--review] [--review-only] [--auto-fill]
+   用法: /cad-spec <design_doc.md> [--force] [--review-only] [--auto-fill] [--supplements '{...}']
 
    示例:
      /cad-spec docs/design/04-末端执行机构设计.md
-     /cad-spec docs/design/04-末端执行机构设计.md --review
+     /cad-spec docs/design/04-末端执行机构设计.md --review-only
      /cad-spec docs/design/05-电气系统与信号调理.md --force
-     /cad-spec --all --review
+     /cad-spec --all
 
    也可通过统一管线执行:
      python cad_pipeline.py spec --design-doc docs/design/04-*.md --auto-fill
@@ -32,39 +32,50 @@
    python cad_spec_gen.py $ARGUMENTS --config config/gisbot.json
    ```
 
-4. **`--review` 或 `--review-only`** → 设计审查工作流：
+4. **`--review-only`** → Agent 驱动设计审查工作流（推荐）：
    ```bash
-   # 仅审查（推荐首次使用）
-   python cad_spec_gen.py <doc.md> --config config/gisbot.json --review-only --force
+   # Step 1: 生成审查报告（无交互，立即返回）
+   python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --review-only
 
-   # 审查 + 生成
-   python cad_spec_gen.py <doc.md> --config config/gisbot.json --review --force
+   # Step 2a: Agent 逐项讨论后，传入补充数据 + 自动补全
+   python cad_pipeline.py spec --subsystem <名称> --supplements '{"B2": "壳体连接至安装支架，M4×8螺栓"}' --auto-fill
+
+   # Step 2b: 或直接自动补全（无需补充数据）
+   python cad_pipeline.py spec --subsystem <名称> --auto-fill
+
+   # Step 2c: 或按现有数据直接生成（跳过补全）
+   python cad_pipeline.py spec --subsystem <名称> --proceed
    ```
 
-### 审查工作流（当使用 --review 或通过管线执行时）
+### Agent 审查工作流
 
-`cad_pipeline.py spec` 和 `cad_pipeline.py full` 自动执行两阶段交互式审查：
+`cad_pipeline.py spec` 采用无交互 Agent 驱动模式，分两步执行：
 
-**Phase 1a — 生成审查报告**：
+**Step 1 — 生成审查报告** (`--review-only`)：
 1. 运行 `cad_spec_gen.py --review-only`，提取数据并执行设计审查引擎（力学/装配/材质/完整性）
-2. 输出 `DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
+2. 输出 `output/<subsystem>/DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
+3. 打印审查摘要（CRITICAL/WARNING/INFO/OK 计数 + 各问题条目）后**立即退出（exit 0）**
+4. Agent 读取 `DESIGN_REVIEW.json`，与用户讨论各 WARNING/CRITICAL 问题
 
-**Phase 1b — 交互式用户选择**：
-3. 在终端显示审查摘要（CRITICAL/WARNING/INFO/OK 计数 + 各问题条目）
-4. **交互式提示用户选择**：
-   - 有 CRITICAL 时：
-     - **「1. 继续审查」** → 管线暂停 (exit 2)，用户逐项修正后重新运行
-     - **「2. 中止」** → 管线停止 (exit 1)，先手动修正设计文档
-   - 有 WARNING（无 CRITICAL）时：
-     - **「1. 继续审查」** → 暂停，逐项讨论问题
-     - **「2. 自动补全」** → 自动填入可计算的默认值（螺栓力矩、单位、粗糙度等），然后生成 CAD_SPEC.md
-     - **「3. 下一步」** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
-   - 无问题时 → 自动进入下一步
-5. 用户选择后，运行 `cad_spec_gen.py --review [--auto-fill]` 生成 CAD_SPEC.md
+**Step 2 — 生成 CAD_SPEC.md**（根据讨论结果选一）：
+- **`--supplements '{...}' [--auto-fill]`** → Agent 将用户确认的补充数据以 JSON 传入，写入 `user_supplements.json` 并追加到 CAD_SPEC.md；`--auto-fill` 同时自动填充可计算默认值
+- **`--auto-fill`** → 自动填充所有可计算默认值（螺栓力矩、单位、粗糙度等），生成 CAD_SPEC.md
+- **`--proceed`** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
+
+**`--supplements` JSON 格式**：
+```json
+{
+  "B2": "壳体连接至安装支架，M4×8螺栓，4处",
+  "M01": "总重量: 2.3kg",
+  "D2": "齿轮泵额定压力: 15MPa"
+}
+```
+键为 DESIGN_REVIEW.json 中的 `id` 字段，值为用户确认的补充内容。
 
 **注意**：
-- 通过 `--auto-fill` CLI 标志可跳过交互，直接执行自动补全
+- 整个流程**无 `input()` 调用**，Agent 完全通过 CLI 参数驱动
 - **不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
+- CRITICAL 问题需用户手动修改设计文档后重跑 `--review-only`
 
 ### 生成后汇总
 

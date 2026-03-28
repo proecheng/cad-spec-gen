@@ -128,33 +128,31 @@ python cad_pipeline.py init --subsystem <名称> [--name-cn <中文名>] [--pref
 
 视角数量和名称完全由 `render_config.json` 决定，不再硬编码 V4=爆炸、V6=截面。
 
-### 3.0a Phase 1 交互式设计审查
+### 3.0a Phase 1 Agent 驱动设计审查
 
-`spec` 和 `full` 子命令自动执行两阶段交互式审查：
+`spec` 子命令采用**无交互 Agent 驱动模式**，分两步执行（无 `input()` 调用）：
 
 ```
-Phase 1a: cad_spec_gen.py --review-only → DESIGN_REVIEW.md + .json
-                    ↓
-Phase 1b: 终端显示审查摘要（CRITICAL/WARNING/INFO/OK 各项计数）
-          用户交互式选择：
-          ┌─────────────────────────────────────────┐
-          │ 有 CRITICAL:                            │
-          │   1. 继续审查 → exit 2 (管线暂停)       │
-          │   2. 中止     → exit 1                  │
-          │                                         │
-          │ 有 WARNING (无 CRITICAL):               │
-          │   1. 继续审查 → exit 2                  │
-          │   2. 自动补全 → --auto-fill + 生成 SPEC │
-          │   3. 下一步   → 直接生成 SPEC           │
-          │                                         │
-          │ 无问题 → 自动进入下一步                  │
-          └─────────────────────────────────────────┘
-                    ↓
-Phase 1b': cad_spec_gen.py --review [--auto-fill] → CAD_SPEC.md
+Step 1: python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --review-only
+        → DESIGN_REVIEW.md + DESIGN_REVIEW.json
+        → 打印审查摘要后 exit 0
+        → Agent 读取 DESIGN_REVIEW.json，与用户逐项讨论
+
+Step 2 (选一):
+  a. --supplements '{"id": "补充内容", ...}' [--auto-fill]  ← Agent 传入用户确认的数据
+  b. --auto-fill                                            ← 自动填充所有可计算默认值
+  c. --proceed                                              ← 按现有数据直接生成
+        → CAD_SPEC.md 生成至 output/<subsystem>/
 ```
 
-- `--auto-fill` CLI 标志可跳过交互，直接自动补全
-- `full` 命令中 exit 2 显示 "管线暂停于 SPEC — 用户选择继续审查" 后停止
+**`--supplements` JSON 格式**：键为 `DESIGN_REVIEW.json` 中的 `id` 字段，值为用户确认的补充内容：
+```json
+{"B2": "壳体连接至安装支架，M4×8螺栓，4处", "M01": "总重量: 2.3kg"}
+```
+
+- `--auto-fill` 自动填充螺栓力矩、单位、粗糙度等可计算默认值
+- CRITICAL 问题需用户手动修改设计文档后重跑 `--review-only`
+- `full` 命令使用 `--auto-fill` 模式自动执行 Phase 1（无需 Agent 介入）
 
 ### 3.0b codegen/ — 代码生成器（Jinja2）
 
