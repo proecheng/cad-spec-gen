@@ -38,7 +38,7 @@
    python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --review-only
 
    # Step 2a: Agent 逐项讨论后，传入补充数据 + 自动补全
-   python cad_pipeline.py spec --subsystem <名称> --supplements '{"B2": "壳体连接至安装支架，M4×8螺栓"}' --auto-fill
+   python cad_pipeline.py spec --subsystem <名称> --supplements '{\"M03\": \"L0:适配板/固定/M6×4; L1:法兰/旋转/过盈配合\"}' --auto-fill
 
    # Step 2b: 或直接自动补全（无需补充数据）
    python cad_pipeline.py spec --subsystem <名称> --auto-fill
@@ -55,27 +55,46 @@
 1. 运行 `cad_spec_gen.py --review-only`，提取数据并执行设计审查引擎（力学/装配/材质/完整性）
 2. 输出 `output/<subsystem>/DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
 3. 打印审查摘要（CRITICAL/WARNING/INFO/OK 计数 + 各问题条目）后**立即退出（exit 0）**
-4. Agent 读取 `DESIGN_REVIEW.json`，与用户讨论各 WARNING/CRITICAL 问题
+4. Agent 读取 `DESIGN_REVIEW.json`，按下方协议逐项与用户交互
 
-**Step 2 — 生成 CAD_SPEC.md**（根据讨论结果选一）：
-- **`--supplements '{...}' [--auto-fill]`** → Agent 将用户确认的补充数据以 JSON 传入，写入 `user_supplements.json` 并追加到 CAD_SPEC.md；`--auto-fill` 同时自动填充可计算默认值
-- **`--auto-fill`** → 自动填充所有可计算默认值（螺栓力矩、单位、粗糙度等），生成 CAD_SPEC.md
-- **`--proceed`** → 按现有数据直接生成 CAD_SPEC.md（不补全缺失项）
+**Step 2 — 逐项审查对话**：
 
-**`--supplements` JSON 格式**：
-```json
-{
-  "B2": "壳体连接至安装支架，M4×8螺栓，4处",
-  "M01": "总重量: 2.3kg",
-  "D2": "齿轮泵额定压力: 15MPa"
-}
+Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNING/CRITICAL 及 `auto_fill: \"是\"` 的 INFO 项，**每次只处理一项**：
+
+| 项目类型 | Agent 行为 |
+|---------|----------|
+| `auto_fill: \"是\"` | 从设计文档推断具体值，展示推断结果，询问：确认 / 修改 / 跳过 |
+| `auto_fill: \"否\"`，可从 BOM/连接矩阵/参数表推断 | Agent 自行推断，用非专业语言展示，询问：确认 / 修改 / 跳过 |
+| `auto_fill: \"否\"`，无足够上下文（如缺失材质） | 给出 3-5 个候选选项（根据零件名/类别推断），让用户选编号、自由输入或跳过 |
+| CRITICAL | 告知必须修复设计文档，说明原因，不进入 supplements |
+
+**处理原则**：
+- 用非专业语言描述问题，不暴露原始技术 ID（M03/D6 等），而是说
+"某项数据缺失"等
+- 每次只问一项，等用户回复后再进入下一项
+- 推断时优先使用设计文档中的 BOM、连接矩阵、参数表数据
+- 跳过的项目不写入 supplements
+
+**Step 3 — 生成 CAD_SPEC.md**（所有项处理完后）：
+
+```bash
+# 有用户补充数据时（supplements 为 JSON 字符串）
+python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> \
+  --supplements '{"M01": "总重量: 2.5kg", "D6": "铸铁"}' --auto-fill
+
+# 仅自动补全时
+python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --auto-fill
+
+# 跳过所有时
+python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --proceed
 ```
-键为 DESIGN_REVIEW.json 中的 `id` 字段，值为用户确认的补充内容。
+
+**supplements JSON 格式**：键为 DESIGN_REVIEW.json 中的 `id`，值为确认的内容字符串。
 
 **注意**：
-- 整个流程**无 `input()` 调用**，Agent 完全通过 CLI 参数驱动
-- **不直接修改用户的设计文档**，所有修改仅反映在 CAD_SPEC.md 中
-- CRITICAL 问题需用户手动修改设计文档后重跑 `--review-only`
+- 整个流程无 `input()` 调用，Agent 完全通过对话 + CLI 参数驱动
+- 不直接修改用户的设计文档，所有修改仅反映在 CAD_SPEC.md 中
+- CRITICAL 问题需用户修改设计文档后重跑 `--review-only`
 
 ### 生成后汇总
 
