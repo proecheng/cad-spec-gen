@@ -81,6 +81,28 @@ def check_comfyui_server(host, port, timeout=3):
         return False, f"ComfyUI server NOT reachable at {host}:{port}"
 
 
+def check_comfyui_server_gpu_mode(host, port, timeout=5):
+    """Query running ComfyUI /system_stats to detect CPU-only mode.
+    Returns (is_gpu, detail_str) or (None, error_str) if unreachable.
+    """
+    try:
+        import urllib.request
+        url = f"http://{host}:{port}/system_stats"
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+        devices = data.get("devices", [])
+        argv = data.get("system", {}).get("argv", [])
+        if "--cpu" in argv:
+            return False, "ComfyUI started with --cpu flag (CPU-only, ~30-60 min/image)"
+        for dev in devices:
+            if dev.get("type") in ("cuda", "mps"):
+                vram_gb = dev.get("vram_total", 0) // (1024 ** 3)
+                return True, f"ComfyUI using {dev['type'].upper()}: {dev.get('name','?')} ({vram_gb}GB)"
+        return False, "ComfyUI running in CPU mode (no CUDA/MPS device active — very slow)"
+    except Exception as e:
+        return None, f"Could not query /system_stats: {e}"
+
+
 def check_models(cfg):
     """
     Look for required model files under common ComfyUI install paths.
@@ -156,6 +178,17 @@ def run_check(quiet=False):
         )
     else:
         info.append(f"Server: {server_msg}")
+        # Check if ComfyUI server itself is in CPU mode
+        is_gpu, mode_msg = check_comfyui_server_gpu_mode(host, port)
+        if is_gpu is False:
+            issues.append(
+                f"ComfyUI server mode: {mode_msg}\n"
+                "  Restart ComfyUI WITHOUT --cpu to enable GPU acceleration.\n"
+                f"  Example: cd {_get_comfyui_root() or '<ComfyUI_root>'} && python main.py --listen 127.0.0.1 --port 8188"
+            )
+        elif is_gpu is True:
+            info.append(f"Server GPU mode: {mode_msg}")
+        # if None (query failed), skip — server reachability already noted
 
     # 4. Models
     model_results = check_models(cfg)
