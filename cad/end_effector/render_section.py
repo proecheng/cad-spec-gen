@@ -271,17 +271,31 @@ def render_section_view(view_id, cam_cfg, section_override):
     log.info("Saved: %s", base_path)
 
     # Write label sidecar (2D projected anchor coords for this section view)
+    # Inline implementation — _CONFIG lives in THIS module's globals
     try:
-        import sys as _sys, os as _os
-        _skill_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-        if _skill_root not in _sys.path:
-            _sys.path.insert(0, _skill_root)
-        _r3 = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "render_3d.py")
-        import importlib.util as _ilu
-        _spec = _ilu.spec_from_file_location("render_3d", _r3)
-        _r3m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_r3m)
-        _r3m._write_label_sidecar(view_id, base_path)
+        if _CONFIG:
+            import bpy_extras.object_utils as _bou, json as _json
+            _labels_cfg = _CONFIG.get("labels", {}).get(view_id, [])
+            _scene = bpy.context.scene
+            _cam = _scene.camera
+            if _cam and _labels_cfg:
+                _res_x = _scene.render.resolution_x
+                _res_y = _scene.render.resolution_y
+                _entries = []
+                for _item in _labels_cfg:
+                    _comp = _item.get("component", "")
+                    _obj = bpy.data.objects.get(_comp)
+                    if _obj is None:
+                        _entries.append({"component": _comp, "anchor": _item.get("anchor", [0, 0])})
+                        continue
+                    _co2d = _bou.world_to_camera_view(_scene, _cam, _obj.location)
+                    _px = int(_co2d.x * _res_x)
+                    _py = int((1.0 - _co2d.y) * _res_y)
+                    _entries.append({"component": _comp, "anchor": [_px, _py]})
+                _sidecar_path = os.path.splitext(base_path)[0] + "_labels.json"
+                with open(_sidecar_path, "w", encoding="utf-8") as _sf:
+                    _json.dump({"view": view_id, "labels": _entries}, _sf, indent=2)
+                log.info("  Label sidecar written: %s", _sidecar_path)
     except Exception as _se:
         log.warning("Label sidecar skipped for %s: %s", view_id, _se)
 

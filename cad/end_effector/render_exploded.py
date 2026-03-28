@@ -184,13 +184,31 @@ def main():
     bpy.ops.render.render(write_still=True)
 
     # Write label sidecar (2D projected anchor coords for V4)
+    # Inline implementation — cannot use importlib because _CONFIG lives in THIS module's globals
     try:
-        _r3_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "render_3d.py")
-        import importlib.util as _ilu
-        _spec = _ilu.spec_from_file_location("render_3d", _r3_path)
-        _r3m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_r3m)
-        _r3m._write_label_sidecar("V4", latest_path)
+        if _CONFIG:
+            import bpy_extras.object_utils as _bou, json as _json
+            _labels_cfg = _CONFIG.get("labels", {}).get("V4", [])
+            _scene = bpy.context.scene
+            _cam = _scene.camera
+            if _cam and _labels_cfg:
+                _res_x = _scene.render.resolution_x
+                _res_y = _scene.render.resolution_y
+                _entries = []
+                for _item in _labels_cfg:
+                    _comp = _item.get("component", "")
+                    _obj = bpy.data.objects.get(_comp)
+                    if _obj is None:
+                        _entries.append({"component": _comp, "anchor": _item.get("anchor", [0, 0])})
+                        continue
+                    _co2d = _bou.world_to_camera_view(_scene, _cam, _obj.location)
+                    _px = int(_co2d.x * _res_x)
+                    _py = int((1.0 - _co2d.y) * _res_y)
+                    _entries.append({"component": _comp, "anchor": [_px, _py]})
+                _sidecar_path = os.path.splitext(latest_path)[0] + "_labels.json"
+                with open(_sidecar_path, "w", encoding="utf-8") as _sf:
+                    _json.dump({"view": "V4", "labels": _entries}, _sf, indent=2)
+                log.info("  Label sidecar written: %s", _sidecar_path)
     except Exception as _se:
         log.warning("Label sidecar skipped for V4: %s", _se)
 

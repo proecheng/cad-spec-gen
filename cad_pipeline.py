@@ -789,21 +789,25 @@ def cmd_render(args):
             if not ok:
                 failures += 1
 
-    if not failures and not args.dry_run:
+    if not args.dry_run:
         import time as _time
         _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
         _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
         _new_files = sorted(_all_now - _pre_existing)
-        manifest = {
-            "subsystem": getattr(args, "subsystem", ""),
-            "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "render_dir": _renders_dir,
-            "files": _new_files,
-        }
-        manifest_path = os.path.join(_renders_dir, "render_manifest.json")
-        with open(manifest_path, "w", encoding="utf-8") as _mf:
-            json.dump(manifest, _mf, indent=2)
-        log.info("Manifest written: %s (%d files)", manifest_path, len(manifest["files"]))
+        if _new_files:
+            manifest = {
+                "subsystem": getattr(args, "subsystem", ""),
+                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "render_dir": _renders_dir,
+                "files": _new_files,
+                "partial": failures > 0,
+            }
+            manifest_path = os.path.join(_renders_dir, "render_manifest.json")
+            with open(manifest_path, "w", encoding="utf-8") as _mf:
+                json.dump(manifest, _mf, indent=2)
+            log.info("Manifest written: %s (%d files%s)",
+                     manifest_path, len(_new_files),
+                     ", partial" if failures > 0 else "")
 
     return 1 if failures else 0
 
