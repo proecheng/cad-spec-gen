@@ -271,30 +271,58 @@ def main():
         print("ERROR: No 'labels' section in config file.")
         sys.exit(1)
 
+    manifest_files = None  # explicit file list from manifest (overrides glob)
     if args.manifest:
         if not os.path.isfile(args.manifest):
             print(f"ERROR: manifest not found: {args.manifest}")
             sys.exit(1)
         with open(args.manifest, encoding="utf-8") as _mf:
             _mdata = json.load(_mf)
-        args.dir = _mdata.get("render_dir", args.dir)
+        _render_dir = _mdata.get("render_dir", ".")
+        _raw_pngs = _mdata.get("files", [])
+        # For each raw PNG in manifest, find enhanced JPG if it exists;
+        # fall back to the raw PNG itself if no enhanced version present.
+        manifest_files = []
+        for _raw in _raw_pngs:
+            _stem = os.path.splitext(os.path.basename(_raw))[0]
+            _enhanced = sorted(glob.glob(
+                os.path.join(_render_dir, f"{_stem}_*_enhanced.jpg")
+            ))
+            if _enhanced:
+                manifest_files.extend(_enhanced)  # may be multiple (timestamp variants)
+            else:
+                if os.path.isfile(_raw):
+                    manifest_files.append(_raw)
+        # Deduplicate while preserving order
+        _seen = set()
+        _deduped = []
+        for f in manifest_files:
+            if f not in _seen:
+                _seen.add(f)
+                _deduped.append(f)
+        manifest_files = _deduped
+        print(f"Manifest loaded: {len(manifest_files)} files to annotate")
         args.all = True
-        print(f"Manifest loaded: render_dir={args.dir}")
+        args.dir = _render_dir
 
     if args.all:
         # Discover files by scanning all JPGs and matching against config view IDs
         labels_cfg = config.get("labels", {})
         valid_views = [k for k in labels_cfg if not k.startswith("_")]
-        all_imgs = sorted(
-            glob.glob(os.path.join(args.dir, "*.jpg")) +
-            glob.glob(os.path.join(args.dir, "*.png"))
-        )
+        if manifest_files is not None:
+            # Manifest mode: use explicit file list, still filter out already-labeled
+            all_imgs = manifest_files
+        else:
+            all_imgs = sorted(
+                glob.glob(os.path.join(args.dir, "*.jpg")) +
+                glob.glob(os.path.join(args.dir, "*.png"))
+            )
         # Exclude already-labeled files, then filter to those matching a valid view
         files = [f for f in all_imgs
                  if "_labeled_" not in f
                  and detect_view_id(os.path.basename(f), valid_views)]
         if not files:
-            print(f"No annotatable images found in {args.dir} "
+            print(f"No annotatable images found "
                   f"(expected views: {', '.join(valid_views)})")
             sys.exit(1)
         print(f"Annotating {len(files)} images ({args.lang})...")
