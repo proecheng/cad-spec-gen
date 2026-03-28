@@ -822,6 +822,17 @@ def cmd_enhance(args):
     log.info("Enhance backend: %s", backend)
 
     if backend == "comfyui":
+        # Pre-flight env check — catches CPU-only, missing models, server down
+        _check_result = subprocess.run(
+            [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py"), "--quiet"],
+            capture_output=True,
+        )
+        if _check_result.returncode != 0:
+            subprocess.run(
+                [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py")],
+            )
+            log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
+            return 1
         from comfyui_enhancer import enhance_image as enhance_with_comfyui
     else:
         backend = "gemini"  # normalise
@@ -849,6 +860,12 @@ def cmd_enhance(args):
             log.info("Auto-enriched render_config from params.py")
         except Exception as _e:
             log.warning("prompt_data_builder auto-enrich failed (non-fatal): %s", _e)
+
+    # Fail fast if an explicit subsystem was given but its directory doesn't exist
+    if _sub_name and not sub_dir:
+        log.error("Subsystem '%s' not found. Run 'cad-init %s' first or check the name.",
+                  _sub_name, _sub_name)
+        return 1
 
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
@@ -999,12 +1016,13 @@ def cmd_enhance(args):
                     result = None
             elapsed = time.time() - t0
             if result is None or result.returncode != 0:
+                rc_val = result.returncode if result is not None else -1
                 log.error("  FAILED enhance %s (exit %d, %.1fs)",
-                          os.path.basename(png), result.returncode, elapsed)
-                if result.stdout:
+                          os.path.basename(png), rc_val, elapsed)
+                if result is not None and result.stdout:
                     for line in result.stdout.strip().split("\n")[-10:]:
                         log.error("    STDOUT: %s", line)
-                if result.stderr:
+                if result is not None and result.stderr:
                     for line in result.stderr.strip().split("\n")[-5:]:
                         log.error("    STDERR: %s", line)
                 failures += 1
@@ -1018,10 +1036,11 @@ def cmd_enhance(args):
             # Rename gemini output: V*_YYYYMMDD_HHMM_enhanced.ext → same dir as source
             gemini_path = None
             for line in (result.stdout or "").split("\n"):
-                if "图片已保存:" in line or "已保存:" in line:
-                    idx = line.rfind("保存:")
-                    if idx >= 0:
-                        gemini_path = line[idx + len("保存:"):].strip()
+                if "图片已保存:" in line:
+                    gemini_path = line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                    break
+                if "已保存:" in line:
+                    gemini_path = line[line.rfind("已保存:") + len("已保存:"):].strip()
                     break
             if gemini_path and os.path.isfile(gemini_path):
                 from datetime import datetime as _dt
