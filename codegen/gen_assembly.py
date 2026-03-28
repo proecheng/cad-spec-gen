@@ -238,9 +238,9 @@ def generate_assembly(spec_path: str) -> str:
         for si in std_func_imports:
             std_part_imports.append(si)
 
-        # Determine if this is a radial station
-        is_radial = i > 0 and i < len(assemblies) - 1 and len(station_angles) >= i
-        angle = station_angles[i - 1] if is_radial and i > 0 else 0
+        # All stations are radially mounted; use direct index into station_angles
+        is_radial = i < len(station_angles)
+        angle = station_angles[i] if is_radial else 0.0
 
         stations.append({
             "name_cn": name,
