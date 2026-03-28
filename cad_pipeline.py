@@ -903,19 +903,53 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
+            # Compress image to JPEG before sending (API rejects large base64)
+            import tempfile as _tf
+            _img_to_send = png
+            _compressed_tmp = None
+            try:
+                from PIL import Image as _Img
+                _src_size = os.path.getsize(png)
+                if _src_size > 300 * 1024:  # >300KB → compress
+                    _im = _Img.open(png).convert("RGB")
+                    _im.thumbnail((960, 540), _Img.LANCZOS)
+                    _ctf = _tf.NamedTemporaryFile(
+                        suffix=".jpg", delete=False)
+                    _ctf.close()
+                    _im.save(_ctf.name, "JPEG", quality=88)
+                    _compressed_tmp = _ctf.name
+                    _img_to_send = _compressed_tmp
+                    log.info("  Compressed %s: %.0fKB → %.0fKB",
+                             os.path.basename(png),
+                             _src_size / 1024,
+                             os.path.getsize(_compressed_tmp) / 1024)
+            except Exception as _ce:
+                log.warning("  Could not compress image: %s", _ce)
+
             cmd = [sys.executable, gemini_script,
                    "--prompt-file", prompt_file,
-                   "--image", png] + model_arg
+                   "--image", _img_to_send] + model_arg
 
             log.info("  Running: enhance %s (%s, %d chars)",
                      os.path.basename(png), view_key, len(prompt))
             t0 = time.time()
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=360,
-                encoding="utf-8", errors="replace",
-            )
+            result = None
+            for _attempt in range(3):
+                if _attempt > 0:
+                    log.info("  Retry %d/2 for %s ...", _attempt, os.path.basename(png))
+                    time.sleep(10)
+                try:
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=180,
+                        encoding="utf-8", errors="replace",
+                    )
+                    if result.returncode == 0:
+                        break
+                except subprocess.TimeoutExpired:
+                    log.warning("  TIMEOUT attempt %d for %s", _attempt + 1, os.path.basename(png))
+                    result = None
             elapsed = time.time() - t0
-            if result.returncode != 0:
+            if result is None or result.returncode != 0:
                 log.error("  FAILED enhance %s (exit %d, %.1fs)",
                           os.path.basename(png), result.returncode, elapsed)
                 if result.stdout:
@@ -966,6 +1000,8 @@ def cmd_enhance(args):
         finally:
             if prompt_file and os.path.isfile(prompt_file):
                 os.unlink(prompt_file)
+            if _compressed_tmp and os.path.isfile(_compressed_tmp):
+                os.unlink(_compressed_tmp)
 
     return 1 if failures else 0
 
