@@ -170,7 +170,9 @@ python cad_pipeline.py codegen --subsystem <name> [--force]
 | `codegen/gen_assembly.py` | §4连接+§5BOM+§6姿态 | `assembly.py`（含标准件导入+颜色） |
 | `codegen/gen_std_parts.py` | §5 外购件 | `std_*.py` 简化几何（9类标准件） |
 
-scaffold 模式（默认）不覆盖已有文件；`--force` 全部重新生成。
+scaffold 模式不覆盖已有文件；`--force` 全部重新生成。
+
+> **v2.0 变更**: `gen_params.py` 默认模式改为 `force`（每次 codegen 完整重新生成 `params.py`）。`gen_parts.py` / `gen_std_parts.py` 新增 `--mode force`。pipeline `codegen --force` 统一向所有生成器传递 `--mode force`。`gen_assembly.py` 不再硬编码 `station_angles=[0,90,180,270]` 和 `MOUNT_CENTER_R`/`FLANGE_AL_THICK` — 这些值从 CAD_SPEC.md §6 提取，非 radial 布局生成的代码不包含末端执行器专用参数。
 
 > **⚠ 重要**: codegen 生成的脚手架是**不完整的**。`params.py` 使用行号命名（如 `PARAM_L123`），需要手动改为描述性名称；`build_all.py` 的模块引用可能与实际文件名不匹配；`assembly.py` 的装配逻辑需手写。**在进入 Phase 3 BUILD 之前，必须手动完善这些文件。**
 
@@ -345,6 +347,26 @@ python gemini_gen.py --config
 #### Auto-enrich（P2）
 
 `enhance` 阶段启动后，若子系统目录含 `params.py`，自动调用 `prompt_data_builder.generate_prompt_data()` 并在内存中合并到 `rc`，补全 `assembly_description`/`material_descriptions`/`standard_parts`/`negative_constraints` 等字段，无需手动执行 `--update-config`。合并失败时仅输出 warning，不阻断管线。
+
+#### Layout 路由（v2.0 新增）
+
+`prompt_data_builder.py` 根据子系统布局类型自动路由 prompt 数据生成策略：
+
+| `render_config.json` → `layout.type` | 路由函数 | 行为 |
+|---------------------------------------|----------|------|
+| `radial`（或 params.py 含 `STATION_ANGLES` / `MOUNT_CENTER_R`） | `_generate_radial_prompt_data()` | 完整 4 工位描述、N1-N10 约束、16 种零件材质、11 种标准件 |
+| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | 仅从 `rc["materials"]` 派生材质；`assembly_description` / `negative_constraints` / `standard_parts` 保留用户在 render_config.json 中手写的值 |
+
+`render_config.json` 新增字段：
+```json
+{
+  "layout": {"type": "linear", "_doc": "radial | linear | cartesian | custom"},
+  "assembly_description": {"V1": "per-view text...", "V2": "..."},
+  "negative_constraints": ["Do NOT add parts not visible..."]
+}
+```
+
+`merge_into_config()` 现在逐视图合并 `assembly_description`（仅填充缺失视图，不覆盖用户手写值）。`negative_constraints` 同时检查顶层和 `prompt_vars` 内两个位置。
 
 #### 标准件增强
 

@@ -12,7 +12,7 @@ COORDINATE SYSTEM:
 VIEW: This is a {view_description} of a {product_name}.
 {view_type_note}
 
-ASSEMBLY STRUCTURE (visible in THIS view, from +Z arm-side down to -Z workstation-side):
+ASSEMBLY STRUCTURE (visible in THIS view):
 {assembly_description}
 
 MATERIAL ENHANCEMENT (apply ONLY to surfaces visible in the input image):

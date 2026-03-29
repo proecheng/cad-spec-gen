@@ -38,28 +38,35 @@ def _safe_module_name(part_no: str, name_cn: str) -> str:
 
 
 def _guess_envelope(name_cn: str, material: str) -> dict:
-    """Guess reasonable envelope dimensions from part name."""
+    """Guess reasonable envelope dimensions from part name (generic defaults)."""
     defaults = {"w": 40.0, "d": 40.0, "h": 20.0}
 
-    # Known patterns
-    if "壳体" in name_cn or "模块" in name_cn:
+    # Generic patterns by part type keywords
+    if "壳体" in name_cn or "模块" in name_cn or "housing" in name_cn.lower():
         defaults = {"w": 50.0, "d": 40.0, "h": 60.0}
     elif "支架" in name_cn or "bracket" in name_cn.lower():
         defaults = {"w": 50.0, "d": 40.0, "h": 25.0}
     elif "法兰" in name_cn or "flange" in name_cn.lower():
-        defaults = {"w": 90.0, "d": 90.0, "h": 25.0}
+        defaults = {"w": 80.0, "d": 80.0, "h": 20.0}
     elif "适配" in name_cn or "adapter" in name_cn.lower():
-        defaults = {"w": 63.0, "d": 63.0, "h": 8.0}
+        defaults = {"w": 60.0, "d": 60.0, "h": 10.0}
     elif "垫" in name_cn or "ring" in name_cn.lower():
         defaults = {"w": 30.0, "d": 30.0, "h": 5.0}
-    elif "翻盖" in name_cn or "盖" in name_cn:
+    elif "盖" in name_cn or "cover" in name_cn.lower():
         defaults = {"w": 25.0, "d": 20.0, "h": 3.0}
+    elif "板" in name_cn or "plate" in name_cn.lower():
+        defaults = {"w": 60.0, "d": 40.0, "h": 10.0}
+    elif "柱" in name_cn or "column" in name_cn.lower():
+        defaults = {"w": 30.0, "d": 30.0, "h": 80.0}
 
     return defaults
 
 
-def generate_part_files(spec_path: str, output_dir: str) -> list:
+def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold") -> list:
     """Generate part module scaffolds for all custom-made leaf parts.
+
+    Args:
+        mode: "scaffold" (skip existing), "force" (overwrite existing)
 
     Returns list of generated file paths.
     """
@@ -87,8 +94,8 @@ def generate_part_files(spec_path: str, output_dir: str) -> list:
         func_name = mod_name
         out_file = os.path.join(output_dir, f"{mod_name}.py")
 
-        # Never overwrite existing files
-        if os.path.exists(out_file):
+        # Skip existing unless force mode
+        if os.path.exists(out_file) and mode != "force":
             skipped.append(out_file)
             continue
 
@@ -144,13 +151,15 @@ def main():
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
     parser.add_argument("--output-dir", "-o", default=None,
                         help="Output directory (default: same dir as spec)")
+    parser.add_argument("--mode", choices=["scaffold", "force"], default="scaffold",
+                        help="scaffold=skip existing, force=overwrite")
     args = parser.parse_args()
 
     spec_path = os.path.abspath(args.spec)
     output_dir = args.output_dir or os.path.dirname(spec_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    generated, skipped = generate_part_files(spec_path, output_dir)
+    generated, skipped = generate_part_files(spec_path, output_dir, mode=args.mode)
     print(f"[gen_parts] Generated {len(generated)} part scaffold(s), "
           f"skipped {len(skipped)} existing")
     for f in generated:

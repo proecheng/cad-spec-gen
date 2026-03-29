@@ -141,6 +141,42 @@ _STD_COLOR_MAP = {
 }
 
 
+def _extract_station_angles(pose: dict) -> list:
+    """Extract station angles from §6 pose layers.
+
+    Looks for layers with angle information (e.g. "0°", "90°", "旋转90").
+    Returns list of floats, or empty list if no radial pattern found.
+    """
+    angles = []
+    for layer in pose.get("layers", []):
+        offset = layer.get("offset", "")
+        fix_move = layer.get("fix_move", "")
+        # Look for angle patterns in offset or fix_move
+        for text in (offset, fix_move):
+            m = re.search(r"(\d+(?:\.\d+)?)\s*[°度]", text)
+            if m:
+                angles.append(float(m.group(1)))
+                break
+    return angles
+
+
+def _extract_origin_axis(pose: dict) -> tuple:
+    """Extract origin and axis descriptions from §6 coordinate system table.
+
+    Returns (origin_desc, axis_desc) with sensible defaults.
+    """
+    origin_desc = "assembly geometric center"
+    axis_desc = "Z-up, X-right"
+    for entry in pose.get("coord_sys", []):
+        term = entry.get("term", "").lower()
+        defn = entry.get("definition", "")
+        if "原点" in term or "origin" in term:
+            origin_desc = defn or origin_desc
+        elif "轴" in term or "axis" in term.lower():
+            axis_desc = defn or axis_desc
+    return origin_desc, axis_desc
+
+
 def generate_assembly(spec_path: str) -> str:
     """Generate assembly.py scaffold content."""
     parts = parse_bom_tree(spec_path)
@@ -172,8 +208,8 @@ def generate_assembly(spec_path: str) -> str:
     color_idx = 0
     std_colors_used = {}  # track which std colors we need
 
-    # Detect station angle pattern from pose layers
-    station_angles = [0.0, 90.0, 180.0, 270.0]  # default 4-station
+    # C1: Extract station angles from §6 pose layers instead of hardcoding
+    station_angles = _extract_station_angles(pose)
     has_radial = any("旋转" in l.get("fix_move", "") for l in pose.get("layers", []))
 
     for i, assy in enumerate(assemblies):
@@ -238,18 +274,21 @@ def generate_assembly(spec_path: str) -> str:
         for si in std_func_imports:
             std_part_imports.append(si)
 
-        # Determine if this is a radial station
-        is_radial = i > 0 and i < len(assemblies) - 1 and len(station_angles) >= i
-        angle = station_angles[i - 1] if is_radial and i > 0 else 0
+        # C2: Use has_radial flag and actual station_angles from spec
+        is_radial = has_radial and i < len(station_angles)
+        angle = station_angles[i] if is_radial else 0.0
 
-        stations.append({
+        # C3: Only reference mount_radius/base_z params if radial layout detected
+        station_entry = {
             "name_cn": name,
             "angle": angle,
             "is_radial": is_radial,
-            "mount_radius": "MOUNT_CENTER_R",
-            "base_z": "FLANGE_AL_THICK",
             "parts": station_parts,
-        })
+        }
+        if is_radial:
+            station_entry["mount_radius"] = "MOUNT_CENTER_R"
+            station_entry["base_z"] = "FLANGE_AL_THICK"
+        stations.append(station_entry)
 
         color_idx += 1
 
@@ -265,18 +304,30 @@ def generate_assembly(spec_path: str) -> str:
             "is_last": False,
         })
 
+    # C5: Extract origin/axis from spec §6 instead of hardcoding
+    origin_desc, axis_desc = _extract_origin_axis(pose)
+
+    # C4: Collect assembly_params from what stations actually use
+    assembly_params_set = set()
+    for stn in stations:
+        if stn.get("mount_radius"):
+            assembly_params_set.add(stn["mount_radius"])
+        if stn.get("base_z"):
+            assembly_params_set.add(stn["base_z"])
+    if station_angles:
+        assembly_params_set.add("STATION_ANGLES")
+    assembly_params = sorted(assembly_params_set)
+
     content = template.render(
         subsystem_name_cn=re.search(r"# CAD Spec — (.+?)(?:\s*\(|$)", text).group(1)
             if re.search(r"# CAD Spec — (.+?)(?:\s*\(|$)", text) else "Unknown",
         assembly_part_no=f"{prefix_short}-000",
         source_file=spec_path,
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        origin_desc="flange rotation center",
-        axis_desc="Z=0: back face, Z+: workspace side",
+        origin_desc=origin_desc,
+        axis_desc=axis_desc,
         bom_tree=bom_tree[:15],  # Limit docstring length
-        assembly_params=[
-            "STATION_ANGLES", "MOUNT_CENTER_R", "FLANGE_AL_THICK",
-        ],
+        assembly_params=assembly_params,
         part_imports=part_imports,
         std_part_imports=std_part_imports,
         colors=[{"name": c[0], "r": c[1], "g": c[2], "b": c[3]}

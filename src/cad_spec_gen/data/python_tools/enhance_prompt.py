@@ -64,75 +64,60 @@ _VIEW_TYPE_ENV = {
     ),
 }
 
-# Section face treatment text (§5 extension, only for type=section)
-_SECTION_FACE_TREATMENT = """Cross-section face treatment:
-- Cut aluminum faces: fine machined cross-hatch pattern, slight golden tint from anodization edge
-- Cut PEEK faces: warm amber translucent edge, visible subsurface depth
-- Internal cavities: shadow depth with ambient occlusion
-- Visible springs: chrome wire coils with specular highlights, each turn clearly defined
-- Bearing cross-sections: chrome steel races, brass cage visible
-- Gear teeth: machined steel with fine tooth profile shadows
-- Motor windings: copper color visible through housing cut
-- PCB edge: green FR4 with copper trace layers"""
+# ── Section face treatment (§5 extension, only for type=section) ──
 
-# Multi-view consistency rules (§8, always enabled)
-_CONSISTENCY_RULES = """\
-- All views (V1-V6) depict the SAME physical assembly — use IDENTICAL materials, colors, textures in every view.
-- Part orientations are FIXED by the coordinate system and NEVER change between views:
-  * LONG tank (Phi38x280mm): ALWAYS horizontal (axis parallel to XY, extending radially outward)
-  * SHORT tank (Phi25x110mm): ALWAYS vertical (axis parallel to Z, parallel to module body)
-  * Motor+gearbox (Phi22x73mm): ALWAYS on arm-side (+Z, above flange), NEVER below
-  * PEEK ring (Phi86mm): ALWAYS slightly smaller than flange (Phi90mm), 5mm thin amber ring
-  * AE spring limiter axis: ALWAYS perpendicular to flange face (along -Z), NEVER horizontal
-- Do NOT alter any part orientation to "look better" from this camera angle — geometry is physically fixed.
-- Material consistency: same dark gray anodization shade, same amber PEEK translucency, same brushed stainless grain, same matte black rubber in every view."""
+_MATERIAL_SECTION_HINTS = {
+    "brushed_aluminum": "Cut aluminum faces: fine machined cross-hatch pattern, matte silver",
+    "black_anodized": "Cut aluminum faces: fine machined cross-hatch, slight golden tint from anodization edge",
+    "peek_amber": "Cut PEEK faces: warm amber translucent edge, visible subsurface depth",
+    "peek_natural": "Cut PEEK faces: warm amber translucent edge, visible subsurface depth",
+    "black_rubber": "Cut rubber: matte black, smooth edge",
+    "chrome_steel": "Bearing cross-sections: chrome steel races, brass cage visible",
+    "stainless_304": "Cut stainless steel: polished silver edge, fine grain",
+    "copper": "Cut copper: warm reddish-brown, oxidized traces visible",
+    "pcb_green": "PCB edge: green FR4 with copper trace layers",
+    "carbon_fiber": "Cut carbon fiber: layered woven cross-section visible",
+}
+
+
+def _build_section_face_treatment(rc):
+    """Build section face treatment text dynamically from rc['materials'] presets."""
+    materials = rc.get("materials", {})
+    lines = ["Cross-section face treatment:"]
+    seen = set()
+    for _mat_id, mat_cfg in materials.items():
+        preset = mat_cfg.get("preset", "")
+        if preset in _MATERIAL_SECTION_HINTS and preset not in seen:
+            lines.append(f"- {_MATERIAL_SECTION_HINTS[preset]}")
+            seen.add(preset)
+    # Always include generic cavity line
+    lines.append("- Internal cavities: shadow depth with ambient occlusion")
+    return "\n".join(lines) if len(lines) > 2 else ""
 
 
 def _build_consistency_rules(rc):
-    """Build consistency rules, using dimensions from auto-generated negative_constraints if available."""
-    # If rc has auto-generated negative_constraints with precise dims, extract them
-    # Otherwise fall back to static rules
+    """Build generic consistency rules from render_config; no hardcoded subsystem dims."""
     nc = rc.get("negative_constraints", [])
-    # Extract tank dims from N3 if present
-    s1_tank = "Phi38x280mm"
-    s3_tank = "Phi25x110mm"
-    motor = "Phi22x73mm"
-    peek = "Phi86mm"
-    flange = "Phi90mm"
-    for c in nc:
-        if "N3:" in c:
-            import re as _re
-            m1 = _re.search(r"LONG reservoir \((Phi\d+mm?x\d+mm)\)", c)
-            m2 = _re.search(r"SHORT solvent tank \((Phi\d+mm?x\d+mm)\)", c)
-            if m1:
-                s1_tank = m1.group(1)
-            if m2:
-                s3_tank = m2.group(1)
-        if "N2:" in c:
-            import re as _re
-            m = _re.search(r"Motor\+gearbox cylinder \((Phi\d+mm?x\d+mm)\)", c)
-            if m:
-                motor = m.group(1)
-        if "N6:" in c:
-            import re as _re
-            m1 = _re.search(r"PEEK ring \((Phi\d+mm)\)", c)
-            m2 = _re.search(r"flange \((Phi\d+mm)\)", c)
-            if m1:
-                peek = m1.group(1)
-            if m2:
-                flange = m2.group(1)
 
-    return (
-        f"- All views (V1-V6) depict the SAME physical assembly — use IDENTICAL materials, colors, textures in every view.\n"
-        f"- Part orientations are FIXED by the coordinate system and NEVER change between views:\n"
-        f"  * LONG tank ({s1_tank}): ALWAYS horizontal (axis parallel to XY, extending radially outward)\n"
-        f"  * SHORT tank ({s3_tank}): ALWAYS vertical (axis parallel to Z, parallel to module body)\n"
-        f"  * Motor+gearbox ({motor}): ALWAYS below flange center (-Z), NEVER on workstation-side\n"
-        f"  * PEEK ring ({peek}): ALWAYS slightly smaller than flange ({flange}), 5mm thin amber ring\n"
-        f"  * AE spring limiter axis: ALWAYS perpendicular to flange face (along -Z), NEVER horizontal\n"
-        f"- Do NOT alter any part orientation to \"look better\" from this camera angle — geometry is physically fixed.\n"
-        f"- Material consistency: same dark gray anodization shade, same amber PEEK translucency, same brushed stainless grain, same matte black rubber in every view."
+    # Derive constraint lines from negative_constraints entries (if any)
+    dim_lines = ""
+    if nc:
+        # Format the top N constraints as bullet points for the consistency block
+        dim_lines = "".join(f"- {c}\n" for c in nc[:6])
+
+    rules = (
+        "- All views depict the SAME physical assembly — use IDENTICAL materials, colors, "
+        "textures in every view.\n"
+        "- Part orientations are FIXED by the coordinate system and NEVER change between views.\n"
     )
+    if dim_lines:
+        rules += "- Key dimensional constraints to maintain:\n" + dim_lines
+    rules += (
+        "- Do NOT alter any part orientation to \"look better\" from a camera angle — "
+        "geometry is physically fixed.\n"
+        "- Material consistency: repeat identical surface treatments, sheen, and colour in every view."
+    )
+    return rules
 
 
 def load_template():
@@ -204,7 +189,7 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
         material_desc = ""
 
     # §5 {section_face_treatment} — only for section views
-    section_face = _SECTION_FACE_TREATMENT if view_type == "section" else ""
+    section_face = _build_section_face_treatment(rc) if view_type == "section" else ""
 
     # §6 {standard_parts_description}
     std_parts = rc.get("standard_parts", [])
@@ -220,8 +205,10 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
     else:
         std_parts_desc = ""
 
-    # §7 {negative_constraints}
-    nc = rc.get("negative_constraints", [])
+    # §7 {negative_constraints} — check both top-level and prompt_vars
+    nc = rc.get("negative_constraints") or pv.get("negative_constraints", [])
+    if isinstance(nc, str):
+        nc = [nc]
     neg_text = "\n".join(f"- {c}" for c in nc) if nc else ""
 
     # §8 {consistency_rules} — always enabled; try to use auto-generated dimensions
@@ -306,20 +293,96 @@ def build_enhance_prompt(view_key, rc, is_v1_done=False, cad_dir=None, auto_enri
     return fill_prompt_template(tmpl, view_key, rc, is_v1_done)
 
 
-def extract_view_key(png_path):
-    """Extract view key (V1, V2, ...) from a PNG filename."""
+def extract_view_key(png_path, rc=None):
+    """Extract view key from a PNG filename.
+
+    If rc is provided, matches against known camera keys first (e.g. 'V1', 'FRONT', 'ISO').
+    Falls back to generic V+digits pattern, then the bare stem.
+    """
     import warnings
-    m = re.search(r"(V\d+)", os.path.basename(png_path), re.IGNORECASE)
-    if not m:
-        warnings.warn(
-            f"No view key found in filename '{png_path}'; defaulting to 'V1'",
-            stacklevel=2,
-        )
-        return "V1"
-    return m.group(1).upper()
+    basename = os.path.basename(png_path)
+    stem = os.path.splitext(basename)[0]
+
+    # Match against config-defined view keys (longest first to avoid prefix collisions)
+    if rc:
+        known = sorted(rc.get("camera", {}).keys(), key=len, reverse=True)
+        stem_up = stem.upper()
+        for k in known:
+            if k.upper() in stem_up:
+                return k
+
+    # Generic V+digits fallback
+    m = re.search(r"(V\d+)", basename, re.IGNORECASE)
+    if m:
+        return m.group(1).upper()
+
+    warnings.warn(
+        f"No view key found in filename '{png_path}'; defaulting to stem '{stem}'",
+        stacklevel=2,
+    )
+    return stem
 
 
-def view_sort_key(path):
-    """Sort key to ensure V1 is processed first."""
-    m = re.search(r"V(\d+)", os.path.basename(path).upper())
-    return int(m.group(1)) if m else 99
+def view_sort_key(path, rc=None):
+    """Sort key: config-defined order first, then numeric V\d+, then alphabetic."""
+    basename = os.path.basename(path)
+    stem = os.path.splitext(basename)[0]
+
+    if rc:
+        order = list(rc.get("camera", {}).keys())
+        stem_up = stem.upper()
+        for i, k in enumerate(order):
+            if k.upper() in stem_up:
+                return (0, i, stem)
+
+    m = re.search(r"V(\d+)", basename.upper())
+    if m:
+        return (1, int(m.group(1)), stem)
+    return (2, 0, stem)
+
+
+def build_labeled_prompt(view_key, rc, **kwargs):
+    """Build enhance prompt WITH English label instructions appended.
+
+    The base enhance prompt is generated normally, then:
+    1. The "Do NOT add text, labels" constraint is relaxed to allow labels
+    2. A COMPONENT LABELS section is appended listing visible components
+
+    If no labels are configured for this view, returns the base prompt unchanged.
+    """
+    base = build_enhance_prompt(view_key, rc, **kwargs)
+
+    labels_cfg = rc.get("labels", {}).get(view_key, [])
+    components = rc.get("components", {})
+    if not labels_cfg:
+        return base
+
+    # Relax the no-labels constraint (allow component labels only)
+    _NO_LABEL_LINE = "- Do NOT add text, labels, dimensions, or annotations."
+    result = base.replace(_NO_LABEL_LINE,
+                          "- Do NOT add dimensions or measurement annotations.")
+    if _NO_LABEL_LINE in result:
+        import warnings
+        warnings.warn("build_labeled_prompt: failed to relax no-labels constraint — "
+                      "template may have changed", stacklevel=2)
+
+    # Build label instructions
+    lines = [
+        "",
+        "COMPONENT LABELS:",
+        "Add clean engineering-style labels to the enhanced image:",
+        "- Thin dark gray leader lines from each component to its label text",
+        "- Small red anchor dot on each component's visible surface",
+        "- English text in clean sans-serif font (e.g. Arial, Helvetica)",
+        "- Place labels outside the assembly body, avoid overlapping",
+        "- Keep ALL geometry and materials EXACTLY as enhanced above",
+        "",
+        "Components to label (use EXACTLY these English names):",
+    ]
+    for lbl in labels_cfg:
+        comp_id = lbl.get("component", "")
+        comp = components.get(comp_id, {})
+        name_en = comp.get("name_en", comp_id)
+        lines.append(f"  - {name_en}")
+
+    return result + "\n".join(lines) + "\n"

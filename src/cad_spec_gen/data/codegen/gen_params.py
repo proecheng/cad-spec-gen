@@ -281,8 +281,8 @@ def main():
     parser.add_argument("--output", "-o", default=None,
                         help="Output path (default: same dir as spec)")
     parser.add_argument("--mode", choices=["scaffold", "update", "force"],
-                        default="scaffold",
-                        help="scaffold=new only, update=diff-merge, force=overwrite")
+                        default="force",
+                        help="force=overwrite (default), scaffold=new only, update=diff-merge (deprecated)")
     parser.add_argument("--design-doc", default=None,
                         help="Original design document path (for header comment)")
     args = parser.parse_args()

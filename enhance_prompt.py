@@ -64,28 +64,35 @@ _VIEW_TYPE_ENV = {
     ),
 }
 
-# Section face treatment text (§5 extension, only for type=section)
-_SECTION_FACE_TREATMENT = """Cross-section face treatment:
-- Cut aluminum faces: fine machined cross-hatch pattern, slight golden tint from anodization edge
-- Cut PEEK faces: warm amber translucent edge, visible subsurface depth
-- Internal cavities: shadow depth with ambient occlusion
-- Visible springs: chrome wire coils with specular highlights, each turn clearly defined
-- Bearing cross-sections: chrome steel races, brass cage visible
-- Gear teeth: machined steel with fine tooth profile shadows
-- Motor windings: copper color visible through housing cut
-- PCB edge: green FR4 with copper trace layers"""
+# ── Section face treatment (§5 extension, only for type=section) ──
 
-# Multi-view consistency rules (§8, always enabled)
-_CONSISTENCY_RULES = """\
-- All views (V1-V6) depict the SAME physical assembly — use IDENTICAL materials, colors, textures in every view.
-- Part orientations are FIXED by the coordinate system and NEVER change between views:
-  * LONG tank (Phi38x280mm): ALWAYS horizontal (axis parallel to XY, extending radially outward)
-  * SHORT tank (Phi25x110mm): ALWAYS vertical (axis parallel to Z, parallel to module body)
-  * Motor+gearbox (Phi22x73mm): ALWAYS on arm-side (+Z, above flange), NEVER below
-  * PEEK ring (Phi86mm): ALWAYS slightly smaller than flange (Phi90mm), 5mm thin amber ring
-  * AE spring limiter axis: ALWAYS perpendicular to flange face (along -Z), NEVER horizontal
-- Do NOT alter any part orientation to "look better" from this camera angle — geometry is physically fixed.
-- Material consistency: same dark gray anodization shade, same amber PEEK translucency, same brushed stainless grain, same matte black rubber in every view."""
+_MATERIAL_SECTION_HINTS = {
+    "brushed_aluminum": "Cut aluminum faces: fine machined cross-hatch pattern, matte silver",
+    "black_anodized": "Cut aluminum faces: fine machined cross-hatch, slight golden tint from anodization edge",
+    "peek_amber": "Cut PEEK faces: warm amber translucent edge, visible subsurface depth",
+    "peek_natural": "Cut PEEK faces: warm amber translucent edge, visible subsurface depth",
+    "black_rubber": "Cut rubber: matte black, smooth edge",
+    "chrome_steel": "Bearing cross-sections: chrome steel races, brass cage visible",
+    "stainless_304": "Cut stainless steel: polished silver edge, fine grain",
+    "copper": "Cut copper: warm reddish-brown, oxidized traces visible",
+    "pcb_green": "PCB edge: green FR4 with copper trace layers",
+    "carbon_fiber": "Cut carbon fiber: layered woven cross-section visible",
+}
+
+
+def _build_section_face_treatment(rc):
+    """Build section face treatment text dynamically from rc['materials'] presets."""
+    materials = rc.get("materials", {})
+    lines = ["Cross-section face treatment:"]
+    seen = set()
+    for _mat_id, mat_cfg in materials.items():
+        preset = mat_cfg.get("preset", "")
+        if preset in _MATERIAL_SECTION_HINTS and preset not in seen:
+            lines.append(f"- {_MATERIAL_SECTION_HINTS[preset]}")
+            seen.add(preset)
+    # Always include generic cavity line
+    lines.append("- Internal cavities: shadow depth with ambient occlusion")
+    return "\n".join(lines) if len(lines) > 2 else ""
 
 
 def _build_consistency_rules(rc):
@@ -182,7 +189,7 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
         material_desc = ""
 
     # §5 {section_face_treatment} — only for section views
-    section_face = _SECTION_FACE_TREATMENT if view_type == "section" else ""
+    section_face = _build_section_face_treatment(rc) if view_type == "section" else ""
 
     # §6 {standard_parts_description}
     std_parts = rc.get("standard_parts", [])
@@ -198,8 +205,10 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
     else:
         std_parts_desc = ""
 
-    # §7 {negative_constraints}
-    nc = rc.get("negative_constraints", [])
+    # §7 {negative_constraints} — check both top-level and prompt_vars
+    nc = rc.get("negative_constraints") or pv.get("negative_constraints", [])
+    if isinstance(nc, str):
+        nc = [nc]
     neg_text = "\n".join(f"- {c}" for c in nc) if nc else ""
 
     # §8 {consistency_rules} — always enabled; try to use auto-generated dimensions

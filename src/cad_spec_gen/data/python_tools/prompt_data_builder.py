@@ -710,23 +710,41 @@ def generate_negative_constraints(p):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# §8  Main: generate all prompt data for render_config
+# §8  Layout detection + prompt data routing
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_prompt_data(cad_dir, rc=None):
-    """Generate all prompt data from CAD code.
+def _detect_layout(p, rc=None):
+    """Detect assembly layout type from params and render_config.
 
-    Args:
-        cad_dir: path to cad/<subsystem>/ containing params.py
-        rc: existing render_config.json dict (for camera positions)
-
-    Returns:
-        dict with keys: assembly_description, prompt_vars, standard_parts, negative_constraints
+    Returns "radial" or "generic".
     """
-    p = load_params(cad_dir)
-    parts = build_part_registry(p)
-
     rc = rc or {}
+    # Explicit layout from render_config
+    layout_cfg = rc.get("layout", {})
+    if isinstance(layout_cfg, dict):
+        layout_type = layout_cfg.get("type", "")
+    elif isinstance(layout_cfg, str):
+        layout_type = layout_cfg
+    else:
+        layout_type = ""
+    if layout_type == "radial":
+        return "radial"
+    if layout_type in ("linear", "cartesian", "custom"):
+        return "generic"
+
+    # Heuristic: radial if STATION_ANGLES or MOUNT_CENTER_R present in params
+    if p.get("STATION_ANGLES") or p.get("MOUNT_CENTER_R"):
+        return "radial"
+
+    return "generic"
+
+
+def _generate_radial_prompt_data(p, rc):
+    """Generate prompt data for radial (end-effector-like) assemblies.
+
+    Contains all the original hardcoded logic for 4-station radial layouts.
+    """
+    parts = build_part_registry(p)
     cameras = rc.get("camera", {})
 
     # Generate per-view assembly descriptions
@@ -739,6 +757,8 @@ def generate_prompt_data(cad_dir, rc=None):
 
     # Material descriptions
     mat_descs = generate_material_descriptions(parts, p)
+    if not mat_descs and rc.get("materials"):
+        mat_descs = derive_material_descriptions_from_rc(rc)
 
     # Standard parts
     std_parts = generate_standard_parts(p)
@@ -757,19 +777,108 @@ def generate_prompt_data(cad_dir, rc=None):
     }
 
 
-def merge_into_config(rc, generated):
-    """Merge generated prompt data into render_config dict (in-place).
+def _generate_generic_prompt_data(p, rc):
+    """Generate prompt data for non-radial (linear/custom) assemblies.
 
-    Generated data OVERRIDES manual entries for assembly_description,
-    prompt_vars.material_descriptions, standard_parts, negative_constraints.
+    Does NOT call build_part_registry, generate_assembly_description,
+    generate_standard_parts, or generate_negative_constraints — those are
+    all hardcoded to the end-effector radial layout.
+
+    Instead, derives what it can from rc['materials'] and returns empty
+    placeholders so that merge_into_config() preserves user-written values
+    from render_config.json.
     """
-    rc["assembly_description"] = generated["assembly_description"]
+    # Material descriptions from render_config materials section
+    mat_descs = []
+    if rc.get("materials"):
+        mat_descs = derive_material_descriptions_from_rc(rc)
+
+    return {
+        "assembly_description": {},
+        "prompt_vars": {
+            "product_name": rc.get("prompt_vars", {}).get("product_name", "precision mechanical assembly"),
+            "material_descriptions": mat_descs,
+        },
+        "standard_parts": [],
+        "negative_constraints": [],
+    }
+
+
+def generate_prompt_data(cad_dir, rc=None):
+    """Generate all prompt data from CAD code.
+
+    Routes to layout-specific generators based on detected assembly type.
+
+    Args:
+        cad_dir: path to cad/<subsystem>/ containing params.py
+        rc: existing render_config.json dict (for camera positions)
+
+    Returns:
+        dict with keys: assembly_description, prompt_vars, standard_parts, negative_constraints
+    """
+    p = load_params(cad_dir)
+    rc = rc or {}
+    layout = _detect_layout(p, rc)
+
+    if layout == "radial":
+        return _generate_radial_prompt_data(p, rc)
+    else:
+        return _generate_generic_prompt_data(p, rc)
+
+
+def derive_material_descriptions_from_rc(rc):
+    """Fallback: derive material_descriptions from rc['materials'] label+preset.
+
+    Used when params.py-based generation yields no results (e.g. non-EE subsystems).
+    Returns list of {visual_cue, material_desc} dicts.
+    """
+    _PRESET_APPEARANCE = {
+        "stainless_304": "stainless steel 304, brushed satin finish, cool silver tone",
+        "brushed_aluminum": "brushed 6061 aluminum, fine parallel grain marks, silver-gray",
+        "black_anodized": "hard anodized aluminum, matte dark charcoal, micro-porous surface",
+        "peek_amber": "PEEK engineering plastic, warm amber semi-translucent, smooth polished",
+        "black_rubber": "black rubber/elastomer, matte, Shore A ~70 hardness appearance",
+        "chrome_steel": "hardened chrome steel, mirror-polished, high specular highlight",
+        "pcb_green": "FR4 PCB, matte green soldermask, gold pads visible",
+        "copper": "copper, warm reddish-brown, oxidized traces visible",
+        "abs_black": "ABS plastic, matte black injection-molded finish",
+        "carbon_fiber": "carbon fiber composite, woven 2x2 twill pattern, gloss clearcoat",
+    }
+    materials = rc.get("materials", {})
+    result = []
+    for mat_id, mat_cfg in materials.items():
+        label = mat_cfg.get("label", mat_id)
+        preset = mat_cfg.get("preset", "")
+        appearance = _PRESET_APPEARANCE.get(preset, preset.replace("_", " "))
+        if label and appearance:
+            result.append({"visual_cue": label, "material_desc": appearance})
+    return result
+
+
+def merge_into_config(rc, generated):
+    """Merge generated prompt data into render_config dict (non-destructive, in-place).
+
+    Per-view assembly_description merge: only fills views that are absent.
+    Preserves all manually curated data in rc.
+    """
+    # assembly_description: per-view merge (don't clobber user-written views)
+    rc.setdefault("assembly_description", {})
+    for vk, desc in generated.get("assembly_description", {}).items():
+        rc["assembly_description"].setdefault(vk, desc)
+
+    # prompt_vars
     rc.setdefault("prompt_vars", {})
-    rc["prompt_vars"]["material_descriptions"] = generated["prompt_vars"]["material_descriptions"]
-    if generated["prompt_vars"].get("product_name"):
+    if not rc["prompt_vars"].get("material_descriptions"):
+        rc["prompt_vars"]["material_descriptions"] = generated["prompt_vars"].get("material_descriptions", [])
+    if not rc["prompt_vars"].get("product_name") and generated["prompt_vars"].get("product_name"):
         rc["prompt_vars"]["product_name"] = generated["prompt_vars"]["product_name"]
-    rc["standard_parts"] = generated["standard_parts"]
-    rc["negative_constraints"] = generated["negative_constraints"]
+
+    # standard_parts + negative_constraints: dual-path check
+    if not rc.get("standard_parts"):
+        rc["standard_parts"] = generated.get("standard_parts", [])
+    existing_nc = rc.get("negative_constraints") or rc.get("prompt_vars", {}).get("negative_constraints")
+    if not existing_nc:
+        rc["negative_constraints"] = generated.get("negative_constraints", [])
     return rc
 
 

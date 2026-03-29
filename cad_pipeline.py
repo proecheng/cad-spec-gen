@@ -650,14 +650,14 @@ def cmd_codegen(args):
 
     # 2c: part module scaffolds
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
-           spec_path, "--output-dir", sub_dir]
+           spec_path, "--output-dir", sub_dir, "--mode", mode]
     ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
     if not ok:
         failures += 1
 
     # 2c2: standard part simplified geometry (purchased parts)
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_std_parts.py"),
-           spec_path, "--output-dir", sub_dir]
+           spec_path, "--output-dir", sub_dir, "--mode", mode]
     ok, _ = _run_subprocess(cmd, "codegen std parts", dry_run=args.dry_run)
     if not ok:
         failures += 1

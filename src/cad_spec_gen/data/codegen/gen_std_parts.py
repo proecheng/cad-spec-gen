@@ -167,8 +167,11 @@ def _safe_module_name(part_no: str) -> str:
     return f"std_{suffix}"
 
 
-def generate_std_part_files(spec_path: str, output_dir: str) -> tuple:
+def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffold") -> tuple:
     """Generate simplified CadQuery files for purchased standard parts.
+
+    Args:
+        mode: "scaffold" (skip existing), "force" (overwrite existing)
 
     Returns (generated_files, skipped_files).
     """
@@ -197,8 +200,8 @@ def generate_std_part_files(spec_path: str, output_dir: str) -> tuple:
         mod_name = _safe_module_name(p["part_no"])
         out_file = os.path.join(output_dir, f"{mod_name}.py")
 
-        # Never overwrite existing files
-        if os.path.exists(out_file):
+        # Skip existing unless force mode
+        if os.path.exists(out_file) and mode != "force":
             skipped.append(out_file)
             continue
 
@@ -245,13 +248,15 @@ def main():
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
     parser.add_argument("--output-dir", "-o", default=None,
                         help="Output directory (default: same dir as spec)")
+    parser.add_argument("--mode", choices=["scaffold", "force"], default="scaffold",
+                        help="scaffold=skip existing, force=overwrite")
     args = parser.parse_args()
 
     spec_path = os.path.abspath(args.spec)
     output_dir = args.output_dir or os.path.dirname(spec_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    generated, skipped = generate_std_part_files(spec_path, output_dir)
+    generated, skipped = generate_std_part_files(spec_path, output_dir, mode=args.mode)
     print(f"[gen_std_parts] Generated {len(generated)} standard part scaffold(s), "
           f"skipped {len(skipped)} existing")
     for f in generated:

@@ -86,8 +86,10 @@
 
 ### scaffold vs force 模式
 
-- **scaffold**（默认）：仅生成不存在的文件，已有工程师手动修改的文件不会被覆盖
-- **force**：全部重新生成覆盖，适用于首次生成或 CAD_SPEC 大幅变更后的完全重置
+- **scaffold**：仅生成不存在的文件，已有工程师手动修改的文件不会被覆盖
+- **force**（`gen_params.py` 默认）：全部重新生成覆盖，适用于首次生成或 CAD_SPEC 大幅变更后的完全重置
+
+> **v2.0 变更**: `gen_params.py` 的默认模式已从 `scaffold` 改为 `force`（每次 codegen 完整重新生成 `params.py`）。`gen_parts.py` 和 `gen_std_parts.py` 新增 `--mode force` 选项。pipeline `codegen --force` 会统一向所有生成器传递 `--mode force`。
 
 ### 生成后汇总
 

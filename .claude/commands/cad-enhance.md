@@ -90,11 +90,23 @@ python comfyui_env_check.py
 - 通过 `localhost:8188` REST API 提交 workflow JSON，轮询结果
 - workflow 模板位于 `templates/comfyui_workflow_template.json`
 
+### Layout 路由（v2.0 新增）
+
+`prompt_data_builder.py` 根据子系统 layout 类型自动路由 prompt 数据生成策略：
+
+| `render_config.json` 的 `layout.type` | 路由 | 行为 |
+|---------------------------------------|------|------|
+| `radial`（或 params.py 含 `STATION_ANGLES`/`MOUNT_CENTER_R`） | `_generate_radial_prompt_data()` | 完整的 4 工位描述、N1-N10 约束、标准件列表（末端执行器专用） |
+| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | 仅从 `rc["materials"]` 派生材质描述；`assembly_description`/`negative_constraints`/`standard_parts` 使用 render_config.json 中**用户手写的值** |
+
+非 radial 子系统（如 lifting_platform）**不会**注入任何末端执行器专用术语（flange、PEEK、station、cable chain 等），避免 Gemini 生成幽灵零件。
+
 ### 核心原则
 
 - **几何锁定**：Gemini 模式下 prompt 首行写 "Keep ALL geometry EXACTLY unchanged"；ComfyUI 模式下由 ControlNet 硬约束
-- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 读取，不要凭空编造
+- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 和 `materials` 读取，不要凭空编造
 - **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
+- **Layout 感知**：非 radial 布局的子系统不注入硬编码零件描述
 
 ### 标准件增强
 

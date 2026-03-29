@@ -38,7 +38,7 @@
    - 用户回复中含 `comfyui` / `B` → 使用 comfyui
 
 3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
-   - 若 `--backend comfyui`：`cad_pipeline.py` 会自动运行 `python comfyui_env_check.py --quiet` 预检；若环境未就绪（含 CPU-only 模式），打印详情并退出 exit 1，**不提交任何 ComfyUI 任务**。用户修复问题后重试
+   - 若 `--backend comfyui`：先运行 `python comfyui_env_check.py`，若环境未就绪则展示安装指引并询问是否继续
    - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
    - 使用统一 prompt 模板 `templates/prompt_enhance_unified.txt`
      - 按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容
@@ -90,11 +90,23 @@ python comfyui_env_check.py
 - 通过 `localhost:8188` REST API 提交 workflow JSON，轮询结果
 - workflow 模板位于 `templates/comfyui_workflow_template.json`
 
+### Layout 路由（v2.0 新增）
+
+`prompt_data_builder.py` 根据子系统 layout 类型自动路由 prompt 数据生成策略：
+
+| `render_config.json` 的 `layout.type` | 路由 | 行为 |
+|---------------------------------------|------|------|
+| `radial`（或 params.py 含 `STATION_ANGLES`/`MOUNT_CENTER_R`） | `_generate_radial_prompt_data()` | 完整的 4 工位描述、N1-N10 约束、标准件列表（末端执行器专用） |
+| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | 仅从 `rc["materials"]` 派生材质描述；`assembly_description`/`negative_constraints`/`standard_parts` 使用 render_config.json 中**用户手写的值** |
+
+非 radial 子系统（如 lifting_platform）**不会**注入任何末端执行器专用术语（flange、PEEK、station、cable chain 等），避免 Gemini 生成幽灵零件。
+
 ### 核心原则
 
 - **几何锁定**：Gemini 模式下 prompt 首行写 "Keep ALL geometry EXACTLY unchanged"；ComfyUI 模式下由 ControlNet 硬约束
-- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 读取，不要凭空编造
+- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 和 `materials` 读取，不要凭空编造
 - **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
+- **Layout 感知**：非 radial 布局的子系统不注入硬编码零件描述
 
 ### 标准件增强
 
@@ -138,12 +150,12 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
   "host": "127.0.0.1",
   "port": 8188,
   "workflow_template": "templates/comfyui_workflow_template.json",
-  "checkpoint": "realisticVisionV60B1_v51VAE.safetensors",
-  "controlnet_depth_model": "control_v11f1p_sd15_depth.pth",
-  "controlnet_canny_model": "control_v11p_sd15_canny.pth",
-  "steps": 25,
+  "sd_model": "realisticVisionV60B1.safetensors",
+  "controlnet_depth": "control_v11p_sd15_depth.pth",
+  "controlnet_canny": "control_v11p_sd15_canny.pth",
+  "steps": 28,
   "cfg_scale": 7.0,
-  "denoise_strength": 0.45,
-  "timeout": 7200
+  "denoise_strength": 0.55,
+  "timeout": 300
 }
 ```

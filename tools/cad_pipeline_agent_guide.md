@@ -89,42 +89,70 @@ python cad_pipeline.py <command> [OPTIONS]
 | `spec` | Phase 1 | 设计审查 + 交互式三选一 + CAD_SPEC.md 生成 |
 | `codegen` | Phase 2 | 从 CAD_SPEC.md 生成 CadQuery 脚手架（Jinja2） |
 | `build` | Phase 3 | CadQuery 构建 STEP + DXF + GLB |
-| `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG |
+| `render` | Phase 4 | Blender Cycles 渲染 N 视角 PNG（视角类型由 render_config.json 驱动） |
 | `enhance` | Phase 5 | Gemini AI 增强 |
 | `annotate` | Phase 6 | PIL 标注组件名称 |
 | `full` | 全部 | 依次执行 Phase 1-6，任一阶段失败即停止 |
+| `init` | — | 脚手架新子系统目录（render_config.json + params.py + 设计文档模板） |
 | `status` | — | 显示所有子系统建模进度 |
 | `env-check` | — | 验证依赖环境 |
 
 常用标志：`--dry-run`（仅验证）、`--timestamp`（输出文件名加时间戳）、`--skip-spec`/`--skip-codegen`（跳过阶段）
 
-### 3.0a Phase 1 交互式设计审查
+### 3.0z init — 新子系统脚手架
 
-`spec` 和 `full` 子命令自动执行两阶段交互式审查：
-
-```
-Phase 1a: cad_spec_gen.py --review-only → DESIGN_REVIEW.md + .json
-                    ↓
-Phase 1b: 终端显示审查摘要（CRITICAL/WARNING/INFO/OK 各项计数）
-          用户交互式选择：
-          ┌─────────────────────────────────────────┐
-          │ 有 CRITICAL:                            │
-          │   1. 继续审查 → exit 2 (管线暂停)       │
-          │   2. 中止     → exit 1                  │
-          │                                         │
-          │ 有 WARNING (无 CRITICAL):               │
-          │   1. 继续审查 → exit 2                  │
-          │   2. 自动补全 → --auto-fill + 生成 SPEC │
-          │   3. 下一步   → 直接生成 SPEC           │
-          │                                         │
-          │ 无问题 → 自动进入下一步                  │
-          └─────────────────────────────────────────┘
-                    ↓
-Phase 1b': cad_spec_gen.py --review [--auto-fill] → CAD_SPEC.md
+```bash
+python cad_pipeline.py init --subsystem <名称> [--name-cn <中文名>] [--prefix <前缀>] [--force]
 ```
 
-- `--auto-fill` CLI 标志可跳过交互，直接自动补全
-- `full` 命令中 exit 2 显示 "管线暂停于 SPEC — 用户选择继续审查" 后停止
+为全新子系统自动生成三个模板文件：
+
+| 生成文件 | 路径 | 说明 |
+|----------|------|------|
+| `render_config.json` | `output/<名称>/render_config.json` | 含 V1-V5 视角（standard/exploded/ortho）、15种材质、components中英文名 |
+| `params.py` | `output/<名称>/params.py` | 参数骨架，含包络尺寸、材质标识、装配名 |
+| 设计文档 | `docs/design/XX-<名称>.md` | 章节模板，提示用户填写需求 |
+
+生成后按提示编辑三个文件，再运行 `full` 管线。
+
+### 3.0a Phase 4 视角类型驱动渲染（P4）
+
+`render` 命令读取 `render_config.json` 中每个视角的 `"type"` 字段，自动选择渲染脚本：
+
+| `type` 值 | 调用脚本 | 说明 |
+|-----------|----------|------|
+| `standard` | `render_3d.py --view <VN>` | 标准透视视角 |
+| `exploded` | `render_exploded.py` | 爆炸图（如存在） |
+| `section` | `render_section.py` | 截面图（如存在） |
+| `ortho` | `render_3d.py --view <VN>` | 正交投影（由脚本内部处理） |
+
+视角数量和名称完全由 `render_config.json` 决定，不再硬编码 V4=爆炸、V6=截面。
+
+### 3.0a Phase 1 Agent 驱动设计审查
+
+`spec` 子命令采用**无交互 Agent 驱动模式**，分两步执行（无 `input()` 调用）：
+
+```
+Step 1: python cad_pipeline.py spec --subsystem <名称> --design-doc <doc.md> --review-only
+        → DESIGN_REVIEW.md + DESIGN_REVIEW.json
+        → 打印审查摘要后 exit 0
+        → Agent 读取 DESIGN_REVIEW.json，与用户逐项讨论
+
+Step 2 (选一):
+  a. --supplements '{"id": "补充内容", ...}' [--auto-fill]  ← Agent 传入用户确认的数据
+  b. --auto-fill                                            ← 自动填充所有可计算默认值
+  c. --proceed                                              ← 按现有数据直接生成
+        → CAD_SPEC.md 生成至 output/<subsystem>/
+```
+
+**`--supplements` JSON 格式**：键为 `DESIGN_REVIEW.json` 中的 `id` 字段，值为用户确认的补充内容：
+```json
+{"B2": "壳体连接至安装支架，M4×8螺栓，4处", "M01": "总重量: 2.3kg"}
+```
+
+- `--auto-fill` 自动填充螺栓力矩、单位、粗糙度等可计算默认值
+- CRITICAL 问题需用户手动修改设计文档后重跑 `--review-only`
+- `full` 命令使用 `--auto-fill` 模式自动执行 Phase 1（无需 Agent 介入）
 
 ### 3.0b codegen/ — 代码生成器（Jinja2）
 
@@ -142,7 +170,9 @@ python cad_pipeline.py codegen --subsystem <name> [--force]
 | `codegen/gen_assembly.py` | §4连接+§5BOM+§6姿态 | `assembly.py`（含标准件导入+颜色） |
 | `codegen/gen_std_parts.py` | §5 外购件 | `std_*.py` 简化几何（9类标准件） |
 
-scaffold 模式（默认）不覆盖已有文件；`--force` 全部重新生成。
+scaffold 模式不覆盖已有文件；`--force` 全部重新生成。
+
+> **v2.0 变更**: `gen_params.py` 默认模式改为 `force`（每次 codegen 完整重新生成 `params.py`）。`gen_parts.py` / `gen_std_parts.py` 新增 `--mode force`。pipeline `codegen --force` 统一向所有生成器传递 `--mode force`。`gen_assembly.py` 不再硬编码 `station_angles=[0,90,180,270]` 和 `MOUNT_CENTER_R`/`FLANGE_AL_THICK` — 这些值从 CAD_SPEC.md §6 提取，非 radial 布局生成的代码不包含末端执行器专用参数。
 
 > **⚠ 重要**: codegen 生成的脚手架是**不完整的**。`params.py` 使用行号命名（如 `PARAM_L123`），需要手动改为描述性名称；`build_all.py` 的模块引用可能与实际文件名不匹配；`assembly.py` 的装配逻辑需手写。**在进入 Phase 3 BUILD 之前，必须手动完善这些文件。**
 
@@ -301,6 +331,43 @@ python gemini_gen.py --config
 - **管线调用时**: `cad_pipeline.py enhance` 自动重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录）
 - **模型选择**: `pipeline_config.json` 的 `enhance` 段配置模型别名→API model ID 映射
 
+#### Manifest-based 文件选择（P1）
+
+`render` 阶段成功后，自动写入 `output/<subsystem>/renders/render_manifest.json`：
+```json
+{
+  "subsystem": "end_effector",
+  "timestamp": "2025-01-01T12:00:00",
+  "render_dir": "output/end_effector/renders",
+  "files": ["output/end_effector/renders/V1_front_iso.png", "..."]
+}
+```
+`enhance` 和 `annotate` 未指定 `--dir` 时优先读此 manifest，只处理本次渲染产出文件，避免历史文件重复消费。指定 `--dir` 时 fallback 到 glob 全目录（兼容旧用法）。
+
+#### Auto-enrich（P2）
+
+`enhance` 阶段启动后，若子系统目录含 `params.py`，自动调用 `prompt_data_builder.generate_prompt_data()` 并在内存中合并到 `rc`，补全 `assembly_description`/`material_descriptions`/`standard_parts`/`negative_constraints` 等字段，无需手动执行 `--update-config`。合并失败时仅输出 warning，不阻断管线。
+
+#### Layout 路由（v2.0 新增）
+
+`prompt_data_builder.py` 根据子系统布局类型自动路由 prompt 数据生成策略：
+
+| `render_config.json` → `layout.type` | 路由函数 | 行为 |
+|---------------------------------------|----------|------|
+| `radial`（或 params.py 含 `STATION_ANGLES` / `MOUNT_CENTER_R`） | `_generate_radial_prompt_data()` | 完整 4 工位描述、N1-N10 约束、16 种零件材质、11 种标准件 |
+| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | 仅从 `rc["materials"]` 派生材质；`assembly_description` / `negative_constraints` / `standard_parts` 保留用户在 render_config.json 中手写的值 |
+
+`render_config.json` 新增字段：
+```json
+{
+  "layout": {"type": "linear", "_doc": "radial | linear | cartesian | custom"},
+  "assembly_description": {"V1": "per-view text...", "V2": "..."},
+  "negative_constraints": ["Do NOT add parts not visible..."]
+}
+```
+
+`merge_into_config()` 现在逐视图合并 `assembly_description`（仅填充缺失视图，不覆盖用户手写值）。`negative_constraints` 同时检查顶层和 `prompt_vars` 内两个位置。
+
 #### 标准件增强
 
 prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_config.json` 的 `standard_parts` 数组填充：
@@ -390,7 +457,8 @@ python cad_pipeline.py build --subsystem end_effector
 python cad_pipeline.py render --subsystem end_effector --timestamp
 
 # Step 2e: AI增强 (可选)
-python cad_pipeline.py enhance --dir cad/output/renders
+# enhance 自动读取 render_manifest.json，只处理本次渲染文件；--dir 可覆盖为指定目录
+python cad_pipeline.py enhance --subsystem end_effector
 ```
 
 ### 5.2 仅渲染（已有GLB）
@@ -480,7 +548,37 @@ agent.run("帮我渲染末端执行器的5个视角")
 
 ---
 
-## 7. 目录结构
+## 7. 三道门控（质量关卡）
+
+管线在三个节点设有强制质量关卡，任一失败均中止后续阶段，Agent 需感知并处理这些退出码。
+
+| 门控 | 阶段 | 触发条件 | exit code | Agent 处理建议 |
+|------|------|----------|-----------|----------------|
+| **门控1** DESIGN_REVIEW CRITICAL | SPEC | `cad_spec_reviewer.py` 发现 CRITICAL 问题 | 非0 | 向用户展示问题列表，等待确认后重试 |
+| **门控2** TODO 扫描 | CODEGEN | 新生成文件含未填 `TODO:` 标记 | 2 | 打印文件名+行号，提示用户手动完善后重跑 codegen |
+| **门控3** 方位检查 | BUILD（前置） | `orientation_check.py` 断言包围盒主轴失败 | 非0 | 打印轴向偏差，提示检查 params.py；可加 `--skip-orientation` 临时绕过 |
+
+### 门控2 退出码处理
+
+```python
+result = subprocess.run(["python", "cad_pipeline.py", "codegen", ...], capture_output=True)
+if result.returncode == 2:
+    # TODO items exist — surface to user
+    print(result.stdout)  # contains WARNING lines with file:line:content
+elif result.returncode != 0:
+    raise RuntimeError(f"codegen failed: {result.stderr}")
+```
+
+### 门控3 跳过标志
+
+```bash
+# 仅调试时使用，不推荐用于生产
+python cad_pipeline.py build --subsystem my_device --skip-orientation
+```
+
+---
+
+## 8. 目录结构
 
 ```
 cad_pipeline.py                    ← 统一管线编排器 (6 阶段)

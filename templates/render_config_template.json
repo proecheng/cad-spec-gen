@@ -1,6 +1,10 @@
 {
   "_doc": "Render config template. Copy to cad/<subsystem>/ and fill in your subsystem data.",
   "version": 1,
+  "layout": {
+    "type": "linear",
+    "_doc": "Assembly layout type: radial | linear | cartesian | custom. Controls prompt generation strategy."
+  },
   "subsystem": {
     "_doc": "Subsystem identification. part_prefix matches your BOM numbering (e.g. GIS-EE).",
     "name": "<subsystem_id>",
@@ -64,8 +68,17 @@
         "visual_cue": "<what it looks like in the Blender render>",
         "material_desc": "<target photorealistic material description>"
       }
-    ]
+    ],
+    "negative_constraints": "Do NOT add ANY parts not visible in the input image."
   },
+  "assembly_description": {
+    "_doc": "Per-view assembly structure text for Gemini prompt. Auto-generated for radial layouts; hand-write for linear/custom.",
+    "V1": "Enhance ONLY surfaces of parts ALREADY VISIBLE.",
+    "V2": "Enhance ONLY surfaces of parts ALREADY VISIBLE."
+  },
+  "negative_constraints": [
+    "Do NOT add, remove, or reposition any parts. ONLY enhance visible surface materials."
+  ],
   "components": {
     "_doc": "Component name registry. Source: design doc section X.8 BOM. Used by annotate_render.py for label text.",
     "_source": "docs/design/NN-<subsystem>设计.md §X.8 BOM",

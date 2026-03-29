@@ -36,6 +36,12 @@ import os
 import shutil
 import subprocess
 import sys
+
+# Force UTF-8 output on Windows to avoid GBK encoding issues
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import time
 
 from cad_paths import (
@@ -160,9 +166,9 @@ def _resolve_review_json(args):
 
 
 def _show_review_summary(review_json_path):
-    """Print review summary and return (critical, warning, auto_fill) counts."""
+    """Print review summary and return (critical, warning, auto_fill, auto_fill_items) counts."""
     if not os.path.isfile(review_json_path):
-        return 0, 0, 0
+        return 0, 0, 0, []
     with open(review_json_path, encoding="utf-8") as f:
         data = json.load(f)
     c, w, af = data.get("critical", 0), data.get("warning", 0), data.get("auto_fill", 0)
@@ -181,19 +187,243 @@ def _show_review_summary(review_json_path):
     # Print review items summary
     items = data.get("items", [])
     for item in items:
-        severity = item.get("severity", "")
-        code = item.get("code", "")
-        msg = item.get("message", "")
-        if severity in ("CRITICAL", "WARNING"):
-            log.info("  [%s] %s: %s", severity, code, msg[:80])
+        severity = item.get("verdict", "")
+        code = item.get("id", "")
+        check = item.get("check", "")
+        detail = item.get("detail", "")
+        suggestion = item.get("suggestion", "")
+        label = f"{code} {check}".strip() if check else code
+        msg = detail
+        if severity == "CRITICAL":
+            log.info("  [CRITICAL] %s: %s", label, msg)
+            if suggestion:
+                log.info("    建议: %s", suggestion)
+        elif severity == "WARNING":
+            log.info("  [WARNING]  %s: %s", label, msg)
+            if suggestion:
+                log.info("    建议: %s", suggestion)
+        elif severity == "INFO":
+            log.info("  [INFO]     %s: %s", label, msg)
     log.info("=" * 60)
-    return c, w, af
+    auto_fill_items = [item.get("id", "") for item in items if item.get("auto_fill") == "是"]
+    return c, w, af, auto_fill_items
 
 
-def _prompt_review_choice(critical, warning, auto_fill):
+def _infer_assembly_layers(review_json_path):
+    """从 CAD_SPEC.md BOM树推断装配层叠表初稿。"""
+    spec_path = review_json_path.replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+    # Try cad/ path too
+    if not os.path.isfile(spec_path):
+        # output/end_effector/DESIGN_REVIEW.json -> cad/end_effector/CAD_SPEC.md
+        spec_path = spec_path.replace(os.sep + "output" + os.sep,
+                                      os.sep + "cad" + os.sep)
+    if not os.path.isfile(spec_path):
+        return None
+    lines = open(spec_path, encoding="utf-8", errors="replace").readlines()
+    # Find BOM table rows
+    in_bom = False
+    rows = []
+    for line in lines:
+        if "## 5." in line and "BOM" in line:
+            in_bom = True
+            continue
+        if in_bom and line.startswith("## "):
+            break
+        if in_bom and line.startswith("| ") and "---" not in line and "料号" not in line:
+            cols = [c.strip().strip("*") for c in line.strip().split("|")[1:-1]]
+            if len(cols) >= 2:
+                part_no = cols[0].strip()
+                name = cols[1].strip()
+                rows.append((part_no, name))
+    if not rows:
+        return None
+    # Generate layers table
+    result = ["层级|零件名称|固定/运动|连接方式|偏移"]
+    current_assembly = None
+    for part_no, name in rows:
+        if not part_no:
+            continue
+        # Assembly header (bold, no sub-number)
+        if part_no.count("-") <= 2 and not any(c.isdigit() for c in part_no.split("-")[-1:][0] if part_no.split("-")[-1:]):
+            pass
+        is_assembly = part_no.count("-") == 2  # GIS-EE-001
+        is_part = part_no.count("-") == 3       # GIS-EE-001-01
+        if is_assembly:
+            current_assembly = name
+            result.append(f"1|{name}|固定|法兰螺栓|0")
+        elif is_part and current_assembly:
+            result.append(f"2|{name}|固定|螺栓/粘接|0")
+    return "\n".join(result)
+
+
+MATERIAL_CANDIDATES = {
+    "泵": ["铸铁", "球墨铸铁", "不锈钢", "铝合金"],
+    "电机": ["铝合金壳体", "不锈钢轴"],
+    "阀": ["不锈钢", "铜合金"],
+    "传感器": ["铝合金", "不锈钢"],
+    "支架": ["铝合金", "不锈钢"],
+    "壳体": ["铝合金", "工程塑料"],
+    "轴": ["不锈钢", "42CrMo"],
+    "弹簧": ["SUS301", "65Mn"],
+    "齿轮": ["45#钢", "塑料PA66"],
+    "密封": ["FKM", "NBR", "硅橡胶"],
+    "线束": ["铜芯"],
+    "接头": ["不锈钢", "铜合金"],
+}
+
+
+def _infer_material_candidates(part_name):
+    """从零件名称推断材质候选列表。"""
+    for keyword, candidates in MATERIAL_CANDIDATES.items():
+        if keyword in part_name:
+            return candidates
+    return ["铝合金", "不锈钢", "工程塑料"]
+
+
+def _interactive_fill_warnings(review_json_path):
+    """逐项引导用户处理所有 WARNING/CRITICAL 项（含自动补全和手动填写）。
+
+    Returns: dict of {item_id: user_input}
+    """
+    if not os.path.isfile(review_json_path):
+        return {}
+    with open(review_json_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    all_items = [item for item in data.get("items", [])
+                 if item.get("verdict") in ("WARNING", "CRITICAL")]
+    info_items = [item for item in data.get("items", [])
+                  if item.get("verdict") == "INFO" and item.get("auto_fill") == "是"]
+    all_guide = all_items + info_items
+    if not all_guide:
+        return {}
+
+    supplements = {}
+    print(f"\n共 {len(all_guide)} 项需要逐项处理：")
+    for item in all_guide:
+        item_id = item.get("id", "?")
+        check = item.get("check", "") or item.get("id", "")
+        detail = item.get("detail", "")
+        suggestion = item.get("suggestion", "")
+        can_auto = item.get("auto_fill") == "是"
+        verdict = item.get("verdict", "")
+
+        print(f"\n{'─'*60}")
+        print(f"[{verdict}] {item_id}: {check or detail}")
+        if detail and check:
+            print(f"  详情: {detail}")
+        if suggestion and suggestion != "—":
+            print(f"  建议格式: {suggestion}")
+        print(f"{'─'*60}")
+
+        if can_auto:
+            print("  此项可自动补全。")
+            print("  a. 自动补全（使用建议默认值）")
+            print("  b. 手动填写")
+            print("  s. 跳过")
+            try:
+                sub = input("  选择 [a/b/s]: ").strip().lower()
+            except EOFError:
+                log.error("交互式填写需要终端输入，stdin 已关闭。")
+                sys.exit(1)
+            if sub == "a":
+                # Mark as auto-fill
+                supplements[item_id] = "__AUTO_FILL__"
+                print(f"  [自动补全 {item_id}]")
+                continue
+            elif sub == "s":
+                print(f"  [跳过 {item_id}]")
+                continue
+            # else fall through to manual input
+        else:
+            # Check if we can infer a value for this item
+            inferred = None
+            infer_label = None
+            if "M02" in item_id or "装配层叠" in check:
+                inferred = _infer_assembly_layers(review_json_path)
+                infer_label = "从BOM树推断装配层叠表"
+            elif "D5" in item_id or "BOM缺少材质" in check:
+                # Extract part names from detail
+                parts = [p.strip() for p in detail.replace("缺失:", "").split(",") if p.strip()]
+                if parts:
+                    cands = _infer_material_candidates(parts[0])
+                    inferred = f"{parts[0]} 材质候选: {' / '.join(cands)}"
+                    infer_label = f"为 {parts[0]} 推断材质候选"
+
+            if inferred:
+                print(f"\n  推断值（{infer_label}）：")
+                print(f"  {'─'*56}")
+                for ln in inferred.splitlines():
+                    print(f"  {ln}")
+                print(f"  {'─'*56}")
+                # Tell user where to manually edit if they want to change later
+                spec_path = review_json_path.replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+                if not os.path.isfile(spec_path):
+                    spec_path = review_json_path.replace(
+                        os.path.join("output", ""), os.path.join("cad", "")
+                    ).replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+                print(f"  ℹ 如需后续修改，请编辑: {spec_path} 的 §10 节")
+                print("  i. 采用推断值并写入")
+                print("  b. 手动填写（替换推断值）")
+                print("  s. 跳过")
+                try:
+                    sub = input("  选择 [i/b/s]: ").strip().lower()
+                except EOFError:
+                    log.error("交互式填写需要终端输入，stdin 已关闭。")
+                    sys.exit(1)
+                if sub == "i":
+                    supplements[item_id] = inferred
+                    print(f"  [已记录 {item_id}]")
+                    continue
+                elif sub == "s":
+                    print(f"  [跳过 {item_id}]")
+                    continue
+                # else fall through to manual input
+            else:
+                print("  此项需要手动填写（不可自动补全）。")
+            print("  输入补充内容（多行请按 Enter 换行，空行结束；直接空行跳过）:")
+
+        lines = []
+        try:
+            while True:
+                line = input("  > ").rstrip()
+                if line == "" and not lines:
+                    print(f"  [跳过 {item_id}]")
+                    break
+                if line == "" and lines:
+                    break
+                lines.append(line.encode("utf-8", errors="replace").decode("utf-8"))
+        except EOFError:
+            log.error("交互式填写需要终端输入，stdin 已关闭。")
+            sys.exit(1)
+
+        if lines:
+            supplements[item_id] = "\n".join(lines)
+            print(f"  [已记录 {item_id}]")
+
+    return supplements
+
+
+def _save_supplements(supplements, review_json_path):
+    """Save user supplements to user_supplements.json next to DESIGN_REVIEW.json."""
+    if not supplements:
+        return None
+    out_path = review_json_path.replace("DESIGN_REVIEW.json", "user_supplements.json")
+    existing = {}
+    if os.path.isfile(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            existing = json.load(f)
+    existing.update(supplements)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
+    log.info("补充内容已保存: %s", out_path)
+    return out_path
+
+
+def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
     """Prompt user to choose next action after design review.
 
-    Returns: "iterate" | "auto_fill" | "proceed" | "abort"
+    Returns: "iterate" | "auto_fill" | "proceed" | "abort" | "guided_fill"
     """
     if critical > 0:
         log.error("存在 %d 个 CRITICAL 问题，必须修复后才能继续。", critical)
@@ -210,22 +440,22 @@ def _prompt_review_choice(critical, warning, auto_fill):
 
     if warning > 0:
         print("\n请选择:")
-        print("  1. 继续审查 — 逐项讨论 WARNING 问题")
-        if auto_fill > 0:
-            print(f"  2. 自动补全 — 自动填入 {auto_fill} 项可计算的默认值，然后生成 CAD_SPEC.md")
-        else:
-            print("  2. (无可自动补全项)")
-        print("  3. 下一步 — 按现有数据直接生成 CAD_SPEC.md")
-        valid = {"1", "3"} if auto_fill == 0 else {"1", "2", "3"}
+        print("  1. 逐项引导 — 逐项查看问题，可选自动补全或手动填写")
+        print("  2. 跳过 — 按现有数据直接生成 CAD_SPEC.md")
         while True:
-            choice = input(f"\n请输入选项 [{'/'.join(sorted(valid))}]: ").strip()
-            if choice == "1" and "1" in valid:
-                return "iterate"
-            elif choice == "2" and "2" in valid:
-                return "auto_fill"
-            elif choice == "3" and "3" in valid:
+            try:
+                choice = input("\n请输入选项 [1/2]: ").strip()
+            except EOFError:
+                log.error(
+                    "交互式门控需要终端输入，stdin 已关闭。\n"
+                    "请在终端直接运行本命令，或加 --auto-fill 使用非交互模式。"
+                )
+                sys.exit(1)
+            if choice == "1":
+                return "guided_fill"
+            elif choice == "2":
                 return "proceed"
-            print(f"  无效输入，请输入 {'/'.join(sorted(valid))}")
+            print("  无效输入，请输入 1 或 2")
 
     # No issues
     log.info("审查通过，无 CRITICAL/WARNING 问题，自动进入下一步。")
@@ -233,7 +463,14 @@ def _prompt_review_choice(critical, warning, auto_fill):
 
 
 def cmd_spec(args):
-    """Phase 1: Design review + CAD_SPEC.md generation (interactive)."""
+    """Phase 1: Design review + CAD_SPEC.md generation.
+
+    Modes (in priority order):
+      --review-only   Generate DESIGN_REVIEW.md + .json only, no interaction, exit 0.
+      --auto-fill     Auto-fill computable defaults + generate CAD_SPEC.md, no interaction.
+      --proceed       Skip interaction, generate CAD_SPEC.md with existing data.
+      (default)       Interactive: prompt user to iterate / auto-fill / proceed / abort.
+    """
     design_doc = getattr(args, "design_doc", None)
     if not design_doc:
         design_doc = _resolve_design_doc(args.subsystem)
@@ -265,31 +502,77 @@ def cmd_spec(args):
     if args.dry_run:
         return 0
 
-    # ── Step 2: Read review results and prompt user ──
+    # ── Step 2: Read review results ──
     review_json = _resolve_review_json(args)
-    critical, warning, auto_fill_count = _show_review_summary(review_json)
+    critical, warning, auto_fill_count, auto_fill_items = _show_review_summary(review_json)
 
-    # If --auto-fill was pre-set via CLI, skip interactive prompt
+    # ── Step 2b: Determine mode ──
+    review_only = getattr(args, "review_only", False)
+    if review_only:
+        # Agent mode: just generate review, no spec generation
+        log.info("--review-only: 审查报告已生成，等待 Agent 逐项审查。")
+        log.info("  DESIGN_REVIEW.json: %s", review_json)
+        return 0
+
     if getattr(args, "auto_fill", False):
         log.info("--auto-fill 已指定，自动补全并生成 CAD_SPEC.md")
         choice = "auto_fill"
+    elif getattr(args, "proceed", False):
+        log.info("--proceed 已指定，按现有数据生成 CAD_SPEC.md")
+        choice = "proceed"
+    elif getattr(args, "supplements", None):
+        # Agent passed supplements as JSON string → write to file then proceed
+        try:
+            sup_data = json.loads(args.supplements)
+        except json.JSONDecodeError as e:
+            log.error("--supplements JSON 解析失败: %s", e)
+            return 1
+        _save_supplements(sup_data, review_json)
+        log.info("--supplements 已写入 user_supplements.json，生成 CAD_SPEC.md")
+        choice = "proceed"
     else:
-        choice = _prompt_review_choice(critical, warning, auto_fill_count)
+        # Default (no flags): Agent mode — print summary and exit.
+        # Agent reads DESIGN_REVIEW.json, discusses with user, then calls
+        # spec --supplements '{...}' or spec --auto-fill / --proceed.
+        if critical > 0:
+            log.error("存在 %d 个 CRITICAL 问题，必须修复后才能继续。", critical)
+            log.info("请修正设计文档后重新运行，或使用 --proceed 强制生成。")
+            return 1
+        if warning > 0:
+            log.info("存在 %d 个 WARNING。Agent 请读取 DESIGN_REVIEW.json 逐项处理后"
+                     " 调用 spec --supplements '{}' 或 spec --auto-fill。", warning)
+        log.info("审查报告: %s", review_json)
+        return 0
 
-    # ── Step 3: Act on user choice ──
-    if choice == "abort":
-        log.info("用户选择中止。请修正设计文档后重新运行。")
-        return 1
+    # Parse --supplements even when combined with --auto-fill or --proceed
+    sup_data = None
+    if getattr(args, "supplements", None):
+        try:
+            sup_data = json.loads(args.supplements)
+        except json.JSONDecodeError as e:
+            log.error("--supplements JSON 解析失败: %s", e)
+            return 1
+        _save_supplements(sup_data, review_json)
+        log.info("--supplements 已写入 user_supplements.json")
 
-    if choice == "iterate":
-        log.info("用户选择继续审查。请查看 DESIGN_REVIEW.md 逐项讨论后重新运行。")
-        return 2  # Special exit code: review iteration
+    supplements = None
+    guided_auto_fill = False
+    if choice == "guided_fill":
+        supplements = _interactive_fill_warnings(review_json)
+        guided_auto_fill = any(v == "__AUTO_FILL__" for v in supplements.values())
+        supplements = {k: v for k, v in supplements.items() if v != "__AUTO_FILL__"}
+        choice = "proceed"
+    elif sup_data is not None:
+        # --supplements path: carry non-AUTO entries to §10, AUTO entries trigger --auto-fill
+        supplements = {k: v for k, v in sup_data.items()
+                       if v not in ("__AUTO__", "__AUTO_FILL__")}
+        guided_auto_fill = any(v in ("__AUTO__", "__AUTO_FILL__") for v in sup_data.values())
 
-    # "auto_fill" or "proceed" → generate CAD_SPEC.md
+    # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
                "--config", CONFIG_PATH,
                "--review"]
-    if choice == "auto_fill":
+    if choice == "auto_fill" or guided_auto_fill:
         cmd_gen.append("--auto-fill")
     if force_flag:
         cmd_gen.append("--force")
@@ -297,7 +580,37 @@ def cmd_spec(args):
     log.info("Phase 1b: 生成 CAD_SPEC.md...")
     ok, _ = _run_subprocess(cmd_gen, f"spec-gen ({os.path.basename(design_doc)})",
                             dry_run=args.dry_run, timeout=120)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # Append user supplements to CAD_SPEC.md if any were collected
+    if supplements:
+        # CAD_SPEC.md is written to output/<subsystem>/ by cad_spec_gen.py
+        output_dir = os.path.join(SKILL_ROOT, "output", args.subsystem)
+        spec_path = os.path.join(output_dir, "CAD_SPEC.md")
+        if not os.path.isfile(spec_path):
+            # Fallback: cad/<subsystem>/
+            sub_dir = get_subsystem_dir(args.subsystem)
+            spec_path = os.path.join(sub_dir, "CAD_SPEC.md") if sub_dir else None
+        if os.path.isfile(spec_path):
+            existing = open(spec_path, encoding="utf-8", errors="replace").read()
+            if "## §10 用户补充数据" not in existing:
+                with open(spec_path, "a", encoding="utf-8", errors="replace") as _sf:
+                    _sf.write("\n\n## §10 用户补充数据 (User Supplements)\n\n")
+                    for item_id, content in supplements.items():
+                        _sf.write(f"### {item_id}\n\n{content}\n\n")
+            else:
+                # Overwrite existing §10 section
+                import re
+                new_section = "\n\n## §10 用户补充数据 (User Supplements)\n\n"
+                for item_id, content in supplements.items():
+                    new_section += f"### {item_id}\n\n{content}\n\n"
+                updated = re.sub(r'\n+## §10 用户补充数据.*$', new_section, existing,
+                                 flags=re.DOTALL)
+                with open(spec_path, "w", encoding="utf-8", errors="replace") as _sf:
+                    _sf.write(updated)
+            log.info("用户补充数据已追加到 CAD_SPEC.md (%d 项)", len(supplements))
+    return 0
 
 
 def cmd_codegen(args):
@@ -337,14 +650,14 @@ def cmd_codegen(args):
 
     # 2c: part module scaffolds
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
-           spec_path, "--output-dir", sub_dir]
+           spec_path, "--output-dir", sub_dir, "--mode", mode]
     ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
     if not ok:
         failures += 1
 
     # 2c2: standard part simplified geometry (purchased parts)
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_std_parts.py"),
-           spec_path, "--output-dir", sub_dir]
+           spec_path, "--output-dir", sub_dir, "--mode", mode]
     ok, _ = _run_subprocess(cmd, "codegen std parts", dry_run=args.dry_run)
     if not ok:
         failures += 1
@@ -369,6 +682,22 @@ def cmd_build(args):
     if not os.path.isfile(build_script):
         log.error("No build_all.py found in %s", sub_dir)
         return 1
+
+    # ── Pre-build orientation gate ────────────────────────────────────────────
+    orientation_script = os.path.join(sub_dir, "orientation_check.py")
+    if os.path.isfile(orientation_script) and not getattr(args, 'skip_orientation', False):
+        log.info("[Phase 3 pre-check] Running orientation_check.py ...")
+        ok_orient, _ = _run_subprocess(
+            [sys.executable, orientation_script],
+            "orientation_check", dry_run=args.dry_run, timeout=120
+        )
+        if not ok_orient:
+            log.error("Orientation check FAILED — aborting build. "
+                      "Fix assembly directions then re-run. "
+                      "Use --skip-orientation to bypass (not recommended).")
+            return 1
+        log.info("Orientation check passed.")
+    # ─────────────────────────────────────────────────────────────────────────
 
     cmd = [sys.executable, build_script]
     if args.render:
@@ -404,6 +733,8 @@ def cmd_render(args):
         return 1
 
     failures = 0
+    _renders_dir_pre = os.path.join(DEFAULT_OUTPUT, "renders")
+    _pre_existing = set(glob.glob(os.path.join(_renders_dir_pre, "V*.png"))) if os.path.isdir(_renders_dir_pre) else set()
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
@@ -412,20 +743,35 @@ def cmd_render(args):
 
     section_script = os.path.join(sub_dir, "render_section.py")
 
+    # P4: Load view-type map from render_config.json (exploded/section/ortho/standard)
+    _view_type_map = {}  # view_key -> type string
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, encoding="utf-8") as _rcf:
+                _rc_data = json.load(_rcf)
+            for _vk, _vcfg in _rc_data.get("camera", {}).items():
+                _view_type_map[_vk.upper()] = _vcfg.get("type", "standard")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def _script_for_view(view_key):
+        """Return (script_path, extra_args) based on view type from render_config."""
+        vtype = _view_type_map.get(view_key.upper(), "standard")
+        if vtype == "exploded" and os.path.isfile(exploded_script):
+            return exploded_script, []
+        if vtype == "section" and os.path.isfile(section_script):
+            return section_script, []
+        return render_script, ["--view", view_key]
+
     if args.view:
-        # Single view
-        view_upper = args.view.upper()
-        if view_upper == "V4" and os.path.isfile(exploded_script):
-            cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
-        elif view_upper == "V6" and os.path.isfile(section_script):
-            cmd = [blender, "-b", "-P", section_script, "--"] + render_args
-        else:
-            cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--view", args.view]
+        # Single view — dispatch by type from config
+        script, extra = _script_for_view(args.view)
+        cmd = [blender, "-b", "-P", script, "--"] + render_args + extra
         ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200)
         if not ok:
             failures += 1
     else:
-        # All views
+        # All views — run standard first, then any exploded/section scripts present
         cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--all"]
         ok, _ = _run_subprocess(cmd, "render standard views", dry_run=args.dry_run, timeout=1200)
         if not ok:
@@ -443,26 +789,70 @@ def cmd_render(args):
             if not ok:
                 failures += 1
 
+    if not args.dry_run:
+        import time as _time
+        _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
+        _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
+        _new_files = sorted(_all_now - _pre_existing)
+        # Deduplicate: when --timestamp is used, both V1_name_TS.png and
+        # V1_name.png (latest copy) are new.  Keep only the timestamped one
+        # to avoid enhance processing the same image twice.
+        if _should_timestamp(args) and len(_new_files) > 1:
+            import re as _re
+            _ts_files = [f for f in _new_files if _re.search(r'_\d{8}_\d{4}\.png$', f)]
+            if _ts_files:
+                _new_files = _ts_files
+        if _new_files:
+            manifest = {
+                "subsystem": getattr(args, "subsystem", ""),
+                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "render_dir": _renders_dir,
+                "files": _new_files,
+                "partial": failures > 0,
+            }
+            manifest_path = os.path.join(_renders_dir, "render_manifest.json")
+            with open(manifest_path, "w", encoding="utf-8") as _mf:
+                json.dump(manifest, _mf, indent=2)
+            log.info("Manifest written: %s (%d files%s)",
+                     manifest_path, len(_new_files),
+                     ", partial" if failures > 0 else "")
+
     return 1 if failures else 0
 
 
 def cmd_enhance(args):
-    """Run Gemini AI enhancement on rendered PNGs."""
-    from enhance_prompt import build_enhance_prompt, extract_view_key, view_sort_key
+    """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
+    from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
-    gemini_script = get_gemini_script()
-    if not gemini_script:
-        log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
-        log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
-        return 1
+    # Determine backend: CLI arg > pipeline_config.json > default gemini
+    _pcfg = _load_pipeline_config()
+    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
+    log.info("Enhance backend: %s", backend)
+    if getattr(args, "labeled", False) and backend != "gemini":
+        log.warning("--labeled is only supported with gemini backend; ignoring")
 
-    render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    pngs = sorted(glob.glob(os.path.join(render_dir, "V*.png")), key=view_sort_key)
-    if not pngs:
-        log.error("No V*.png files found in %s", render_dir)
-        return 1
+    if backend == "comfyui":
+        # Pre-flight env check — catches CPU-only, missing models, server down
+        _check_result = subprocess.run(
+            [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py"), "--quiet"],
+            capture_output=True,
+        )
+        if _check_result.returncode != 0:
+            subprocess.run(
+                [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py")],
+            )
+            log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
+            return 1
+        from comfyui_enhancer import enhance_image as enhance_with_comfyui
+    else:
+        backend = "gemini"  # normalise
+        gemini_script = get_gemini_script()
+        if not gemini_script:
+            log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
+            log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
+            return 1
 
-    # Load render_config.json (full dict for prompt building)
+    # Load render_config.json (full dict for prompt building) — must come before PNG sorting
     rc = {}
     _sub_name = getattr(args, "subsystem", None)
     sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
@@ -470,6 +860,37 @@ def cmd_enhance(args):
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
             rc = json.load(f)
+
+    # P2: Auto-enrich rc with generated prompt data from params.py (in-memory only)
+    if sub_dir and os.path.isfile(os.path.join(sub_dir, "params.py")):
+        try:
+            from prompt_data_builder import generate_prompt_data, merge_into_config
+            _generated = generate_prompt_data(sub_dir, rc=rc)
+            rc = merge_into_config(rc, _generated)
+            log.info("Auto-enriched render_config from params.py")
+        except Exception as _e:
+            log.warning("prompt_data_builder auto-enrich failed (non-fatal): %s", _e)
+
+    # Fail fast if an explicit subsystem was given but its directory doesn't exist
+    if _sub_name and not sub_dir:
+        log.error("Subsystem '%s' not found. Run 'cad-init %s' first or check the name.",
+                  _sub_name, _sub_name)
+        return 1
+
+    render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
+    manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
+    if not args.dir and os.path.isfile(manifest_path):
+        with open(manifest_path, encoding="utf-8") as _mf:
+            _manifest = json.load(_mf)
+        pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)],
+                     key=lambda p: view_sort_key(p, rc))
+        log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
+                 len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
+    else:
+        pngs = sorted(glob.glob(os.path.join(render_dir, "*.png")), key=lambda p: view_sort_key(p, rc))
+    if not pngs:
+        log.error("No V*.png files found in %s", render_dir)
+        return 1
 
     # Load model config
     model_arg = []
@@ -488,7 +909,7 @@ def cmd_enhance(args):
     v1_done = False
 
     for png in pngs:
-        view_key = extract_view_key(png)
+        view_key = extract_view_key(png, rc)
 
         # Build prompt with all placeholders filled
         try:
@@ -508,6 +929,11 @@ def cmd_enhance(args):
             residual = _re.findall(r'\{[a-z_]+\}', prompt)
             if residual:
                 log.warning("  UNFILLED placeholders: %s", residual)
+            if getattr(args, "labeled", False) and backend == "gemini":
+                _lbl_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
+                if _lbl_prompt != prompt:
+                    log.info("  [DRY-RUN] labeled prompt (%d chars, +%d label chars)",
+                             len(_lbl_prompt), len(_lbl_prompt) - len(prompt))
             if view_key == "V1":
                 v1_done = True
             continue
@@ -515,6 +941,7 @@ def cmd_enhance(args):
         # Write prompt to temp file (avoid Windows argv length limit)
         import tempfile
         prompt_file = None
+        _compressed_tmp = None
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -522,24 +949,97 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
+            # ── ComfyUI backend ──────────────────────────────────────────
+            if backend == "comfyui":
+                log.info("  Running: enhance %s (%s, comfyui)",
+                         os.path.basename(png), view_key)
+                t0 = time.time()
+                try:
+                    raw_path = enhance_with_comfyui(png, prompt, _pcfg.get("enhance", {}).get("comfyui", {}), view_key, rc)
+                except Exception as _ce:
+                    log.error("  ComfyUI enhance failed for %s: %s",
+                              os.path.basename(png), _ce)
+                    failures += 1
+                    continue
+                elapsed = time.time() - t0
+                log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
+                if view_key == "V1":
+                    v1_done = True
+                if raw_path and os.path.isfile(raw_path):
+                    from datetime import datetime as _dt
+                    src_stem = os.path.splitext(os.path.basename(png))[0]
+                    ts = _dt.now().strftime("%Y%m%d_%H%M")
+                    ext = os.path.splitext(raw_path)[1]
+                    new_name = f"{src_stem}_{ts}_enhanced{ext}"
+                    new_path = os.path.join(os.path.dirname(png), new_name)
+                    shutil.copy2(raw_path, new_path)
+                    try:
+                        os.remove(raw_path)
+                    except OSError:
+                        pass
+                    log.info("  Saved: %s", new_path)
+                else:
+                    log.warning("  Could not locate ComfyUI output for %s",
+                                os.path.basename(png))
+                continue  # skip Gemini block
+
+            # ── Gemini backend ───────────────────────────────────────────
+            # Compress image to JPEG before sending (API rejects large base64)
+            import tempfile as _tf
+            _img_to_send = png
+            _compressed_tmp = None
+            try:
+                from PIL import Image as _Img
+                _src_size = os.path.getsize(png)
+                if _src_size > 300 * 1024:  # >300KB → compress
+                    _im = _Img.open(png).convert("RGB")
+                    _im.thumbnail((960, 540), _Img.LANCZOS)
+                    _ctf = _tf.NamedTemporaryFile(
+                        suffix=".jpg", delete=False)
+                    _ctf.close()
+                    _im.save(_ctf.name, "JPEG", quality=88)
+                    _compressed_tmp = _ctf.name
+                    _img_to_send = _compressed_tmp
+                    log.info("  Compressed %s: %.0fKB → %.0fKB",
+                             os.path.basename(png),
+                             _src_size / 1024,
+                             os.path.getsize(_compressed_tmp) / 1024)
+            except Exception as _ce:
+                log.warning("  Could not compress image: %s", _ce)
+
             cmd = [sys.executable, gemini_script,
                    "--prompt-file", prompt_file,
-                   "--image", png] + model_arg
+                   "--image", _img_to_send] + model_arg
 
             log.info("  Running: enhance %s (%s, %d chars)",
                      os.path.basename(png), view_key, len(prompt))
             t0 = time.time()
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=180,
-                encoding="utf-8", errors="replace",
-            )
+            result = None
+            for _attempt in range(3):
+                if _attempt > 0:
+                    log.info("  Retry %d/2 for %s ...", _attempt, os.path.basename(png))
+                    time.sleep(10)
+                try:
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=180,
+                        encoding="utf-8", errors="replace",
+                    )
+                    if result.returncode == 0:
+                        break
+                except subprocess.TimeoutExpired:
+                    log.warning("  TIMEOUT attempt %d for %s", _attempt + 1, os.path.basename(png))
+                    result = None
             elapsed = time.time() - t0
-            if result.returncode != 0:
+            if result is None or result.returncode != 0:
+                rc_val = result.returncode if result is not None else -1
                 log.error("  FAILED enhance %s (exit %d, %.1fs)",
-                          os.path.basename(png), result.returncode, elapsed)
-                if result.stderr:
+                          os.path.basename(png), rc_val, elapsed)
+                if result is not None and result.stdout:
+                    for line in result.stdout.strip().split("\n")[-10:]:
+                        log.error("    STDOUT: %s", line)
+                if result is not None and result.stderr:
                     for line in result.stderr.strip().split("\n")[-5:]:
-                        log.error("    %s", line)
+                        log.error("    STDERR: %s", line)
                 failures += 1
                 continue
             log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
@@ -551,10 +1051,11 @@ def cmd_enhance(args):
             # Rename gemini output: V*_YYYYMMDD_HHMM_enhanced.ext → same dir as source
             gemini_path = None
             for line in (result.stdout or "").split("\n"):
-                if "图片已保存:" in line or "已保存:" in line:
-                    idx = line.rfind("保存:")
-                    if idx >= 0:
-                        gemini_path = line[idx + len("保存:"):].strip()
+                if "图片已保存:" in line:
+                    gemini_path = line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                    break
+                if "已保存:" in line:
+                    gemini_path = line[line.rfind("已保存:") + len("已保存:"):].strip()
                     break
             if gemini_path and os.path.isfile(gemini_path):
                 from datetime import datetime as _dt
@@ -582,6 +1083,71 @@ def cmd_enhance(args):
         finally:
             if prompt_file and os.path.isfile(prompt_file):
                 os.unlink(prompt_file)
+            # Note: _compressed_tmp cleanup deferred until after labeled call
+
+        # ── Labeled version (second Gemini call, --labeled only) ────────────
+        _has_labels = bool(rc.get("labels", {}).get(view_key))
+        if (getattr(args, "labeled", False) and backend == "gemini"
+                and not args.dry_run and _has_labels):
+            _labeled_prompt_file = None
+            # Use compressed image if available, else original PNG
+            _labeled_img = _compressed_tmp if (_compressed_tmp and os.path.isfile(_compressed_tmp)) else png
+            try:
+                labeled_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
+                import tempfile as _tf2
+                with _tf2.NamedTemporaryFile(
+                    mode="w", suffix=".txt", delete=False, encoding="utf-8"
+                ) as _lf:
+                    _lf.write(labeled_prompt)
+                    _labeled_prompt_file = _lf.name
+
+                log.info("  Running: labeled enhance %s (%s)", os.path.basename(png), view_key)
+                t0_l = time.time()
+                _cmd_l = [sys.executable, gemini_script,
+                          "--prompt-file", _labeled_prompt_file,
+                          "--image", _labeled_img]
+                _cmd_l += model_arg
+                _res_l = subprocess.run(
+                    _cmd_l, capture_output=True, timeout=300,
+                    encoding="utf-8", errors="replace"
+                )
+                elapsed_l = time.time() - t0_l
+                if _res_l.returncode == 0:
+                    _lbl_path = None
+                    for _line in (_res_l.stdout or "").split("\n"):
+                        if "图片已保存:" in _line:
+                            _lbl_path = _line[_line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                            break
+                        if "已保存:" in _line:
+                            _lbl_path = _line[_line.rfind("已保存:") + len("已保存:"):].strip()
+                            break
+                    if _lbl_path and os.path.isfile(_lbl_path):
+                        from datetime import datetime as _dt2
+                        _src_stem = os.path.splitext(os.path.basename(png))[0]
+                        _ts2 = _dt2.now().strftime("%Y%m%d_%H%M")
+                        _ext2 = os.path.splitext(_lbl_path)[1]
+                        _lbl_name = f"{_src_stem}_{_ts2}_enhanced_labeled_en{_ext2}"
+                        _lbl_dest = os.path.join(os.path.dirname(png), _lbl_name)
+                        shutil.copy2(_lbl_path, _lbl_dest)
+                        try:
+                            os.remove(_lbl_path)
+                        except OSError:
+                            pass
+                        log.info("  Labeled: %s (%.1fs)", _lbl_name, elapsed_l)
+                    else:
+                        log.warning("  Labeled output not found for %s", os.path.basename(png))
+                else:
+                    log.warning("  Labeled enhance failed for %s (exit %d, %.1fs)",
+                                os.path.basename(png), _res_l.returncode, elapsed_l)
+            except Exception as _le:
+                log.warning("  Labeled enhance error for %s: %s", os.path.basename(png), _le)
+            finally:
+                if _labeled_prompt_file and os.path.isfile(_labeled_prompt_file):
+                    os.unlink(_labeled_prompt_file)
+
+        # Clean up compressed temp image (deferred from first call's finally)
+        if _compressed_tmp and os.path.isfile(_compressed_tmp):
+            os.unlink(_compressed_tmp)
 
     return 1 if failures else 0
 
@@ -601,12 +1167,22 @@ def cmd_annotate(args):
         log.error("No render_config.json found. Use --config or --subsystem.")
         return 1
 
+    _manifest_path = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+    _use_manifest = not args.dir and os.path.isfile(_manifest_path)
+    if _use_manifest:
+        log.info("Annotate using manifest: %s", _manifest_path)
     img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     for lang in (args.lang.split(",") if "," in args.lang else [args.lang]):
-        cmd = [sys.executable, annotate_script,
-               "--all", "--dir", img_dir,
-               "--config", config_path,
-               "--lang", lang.strip()]
+        if _use_manifest:
+            cmd = [sys.executable, annotate_script,
+                   "--manifest", _manifest_path,
+                   "--config", config_path,
+                   "--lang", lang.strip()]
+        else:
+            cmd = [sys.executable, annotate_script,
+                   "--all", "--dir", img_dir,
+                   "--config", config_path,
+                   "--lang", lang.strip()]
         ok, _ = _run_subprocess(cmd, f"annotate ({lang})", dry_run=args.dry_run)
         if not ok:
             return 1
@@ -630,6 +1206,15 @@ def _review_checkpoint(args):
     return 0
 
 
+def _agent_review_pause(args):
+    """Pause pipeline for Agent-driven review. Exit 10 = waiting for Agent."""
+    review_json = _resolve_review_json(args)
+    if os.path.isfile(review_json):
+        log.info("AGENT_REVIEW_JSON=%s", review_json)
+        log.info("Agent 审查模式: 请读取上述 JSON，逐项审查后用 --skip-spec 继续。")
+    return 10
+
+
 def cmd_full(args):
     """Full pipeline: spec → codegen → build → render → enhance → annotate."""
     log.info("=" * 60)
@@ -641,8 +1226,15 @@ def cmd_full(args):
 
     # Phase 1: Spec generation (requires --design-doc or auto-resolve)
     if not args.skip_spec:
-        steps.append(("SPEC", lambda: cmd_spec(args)))
-        steps.append(("REVIEW_CHECK", lambda: _review_checkpoint(args)))
+        if getattr(args, "agent_review", False):
+            # Agent mode: run review-only, output JSON path, exit for Agent processing
+            args.review_only = True
+            steps.append(("SPEC_REVIEW", lambda: cmd_spec(args)))
+            # After review-only, return exit code 10 for Agent to process
+            steps.append(("AGENT_WAIT", lambda: _agent_review_pause(args)))
+        else:
+            steps.append(("SPEC", lambda: cmd_spec(args)))
+            steps.append(("REVIEW_CHECK", lambda: _review_checkpoint(args)))
 
     # Phase 2: Code generation
     if not args.skip_codegen:
@@ -789,6 +1381,170 @@ def cmd_env_check(args):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+def cmd_init(args):
+    """Scaffold a new subsystem directory with template files."""
+    sub_name = args.subsystem
+    if not sub_name:
+        log.error("--subsystem is required for init")
+        return 1
+
+    # Determine output dir
+    config = _load_config()
+    output_dir = config.get("output_dir", "./output")
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(SKILL_ROOT, output_dir)
+    sub_dir = os.path.join(output_dir, sub_name)
+
+    if os.path.exists(sub_dir) and not args.force:
+        log.error("Directory already exists: %s  (use --force to overwrite)", sub_dir)
+        return 1
+
+    os.makedirs(sub_dir, exist_ok=True)
+    log.info("Scaffolding subsystem '%s' → %s", sub_name, sub_dir)
+
+    # ── render_config.json template ──────────────────────────────────────────
+    rc_template = {
+        "version": 1,
+        "subsystem": {
+            "name": sub_name,
+            "name_cn": args.name_cn or sub_name,
+            "part_prefix": (args.prefix or sub_name.upper()),
+            "glb_file": f"{sub_name}_assembly.glb",
+            "bounding_radius_mm": 300
+        },
+        "coordinate_system": "Z-axis vertical. Describe your coordinate convention here.",
+        "materials": {
+            "body": {"preset": "brushed_aluminum", "label": "Main body",
+                     "name_cn": "主体", "name_en": "Main Body"},
+            "fastener": {"preset": "stainless_304", "label": "Fasteners",
+                         "name_cn": "紧固件", "name_en": "Fasteners"}
+        },
+        "camera": {
+            "V1": {
+                "name": "V1_front_iso",
+                "type": "standard",
+                "location": [350, -380, 320],
+                "target": [0, 0, 50],
+                "lens_mm": 50,
+                "description": "Front isometric view"
+            },
+            "V2": {
+                "name": "V2_rear_oblique",
+                "type": "standard",
+                "location": [-320, 350, 400],
+                "target": [0, 0, 50],
+                "lens_mm": 50,
+                "description": "Rear oblique view"
+            },
+            "V3": {
+                "name": "V3_exploded",
+                "type": "exploded",
+                "location": [400, -400, 500],
+                "target": [0, 0, 0],
+                "description": "Exploded view (use render_exploded.py)"
+            },
+            "V4": {
+                "name": "V4_ortho_front",
+                "type": "ortho",
+                "location": [0, -500, 80],
+                "target": [0, 0, 80],
+                "ortho": True,
+                "ortho_scale": 400,
+                "description": "Front orthographic view"
+            }
+        },
+        "components": {
+            "body": {
+                "name_cn": "主体",
+                "name_en": "Main Body"
+            }
+        },
+        "labels": {
+            "_doc": "Only visible components per view. Coords at 1920x1080 ref, auto-scaled.",
+            "V1": [
+                {
+                    "component": "body",
+                    "anchor": [600, 400],
+                    "label": [1600, 200]
+                }
+            ]
+        }
+    }
+
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if not os.path.isfile(rc_path) or args.force:
+        with open(rc_path, "w", encoding="utf-8") as f:
+            json.dump(rc_template, f, indent=2, ensure_ascii=False)
+        log.info("  Created: render_config.json")
+    else:
+        log.info("  Skipped (exists): render_config.json")
+
+    # ── params.py template ───────────────────────────────────────────────────
+    params_path = os.path.join(sub_dir, "params.py")
+    params_content = f'''#!/usr/bin/env python3
+"""
+params.py — Single source of truth for {sub_name} dimensions.
+Edit this file to change part geometry.
+"""
+
+# ── Global dimensions ────────────────────────────────────────────────────────
+OVERALL_DIA   = 200  # mm  overall envelope diameter
+OVERALL_H     = 100  # mm  overall height
+
+# ── Material identifiers ─────────────────────────────────────────────────────
+MATERIAL_BODY    = "7075-T6 aluminum alloy"
+MATERIAL_SEALS   = "NBR rubber"
+
+# ── Assembly metadata ────────────────────────────────────────────────────────
+PART_PREFIX      = "{args.prefix or sub_name.upper()}"
+ASSEMBLY_NAME    = "{sub_name}_assembly"
+'''
+    if not os.path.isfile(params_path) or args.force:
+        with open(params_path, "w", encoding="utf-8") as f:
+            f.write(params_content)
+        log.info("  Created: params.py")
+    else:
+        log.info("  Skipped (exists): params.py")
+
+    # ── design doc placeholder ───────────────────────────────────────────────
+    doc_base = config.get("doc_dir", "docs/design")
+    if not os.path.isabs(doc_base):
+        doc_base = os.path.join(SKILL_ROOT, doc_base)
+    os.makedirs(doc_base, exist_ok=True)
+    doc_path = os.path.join(doc_base, f"XX-{sub_name}.md")
+    doc_content = f"""# {args.name_cn or sub_name} 设计文档
+
+<!-- Replace XX with the chapter number and rename this file -->
+
+## 1. 设计目标
+
+TODO: 描述本子系统的设计目标
+
+## 2. 关键参数
+
+TODO: 列出关键尺寸和参数
+
+## 3. 装配关系
+
+TODO: 描述部件间的装配关系
+"""
+    if not os.path.isfile(doc_path) or args.force:
+        with open(doc_path, "w", encoding="utf-8") as f:
+            f.write(doc_content)
+        log.info("  Created: %s", doc_path)
+    else:
+        log.info("  Skipped (exists): %s", doc_path)
+
+    log.info("")
+    log.info("Next steps:")
+    log.info("  1. Edit %s/params.py with real dimensions", sub_dir)
+    log.info("  2. Edit %s with your design requirements", doc_path)
+    log.info("  3. Edit %s/render_config.json — update camera views and labels", sub_dir)
+    log.info("  4. Run: python cad_pipeline.py full --subsystem %s --design-doc %s",
+             sub_name, doc_path)
+    return 0
+
+
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -819,6 +1575,13 @@ def main():
     p_spec.add_argument("--design-doc", help="Path to design document (NN-*.md)")
     p_spec.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
     p_spec.add_argument("--force", action="store_true", help="Force regeneration")
+    p_spec.add_argument("--review-only", action="store_true",
+                        help="Generate DESIGN_REVIEW only (no interaction, no CAD_SPEC.md). For Agent-driven review.")
+    p_spec.add_argument("--proceed", action="store_true",
+                        help="Skip interaction, generate CAD_SPEC.md with existing data")
+    p_spec.add_argument("--supplements", default=None,
+                        help="JSON string of Agent-collected supplements, e.g. '{\"B3\":\"4xM4\",\"D2\":\"__AUTO__\"}'. "
+                             "Written to user_supplements.json then spec is generated.")
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
@@ -829,6 +1592,8 @@ def main():
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
     p_build.add_argument("--subsystem", "-s", default="end_effector")
     p_build.add_argument("--render", action="store_true", help="Also render after build")
+    p_build.add_argument("--skip-orientation", dest="skip_orientation", action="store_true",
+                         help="Bypass orientation_check.py pre-gate (not recommended)")
 
     # render
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
@@ -837,9 +1602,13 @@ def main():
     p_render.add_argument("--timestamp", action="store_true", help="Append timestamp to filenames")
 
     # enhance
-    p_enhance = sub.add_parser("enhance", help="Gemini AI enhancement")
+    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default="end_effector")
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
+                           help="Override enhance backend (default: from pipeline_config.json)")
+    p_enhance.add_argument("--labeled", action="store_true",
+                           help="Also generate English-labeled version via Gemini (gemini backend only)")
 
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
@@ -866,6 +1635,17 @@ def main():
     p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
+    p_full.add_argument("--labeled", action="store_true",
+                        help="Generate English-labeled enhanced images (gemini only)")
+    p_full.add_argument("--agent-review", action="store_true",
+                        help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process")
+
+    # init
+    p_init = sub.add_parser("init", help="Scaffold a new subsystem directory")
+    p_init.add_argument("--subsystem", required=True, help="Subsystem directory name (e.g. my_device)")
+    p_init.add_argument("--name-cn", default="", help="Chinese display name (e.g. 末端执行机构)")
+    p_init.add_argument("--prefix", default="", help="Part number prefix (e.g. GIS-EE)")
+    p_init.add_argument("--force", action="store_true", help="Overwrite existing files")
 
     # status
     sub.add_parser("status", help="Show pipeline status")
@@ -883,7 +1663,12 @@ def main():
         level=level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
+        handlers=[logging.StreamHandler(stream=sys.stderr)],
     )
+    # Ensure log handler uses UTF-8 on Windows
+    for handler in logging.root.handlers:
+        if hasattr(handler, "stream") and hasattr(handler.stream, "reconfigure"):
+            handler.stream.reconfigure(encoding="utf-8", errors="replace")
 
     if not args.command:
         parser.print_help()
@@ -897,6 +1682,7 @@ def main():
         "enhance": cmd_enhance,
         "annotate": cmd_annotate,
         "full": cmd_full,
+        "init": cmd_init,
         "status": cmd_status,
         "env-check": cmd_env_check,
     }
