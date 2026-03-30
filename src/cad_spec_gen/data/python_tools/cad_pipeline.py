@@ -151,7 +151,10 @@ def _resolve_review_json(args):
         output_dir = cfg.get("output_dir", "./output")
         sub_cfg = cfg.get("subsystems", {})
         cad_subdir = None
-        sub_name = getattr(args, "subsystem", None) or "end_effector"
+        sub_name = getattr(args, "subsystem", None)
+        if not sub_name:
+            log.warning("No --subsystem specified; cannot locate DESIGN_REVIEW.json")
+            return None
         for _ch, info in sub_cfg.items():
             aliases = [info.get("name", "")] + info.get("aliases", [])
             if sub_name in aliases or sub_name == info.get("cad_dir"):
@@ -161,8 +164,10 @@ def _resolve_review_json(args):
             cad_subdir = sub_name
         return os.path.join(output_dir, cad_subdir, "DESIGN_REVIEW.json")
     except (OSError, json.JSONDecodeError):
-        return os.path.join("./output", getattr(args, "subsystem", "end_effector"),
-                            "DESIGN_REVIEW.json")
+        sub_name = getattr(args, "subsystem", None)
+        if not sub_name:
+            return None
+        return os.path.join(DEFAULT_OUTPUT, sub_name, "DESIGN_REVIEW.json")
 
 
 def _show_review_summary(review_json_path):
@@ -623,7 +628,7 @@ def cmd_codegen(args):
 
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found in %s", args.subsystem, CAD_DIR)
+        log.error("Subsystem '%s' not found in %s", args.subsystem or '(none — use --subsystem)', CAD_DIR)
         return 1
 
     spec_path = os.path.join(sub_dir, "CAD_SPEC.md")
@@ -675,7 +680,7 @@ def cmd_build(args):
     """Build STEP + DXF for a subsystem."""
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found in %s", args.subsystem, CAD_DIR)
+        log.error("Subsystem '%s' not found in %s", args.subsystem or '(none — use --subsystem)', CAD_DIR)
         return 1
 
     build_script = os.path.join(sub_dir, "build_all.py")
@@ -721,7 +726,7 @@ def cmd_render(args):
 
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found", args.subsystem)
+        log.error("Subsystem '%s' not found. Use --subsystem.", args.subsystem or '(none)')
         return 1
 
     render_script = os.path.join(sub_dir, "render_3d.py")
@@ -733,13 +738,16 @@ def cmd_render(args):
         return 1
 
     failures = 0
-    _renders_dir_pre = os.path.join(DEFAULT_OUTPUT, "renders")
+    _custom_output_dir = getattr(args, "output_dir", None)
+    _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
     _pre_existing = set(glob.glob(os.path.join(_renders_dir_pre, "V*.png"))) if os.path.isdir(_renders_dir_pre) else set()
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
     if _should_timestamp(args):
         render_args.append("--timestamp")
+    if _custom_output_dir:
+        render_args += ["--output-dir", _custom_output_dir]
 
     section_script = os.path.join(sub_dir, "render_section.py")
 
@@ -791,7 +799,7 @@ def cmd_render(args):
 
     if not args.dry_run:
         import time as _time
-        _renders_dir = os.path.join(DEFAULT_OUTPUT, "renders")
+        _renders_dir = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
         _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
         _new_files = sorted(_all_now - _pre_existing)
         # Deduplicate: when --timestamp is used, both V1_name_TS.png and
@@ -855,6 +863,20 @@ def cmd_enhance(args):
     # Load render_config.json (full dict for prompt building) — must come before PNG sorting
     rc = {}
     _sub_name = getattr(args, "subsystem", None)
+    # Auto-detect subsystem from manifest when not specified via CLI
+    if not _sub_name:
+        _manifest_search_dirs = []
+        if getattr(args, "dir", None):
+            _manifest_search_dirs.append(args.dir)
+        _manifest_search_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
+        for _mdir in _manifest_search_dirs:
+            _manifest_path_check = os.path.join(_mdir, "render_manifest.json")
+            if os.path.isfile(_manifest_path_check):
+                with open(_manifest_path_check, encoding="utf-8") as _mf_check:
+                    _sub_name = json.load(_mf_check).get("subsystem")
+                if _sub_name:
+                    log.info("Auto-detected subsystem from manifest: %s", _sub_name)
+                break
     sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
     rc_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
     if rc_path and os.path.isfile(rc_path):
@@ -878,8 +900,13 @@ def cmd_enhance(args):
         return 1
 
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    manifest_path = os.path.join(os.path.join(DEFAULT_OUTPUT, "renders"), "render_manifest.json")
-    if not args.dir and os.path.isfile(manifest_path):
+    manifest_path = os.path.join(render_dir, "render_manifest.json")
+    if not os.path.isfile(manifest_path) and args.dir:
+        # also check default location as fallback
+        _default_manifest = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+        if os.path.isfile(_default_manifest):
+            manifest_path = _default_manifest
+    if os.path.isfile(manifest_path):
         with open(manifest_path, encoding="utf-8") as _mf:
             _manifest = json.load(_mf)
         pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)],
@@ -887,7 +914,9 @@ def cmd_enhance(args):
         log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
                  len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
     else:
-        pngs = sorted(glob.glob(os.path.join(render_dir, "*.png")), key=lambda p: view_sort_key(p, rc))
+        pngs = sorted([p for p in glob.glob(os.path.join(render_dir, "V*.png"))
+                       if "_enhanced" not in os.path.basename(p)],
+                      key=lambda p: view_sort_key(p, rc))
     if not pngs:
         log.error("No V*.png files found in %s", render_dir)
         return 1
@@ -899,9 +928,11 @@ def cmd_enhance(args):
         with open(pcfg_path, encoding="utf-8") as f:
             pcfg = json.load(f)
         enhance_cfg = pcfg.get("enhance", {})
-        model_key = enhance_cfg.get("model", "")
+        model_key = getattr(args, "model", None) or enhance_cfg.get("model", "")
         models = enhance_cfg.get("models", {})
-        model_id = models.get(model_key, "")
+        if model_key and model_key not in models:
+            log.warning("Model key '%s' not found in pipeline_config.json models dict — using as raw model ID", model_key)
+        model_id = models.get(model_key, model_key)  # fall back to raw value if not a key
         if model_id:
             model_arg = ["--model", model_id]
 
@@ -1160,6 +1191,22 @@ def cmd_annotate(args):
         return 1
 
     sub_dir = get_subsystem_dir(args.subsystem)
+    # Auto-detect subsystem from manifest if not specified
+    if not sub_dir and not args.config:
+        _detect_dirs = []
+        if getattr(args, "dir", None):
+            _detect_dirs.append(args.dir)
+        _detect_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
+        for _mdir in _detect_dirs:
+            _mp = os.path.join(_mdir, "render_manifest.json")
+            if os.path.isfile(_mp):
+                with open(_mp, encoding="utf-8") as _mf:
+                    _sub = json.load(_mf).get("subsystem")
+                if _sub:
+                    sub_dir = get_subsystem_dir(_sub)
+                    if sub_dir:
+                        log.info("Auto-detected subsystem from manifest: %s", _sub)
+                break
     config_path = args.config
     if not config_path and sub_dir:
         config_path = os.path.join(sub_dir, "render_config.json")
@@ -1167,11 +1214,15 @@ def cmd_annotate(args):
         log.error("No render_config.json found. Use --config or --subsystem.")
         return 1
 
-    _manifest_path = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
-    _use_manifest = not args.dir and os.path.isfile(_manifest_path)
+    img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
+    _manifest_path = os.path.join(img_dir, "render_manifest.json")
+    if not os.path.isfile(_manifest_path) and args.dir:
+        _default_manifest = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+        if os.path.isfile(_default_manifest):
+            _manifest_path = _default_manifest
+    _use_manifest = os.path.isfile(_manifest_path)
     if _use_manifest:
         log.info("Annotate using manifest: %s", _manifest_path)
-    img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     for lang in (args.lang.split(",") if "," in args.lang else [args.lang]):
         if _use_manifest:
             cmd = [sys.executable, annotate_script,
@@ -1192,7 +1243,7 @@ def cmd_annotate(args):
 def _review_checkpoint(args):
     """Check that review passed. Called from cmd_full after cmd_spec already handled interaction."""
     review_json = _resolve_review_json(args)
-    if not os.path.isfile(review_json):
+    if not review_json or not os.path.isfile(review_json):
         return 0  # No review data, continue
 
     with open(review_json, encoding="utf-8") as f:
@@ -1217,6 +1268,9 @@ def _agent_review_pause(args):
 
 def cmd_full(args):
     """Full pipeline: spec → codegen → build → render → enhance → annotate."""
+    if not args.subsystem:
+        log.error("--subsystem is required for 'full' pipeline.")
+        return 1
     log.info("=" * 60)
     log.info("  Full pipeline for: %s", args.subsystem)
     log.info("=" * 60)
@@ -1571,7 +1625,7 @@ def main():
 
     # spec
     p_spec = sub.add_parser("spec", help="Design review + CAD_SPEC.md generation")
-    p_spec.add_argument("--subsystem", "-s", default="end_effector")
+    p_spec.add_argument("--subsystem", "-s", default=None)
     p_spec.add_argument("--design-doc", help="Path to design document (NN-*.md)")
     p_spec.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
     p_spec.add_argument("--force", action="store_true", help="Force regeneration")
@@ -1585,41 +1639,44 @@ def main():
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
-    p_codegen.add_argument("--subsystem", "-s", default="end_effector")
+    p_codegen.add_argument("--subsystem", "-s", default=None)
     p_codegen.add_argument("--force", action="store_true", help="Overwrite existing files")
 
     # build
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
-    p_build.add_argument("--subsystem", "-s", default="end_effector")
+    p_build.add_argument("--subsystem", "-s", default=None)
     p_build.add_argument("--render", action="store_true", help="Also render after build")
     p_build.add_argument("--skip-orientation", dest="skip_orientation", action="store_true",
                          help="Bypass orientation_check.py pre-gate (not recommended)")
 
     # render
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
-    p_render.add_argument("--subsystem", "-s", default="end_effector")
+    p_render.add_argument("--subsystem", "-s", default=None)
     p_render.add_argument("--view", help="Single view (V1-V5)")
     p_render.add_argument("--timestamp", action="store_true", help="Append timestamp to filenames")
+    p_render.add_argument("--output-dir", help="Override output directory for rendered PNGs")
 
     # enhance
     p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
-    p_enhance.add_argument("--subsystem", "-s", default="end_effector")
+    p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
     p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
                            help="Override enhance backend (default: from pipeline_config.json)")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
+    p_enhance.add_argument("--model", default=None,
+                           help="Override model key from pipeline_config.json (e.g. nano_banana_2)")
 
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
-    p_annotate.add_argument("--subsystem", "-s", default="end_effector")
+    p_annotate.add_argument("--subsystem", "-s", default=None)
     p_annotate.add_argument("--config", help="render_config.json path")
     p_annotate.add_argument("--dir", help="Directory with images")
     p_annotate.add_argument("--lang", default="cn,en", help="Languages (default: cn,en)")
 
     # full
     p_full = sub.add_parser("full", help="Full pipeline: spec→codegen→build→render→enhance→annotate")
-    p_full.add_argument("--subsystem", "-s", default="end_effector")
+    p_full.add_argument("--subsystem", "-s", default=None)
     p_full.add_argument("--design-doc", help="Path to design document (NN-*.md)")
     p_full.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
     p_full.add_argument("--force-spec", action="store_true", help="Force spec regeneration")

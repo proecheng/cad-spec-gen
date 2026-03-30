@@ -43,6 +43,8 @@ def get_blender_path():
 
 def get_subsystem_dir(name):
     """Resolve subsystem name to its directory. Returns path or None."""
+    if not name:
+        return None
     cad_dir = os.path.join(SKILL_ROOT, "cad")
     d = os.path.join(cad_dir, name)
     if os.path.isdir(d):

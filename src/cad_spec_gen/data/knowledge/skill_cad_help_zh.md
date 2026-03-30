@@ -6,9 +6,9 @@
 
 1. **先搜后答** — 对任何涉及"某个文件在不在""某个配置怎么设的"的问题，先搜索文件系统（ls/find/grep 或等效工具），再回答
 2. **多路径搜索** — 同一信息可能存在于多处（环境变量、配置文件、代码默认值），全部检查：
-   - Gemini 配置：`~/.config/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
-   - 渲染工具：`tools/hybrid_render/` > `cad/end_effector/` > `tools/blender/`
-   - prompt模板：`templates/prompt_*.txt`（3套：enhance/exploded/ortho）
+   - Gemini 配置：`~/.claude/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
+   - 渲染工具：`cad/<subsystem>/render_3d.py` > `tools/blender/`
+   - prompt模板：`templates/` 或 `enhance_prompt.py`
 3. **搜到即记录** — 搜索到的实际路径/版本/配置值，直接写进输出，不用模板中的占位值
 4. **不猜测缺失** — 搜不到的不要假设存在，标注 ❌ 并给出创建/安装指引
 
@@ -16,12 +16,11 @@
 
 | Component | Typical Path |
 |-----------|-------------|
-| gemini_gen.py | User-configured (search `which gemini_gen.py` or project config) |
-| Gemini config | `~/.config/gemini_image_config.json` or env var `GEMINI_API_KEY` |
-| Hybrid render tools | `tools/hybrid_render/` (check_env.py, prompt_builder.py) |
+| gemini_gen.py | User-configured via `python gemini_gen.py --config`; path stored in `GEMINI_GEN_PATH` env var |
+| Gemini config | `~/.claude/gemini_image_config.json` (api_key, api_base_url, model, output_dir) |
 | Blender | `tools/blender/blender.exe` or env var `BLENDER_PATH` |
-| Render config engine | `cad/<subsystem>/render_config.py` |
-| Prompt templates | `tools/hybrid_render/prompts/` or `cad/<subsystem>/prompt_*.txt` |
+| Render scripts | `cad/<subsystem>/render_3d.py`, `render_exploded.py`, `render_section.py` |
+| Prompt builder | `enhance_prompt.py`, `prompt_data_builder.py` |
 
 ## 意图匹配表
 
@@ -68,11 +67,14 @@
    - 无GPU → 回落CPU（可用但较慢）
    - 可通过 --gpu / --cpu 强制指定
 7. Gemini AI增强 (按优先级逐项检查，任一通过即✅):
-   a. 读取 ~/.config/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
-   b. 检查环境变量 GEMINI_API_KEY / GOOGLE_API_KEY
-   c. 检查 gemini_gen.py 是否存在: gemini_gen.py 或 $GEMINI_GEN_PATH
-   d. 运行 tools/hybrid_render/check_env.py (如存在)
-8. 字体: 检查 FangSong (仿宋) 字体是否可用
+   a. 读取 ~/.claude/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
+   b. 检查环境变量 GEMINI_GEN_PATH (gemini_gen.py 路径)
+   c. 检查 gemini_gen.py 是否存在: $GEMINI_GEN_PATH
+   d. 运行 python cad_pipeline.py env-check
+8. ComfyUI AI增强 (可选，本地GPU方案):
+   a. 运行 python comfyui_env_check.py → 自动检测GPU/服务/模型/依赖
+   b. 显示就绪状态 ✅/❌，缺少项给出安装指引
+9. 字体: 检查 FangSong (仿宋) 字体是否可用
 ```
 
 输出格式（用实际搜索到的值填充）：
@@ -85,10 +87,10 @@
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
   ⚠️ GPU渲染: 无GPU检测到 — 使用CPU (较慢)
      提示: 如有NVIDIA GPU环境可自动加速5-20倍 (OptiX/CUDA)
-  ✅ Gemini AI: ~/.config/gemini_image_config.json
-     API: https://generativelanguage.googleapis.com/v1beta
-     模型: gemini-2.0-flash-preview-image-generation
-     gemini_gen.py: gemini_gen.py
+  ✅ Gemini AI: ~/.claude/gemini_image_config.json
+     API: https://your-proxy.com/v1
+     模型: gemini-3-pro-image-preview
+     gemini_gen.py: /path/to/gemini_gen.py
   ✅ FangSong 仿宋字体 (C:\Windows\Fonts\simfang.ttf)
 ```
 
@@ -136,36 +138,33 @@
   e. 全部完成 → "选择下一个子系统" (按成熟度排序推荐)
 ```
 
-### 4. new_subsys — Quick Start 3步引导
+### 4. new_subsys — Quick Start 引导 + init 命令
 
 ```
 ═══ 新子系统 Quick Start ═══
 
-Step 0: 一键脚手架（推荐）
-  python cad_pipeline.py init --subsystem <名称> [--name-cn <中文名>] [--prefix <前缀>]
-  → 自动生成三个文件:
-      cad/<名称>/render_config.json   (V1-V5视角 + 15种材质 + components中英文名)
-      cad/<名称>/params.py            (参数骨架，含包络尺寸、材质标识、装配名)
-      docs/design/XX-<名称>.md        (章节模板，提示填写需求)
-  → 生成后按提示编辑三个文件，再运行 full 管线
+方式一：一键脚手架（推荐）
+  python cad_pipeline.py init --subsystem <名称> --name-cn <中文名> --prefix <前缀>
 
-Step 1: 设计规范化
-  从设计文档 docs/design/NN-*.md 提取参数
-  python cad_pipeline.py spec --design-doc docs/design/NN-*.md [--auto-fill]
-  → 输出 DESIGN_REVIEW.md + CAD_SPEC.md
+  例如:
+    python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix GIS-RA
 
-Step 2: 代码生成 + 参数化建模
-  python cad_pipeline.py codegen --subsystem <名称>
-  → 生成 params.py / build_all.py / station_*.py / assembly.py 脚手架
-  (注意: 脚手架不完整，需手工补全几何逻辑后再进入 BUILD)
-  运行 /mechdesign <子系统名> 可启动交互式全流程
+  自动生成:
+    output/<名称>/render_config.json   ← 含 V1-V4 标准视角模板、components 带 name_cn/name_en
+    output/<名称>/params.py            ← 参数化建模起点
+    docs/design/XX-<名称>.md           ← 设计文档模板
 
-Step 3: 构建 + 渲染出图
-  python cad_pipeline.py build --subsystem <名称>   # STEP + DXF + GLB
-  python cad_pipeline.py render --subsystem <名称>  # Blender PNG (视角由render_config.json驱动)
-  python cad_pipeline.py enhance --subsystem <名称> # Gemini AI增强
-  # 或一键全流程:
-  python cad_pipeline.py full --subsystem <名称> --design-doc docs/design/NN-*.md --timestamp
+Step 1: 编辑生成的文件
+  填写 params.py 中的实际尺寸
+  填写设计文档 docs/design/XX-<名称>.md
+  编辑 render_config.json 更新相机视角和标注坐标
+
+Step 2: 参数化建模
+  运行 /mechdesign <子系统名> 启动全流程
+  (或手动创建 3D脚本 → assembly.py → build_all.py)
+
+Step 3: 全管线
+  python cad_pipeline.py full --subsystem <名称> --design-doc docs/design/XX-<名称>.md
 ```
 
 ### 5. material — 材质预设表
@@ -222,8 +221,16 @@ Step 3: 构建 + 渲染出图
   V1_front_iso     — 正面等距 (az=35, el=25)  → 主展示图
   V2_rear_oblique  — 背面斜视 (az=215, el=20) → 背部细节
   V3_side_elevation — 侧视图 (az=90, el=0)    → 轮廓/尺寸
-  V4_exploded      — 爆炸图 (az=35, el=35)    → 装配关系
-  V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影
+  V4_exploded      — 爆炸图 (az=35, el=35)    → 装配关系  type="exploded"
+  V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影  type="ortho"
+
+视图类型 (type 字段驱动渲染脚本选择):
+  standard  — 普通 Blender 渲染 (render_3d.py)
+  exploded  — 爆炸图渲染 (render_exploded.py)
+  ortho     — 正交投影 (render_3d.py, ortho=true)
+  section   — 截面图 (render_section.py)
+
+  注意: 无需硬编码 V4=爆炸图，type 字段自动决定调用哪个脚本。
 
 render_config.json 示例:
   "camera": {
@@ -294,24 +301,46 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 情况C: 用户想渲染其他子系统 → 检查是否有 render_config.json
 ```
 
+渲染后自动产出:
+- `cad/output/renders/V1_front_iso.png` 等PNG文件
+- `cad/output/renders/render_manifest.json` — 本次会话新增文件列表
+- `cad/output/renders/V1_front_iso_labels.json` — 各组件2D投影锚点（Blender精确坐标，供annotate使用）
+
 ### 9. ai_enhance — AI增强说明
 
-**搜索优先**：先读 `~/.config/gemini_image_config.json` 获取实际配置，再回答。
+**搜索优先**：先读 `pipeline_config.json` enhance 段获取实际后端配置，再回答。
 
 ```
-═══ Gemini AI 混合增强 ═══
+═══ AI 混合增强（双后端）═══
 
-技术路线: Blender PNG (几何精确) → Gemini --image模式 → 照片级 JPG
+技术路线: Blender PNG (几何精确) → AI增强后端 → 照片级 JPG
 
-实际配置 (~/.config/gemini_image_config.json):
-  API:    https://generativelanguage.googleapis.com/v1beta (或自定义代理)
-  模型:   gemini-2.0-flash-preview-image-generation
-  Key:    *** (已配置)
-  超时:   120s
+后端选择 (优先级: CLI --backend > pipeline_config.json backend > 默认gemini):
+  gemini   — 云端API，需配置 ~/.claude/gemini_image_config.json
+  comfyui  — 本地GPU，ControlNet几何硬锁，多视角一致性更强
+
+环境检查:
+  gemini:   python gemini_gen.py --config  (首次使用需配置 api_key/api_base_url/model)
+  comfyui:  python comfyui_env_check.py  (检测GPU/服务/模型/依赖)
 
 核心工具:
-  gemini_gen.py:     gemini_gen.py (全局命令行工具)
-  check_env.py:      tools/hybrid_render/check_env.py (环境检查)
+  gemini_gen.py:        全局命令行工具 (Gemini后端)
+  comfyui_enhancer.py:  ComfyUI REST API适配器 (ComfyUI后端)
+  comfyui_env_check.py: ComfyUI环境检测与安装引导
+
+渲染文件追踪 (Manifest-based):
+  render步骤结束后写出 cad/output/renders/render_manifest.json
+  格式: {"subsystem":"...", "timestamp":"...", "render_dir":"...", "files":[...], "partial":false}
+  partial=true 表示本次渲染有部分视角失败，files 仅含成功的PNG
+  enhance 优先读 manifest 中的 files 列表（避免处理历史文件）
+  传 --dir 时优先读该目录下的 render_manifest.json（如有），再 fallback 到 glob V*.png
+  glob fallback 自动排除 *_enhanced.png 避免重复处理
+
+Prompt自动填充 (Auto-enrich):
+  enhance 启动时自动读取 params.py，调用 prompt_data_builder.generate_prompt_data()
+  在内存中合并 assembly_description / material_descriptions 等字段到 render_config
+  不修改磁盘上的 render_config.json
+  若 params.py 不存在或 auto-enrich 失败，继续使用 render_config.json 静态值（非致命）
 
 prompt模板 (templates/ 目录):
   templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
@@ -319,8 +348,17 @@ prompt模板 (templates/ 目录):
 模板变量 (从 render_config.json prompt_vars 填充):
   {product_name}                ← prompt_vars.product_name
   {view_description}            ← camera.V*.description
-  {material_descriptions}       ← prompt_vars.material_descriptions[]
+  {material_descriptions}       ← prompt_vars.material_descriptions[] (或 params.py auto-enrich)
   {standard_parts_description}  ← standard_parts[] (简化几何→真实外观映射)
+
+Auto-enrich (P2):
+  若子系统含 params.py，enhance 阶段启动时自动调用 prompt_data_builder.generate_prompt_data()
+  并在内存中合并到 rc，无需手动 --update-config。失败时 warning 不阻断管线。
+
+Manifest-based 文件选择 (P1):
+  render 阶段成功后写 output/<subsystem>/renders/render_manifest.json
+  enhance/annotate 未指定 --dir 时优先读 manifest，只处理本次渲染产出文件
+  指定 --dir 时 fallback 到 glob 全目录（兼容旧用法）
 
 标准件增强:
   render_config.json 的 standard_parts 数组描述简化几何与真实零件的映射:
@@ -328,32 +366,43 @@ prompt模板 (templates/ 目录):
   Gemini 收到位置描述+外观描述，将简化形状增强为逼真外观
   如 standard_parts 为空，占位符替换为空字符串，不影响原有流程
 
-模型选择 (pipeline_config.json enhance 段):
-  model: nano_banana_4k  ← 当前使用的模型别名
+后端配置 (pipeline_config.json enhance 段):
+  backend: gemini        ← 切换为 comfyui 启用本地GPU后端
+
+  [Gemini后端]
+  model: nano_banana_pro  ← 当前使用的模型别名
   可选: nano_banana (gemini-2.5-flash-image)
         nano_banana_pro (gemini-3-pro-image-preview)
         nano_banana_2 (gemini-3.1-flash-image)
         nano_banana_4k (gemini-3-pro-image-preview-4k)
-  切换: 修改 pipeline_config.json 的 enhance.model 值
-  传递: --model <id> 参数传给 gemini_gen.py
+  切换: 修改 pipeline_config.json 的 enhance.model 值，或用 --model <key> 临时覆盖
+  注意: 模型必须在你的代理服务商处可用，否则返回 403/model_not_found
+
+  [ComfyUI后端]
+  comfyui.host: 127.0.0.1  comfyui.port: 8188
+  comfyui.workflow_template: templates/comfyui_workflow.json
+  comfyui.controlnet_model: control_v11p_sd15_depth.pth
+  comfyui.sd_model: v1-5-pruned-emaonly.ckpt
+  GPU要求: NVIDIA 6GB+ VRAM (推荐 8GB+)
 
 核心原则:
   1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
   2. 材质描述从 render_config.json 读取，不凭空编造
   3. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
-  4. 几何100%锁定，Gemini只"换皮"不改形状
+  4. 几何锁定: Gemini靠prompt约束; ComfyUI靠ControlNet depth+canny硬约束
 
-5视角增强标准工作流:
-  1. 确认5张 Blender PNG 已存在 (V1~V5)
+标准工作流:
+  1. 确认 Blender PNG 已存在 (V1~VN，来自 render_manifest.json)
   2. 读取 render_config.json 的 prompt_vars 字段
-  3. 逐视角用统一模板填充并执行:
-     python tools/hybrid_render/prompt_builder.py --config cad/<subsystem>/render_config.json --view V1
-     (V1~V5 均使用 prompt_enhance_unified.txt，按 camera type 自动切换)
-  4. 输出: ~6MB JPG/张, 5460×3072, 照片级影棚品质
+  3. 执行 (任选其一):
+     python cad_pipeline.py enhance --subsystem <name>          # 从默认输出目录读manifest
+     python cad_pipeline.py enhance --dir <目录>                # 指定目录，自动读该目录manifest
+     python cad_pipeline.py enhance --dir <目录> --model <key>  # 临时覆盖模型
+     (V1先处理作为风格锚点，V2~VN依次处理)
+  4. 输出: 照片级 PNG (时间戳命名防止覆盖历史版本)
   5. 可选: 添加元件标注 (中文/英文):
-     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang cn
-     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang en
-     输出: *_labeled_cn.jpg / *_labeled_en.jpg
+     python cad_pipeline.py annotate --dir <目录> --lang cn
+     输出: *_labeled_cn.png / *_labeled_en.png
      注意: 中文文字用PIL+SimHei字体程序化绘制，不经过AI生成
 
 双用途:
@@ -363,12 +412,20 @@ prompt模板 (templates/ 目录):
 
 标注工具 (annotate_render.py):
   依赖: Pillow (PIL)
-  数据源: render_config.json 的 components 段(从设计文档BOM提取的中英文名) + labels 段(每视角每元件的2D锚点+标签位置)
-  数据架构:
+  锚点数据源 (优先级):
+    1. Blender投影sidecar (精确) — render_3d/exploded/section.py 渲染后自动写出
+       文件: <PNG同名>_labels.json，例 V1_front_iso_labels.json
+       格式: {"view": "V1", "labels": [{"component": "part_id", "anchor": [px, py]}]}
+       原理: bpy_extras.object_utils.world_to_camera_view(scene, cam, obj.location)
+              Y轴翻转 (Blender v=0 底→像素 y=0 顶)
+    2. render_config.json labels 段 (fallback，手工坐标)
+       格式: "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
+  标签文字位置: 始终取 render_config.json labels[VN][i].label（不被sidecar覆盖）
+  components 数据源: render_config.json components 段
     "components": {"part_id": {"name_cn": "...", "name_en": "...", "bom_id": "GIS-XX-NNN"}}
-    "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
   关键规范:
     - components 名称必须从设计文档§X.8 BOM原文提取，不可自行编造
+    - Blender对象名 = render_config.json components 键名（保持一致）
     - labels 每视角仅标注该视角可见的元件（被遮挡的不标）
     - 坐标基于1920×1080参考分辨率，自动按实际图片尺寸缩放
   样式: dark(白字黑底) / light(黑字白底)，引线+圆点+半透明背景矩形
@@ -506,7 +563,9 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
   │ 脚本                          用途          CLI参数            │
   │ cad_pipeline.py              6阶段统一入口  spec/codegen/build/│
   │                                             render/enhance/   │
-  │                                             annotate/full     │
+  │                                             annotate/full/    │
+  │                                             init/status/      │
+  │                                             env-check         │
   │ build_all.py                 一键构建      --render           │
   │ render_3d.py (Blender内)     3D渲染        --config --view --all │
   │ render_exploded.py (Blender内) 爆炸图      --config --spread  │

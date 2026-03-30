@@ -272,30 +272,32 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
 # ─── Review helpers ──────────────────────────────────────────────────────
 
 def _flatten_review_items(review_data):
-    """Extract WARNING/CRITICAL items from review_data into a flat list for JSON sidecar."""
+    """Extract WARNING/CRITICAL/INFO items from review_data into a flat list for JSON sidecar."""
     items = []
     for category in ("mechanical", "assembly", "material"):
         for it in review_data.get(category, []):
             verdict = it.get("verdict", "")
-            if verdict in ("WARNING", "CRITICAL"):
+            if verdict in ("WARNING", "CRITICAL", "INFO"):
                 items.append({
                     "id": it.get("id", ""),
                     "category": category,
-                    "check": it.get("check", ""),
-                    "detail": it.get("detail", ""),
+                    "check": it.get("item", "") or it.get("check", ""),
+                    "detail": it.get("calc_value", "") or it.get("detail", ""),
                     "verdict": verdict,
                     "suggestion": it.get("suggestion", ""),
+                    "auto_fill": it.get("auto_fill", "否"),
                 })
     for it in review_data.get("completeness", []):
         severity = it.get("severity", "")
-        if severity in ("WARNING", "CRITICAL"):
+        if severity in ("WARNING", "CRITICAL", "INFO"):
             items.append({
                 "id": it.get("id", ""),
                 "category": "completeness",
-                "check": it.get("missing", ""),
+                "check": it.get("missing", "") or it.get("item", ""),
                 "detail": it.get("note", ""),
                 "verdict": severity,
                 "suggestion": it.get("default", ""),
+                "auto_fill": it.get("auto_fill", "否"),
             })
     return items
 

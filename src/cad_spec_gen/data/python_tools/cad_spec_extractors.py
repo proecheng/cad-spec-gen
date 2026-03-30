@@ -13,20 +13,41 @@ from typing import Optional
 # ─── 中文→UPPER_CASE 参数名映射 ──────────────────────────────────────────
 
 CN_PARAM = {
+    # Geometry — specific compound forms first (longest match wins)
+    "总厚度": "TOTAL_THICK", "铝合金段厚度": "AL_THICK", "铝合金段": "AL_THICK",
+    "外接圆直径": "ENVELOPE_DIA", "本体外径": "BODY_OD", "本体内径": "BODY_ID",
+    "本体厚度": "BODY_THICK", "法兰外径": "FLANGE_OD", "法兰内径": "FLANGE_ID",
+    "法兰总厚度": "FLANGE_TOTAL_THICK", "法兰厚度": "FLANGE_THICK",
+    "悬臂截面厚度": "ARM_SEC_THICK", "悬臂截面宽度": "ARM_SEC_W",
+    "悬臂长度": "ARM_L", "截面厚度": "SEC_THICK", "截面宽度": "SEC_W",
+    "台阶高度": "STEP_H", "安装半径": "MOUNT_R", "爬电距离": "CREEP_D",
+    "销孔径": "PIN_BORE", "销直径": "PIN_DIA", "孔数": "HOLE_N",
+    "外形尺寸": "ENVELOPE", "包络尺寸": "ENVELOPE",
+    "安装面尺寸": "MOUNT_FACE", "安装面": "MOUNT_FACE",
+    "安装孔": "MOUNT_BORE", "安装尺寸": "MOUNT_DIM", "腔体尺寸": "CAVITY",
+    "定位销配合": "PIN_FIT", "弹簧销孔": "SPRING_PIN_BORE",
+    "螺栓PCD": "BOLT_PCD", "固定螺栓PCD": "BOLT_PCD",
+    "安装面粗糙度": "MOUNT_RA", "安装面平面度": "MOUNT_FLAT",
+    # Geometry — primitives
     "外径": "OD", "内径": "ID", "厚度": "THICK", "宽度": "W",
     "高度": "H", "长度": "L", "直径": "DIA", "半径": "R",
-    "壁厚": "WALL", "安装半径": "MOUNT_R", "重量": "WEIGHT",
-    "电压": "VOLTAGE", "频率": "FREQ", "功耗": "POWER",
-    "分度": "INDEX", "定位精度": "POS_ACC", "角度": "ANGLE",
-    "行程": "STROKE", "负载": "LOAD", "力矩": "TORQUE",
-    "速度": "SPEED", "加速度": "ACCEL", "温度": "TEMP",
-    "转速": "RPM", "齿数": "TEETH", "模数": "MODULE",
-    "传动比": "RATIO", "间距": "PITCH", "节距": "PCD",
+    "壁厚": "WALL", "重量": "WEIGHT",
     "深度": "DEPTH", "槽宽": "SLOT_W", "槽深": "SLOT_D",
     "孔径": "BORE", "孔深": "BORE_D", "倒角": "CHAMFER",
-    "圆角": "FILLET", "螺距": "THREAD_P", "容量": "CAPACITY",
-    "压力": "PRESSURE", "流量": "FLOW", "阻抗": "IMPEDANCE",
-    "增益": "GAIN", "灵敏度": "SENSITIVITY",
+    "圆角": "FILLET", "螺距": "THREAD_P", "间距": "PITCH", "节距": "PCD",
+    # Motion / mechanical
+    "旋转范围": "ROT_RANGE", "旋转分度": "INDEX", "分度": "INDEX",
+    "切换时间": "SWITCH_T", "定位精度": "POS_ACC", "角度": "ANGLE",
+    "行程": "STROKE", "负载": "LOAD", "传动比": "RATIO",
+    "额定扭矩": "RATED_TORQUE", "堵转扭矩": "STALL_TORQUE", "力矩": "TORQUE",
+    "速度": "SPEED", "加速度": "ACCEL", "转速": "RPM",
+    "弹簧力": "SPRING_F", "齿数": "TEETH", "模数": "MODULE",
+    # Electrical / environment
+    "绝缘电阻": "INSUL_R", "耐压": "WITHSTAND_V", "粗糙度": "RA",
+    "工作温度": "WORK_TEMP", "温度": "TEMP",
+    "电压": "VOLTAGE", "频率": "FREQ", "功耗": "POWER",
+    "容量": "CAPACITY", "压力": "PRESSURE", "流量": "FLOW",
+    "阻抗": "IMPEDANCE", "增益": "GAIN", "灵敏度": "SENSITIVITY",
 }
 
 
@@ -42,6 +63,7 @@ def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
     prefix = ""
     ctx_patterns = [
         (r"工位\s*(\d)", lambda m: f"S{m.group(1)}_"),
+        (r"悬臂", lambda m: "ARM_"),
         (r"法兰", lambda m: "FLANGE_"),
         (r"适配", lambda m: "ADAPTER_"),
         (r"电机", lambda m: "MOTOR_"),
@@ -54,12 +76,18 @@ def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
         (r"储液", lambda m: "TANK_"),
         (r"信号调理", lambda m: "SIGCOND_"),
     ]
-    combined = context + cn_name
+    # Search cn_name first for prefix (prevents remark context from overriding part type)
     for pat, fn in ctx_patterns:
-        m_ctx = re.search(pat, combined)
+        m_ctx = re.search(pat, cn_name)
         if m_ctx:
             prefix = fn(m_ctx)
             break
+    if not prefix:
+        for pat, fn in ctx_patterns:
+            m_ctx = re.search(pat, context)
+            if m_ctx:
+                prefix = fn(m_ctx)
+                break
 
     # 查找最长匹配
     best_key = ""
@@ -70,7 +98,11 @@ def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
 
     if best_key:
         suffix = CN_PARAM[best_key]
-        result = prefix + suffix
+        # Avoid double-prefix: if suffix already starts with the prefix, drop the prefix
+        if prefix and suffix.startswith(prefix.rstrip("_")):
+            result = suffix
+        else:
+            result = prefix + suffix
     elif line_no > 0:
         result = f"{prefix}PARAM_L{line_no}" if prefix else f"PARAM_L{line_no}"
     else:
@@ -99,12 +131,14 @@ def extract_tables(lines: list, heading_pattern: str = None,
     """
     results = []
     in_section = heading_pattern is None  # 无标题过滤 → 全文搜索
+    current_heading = ""
     i = 0
     while i < len(lines):
         line = lines[i].strip()
 
         # Track section headings
         if line.startswith("#"):
+            current_heading = line.lstrip("#").strip()
             if heading_pattern is not None:
                 in_section = bool(re.search(heading_pattern, line))
             elif results and stop_at_heading:
@@ -158,7 +192,7 @@ def extract_tables(lines: list, heading_pattern: str = None,
                 i += 1
 
             results.append({
-                "heading": "",
+                "heading": current_heading,
                 "columns": columns,
                 "rows": rows,
                 "start_line": start_line,
@@ -230,6 +264,7 @@ def extract_params(lines: list) -> list:
 
     params = []
     for tbl in unique_tables:
+        tbl_heading = tbl.get("heading", "")
         cols_lower = [c.lower() for c in tbl["columns"]]
         # Find key column indices
         param_idx = next((i for i, c in enumerate(cols_lower)
@@ -249,7 +284,37 @@ def extract_params(lines: list) -> list:
             if not cn_name or not val_text:
                 continue
 
+            # Skip descriptive/non-parametric rows: param name contains these keywords
+            _SKIP_CN = (
+                "方式", "目的", "材质", "标准", "处理", "评估", "术语",
+                "定义", "朝向", "关系", "配合方式", "连接方式", "说明",
+                "原则", "措施", "建议", "要求（",
+            )
+            if any(kw in cn_name for kw in _SKIP_CN):
+                continue
+
+            # Skip rows where value is clearly a text description, not a measurement:
+            # value must start with a digit, Φ, ±, <, ≥, ≤, or a known numeric prefix
+            _val_stripped = val_text.lstrip("*（(").strip()
+            if _val_stripped and not re.match(
+                r"[Φφ<>≥≤±＜＞]?\s*[\d\.]", _val_stripped
+            ):
+                continue
+            # Skip count/spec rows: values like "4×M3×8mm", "法兰外缘R=42mm处"
+            # Also skip multi-dimension values like "Φ20×25mm", "15×10×5mm",
+            # ratio values like "1:10", and location descriptions.
+            if (re.match(r"\d+[×x]", _val_stripped)
+                    or re.match(r"[Φφ]?[\d.]+[×x]", _val_stripped)
+                    or re.match(r"\d+:\d+", _val_stripped)
+                    or "处" in val_text or "标准" in val_text):
+                continue
+
             value, unit = _parse_value_unit(val_text)
+            # Skip rows with no extractable numeric value — these are text descriptions
+            # (e.g. 驱动方式, 法兰材质, 接口标准) that don't belong in §1 params table.
+            if not value:
+                continue
+
             tol = ""
             if tol_idx >= 0 and tol_idx < len(row):
                 tol = _parse_tolerance(row[tol_idx])
@@ -261,7 +326,7 @@ def extract_params(lines: list) -> list:
                 remark = row[remark_idx].replace("**", "").strip()
 
             line_no = tbl["start_line"] + row_i + 1
-            name = _cn_to_upper(cn_name, context=remark, line_no=line_no)
+            name = _cn_to_upper(cn_name, context=tbl_heading + " " + remark, line_no=line_no)
 
             params.append({
                 "name": name,
@@ -272,6 +337,18 @@ def extract_params(lines: list) -> list:
                 "remark": remark,
                 "cn_name": cn_name,
             })
+
+    # Deduplicate param names: if same name appears >1 time, append _2, _3 ...
+    name_count: dict = {}
+    for p in params:
+        name_count[p["name"]] = name_count.get(p["name"], 0) + 1
+    name_seen: dict = {}
+    for p in params:
+        n = p["name"]
+        if name_count[n] > 1:
+            name_seen[n] = name_seen.get(n, 0) + 1
+            if name_seen[n] > 1:
+                p["name"] = f"{n}_{name_seen[n]}"
 
     return params
 
@@ -373,6 +450,11 @@ def extract_fasteners(lines: list) -> list:
         [{location, spec, qty, torque, grade, remark}]
     """
     tables = extract_tables(lines, column_keywords=["螺"])
+    # Only keep tables that also have a spec/torque column (avoid catching §2 or §6 tables)
+    tables = [t for t in tables if any(
+        "规格" in c or "力矩" in c or "扭矩" in c or "型号" in c
+        for c in t["columns"]
+    )]
     if not tables:
         # Also try inline patterns like "4×M3×8mm"
         tables = extract_tables(lines, column_keywords=["M"])
@@ -391,6 +473,12 @@ def extract_fasteners(lines: list) -> list:
 
         for row in tbl["rows"]:
             location = row[loc_i].strip() if loc_i < len(row) else ""
+            # BUG-10: skip fasteners for GIS-EE-006 (on J3-J4 arm, not on flange)
+            if "信号调理" in location or "GIS-EE-006" in location:
+                continue
+            # BUG-03: skip rows where location looks like a section heading (e.g. "4.5 标准...")
+            if re.match(r"^\d+\.\d+\s", location):
+                continue
             spec = row[spec_i].strip() if spec_i < len(row) else ""
             qty_str = row[qty_i].strip() if qty_i >= 0 and qty_i < len(row) else ""
             torque = row[torque_i].strip() if torque_i >= 0 and torque_i < len(row) else ""
@@ -420,6 +508,9 @@ def extract_fasteners(lines: list) -> list:
                     if lines[j].strip().startswith("#"):
                         context = lines[j].strip().lstrip("#").strip()
                         break
+                # BUG-03: skip inline fasteners whose context is a section heading
+                if re.match(r"^\d+\.\d+\s", context) or not context:
+                    continue
                 fasteners.append({
                     "location": context, "spec": spec_str, "qty": qty,
                     "torque": "", "grade": "", "remark": f"L{i + 1}",
@@ -461,13 +552,23 @@ def extract_connection_matrix(lines: list, fasteners: list,
     connections = []
     order = 0
 
-    # From assembly layers: consecutive layers form connections
-    for i in range(len(assembly_layers) - 1):
-        a = assembly_layers[i]
-        b = assembly_layers[i + 1]
+    # From assembly layers: each layer connects to its parent (layer with lower level number)
+    # This produces parallel topology (all L3 items connect to L2 parent, not each other)
+    for i in range(1, len(assembly_layers)):
+        b = assembly_layers[i]
+        # Find nearest preceding layer with a strictly lower level
+        b_level = b.get("level", 0)
+        parent = None
+        for j in range(i - 1, -1, -1):
+            a = assembly_layers[j]
+            if a.get("level", 0) < b_level:
+                parent = a
+                break
+        if parent is None:
+            parent = assembly_layers[i - 1]
         order += 1
         connections.append({
-            "partA": a.get("part", ""),
+            "partA": parent.get("part", ""),
             "partB": b.get("part", ""),
             "type": b.get("connection", ""),
             "fit": "",
@@ -491,16 +592,22 @@ def extract_connection_matrix(lines: list, fasteners: list,
     conn_tables = extract_tables(lines, column_keywords=["零件A", "零件B"])
     if not conn_tables:
         conn_tables = extract_tables(lines, heading_pattern=r"连接矩阵|连接关系")
+    existing_pairs = {(c["partA"], c["partB"]) for c in connections}
     for tbl in conn_tables:
         cols = [c.lower() for c in tbl["columns"]]
         a_i = next((i for i, c in enumerate(cols) if "零件a" in c or "部件a" in c), 0)
         b_i = next((i for i, c in enumerate(cols) if "零件b" in c or "部件b" in c), 1)
         type_i = next((i for i, c in enumerate(cols) if "类型" in c or "连接" in c), -1)
         for row in tbl["rows"]:
+            pa = row[a_i].strip() if a_i < len(row) else ""
+            pb = row[b_i].strip() if b_i < len(row) else ""
+            if (pa, pb) in existing_pairs or (pb, pa) in existing_pairs:
+                continue
+            existing_pairs.add((pa, pb))
             order += 1
             connections.append({
-                "partA": row[a_i].strip() if a_i < len(row) else "",
-                "partB": row[b_i].strip() if b_i < len(row) else "",
+                "partA": pa,
+                "partB": pb,
                 "type": row[type_i].strip() if type_i >= 0 and type_i < len(row) else "",
                 "fit": "", "torque": "", "order": order,
             })
@@ -543,6 +650,11 @@ def extract_assembly_pose(lines: list) -> dict:
         axis_i = next((i for i, c in enumerate(cols) if "轴线" in c or "方向" in c), -1)
 
         for row in tbl["rows"]:
+            part_name = row[part_i].strip() if part_i < len(row) else ""
+            # BUG-10: GIS-EE-006 (信号调理模块) is mounted on J3-J4 arm link,
+            # NOT on the end-effector flange — exclude from assembly layers.
+            if "GIS-EE-006" in part_name or "信号调理" in part_name:
+                continue
             result["layers"].append({
                 "level": row[level_i].strip() if level_i < len(row) else "",
                 "part": row[part_i].strip() if part_i < len(row) else "",
@@ -640,7 +752,7 @@ def extract_render_plan(lines: list) -> dict:
     view_tables = extract_tables(lines, column_keywords=["视角"])
     for tbl in view_tables:
         cols = [c.lower() for c in tbl["columns"]]
-        id_i = next((i for i, c in enumerate(cols) if "视角" in c and "id" in c), 0)
+        id_i = next((i for i, c in enumerate(cols) if "视角" in c and "id" in c), -1)
         name_i = next((i for i, c in enumerate(cols) if "名称" in c), -1)
         angle_i = next((i for i, c in enumerate(cols) if "仰角" in c or "方位" in c), -1)
         visible_i = next((i for i, c in enumerate(cols) if "可见" in c), -1)
@@ -649,7 +761,7 @@ def extract_render_plan(lines: list) -> dict:
 
         for row in tbl["rows"]:
             result["views"].append({
-                "id": row[id_i].strip() if id_i < len(row) else "",
+                "id": row[id_i].strip() if id_i >= 0 and id_i < len(row) else "",
                 "name": row[name_i].strip() if name_i >= 0 and name_i < len(row) else "",
                 "angle": row[angle_i].strip() if angle_i >= 0 and angle_i < len(row) else "",
                 "visible": row[visible_i].strip() if visible_i >= 0 and visible_i < len(row) else "",

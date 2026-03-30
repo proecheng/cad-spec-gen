@@ -6,9 +6,9 @@
 
 1. **Search before answering** — For any question like "does a file exist" or "how is a config set", search the filesystem (ls/find/grep or equivalent tools) first, then answer
 2. **Multi-path search** — The same information may exist in multiple places (environment variables, config files, code defaults); check all of them:
-   - Gemini config: `~/.config/gemini_image_config.json` > env var `GEMINI_API_KEY` > `gemini_gen.py` code defaults
-   - Render tools: `tools/hybrid_render/` > `cad/end_effector/` > `tools/blender/`
-   - Prompt templates: `templates/prompt_*.txt` (3 sets: enhance/exploded/ortho)
+   - Gemini config: `~/.claude/gemini_image_config.json` > env var `GEMINI_GEN_PATH` > `gemini_gen.py`
+   - Render tools: `cad/<subsystem>/render_3d.py` > `tools/blender/`
+   - Prompt templates: `templates/` or `enhance_prompt.py`
 3. **Record what you find** — Write the actual paths/versions/config values found into the output; do not use placeholder values from templates
 4. **Don't guess what's missing** — If something cannot be found, do not assume it exists; mark it ❌ and provide creation/installation guidance
 
@@ -16,12 +16,11 @@
 
 | Component | Typical Path |
 |-----------|-------------|
-| gemini_gen.py | User-configured (search `which gemini_gen.py` or project config) |
-| Gemini config | `~/.config/gemini_image_config.json` or env var `GEMINI_API_KEY` |
-| Hybrid render tools | `tools/hybrid_render/` (check_env.py, prompt_builder.py) |
+| gemini_gen.py | User-configured via `python gemini_gen.py --config`; path stored in `GEMINI_GEN_PATH` env var |
+| Gemini config | `~/.claude/gemini_image_config.json` (api_key, api_base_url, model, output_dir) |
 | Blender | `tools/blender/blender.exe` or env var `BLENDER_PATH` |
-| Render config engine | `cad/<subsystem>/render_config.py` |
-| Prompt templates | `tools/hybrid_render/prompts/` or `cad/<subsystem>/prompt_*.txt` |
+| Render scripts | `cad/<subsystem>/render_3d.py`, `render_exploded.py`, `render_section.py` |
+| Prompt builder | `enhance_prompt.py`, `prompt_data_builder.py` |
 
 ## Intent Matching Table
 
@@ -68,10 +67,10 @@ Check items:
    - No GPU → falls back to CPU (works but slower)
    - Can force with --gpu / --cpu flags
 7. Gemini AI enhancement (check in priority order, any pass = ✅):
-   a. Read ~/.config/gemini_image_config.json → show api_base_url + model (hide key)
-   b. Check env vars GEMINI_API_KEY / GOOGLE_API_KEY
+   a. Read ~/.claude/gemini_image_config.json → show api_base_url + model (hide key)
+   b. Check env vars GEMINI_GEN_PATH
    c. Check if gemini_gen.py exists: gemini_gen.py or $GEMINI_GEN_PATH
-   d. Run tools/hybrid_render/check_env.py (if it exists)
+   d. Run python cad_pipeline.py env-check (if it exists)
 8. Fonts: check if FangSong font is available
 ```
 
@@ -85,10 +84,10 @@ Environment Check Results:
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
   ⚠️ GPU rendering: no GPU detected — using CPU (slower)
      Tip: NVIDIA GPU can accelerate 5-20x (OptiX/CUDA)
-  ✅ Gemini AI: ~/.config/gemini_image_config.json
-     API: https://generativelanguage.googleapis.com/v1beta
-     Model: gemini-2.0-flash-preview-image-generation
-     gemini_gen.py: gemini_gen.py
+  ✅ Gemini AI: ~/.claude/gemini_image_config.json
+     API: https://your-proxy.com/v1
+     Model: gemini-3-pro-image-preview
+     gemini_gen.py: /path/to/gemini_gen.py
   ✅ FangSong font (C:\Windows\Fonts\simfang.ttf)
 ```
 
@@ -125,7 +124,7 @@ Scan project status then recommend:
 1. Scan cad/*/render_config.json to find configured subsystems
 2. Scan cad/*/build_all.py to find implemented subsystems
 3. Scan cad/output/*.step, *.dxf, *.glb, *.png, *.jpg to count artifacts
-4. Check bananapro/ for existing render results
+4. Check output/ for existing render results
 5. Compare with docs/design/ chapter list to find gaps
 
 Recommendation priority:
@@ -296,22 +295,27 @@ Case C: User wants to render another subsystem → Check if render_config.json e
 
 ### 9. ai_enhance — AI Enhancement Guide
 
-**Search first**: Read `~/.config/gemini_image_config.json` to get actual config before answering.
+**Search first**: Read `~/.claude/gemini_image_config.json` to get actual config before answering.
 
 ```
 === Gemini AI Hybrid Enhancement ===
 
-Technical approach: Blender PNG (geometry accurate) → Gemini --image mode → Photo-realistic JPG
+Technical approach: Blender PNG (geometry accurate) → Gemini --image mode → Photo-realistic PNG
 
-Actual config (~/.config/gemini_image_config.json):
-  API:    https://generativelanguage.googleapis.com/v1beta (or custom proxy)
-  Model:  gemini-2.0-flash-preview-image-generation
+First-time setup:
+  python gemini_gen.py --config
+  # Prompts for: API Key, API Base URL (your proxy), model name, output dir
+  # Saved to: ~/.claude/gemini_image_config.json
+
+Actual config (~/.claude/gemini_image_config.json):
+  API:    https://your-proxy.com/v1
+  Model:  gemini-3-pro-image-preview (or whichever your proxy supports)
   Key:    *** (configured)
   Timeout: 120s
 
 Core tools:
   gemini_gen.py:     gemini_gen.py (global CLI tool)
-  check_env.py:      tools/hybrid_render/check_env.py (environment check)
+  check_env.py:      python cad_pipeline.py env-check (environment check)
 
 Prompt templates (templates/ directory):
   templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
@@ -327,23 +331,25 @@ Core principles:
   3. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
   4. Geometry is 100% locked — Gemini only "re-skins", never alters shapes
 
-5-view enhancement standard workflow:
-  1. Confirm 5 Blender PNGs exist (V1~V5)
+Standard workflow:
+  1. Confirm Blender PNGs exist (V1~VN, from render_manifest.json)
   2. Read prompt_vars field from render_config.json
-  3. Fill unified template per view and execute:
-     python tools/hybrid_render/prompt_builder.py --config cad/<subsystem>/render_config.json --view V1
-     (V1~V5 all use prompt_enhance_unified.txt, auto-switches by camera type)
-  4. Output: ~6MB JPG each, 5460x3072, photo studio quality
+  3. Execute (choose one):
+     python cad_pipeline.py enhance --subsystem <name>
+     python cad_pipeline.py enhance --dir <dir>  # reads manifest from that dir
+     python cad_pipeline.py enhance --dir <dir> --model <key>  # override model
+     (V1 processed first as style anchor, V2~VN follow)
+  4. Output: photo-realistic PNG (timestamped to prevent overwriting history)
   5. Optional: Add component labels (Chinese/English):
-     python annotate_render.py --all --dir <output_dir> --config render_config.json --lang cn
-     python annotate_render.py --all --dir <output_dir> --config render_config.json --lang en
-     Output: *_labeled_cn.jpg / *_labeled_en.jpg
+     python cad_pipeline.py annotate --dir <dir> --lang cn
+     python cad_pipeline.py annotate --dir <dir> --lang en
+     Output: *_labeled_cn.png / *_labeled_en.png
      Note: Chinese text is drawn programmatically via PIL+SimHei font, not through AI generation
 
 Dual purpose:
   PNG → Design review/manufacturing reference (100% geometry accurate)
-  JPG → Presentations/proposals/business plans (visual appeal)
-  JPG_labeled → Labeled showcase images (presentations/reports/manuals)
+  PNG_enhanced → Presentations/proposals/business plans (visual appeal)
+  PNG_labeled → Labeled showcase images (presentations/reports/manuals)
 
 Annotation tool (annotate_render.py):
   Dependency: Pillow (PIL)
@@ -383,7 +389,7 @@ A: Check if camera distance in render_config.json is reasonable (distance_factor
    Check if lighting is configured
 
 Q: Gemini API error
-A: 1. Check if ~/.config/gemini_image_config.json exists and is properly formatted
+A: 1. Check if ~/.claude/gemini_image_config.json exists and is properly formatted
    2. Confirm api_base_url and model match your service provider
    3. Check network connectivity (proxy relay may require VPN)
    4. Run python gemini_gen.py --config to reconfigure
@@ -438,14 +444,16 @@ templates/                     ← Templates
 ├── prompt_enhance_unified.txt ← AI enhancement prompt: all views (unified template)
 └── prompt_section.txt         ← Section view prompt template
 
-tools/hybrid_render/           ← Hybrid render tools
-├── check_env.py               ← Environment check script
-└── prompt_builder.py          ← Prompt template generator
+cad/<subsystem>/               ← Per-subsystem CAD scripts
+├── render_3d.py               ← Blender render script
+├── render_exploded.py         ← Exploded view render
+├── render_section.py          ← Cross-section render
+└── render_config.json         ← Camera/material/prompt config
 
 tools/blender/blender.exe      ← Blender 4.2 LTS portable
 
 gemini_gen.py  ← Gemini image-to-image global tool (outside project)
-~/.config/gemini_image_config.json ← Gemini API config (key/url/model)
+~/.claude/gemini_image_config.json ← Gemini API config (key/url/model)
 ```
 
 ### 12. status — Subsystem Status
@@ -459,7 +467,7 @@ Scan and report:
 3. glob cad/output/*.step → STEP artifact count
 4. glob cad/output/*.dxf → DXF artifact count
 5. glob cad/output/*.glb → GLB artifact count
-6. ls bananapro/*.png, *.jpg → render result count
+6. ls output/*.png, *.jpg → render result count
 7. ls docs/design/*.md → all design chapters
 
 # Output:

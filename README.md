@@ -57,10 +57,11 @@ params.py + build_all.py + station_*.py + std_*.py + assembly.py
 STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
     ↓ Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
-    ↓ AI enhancement (reskin only, geometry locked)
-Photorealistic JPG — presentation / defense / business plan ready
-    ↓ annotate_render.py — PIL-based component labels (CN/EN)
-Labeled JPG — with leader lines and component names
+    ↓ AI enhancement (reskin only, geometry locked) — Gemini or ComfyUI
+       python cad_pipeline.py enhance --subsystem <name> [--dir <dir>] [--model <key>]
+Photorealistic PNG — presentation / defense / business plan ready
+    ↓ python cad_pipeline.py annotate — PIL-based component labels (CN/EN)
+Labeled PNG — with leader lines and component names
 ```
 
 ## Why This Tool?
@@ -243,49 +244,57 @@ python cad_pipeline.py env-check
 
 ### AI Enhancement Quick Start
 
-After Blender renders your PNGs, enhance them to photorealistic JPGs via the pipeline.
+After Blender renders your PNGs, enhance them to photorealistic images via the pipeline.
 Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local GPU, better multi-view consistency).
+
+**First-time Gemini setup** — configure your API proxy:
+```bash
+python gemini_gen.py --config
+# Prompts for: API Key, API Base URL (your proxy), model name, output dir
+# Saved to: ~/.claude/gemini_image_config.json
+```
 
 ```bash
 # Default: Gemini backend, auto-read render_manifest.json
-python cad_pipeline.py enhance --subsystem end_effector
+python cad_pipeline.py enhance --subsystem <name>
+
+# Specify custom output directory (also reads manifest from that dir)
+python cad_pipeline.py enhance --dir /path/to/renders
+
+# Override model temporarily
+python cad_pipeline.py enhance --dir /path/to/renders --model nano_banana_pro
 
 # ComfyUI backend (requires local GPU + ComfyUI running)
-# Automatically runs comfyui_env_check.py before submitting — exits if CPU-only or models missing
-python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
-
-# Override: process a specific directory instead of manifest
-python cad_pipeline.py enhance --subsystem end_effector --dir cad/output/renders_latest
+python cad_pipeline.py enhance --subsystem <name> --backend comfyui
 
 # Check ComfyUI environment manually before first use
 python comfyui_env_check.py
 ```
 
 The enhance step automatically:
-- Reads `render_manifest.json` to process only files from the latest render run (not historical files)
+- Reads `render_manifest.json` from `--dir` or default renders dir to process only latest render files
 - Auto-enriches prompt data from `params.py` via `prompt_data_builder.py` (materials, assembly description, constraints)
-- Selects prompt template from `templates/prompt_enhance_unified.txt` (auto-switches by camera type)
-- **Gemini**: passes model from `pipeline_config.json` `enhance.model` field; geometry locked via prompt instructions
+- **Gemini**: passes model from `pipeline_config.json` `enhance.model` field (override with `--model`); geometry locked via prompt
 - **ComfyUI**: uses ControlNet depth+canny to hard-lock geometry; better multi-view consistency; requires local GPU
+- Skips `*_enhanced.*` files to prevent re-processing
 
 Switch backend permanently in `pipeline_config.json`:
 ```json
 "enhance": { "backend": "comfyui" }
 ```
 
-Output: `cad/output/renders/<VN>_<name>_enhanced.jpg`, ~6MB JPG per view, photorealistic studio quality.
+Output: `<render_dir>/<VN>_<name>_<timestamp>_enhanced.png` per view, photorealistic studio quality.
 
 ### Component Label Annotation
 
 After AI enhancement, add component labels (Chinese/English) via PIL:
 
 ```bash
-# Annotate single image with Chinese labels
-python annotate_render.py V1_enhanced.jpg --config render_config.json --lang cn
+# Annotate all views in Chinese (auto-reads manifest)
+python cad_pipeline.py annotate --subsystem <name> --lang cn
 
-# Batch annotate all views in both languages
-python annotate_render.py --all --dir ./renders --config render_config.json --lang cn
-python annotate_render.py --all --dir ./renders --config render_config.json --lang en
+# Annotate from a specific directory
+python cad_pipeline.py annotate --dir /path/to/renders --lang cn,en
 ```
 
 Labels are defined in `render_config.json`:

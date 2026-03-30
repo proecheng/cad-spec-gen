@@ -6,9 +6,9 @@
 
 1. **先搜后答** — 对任何涉及"某个文件在不在""某个配置怎么设的"的问题，先搜索文件系统（ls/find/grep 或等效工具），再回答
 2. **多路径搜索** — 同一信息可能存在于多处（环境变量、配置文件、代码默认值），全部检查：
-   - Gemini 配置：`~/.config/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
-   - 渲染工具：`tools/hybrid_render/` > `cad/end_effector/` > `tools/blender/`
-   - prompt模板：`templates/prompt_*.txt`（3套：enhance/exploded/ortho）
+   - Gemini 配置：`~/.claude/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
+   - 渲染工具：`cad/<subsystem>/render_3d.py` > `tools/blender/`
+   - prompt模板：`templates/` 或 `enhance_prompt.py`
 3. **搜到即记录** — 搜索到的实际路径/版本/配置值，直接写进输出，不用模板中的占位值
 4. **不猜测缺失** — 搜不到的不要假设存在，标注 ❌ 并给出创建/安装指引
 
@@ -16,12 +16,11 @@
 
 | Component | Typical Path |
 |-----------|-------------|
-| gemini_gen.py | User-configured (search `which gemini_gen.py` or project config) |
-| Gemini config | `~/.config/gemini_image_config.json` or env var `GEMINI_API_KEY` |
-| Hybrid render tools | `tools/hybrid_render/` (check_env.py, prompt_builder.py) |
+| gemini_gen.py | User-configured via `python gemini_gen.py --config`; path stored in `GEMINI_GEN_PATH` env var |
+| Gemini config | `~/.claude/gemini_image_config.json` (api_key, api_base_url, model, output_dir) |
 | Blender | `tools/blender/blender.exe` or env var `BLENDER_PATH` |
-| Render config engine | `cad/<subsystem>/render_config.py` |
-| Prompt templates | `tools/hybrid_render/prompts/` or `cad/<subsystem>/prompt_*.txt` |
+| Render scripts | `cad/<subsystem>/render_3d.py`, `render_exploded.py`, `render_section.py` |
+| Prompt builder | `enhance_prompt.py`, `prompt_data_builder.py` |
 
 ## 意图匹配表
 
@@ -68,10 +67,10 @@
    - 无GPU → 回落CPU（可用但较慢）
    - 可通过 --gpu / --cpu 强制指定
 7. Gemini AI增强 (按优先级逐项检查，任一通过即✅):
-   a. 读取 ~/.config/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
-   b. 检查环境变量 GEMINI_API_KEY / GOOGLE_API_KEY
-   c. 检查 gemini_gen.py 是否存在: gemini_gen.py 或 $GEMINI_GEN_PATH
-   d. 运行 tools/hybrid_render/check_env.py (如存在)
+   a. 读取 ~/.claude/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
+   b. 检查环境变量 GEMINI_GEN_PATH (gemini_gen.py 路径)
+   c. 检查 gemini_gen.py 是否存在: $GEMINI_GEN_PATH
+   d. 运行 python cad_pipeline.py env-check
 8. ComfyUI AI增强 (可选，本地GPU方案):
    a. 运行 python comfyui_env_check.py → 自动检测GPU/服务/模型/依赖
    b. 显示就绪状态 ✅/❌，缺少项给出安装指引
@@ -88,10 +87,10 @@
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
   ⚠️ GPU渲染: 无GPU检测到 — 使用CPU (较慢)
      提示: 如有NVIDIA GPU环境可自动加速5-20倍 (OptiX/CUDA)
-  ✅ Gemini AI: ~/.config/gemini_image_config.json
-     API: https://generativelanguage.googleapis.com/v1beta
-     模型: gemini-2.0-flash-preview-image-generation
-     gemini_gen.py: gemini_gen.py
+  ✅ Gemini AI: ~/.claude/gemini_image_config.json
+     API: https://your-proxy.com/v1
+     模型: gemini-3-pro-image-preview
+     gemini_gen.py: /path/to/gemini_gen.py
   ✅ FangSong 仿宋字体 (C:\Windows\Fonts\simfang.ttf)
 ```
 
@@ -317,11 +316,11 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 技术路线: Blender PNG (几何精确) → AI增强后端 → 照片级 JPG
 
 后端选择 (优先级: CLI --backend > pipeline_config.json backend > 默认gemini):
-  gemini   — 云端API，开箱即用，需 GEMINI_API_KEY
+  gemini   — 云端API，需配置 ~/.claude/gemini_image_config.json
   comfyui  — 本地GPU，ControlNet几何硬锁，多视角一致性更强
 
 环境检查:
-  gemini:   gemini_gen.py 需配置 GEMINI_API_KEY
+  gemini:   python gemini_gen.py --config  (首次使用需配置 api_key/api_base_url/model)
   comfyui:  python comfyui_env_check.py  (检测GPU/服务/模型/依赖)
 
 核心工具:
@@ -334,7 +333,8 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
   格式: {"subsystem":"...", "timestamp":"...", "render_dir":"...", "files":[...], "partial":false}
   partial=true 表示本次渲染有部分视角失败，files 仅含成功的PNG
   enhance 优先读 manifest 中的 files 列表（避免处理历史文件）
-  传 --dir 时 manifest bypass，改为 glob 该目录下所有 *.png
+  传 --dir 时优先读该目录下的 render_manifest.json（如有），再 fallback 到 glob V*.png
+  glob fallback 自动排除 *_enhanced.png 避免重复处理
 
 Prompt自动填充 (Auto-enrich):
   enhance 启动时自动读取 params.py，调用 prompt_data_builder.generate_prompt_data()
@@ -370,12 +370,13 @@ Manifest-based 文件选择 (P1):
   backend: gemini        ← 切换为 comfyui 启用本地GPU后端
 
   [Gemini后端]
-  model: nano_banana_4k  ← 当前使用的模型别名
+  model: nano_banana_pro  ← 当前使用的模型别名
   可选: nano_banana (gemini-2.5-flash-image)
         nano_banana_pro (gemini-3-pro-image-preview)
         nano_banana_2 (gemini-3.1-flash-image)
         nano_banana_4k (gemini-3-pro-image-preview-4k)
-  切换: 修改 pipeline_config.json 的 enhance.model 值
+  切换: 修改 pipeline_config.json 的 enhance.model 值，或用 --model <key> 临时覆盖
+  注意: 模型必须在你的代理服务商处可用，否则返回 403/model_not_found
 
   [ComfyUI后端]
   comfyui.host: 127.0.0.1  comfyui.port: 8188
@@ -393,12 +394,15 @@ Manifest-based 文件选择 (P1):
 标准工作流:
   1. 确认 Blender PNG 已存在 (V1~VN，来自 render_manifest.json)
   2. 读取 render_config.json 的 prompt_vars 字段
-  3. 执行: python cad_pipeline.py enhance --subsystem <name> [--backend gemini|comfyui]
+  3. 执行 (任选其一):
+     python cad_pipeline.py enhance --subsystem <name>          # 从默认输出目录读manifest
+     python cad_pipeline.py enhance --dir <目录>                # 指定目录，自动读该目录manifest
+     python cad_pipeline.py enhance --dir <目录> --model <key>  # 临时覆盖模型
      (V1先处理作为风格锚点，V2~VN依次处理)
-  4. 输出: 照片级 JPG，时间戳命名防止覆盖历史版本
+  4. 输出: 照片级 PNG (时间戳命名防止覆盖历史版本)
   5. 可选: 添加元件标注 (中文/英文):
-     python annotate_render.py --all --dir <输出目录> --config render_config.json --lang cn
-     输出: *_labeled_cn.jpg / *_labeled_en.jpg
+     python cad_pipeline.py annotate --dir <目录> --lang cn
+     输出: *_labeled_cn.png / *_labeled_en.png
      注意: 中文文字用PIL+SimHei字体程序化绘制，不经过AI生成
 
 双用途:

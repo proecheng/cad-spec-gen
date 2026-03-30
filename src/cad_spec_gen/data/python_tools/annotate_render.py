@@ -108,6 +108,32 @@ def annotate_image(img_path: str, config: dict, lang: str = "cn",
         print(f"  SKIP: no labels defined for {view_id}")
         return None
 
+    # Load sidecar projected coords (written by Blender render scripts)
+    # Sidecar lives next to the source PNG: V1_front_iso_labels.json
+    # Strip _enhanced suffix before looking up sidecar (enhanced file is V1_*_enhanced.jpg)
+    _base_stem = os.path.splitext(img_path)[0]
+    _base_stem = re.sub(r'_\d{8}_\d{4}_enhanced$', '', _base_stem)  # timestamped enhanced
+    _base_stem = re.sub(r'_enhanced$', '', _base_stem)  # non-timestamped enhanced
+    _sidecar_path = _base_stem + "_labels.json"
+    _sidecar_anchors = {}  # component -> [px, py]
+    if os.path.isfile(_sidecar_path):
+        try:
+            with open(_sidecar_path, encoding="utf-8") as _sf:
+                _sidecar = json.load(_sf)
+            _sidecar_anchors = {item["component"]: item["anchor"]
+                                for item in _sidecar.get("labels", [])}
+            if _sidecar_anchors:
+                print(f"  Sidecar: {len(_sidecar_anchors)} anchors from {os.path.basename(_sidecar_path)}")
+        except Exception as _se:
+            print(f"  WARN: failed to load sidecar {_sidecar_path}: {_se}")
+
+    # Apply sidecar anchor overrides into labels list
+    labels = [
+        {**lbl, "anchor": _sidecar_anchors[lbl["component"]]}
+        if lbl.get("component") in _sidecar_anchors else lbl
+        for lbl in labels
+    ]
+
     # Component name lookup dict (names sourced from design doc BOM)
     components = config.get("components", {})
 
@@ -221,6 +247,8 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="Annotate all V*_enhanced.jpg in --dir")
     parser.add_argument("--dir", default=".", help="Directory for --all mode")
+    parser.add_argument("--manifest", default=None,
+                        help="render_manifest.json path; sets --dir from manifest render_dir")
     parser.add_argument("--font-size", type=int, default=20,
                         help="Base font size at 1080p (default: 20)")
     parser.add_argument("--style", default="clean", choices=["clean", "dark", "light"],
@@ -243,17 +271,58 @@ def main():
         print("ERROR: No 'labels' section in config file.")
         sys.exit(1)
 
+    manifest_files = None  # explicit file list from manifest (overrides glob)
+    if args.manifest:
+        if not os.path.isfile(args.manifest):
+            print(f"ERROR: manifest not found: {args.manifest}")
+            sys.exit(1)
+        with open(args.manifest, encoding="utf-8") as _mf:
+            _mdata = json.load(_mf)
+        _render_dir = _mdata.get("render_dir", ".")
+        _raw_pngs = _mdata.get("files", [])
+        # For each raw PNG in manifest, find enhanced JPG if it exists;
+        # fall back to the raw PNG itself if no enhanced version present.
+        manifest_files = []
+        for _raw in _raw_pngs:
+            _stem = os.path.splitext(os.path.basename(_raw))[0]
+            _enhanced = sorted(glob.glob(
+                os.path.join(_render_dir, f"{_stem}_*_enhanced.jpg")
+            ))
+            if _enhanced:
+                manifest_files.extend(_enhanced)  # may be multiple (timestamp variants)
+            else:
+                if os.path.isfile(_raw):
+                    manifest_files.append(_raw)
+        # Deduplicate while preserving order
+        _seen = set()
+        _deduped = []
+        for f in manifest_files:
+            if f not in _seen:
+                _seen.add(f)
+                _deduped.append(f)
+        manifest_files = _deduped
+        print(f"Manifest loaded: {len(manifest_files)} files to annotate")
+        args.all = True
+        args.dir = _render_dir
+
     if args.all:
         # Discover files by scanning all JPGs and matching against config view IDs
         labels_cfg = config.get("labels", {})
         valid_views = [k for k in labels_cfg if not k.startswith("_")]
-        all_jpgs = sorted(glob.glob(os.path.join(args.dir, "*.jpg")))
+        if manifest_files is not None:
+            # Manifest mode: use explicit file list, still filter out already-labeled
+            all_imgs = manifest_files
+        else:
+            all_imgs = sorted(
+                glob.glob(os.path.join(args.dir, "*.jpg")) +
+                glob.glob(os.path.join(args.dir, "*.png"))
+            )
         # Exclude already-labeled files, then filter to those matching a valid view
-        files = [f for f in all_jpgs
+        files = [f for f in all_imgs
                  if "_labeled_" not in f
                  and detect_view_id(os.path.basename(f), valid_views)]
         if not files:
-            print(f"No annotatable images found in {args.dir} "
+            print(f"No annotatable images found "
                   f"(expected views: {', '.join(valid_views)})")
             sys.exit(1)
         print(f"Annotating {len(files)} images ({args.lang})...")

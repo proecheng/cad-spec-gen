@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "subsystem": {
+    "name": "lifting_platform",
+    "name_cn": "丝杠式升降平台",
+    "part_prefix": "SLP",
+    "glb_file": "SLP-000_assembly.glb",
+    "bounding_radius_mm": 250
+  },
+  "coordinate_system": "Z-axis vertical (up). Origin at bottom plate top surface center. Total height ~418mm.",
+  "prompt_vars": {
+    "product_name": "Lead-screw lifting platform (hydraulic clamp carrier) — a vertical linear actuator with 2 lead screws + 2 guide shafts in diagonal layout, driven by NEMA23 stepper motor via GT2 belt",
+    "material_descriptions": [
+      {"visual_cue": "Flat plates visible in the image", "material_desc": "Black anodized aluminum, matte dark finish"},
+      {"visual_cue": "Vertical rods with thread grooves", "material_desc": "Dark steel with visible thread texture"},
+      {"visual_cue": "Vertical smooth rods", "material_desc": "Chrome-plated mirror-finish steel"},
+      {"visual_cue": "Small blocks where rods meet plates", "material_desc": "Silver-gray cast metal bearing housings"}
+    ],
+    "negative_constraints": "CRITICAL: Do NOT add ANY parts, components, cylinders, motors, wires, cables, or objects that are NOT already visible in the input image. Only change surface materials/textures of existing geometry. The output must have EXACTLY the same number of parts as the input."
+  },
+  "assembly_description": {
+    "V1": "ONLY enhance surface materials of the parts ALREADY VISIBLE in the input image. Do NOT add any new parts.",
+    "V2": "ONLY enhance surface materials of the parts ALREADY VISIBLE in the input image. Do NOT add any new parts.",
+    "V3": "ONLY enhance surface materials of the parts ALREADY VISIBLE in the input image. Do NOT add any new parts.",
+    "V4": "ONLY enhance surface materials of the parts ALREADY VISIBLE in the input image. Do NOT add any new parts."
+  },
+  "materials": {
+    "SLP-100*": {"preset": "black_anodized", "label": "Top plate"},
+    "SLP-200*": {"preset": "black_anodized", "label": "Left bar"},
+    "SLP-201*": {"preset": "black_anodized", "label": "Right bar"},
+    "SLP-300*": {"preset": "black_anodized", "label": "Moving plate"},
+    "SLP-400*": {"preset": "black_anodized", "label": "Motor bracket"},
+    "SLP-P01*": {"preset": "dark_steel", "label": "Lead screw"},
+    "SLP-P02*": {"preset": "stainless_304", "label": "Guide shaft"},
+    "KFL001*": {"preset": "stainless_304", "label": "Bearing block"},
+    "T16*": {"preset": "bronze", "label": "Bronze nut"},
+    "LM10UU*": {"preset": "stainless_304", "label": "Linear bearing"},
+    "NEMA23*": {"preset": "dark_steel", "label": "Motor"},
+    "L070*": {"preset": "brushed_aluminum", "label": "Coupler"},
+    "GT2*": {"preset": "dark_steel", "label": "Pulley"}
+  },
+  "explode": {
+    "camera_preset": "V5",
+    "spread_mm": 70,
+    "z_spread_mm": 100,
+    "rules": {
+      "top_plate":    {"z_offset":  1.0},
+      "left_bar":     {"angle_deg": 180.0, "radial": true},
+      "right_bar":    {"angle_deg":   0.0, "radial": true},
+      "moving_plate": {"z_offset":  0.5},
+      "bracket":      {"z_offset": -1.0},
+      "ls1":          {"angle_deg":  27.0, "radial": true},
+      "ls2":          {"angle_deg": 207.0, "radial": true},
+      "gs1":          {"angle_deg": 333.0, "radial": true},
+      "gs2":          {"angle_deg": 153.0, "radial": true},
+      "t16":          {"z_offset":  0.5},
+      "lm10uu":       {"z_offset":  0.5},
+      "nema23":       {"z_offset": -1.5},
+      "l070":         {"z_offset": -0.8},
+      "gt2":          {"z_offset": -1.3}
+    }
+  },
+  "camera": {
+    "V1": {
+      "name": "V1_front_iso",
+      "type": "standard",
+      "location": [350, -380, 280],
+      "target": [0, 0, 130],
+      "lens_mm": 50,
+      "description": "Front isometric view of the vertical lifting platform"
+    },
+    "V2": {
+      "name": "V2_rear_oblique",
+      "type": "standard",
+      "location": [-320, 350, 350],
+      "target": [0, 0, 130],
+      "lens_mm": 50,
+      "description": "Rear oblique view of the vertical lifting platform"
+    },
+    "V3": {
+      "name": "V3_side_elevation",
+      "type": "standard",
+      "location": [500, 0, 130],
+      "target": [0, 0, 130],
+      "lens_mm": 65,
+      "description": "Right side elevation of the vertical lifting platform"
+    },
+    "V4": {
+      "name": "V4_ortho_front",
+      "type": "ortho",
+      "location": [0, -500, 130],
+      "target": [0, 0, 130],
+      "ortho": true,
+      "ortho_scale": 450,
+      "description": "Front orthographic projection of the vertical lifting platform"
+    },
+    "V5": {
+      "name": "V5_exploded",
+      "type": "standard",
+      "location": [450, -490, 360],
+      "target": [0, 0, 100],
+      "lens_mm": 50,
+      "description": "Front isometric exploded view of the lifting platform"
+    },
+    "V6": {
+      "name": "V6_section",
+      "type": "section",
+      "location": [500, 0, 200],
+      "target": [0, 0, 130],
+      "lens_mm": 65,
+      "description": "YZ plane cross-section showing internal lead-screw mechanism",
+      "section": {
+        "cut_type": "half",
+        "cut_plane": "YZ",
+        "offset_mm": 0
+      }
+    }
+  },
+  "standard_parts": [],
+  "components": {
+    "SLP-100_top_plate": {"name_cn": "上固定板", "name_en": "Top Plate", "bom_id": "SLP-100"},
+    "SLP-200_left_bar": {"name_cn": "左支撑条", "name_en": "Left Support Bar", "bom_id": "SLP-200"},
+    "SLP-201_right_bar": {"name_cn": "右支撑条", "name_en": "Right Support Bar", "bom_id": "SLP-201"},
+    "SLP-300_moving_plate": {"name_cn": "动板", "name_en": "Moving Plate", "bom_id": "SLP-300"},
+    "SLP-400_bracket": {"name_cn": "电机支架", "name_en": "Motor Bracket", "bom_id": "SLP-400"},
+    "SLP-P01_LS1": {"name_cn": "丝杠LS1", "name_en": "Lead Screw LS1", "bom_id": "SLP-P01"},
+    "SLP-P01_LS2": {"name_cn": "丝杠LS2", "name_en": "Lead Screw LS2", "bom_id": "SLP-P01"},
+    "SLP-P02_GS1": {"name_cn": "导向轴GS1", "name_en": "Guide Shaft GS1", "bom_id": "SLP-P02"},
+    "SLP-P02_GS2": {"name_cn": "导向轴GS2", "name_en": "Guide Shaft GS2", "bom_id": "SLP-P02"},
+    "NEMA23_motor": {"name_cn": "步进电机", "name_en": "NEMA23 Motor", "bom_id": "SLP-C07"},
+    "L070_coupler": {"name_cn": "联轴器", "name_en": "Coupler L070", "bom_id": "SLP-C06"}
+  },
+  "labels": {
+    "V1": [
+      {"component": "SLP-100_top_plate", "anchor": [960, 150], "label": [1600, 100]},
+      {"component": "SLP-300_moving_plate", "anchor": [960, 450], "label": [1600, 400]},
+      {"component": "SLP-P01_LS1", "anchor": [400, 400], "label": [150, 350]},
+      {"component": "NEMA23_motor", "anchor": [1200, 800], "label": [1600, 850]}
+    ]
+  },
+  "resolution": {"width": 1920, "height": 1080}
+}

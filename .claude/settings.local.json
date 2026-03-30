@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__filesystem__directory_tree",
+      "Bash(python -c \":*)",
+      "Bash(find D:/cad-skill/cad/end_effector/ -maxdepth 2 -name *.glb -o -name *.step -o -name *.png -o -name *.jpg)",
+      "Bash(find D:/cad-skill -name *.png)",
+      "Bash(for f:*)",
+      "Bash(do diff:*)",
+      "Bash(echo \"$f SAME\")",
+      "Bash(echo \"$f DIFFER\")",
+      "Bash(done)",
+      "Bash(mkdir -p ~/.claude/commands)",
+      "Bash(cp D:/cad-skill/.claude/commands/*.md ~/.claude/commands/)",
+      "Read(//c/Users/admin/.claude/**)",
+      "Bash(echo \"HOME=$HOME\")",
+      "Read(//d/cad-skill/$HOME/.claude/**)",
+      "Bash(echo \"USERPROFILE=$USERPROFILE\")",
+      "Read(//d/cad-skill/$USERPROFILE/.claude/**)"
+    ]
+  }
+}
