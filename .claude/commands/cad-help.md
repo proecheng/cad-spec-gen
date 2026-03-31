@@ -18,21 +18,76 @@
    - 按该意图的"动作详情"执行（能跑程序的直接跑，需引导的分步展开）
    - 如果匹配不到任何意图，回复"未能理解您的问题"并显示帮助面板
 
-3. **全管线请求**（当用户要求"全部流程"/"走全流程"/"全管线"/"full pipeline"时）：
-   > **重建原则：每次全管线均从头完整重建，覆盖所有已有产物（SPEC、GLB、PNG、JPG 等）。不检查已有文件是否存在，不跳过任何阶段。**
-   1. 先运行 Phase 1 SPEC（含 `--force --review`）强制重新生成
-   2. **必须**读取 `DESIGN_REVIEW.json` 并向用户展示审查摘要（CRITICAL/WARNING/INFO/OK 计数 + WARNING 条目详情）
-   3. 提供 3 选项让用户选择：
-      - 「继续审查」→ 逐项讨论 WARNING/CRITICAL，用户可调整参数
-      - 「自动补全」→ 运行 `--auto-fill` 后继续后续阶段
-      - 「下一步」→ 按现有数据直接继续 Phase 2+
-   4. 用户确认后，询问 enhance 后端（gemini/comfyui），再执行后续阶段：
-      - Phase 2: `codegen --force`（强制覆盖已有代码）
-      - Phase 3: `build`（重新生成 STEP + GLB，覆盖旧版）
-      - Phase 4: `render`（重新渲染所有视角，覆盖旧 PNG）
-      - Phase 5: `enhance`（重新 AI 增强，覆盖旧 JPG）
-      - Phase 6: `annotate`（重新标注，覆盖旧标注图）
-   5. **不可**跳过此步骤直接执行 `cad_pipeline.py full`（管线层也有断点保护）
+3. **全管线请求**（当用户要求绘图/渲染/全部流程/走全流程/全管线/full pipeline，或请求同时生成2D+3D产物时）：
+
+   #### Step 0 — 产物扫描 + 阶段总览（必须先执行）
+
+   扫描目标子系统目录，向用户展示各阶段产物状态，等待用户选择后再执行。**禁止跳过此步骤。**
+
+   **扫描逻辑**：
+   ```
+   Phase 1  SPEC      → 检查 cad/<subsystem>/CAD_SPEC.md 是否存在 + mtime
+   Phase 2  CODEGEN   → 检查 cad/<subsystem>/build_all.py, params.py, assembly.py 是否存在
+   Phase 3  BUILD     → 检查 cad/output/ 下是否有该子系统的 .step/.glb 文件 + mtime
+   Phase 4  RENDER    → 检查 cad/output/renders/ 下是否有该子系统的 V*.png + 数量 + mtime
+   Phase 5  ENHANCE   → 检查是否有 *_enhanced.* 文件
+   Phase 6  ANNOTATE  → 检查是否有 *_labeled_*.png 文件
+   ```
+
+   **输出格式**（示例）：
+   ```
+   === 丝杠式升降平台 (lifting_platform) — 管线状态 ===
+
+   Phase 1  SPEC       ✅ CAD_SPEC.md (2026-03-29)
+   Phase 2  CODEGEN    ✅ build_all.py + params.py + 7个 draw_*.py
+   Phase 3  BUILD      ✅ SLP-000_assembly.glb (2026-03-31)
+   Phase 4  RENDER     ✅ 7个 PNG (2026-03-31 14:03)
+   Phase 5  ENHANCE    ❌ 无增强图
+   Phase 6  ANNOTATE   ❌ 无标注图
+
+   请选择起点：
+     A. 完全从头重建（覆盖所有已有产物，从 Phase 1 SPEC 开始）
+     B. 从 Phase 5 ENHANCE 续跑（保留已有 SPEC/代码/GLB/PNG）
+     C. 仅重建指定阶段（请说明阶段编号，如 "3 4" 表示重跑 BUILD + RENDER）
+   ```
+
+   **选项生成规则**：
+   - 选项 A 始终存在：完全从头重建
+   - 选项 B 自动计算：找到第一个 ❌ 阶段，建议从该阶段开始续跑
+   - 选项 C 始终存在：用户自由指定阶段
+   - 如果全部阶段都是 ✅，选项 B 改为"全部产物已存在，是否重建？"
+
+   **等待用户回复后，按选择执行对应阶段。**
+
+   #### Step 1 — 执行选定阶段
+
+   根据用户在 Step 0 的选择：
+
+   - **选 A（完全从头）**→ 按原有全管线流程执行：
+     1. 运行 Phase 1 SPEC（`--force --review`）强制重新生成
+     2. **必须**读取 `DESIGN_REVIEW.json` 并向用户展示审查摘要（CRITICAL/WARNING/INFO/OK 计数 + WARNING 条目详情）
+     3. 提供 3 选项让用户选择：
+        - 「继续审查」→ 逐项讨论 WARNING/CRITICAL，用户可调整参数
+        - 「自动补全」→ 运行 `--auto-fill` 后继续后续阶段
+        - 「下一步」→ 按现有数据直接继续 Phase 2+
+     4. 用户确认后，询问 enhance 后端（gemini/comfyui），再执行后续阶段：
+        - Phase 2: `codegen --force`（强制覆盖已有代码）
+        - Phase 3: `build`（重新生成 STEP + GLB，覆盖旧版）
+        - Phase 4: `render`（重新渲染所有视角，覆盖旧 PNG）
+        - Phase 5: `enhance`（重新 AI 增强，覆盖旧 JPG）
+        - Phase 6: `annotate`（重新标注，覆盖旧标注图）
+
+   - **选 B（续跑）**→ 从建议的阶段开始，按顺序执行到最后一个阶段：
+     - 如果起点包含 Phase 1 SPEC，则执行审查流程（同选 A 的 1-3 步）
+     - 如果起点是 Phase 3 BUILD 或之后，直接按顺序执行，无需审查
+     - 如果起点包含 Phase 5 ENHANCE，先询问 enhance 后端（gemini/comfyui）
+
+   - **选 C（指定阶段）**→ 仅执行用户指定的阶段：
+     - 如果包含 Phase 4 RENDER，**必须先执行 Phase 3 BUILD**（GLB 必须与当前代码一致）
+     - 如果包含 Phase 5 ENHANCE，先询问 enhance 后端
+     - 其余按指定阶段顺序执行
+
+   **不可**跳过 Step 0 直接执行 `cad_pipeline.py full`（管线层也有断点保护）。
 
 ### 执行约束
 
