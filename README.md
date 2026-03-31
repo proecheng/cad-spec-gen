@@ -245,7 +245,9 @@ python cad_pipeline.py env-check
 ### AI Enhancement Quick Start
 
 After Blender renders your PNGs, enhance them to photorealistic images via the pipeline.
-Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local GPU, better multi-view consistency).
+Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local GPU, ControlNet geometry lock).
+
+**v2.1 — Multi-view consistency (Gemini):** four-layer defense ensures each view keeps its correct camera angle after enhancement: auto-computed azimuth/elevation written into prompt, source image placed first (locks composition), V1 result used as material anchor for V2–VN, source PNG sent at full resolution (≤4 MB uncompressed).
 
 **First-time Gemini setup** — configure your API proxy:
 ```bash
@@ -274,8 +276,8 @@ python comfyui_env_check.py
 The enhance step automatically:
 - Reads `render_manifest.json` from `--dir` or default renders dir to process only latest render files
 - Auto-enriches prompt data from `params.py` via `prompt_data_builder.py` (materials, assembly description, constraints)
-- **Gemini**: passes model from `pipeline_config.json` `enhance.model` field (override with `--model`); geometry locked via prompt
-- **ComfyUI**: uses ControlNet depth+canny to hard-lock geometry; better multi-view consistency; requires local GPU
+- **Gemini** (v2.1): geometry and viewpoint locked via prompt — auto-computed camera angle (azimuth/elevation), source image first, V1-anchor reference, full-res PNG input
+- **ComfyUI**: uses ControlNet depth+canny to hard-lock geometry; requires local GPU
 - Skips `*_enhanced.*` files to prevent re-processing
 
 Switch backend permanently in `pipeline_config.json`:
