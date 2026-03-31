@@ -12,7 +12,7 @@
 
 ### Phase 1: 参数提取 → params.py + tolerances.py
 
-**输入**: 设计文档 `docs/design/NN-*.md`（§X.4 详细设计）
+**输入**: 设计文档（`docs/design/NN-*.md` 或绝对路径如 `D:/jiehuo/docs/NN-*.md`，§X.4 详细设计）
 **输出**: `cad/<subsystem>/params.py`（单一数据源）
 
 规则：
@@ -42,7 +42,7 @@ MOUNT_CENTER_R = 40.0    # 安装中心半径 mm
 
 ### Phase 2: BOM 建模 → bom.py
 
-**输入**: 设计文档 §X.8 BOM 表
+**输入**: 设计文档 §X.8 BOM 表（从实际设计文档路径读取）
 **输出**: `cad/<subsystem>/bom.py`（零件清单 + 成本汇总）
 
 规则：
@@ -161,6 +161,35 @@ build_all.py 结构：
 
 ---
 
+## 三道门控（质量关卡）
+
+管线在三个关键节点设有强制检查，任一失败均会中止后续阶段：
+
+| 门控 | 触发时机 | 检查内容 | 失败处理 |
+|------|----------|----------|----------|
+| **门控1** DESIGN_REVIEW CRITICAL | SPEC 阶段末 | `cad_spec_reviewer.py` 发现 CRITICAL 级问题 | 打印问题列表，要求用户确认后方可继续 |
+| **门控2** TODO 扫描 | CODEGEN 阶段末 | `gen_parts.py` 扫描所有新生成文件中的 `TODO:` 标记 | exit code 2，打印文件名+行号+内容，禁止进入 BUILD |
+| **门控3** 方位检查 | BUILD 阶段前 | `orientation_check.py` 断言包围盒主轴与设计文档一致 | exit code 非0，打印轴向偏差，禁止构建；可用 `--skip-orientation` 强制绕过（不推荐）|
+
+### 门控2 详细规则
+
+`gen_parts.py` 生成脚手架后立即扫描所有新文件的 `TODO:` 标记：
+- **有未填 TODO** → 打印 WARNING 列表，以 **exit code 2** 退出
+- **全部填写** → 正常退出（exit code 0），继续 BUILD
+
+### 门控3 详细规则
+
+`orientation_check.py` 由用户或 codegen 在子系统目录下创建，内容断言构建后模型的包围盒主轴方向：
+```python
+# 示例: orientation_check.py
+assert abs(bb.xmax - bb.xmin - EXPECTED_X) < TOL, f"X 轴尺寸偏差: {bb.xmax-bb.xmin:.1f} vs {EXPECTED_X}"
+```
+- 文件不存在 → 跳过门控（非强制）
+- 文件存在且失败 → BUILD 中止
+- `--skip-orientation` 标志可绕过（仅调试用）
+
+---
+
 ## 参考实现
 
 `cad/end_effector/` 是完整的参考实现：
@@ -211,4 +240,4 @@ cad/end_effector/
 3. **2D 直接绘制** — 从 params.py 画轮廓，不做 3D→2D 投影
 4. **GB/T 国标** — 第一角投影、仿宋体、12层DXF、d=0.50mm 线宽
 5. **输出统一** — 所有产物到 `cad/output/`
-6. **ARM_THICK=8mm** — 设计文档 §4.4.1 line 434 明确规定，不可随意修改
+6. **关键尺寸不可随意修改** — 从设计文档明确规定的参数须严格遵守，修改前核对原始章节

@@ -14,7 +14,9 @@
 
    示例:
      /cad-spec docs/design/04-末端执行机构设计.md
-     /cad-spec docs/design/04-末端执行机构设计.md --review-only
+     /cad-spec D:/jiehuo/docs/19-液压钳升降平台设计.md
+     /cad-spec docs/design/04-末端执行机构设计.md
+     /cad-spec D:/jiehuo/docs/19-液压钳升降平台设计.md --review-only
      /cad-spec docs/design/05-电气系统与信号调理.md --force
      /cad-spec --all
 
@@ -24,12 +26,12 @@
 
 2. **`--all`** → 处理全部子系统：
    ```bash
-   python cad_spec_gen.py --all --config config/gisbot.json
+   python cad_pipeline.py spec --all --force
    ```
 
 3. **文件路径** → 处理单个文档：
    ```bash
-   python cad_spec_gen.py $ARGUMENTS --config config/gisbot.json
+   python cad_pipeline.py spec --subsystem <subsystem> --design-doc $ARGUMENTS --force
    ```
 
 4. **`--review-only`** → Agent 驱动设计审查工作流（推荐）：

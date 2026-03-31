@@ -1,116 +1,145 @@
-# /cad-enhance — AI 增强（Blender PNG → 照片级 JPG）
+# /cad-enhance — AI Enhancement (Blender PNG → Photorealistic JPG)
 
-用户输入: $ARGUMENTS
+User input: $ARGUMENTS
 
-## 指令
+## Instructions
 
-将 Blender Cycles 渲染的 PNG 图片增强为照片级 JPG。几何形状 100% 锁定，仅更换表面材质外观。
+Enhance Blender Cycles rendered PNG images into photorealistic JPG. Geometry is 100% locked — only surface material appearance is changed.
 
-支持两种后端：**Gemini**（云端 API，无 GPU 要求）和 **ComfyUI**（本地，需 GPU，多视角一致性更强）。
+Supports two backends: **Gemini** (cloud API, no GPU required) and **ComfyUI** (local, requires GPU, stronger multi-view consistency).
 
-### 路由规则
+### Routing Rules
 
-1. **无参数** → 显示用法：
+1. **No arguments** → Show usage:
    ```
-   /cad-enhance <subsystem>                           — 增强当前 manifest 的所有视角
-   /cad-enhance <subsystem> --backend gemini          — 强制使用 Gemini 后端
-   /cad-enhance <subsystem> --backend comfyui         — 强制使用 ComfyUI 后端
-   /cad-enhance --env-check                           — 检测 ComfyUI 环境是否就绪
-   ```
-
-2. **有参数但未指定 `--backend`** → 先询问用户选择后端：
-
-   读取 `pipeline_config.json` 的 `enhance.backend` 当前值，然后向用户展示：
-
-   ```
-   当前默认后端：<backend>（来自 pipeline_config.json）
-
-   请选择增强后端：
-   A. Gemini（推荐）— 云端 API，无需 GPU，开箱即用
-   B. ComfyUI       — 本地 GPU，ControlNet 几何硬锁，多视角一致性更强（需 GPU 8GB+）
-   C. 保持默认（<backend>）
+   /cad-enhance <subsystem>                           — enhance all views in current manifest
+   /cad-enhance <subsystem> --backend gemini          — force Gemini backend
+   /cad-enhance <subsystem> --backend comfyui         — force ComfyUI backend
+   /cad-enhance --env-check                           — check if ComfyUI environment is ready
    ```
 
-   - 用户选 A → 使用 `gemini` 后端执行
-   - 用户选 B → 先运行 `python comfyui_env_check.py` 检测环境，环境就绪后执行；若缺少组件，展示安装指引并询问是否继续
-   - 用户选 C 或直接回车 → 使用当前默认后端执行
-   - 用户回复中含 `gemini` / `A` → 使用 gemini
-   - 用户回复中含 `comfyui` / `B` → 使用 comfyui
+2. **With arguments but no `--backend`** → Ask user to choose backend:
 
-3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
-   - 若 `--backend comfyui`：先运行 `python comfyui_env_check.py`，若环境未就绪则展示安装指引并询问是否继续
-   - 读取对应子系统的 `render_config.json` 获取材质描述（`prompt_vars.material_descriptions`）
-   - 使用统一 prompt 模板 `templates/prompt_enhance_unified.txt`
-     - 按 `render_config.json` 的 `camera.V*.type` 字段自动切换视角特定内容
-     - `prompt_data_builder.py` 从 `params.py` 自动生成材质/装配/约束数据
-   - 将输出文件重命名为 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`（与源 PNG 同目录），时间戳防止覆盖历史版本
+   Read `pipeline_config.json` `enhance.backend` current value, then show:
 
-### 后端选择
+   ```
+   Current default backend: <backend> (from pipeline_config.json)
 
-| 后端 | 适用场景 | 依赖 | 一致性 |
-|------|----------|------|--------|
-| `gemini` | 无 GPU / 快速试用 | Gemini API Key | 中（AI 有时改变视角） |
-| `comfyui` | 追求多视角一致性 | 本地 GPU 8GB+，ComfyUI + ControlNet | 高（depth+canny 硬锁几何） |
+   Choose enhancement backend:
+   A. Gemini (recommended) — Cloud API, no GPU needed, works out of the box
+   B. ComfyUI              — Local GPU, ControlNet geometry lock, stronger multi-view consistency (requires 8GB+ GPU)
+   C. Keep default (<backend>)
+   ```
 
-**切换后端（三种方式，优先级从高到低）：**
+   - User selects A → use `gemini` backend
+   - User selects B → run `python comfyui_env_check.py` first; if ready, proceed; if components missing, show install guide and ask whether to continue
+   - User selects C or presses Enter → use current default backend
+   - User reply contains `gemini` / `A` → use gemini
+   - User reply contains `comfyui` / `B` → use comfyui
+
+3. **With arguments and `--backend` specified** → Skip prompt, execute enhancement directly:
+   - If `--backend comfyui`: run `python comfyui_env_check.py` first; if not ready, show install guide and ask whether to continue
+   - Read `render_config.json` for the subsystem to get material descriptions (`prompt_vars.material_descriptions`)
+   - Use unified prompt template `templates/prompt_enhance_unified.txt`
+     - Auto-switch view-specific content based on `camera.V*.type` field in `render_config.json`
+     - `prompt_data_builder.py` auto-generates material/assembly/constraint data from `params.py`
+   - Rename output files to `V*_viewname_YYYYMMDD_HHMM_enhanced.ext` (same directory as source PNG); timestamp prevents overwriting history
+
+### Backend Selection
+
+| Backend | Use Case | Dependencies | Consistency |
+|---------|----------|-------------|-------------|
+| `gemini` | No GPU / quick trial | Gemini API Key | Medium (AI may occasionally shift viewpoint) |
+| `comfyui` | Multi-view consistency | Local 8GB+ GPU, ComfyUI + ControlNet | High (depth+canny geometry hard-lock) |
+
+**Switch backend (three methods, priority high to low):**
 
 ```bash
-# 1. CLI 参数（临时）
+# 1. CLI argument (temporary)
 python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
 
-# 2. 修改 pipeline_config.json（持久）
+# 2. Edit pipeline_config.json (persistent)
 "enhance": { "backend": "comfyui" }
 
-# 3. 默认为 gemini，无需修改
+# 3. Default is gemini, no change needed
 ```
 
-### ComfyUI 环境检测
+### ComfyUI Environment Check
 
-首次使用 ComfyUI 前运行：
+Before using ComfyUI for the first time, run:
 
 ```bash
 python comfyui_env_check.py
 ```
 
-输出示例：
+Sample output:
 ```
 [OK]  GPU: NVIDIA RTX 3080 (CUDA 12.1)
-[OK]  ComfyUI 服务运行中 (localhost:8188)
-[OK]  ControlNet 模型: control_v11p_sd15_depth.pth
-[OK]  ControlNet 模型: control_v11p_sd15_canny.pth
-[WARN] Stable Diffusion 基础模型未找到 → 建议下载 realisticVisionV60B1.safetensors
+[OK]  ComfyUI service running (localhost:8188)
+[OK]  ControlNet model: control_v11p_sd15_depth.pth
+[OK]  ControlNet model: control_v11p_sd15_canny.pth
+[WARN] Checkpoint: realisticVisionV60B1_v51VAE.safetensors not found
+       → Download from CivitAI and place in ComfyUI/models/checkpoints/
 ```
 
-缺少组件时，脚本会输出对应的下载/安装指令。
+If `[WARN]` or `[FAIL]` items are present, the tool shows targeted installation instructions.
 
-### ComfyUI 工作原理
+### Execution Commands
 
-- 为每张 PNG 自动生成 depth map（MiDaS）+ canny 边缘图
-- 以这两张控制图约束 SD 生成，**几何由图像硬锁**，不依赖文字指令
-- 通过 `localhost:8188` REST API 提交 workflow JSON，轮询结果
-- workflow 模板位于 `templates/comfyui_workflow_template.json`
+```bash
+# Gemini backend
+python cad_pipeline.py enhance --subsystem end_effector --backend gemini
 
-### Layout 路由（v2.0 新增）
+# ComfyUI backend
+python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
 
-`prompt_data_builder.py` 根据子系统 layout 类型自动路由 prompt 数据生成策略：
+# Enhance specific directory
+python cad_pipeline.py enhance --subsystem end_effector --backend gemini \
+  --dir cad/output/end_effector/20240315_143022/
+```
 
-| `render_config.json` 的 `layout.type` | 路由 | 行为 |
-|---------------------------------------|------|------|
-| `radial`（或 params.py 含 `STATION_ANGLES`/`MOUNT_CENTER_R`） | `_generate_radial_prompt_data()` | 完整的 4 工位描述、N1-N10 约束、标准件列表（末端执行器专用） |
-| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | 仅从 `rc["materials"]` 派生材质描述；`assembly_description`/`negative_constraints`/`standard_parts` 使用 render_config.json 中**用户手写的值** |
+### Unified Prompt Template
 
-非 radial 子系统（如 lifting_platform）**不会**注入任何末端执行器专用术语（flange、PEEK、station、cable chain 等），避免 Gemini 生成幽灵零件。
+All enhancements use `templates/prompt_enhance_unified.txt` — a single template covering all view types:
 
-### 核心原则
+```
+[SYSTEM]
+You are an industrial product visualization expert. ...
 
-- **几何锁定**：Gemini 模式下 prompt 首行写 "Keep ALL geometry EXACTLY unchanged"；ComfyUI 模式下由 ControlNet 硬约束
-- **材质来源**：所有材质描述从 render_config.json `prompt_vars` 和 `materials` 读取，不要凭空编造
-- **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
-- **Layout 感知**：非 radial 布局的子系统不注入硬编码零件描述
+[TASK]
+Enhance this Blender render into a photorealistic product image.
 
-### 标准件增强
+[GEOMETRY LOCK — CRITICAL]
+Do NOT change: part shapes, dimensions, proportions, assembly relationships, camera angle, ...
 
-prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_config.json` 的 `standard_parts` 数组填充：
+[VIEW TYPE: {view_type}]
+{view_specific_instructions}
+
+[MATERIAL]
+{material_descriptions}
+
+[ASSEMBLY]
+{assembly_context}
+```
+
+`prompt_data_builder.py` automatically fills `{material_descriptions}`, `{assembly_context}` and other placeholders from `params.py` at runtime (in-memory, no disk write).
+
+### View Type Dispatch
+
+Based on `camera.V*.type` in `render_config.json`, the template auto-selects view-specific instructions:
+
+| View Type | Instructions Focus |
+|-----------|-------------------|
+| `perspective` | Global material quality, lighting realism |
+| `orthographic` | No perspective distortion, engineering accuracy |
+| `exploded` | Preserve part spacing, show assembly relationships |
+| `section` | Interior structure visible, cut surface material |
+
+Each view type uses a different template segment to ensure exploded views retain spacing and orthographic views have no perspective.
+
+### Standard Parts Enhancement
+
+The prompt template includes a `{standard_parts_description}` placeholder filled from the `standard_parts` array in `render_config.json`:
 
 ```json
 "standard_parts": [
@@ -119,11 +148,11 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
 ]
 ```
 
-两种后端均使用此描述。如 `standard_parts` 为空，占位符替换为空字符串，不影响现有流程。
+Both backends use this description. If `standard_parts` is empty, the placeholder is replaced with an empty string without affecting the existing workflow.
 
-### Gemini 模型选择
+### Gemini Model Selection
 
-`pipeline_config.json` 的 `enhance` 段配置 Gemini 模型：
+Configure the Gemini model in the `enhance` section of `pipeline_config.json`:
 
 ```json
 "enhance": {
@@ -138,12 +167,12 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
 }
 ```
 
-- `model` 字段选择当前使用的模型别名
-- `models` 字典映射别名 → Gemini API model ID
-- 通过 `--model <id>` 参数传递给 `gemini_gen.py`
-- 切换模型只需修改 `pipeline_config.json` 的 `model` 值
+- `model` field selects the current model alias
+- `models` dict maps alias → Gemini API model ID
+- Passed to `gemini_gen.py` via `--model <id>` parameter
+- To switch models, only change the `model` value in `pipeline_config.json`
 
-### ComfyUI 配置
+### ComfyUI Configuration
 
 ```json
 "comfyui": {

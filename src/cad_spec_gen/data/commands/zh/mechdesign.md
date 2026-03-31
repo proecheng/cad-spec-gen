@@ -14,13 +14,13 @@
 
 1. **无参数**（`$ARGUMENTS` 为空）→ 显示流程概览：
    - 列出 6 个阶段简述
-   - 列出可用子系统（从 `docs/design/` 扫描章节文件）
+   - 列出可用子系统（从 `docs/design/` 和 `D:/jiehuo/docs/` 扫描章节文件）
    - 显示参考实现 `cad/end_effector/` 的产物统计
 
 2. **`status`** → 检查各子系统 CAD 建模进度：
    - 扫描 `cad/*/build_all.py` 找已实现的子系统
    - 扫描 `cad/output/` 统计 STEP/DXF/PNG 数量
-   - 列出所有 `docs/design/` 章节，标注哪些已建模、哪些待建
+   - 列出所有 `docs/design/` 和 `D:/jiehuo/docs/` 章节，标注哪些已建模、哪些待建
    - 推荐下一步优先级
 
 3. **`upgrade`** → 启动2D工程图国标升级（V4方案）：
@@ -32,7 +32,7 @@
    - Phase 4: 全量验证
 
 4. **`<子系统名>`**（如 `充电对接机构`、`底盘`、`电池箱`）→ 启动全流程：
-   - 确认目标子系统和对应设计文档（`docs/design/NN-*.md`）
+   - 确认目标子系统和对应设计文档（`docs/design/NN-*.md` 或 `D:/jiehuo/docs/NN-*.md` 等绝对路径均可）
    - 检查是否已有 `/cad-codegen` 生成的脚手架代码；如有，在此基础上完善
    - 按 skill_mech_design.md 中的 6 阶段顺序执行：
      1. 参数提取 → `params.py` + `tolerances.py`
@@ -61,6 +61,6 @@
 如不需要手动精细建模，可使用自动化管线一键完成：
 ```bash
 # 自动全流程：审查 → 代码生成 → 构建 → 渲染 → 增强 → 标注
-python cad_pipeline.py full --subsystem <name> --design-doc docs/design/NN-*.md --timestamp
+python cad_pipeline.py full --subsystem <name> --design-doc <绝对路径或相对路径> --timestamp
 ```
 或分步执行：`/cad-spec` → `/cad-codegen` → `python cad_pipeline.py build --render`

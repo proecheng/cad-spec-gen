@@ -12,7 +12,7 @@
 
 ### Phase 1: 参数提取 → params.py + tolerances.py
 
-**输入**: 设计文档 `docs/design/NN-*.md`（§X.4 详细设计）
+**输入**: 设计文档（`docs/design/NN-*.md` 或绝对路径如 `D:/jiehuo/docs/NN-*.md`，§X.4 详细设计）
 **输出**: `cad/<subsystem>/params.py`（单一数据源）
 
 规则：
@@ -42,7 +42,7 @@ MOUNT_CENTER_R = 40.0    # 安装中心半径 mm
 
 ### Phase 2: BOM 建模 → bom.py
 
-**输入**: 设计文档 §X.8 BOM 表
+**输入**: 设计文档 §X.8 BOM 表（从实际设计文档路径读取）
 **输出**: `cad/<subsystem>/bom.py`（零件清单 + 成本汇总）
 
 规则：
@@ -240,4 +240,4 @@ cad/end_effector/
 3. **2D 直接绘制** — 从 params.py 画轮廓，不做 3D→2D 投影
 4. **GB/T 国标** — 第一角投影、仿宋体、12层DXF、d=0.50mm 线宽
 5. **输出统一** — 所有产物到 `cad/output/`
-6. **ARM_THICK=8mm** — 设计文档 §4.4.1 line 434 明确规定，不可随意修改
+6. **关键尺寸不可随意修改** — 从设计文档明确规定的参数须严格遵守，修改前核对原始章节

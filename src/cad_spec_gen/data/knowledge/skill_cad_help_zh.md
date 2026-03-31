@@ -127,8 +127,8 @@
 1. 扫描 cad/*/render_config.json 找已配置的子系统
 2. 扫描 cad/*/build_all.py 找已实现的子系统
 3. 扫描 cad/output/*.step, *.dxf, *.glb, *.png, *.jpg 统计产物
-4. 检查 bananapro/ 中已有的渲染结果
-5. 对比 docs/design/ 章节列表，找出差距
+4. 扫描 cad/output/renders/ 统计当前渲染产物
+5. 对比 docs/design/ 和 D:/jiehuo/docs/ 章节列表，找出差距
 
 推荐优先级:
   a. 有 render_config.json 但无 build_all.py → "完成3D建模"
@@ -281,22 +281,25 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 判断用户需求后执行或引导：
 
 ```
-情况A: 用户想直接渲染 → 运行命令
-  # Blender Cycles渲染 (几何精确PNG)
+**原则：无论全管线还是单独渲染，均须先 build 重新生成 GLB，再执行 Blender 渲染。**
+GLB 是 Blender 的输入，必须与当前代码/设计保持一致，不可复用旧 GLB。
+
+情况A: 用户想直接渲染 → 先 build 再 render
+  # 推荐方式：build 同时触发渲染（自动生成新 GLB 后渲染）
   cd cad/<subsystem> && python build_all.py --render
 
-  # 或单独渲染特定视角
-  tools/blender/blender.exe -b -P cad/end_effector/render_3d.py -- \
-    --config cad/end_effector/render_config.json
+  # 或分两步：先 build 生成 GLB，再单独渲染特定视角
+  cd cad/<subsystem> && python build_all.py
+  tools/blender/blender.exe -b -P cad/<subsystem>/render_3d.py -- \
+    --config cad/<subsystem>/render_config.json
 
-  # 爆炸图
-  tools/blender/blender.exe -b -P cad/end_effector/render_exploded.py -- \
-    --config cad/end_effector/render_config.json
+  # 爆炸图（同样需先确认 GLB 已由本次 build 重新生成）
+  tools/blender/blender.exe -b -P cad/<subsystem>/render_exploded.py -- \
+    --config cad/<subsystem>/render_config.json
 
-情况B: 用户还没有GLB → 引导先构建
-  1. python cad/end_effector/build_all.py  → 生成 STEP + DXF
-  2. build_all.py 中 assembly.py 导出 GLB
-  3. 再 --render 触发 Blender
+情况B: GLB 可能是旧版 → 必须先重新构建
+  1. python cad/<subsystem>/build_all.py  → 重新生成 STEP + DXF + GLB
+  2. 再 --render 触发 Blender
 
 情况C: 用户想渲染其他子系统 → 检查是否有 render_config.json
 ```
@@ -654,7 +657,7 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
 1. **生成 CAD_SPEC**: 对指定子系统运行提取器
    ```bash
    python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json           # 单个子系统
-   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --force   # 强制重生成
+   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --force   # 强制重生成
    python cad_spec_gen.py --all --config config/gisbot.json                              # 全部18个子系统
    ```
 
@@ -676,10 +679,10 @@ gemini_gen.py  ← Gemini图生图全局工具 (项目外)
 1. **运行审查**: 对设计文档提取数据后执行工程校验
    ```bash
    # 仅审查（推荐首次使用）
-   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --review-only --force
+   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --review-only --force
 
    # 审查 + 生成 CAD_SPEC
-   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json --review --force
+   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --review --force
    ```
 
 2. **展示审查结果**: 读取 `cad/<subsystem>/DESIGN_REVIEW.md`，向用户汇总：
