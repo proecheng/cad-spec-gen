@@ -37,6 +37,8 @@
     "17": {"name": "研发实施计划", "prefix": "GIS-PLN", "cad_dir": "plan",
            "aliases": ["计划", "实施", "pln", "plan"]},
     "18": {"name": "专利对照与附录", "prefix": "GIS-PAT", "cad_dir": "patent",
-           "aliases": ["专利", "附录", "pat", "patent"]}
+           "aliases": ["专利", "附录", "pat", "patent"]},
+    "19": {"name": "丝杠式升降平台", "prefix": "SLP", "cad_dir": "lifting_platform",
+           "aliases": ["升降", "升降平台", "液压钳", "lifting", "lifting_platform"]}
   }
 }

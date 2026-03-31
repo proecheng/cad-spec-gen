@@ -98,44 +98,55 @@ python cad_pipeline.py enhance --subsystem end_effector --backend gemini \
   --dir cad/output/end_effector/20240315_143022/
 ```
 
-### Unified Prompt Template
+### Layout Routing (v2.0)
 
-All enhancements use `templates/prompt_enhance_unified.txt` — a single template covering all view types:
+`prompt_data_builder.py` auto-routes prompt data generation based on subsystem layout type:
 
+| `render_config.json` `layout.type` | Route | Behavior |
+|-------------------------------------|-------|----------|
+| `radial` (or params.py contains `STATION_ANGLES`/`MOUNT_CENTER_R`) | `_generate_radial_prompt_data()` | Full 4-station descriptions, N1-N10 constraints, standard parts list (end-effector specific) |
+| `linear` / `cartesian` / `custom` | `_generate_generic_prompt_data()` | Material descriptions derived from `rc["materials"]` only; `assembly_description`/`negative_constraints`/`standard_parts` use **user-written values** from render_config.json |
+
+Non-radial subsystems (e.g., lifting_platform) do **not** inject any end-effector-specific terminology (flange, PEEK, station, cable chain, etc.), preventing Gemini from hallucinating phantom parts.
+
+### Multi-View Consistency (v2.1)
+
+Four-layer consistency defense for the Gemini backend:
+
+1. **Viewpoint Lock**
+   - `enhance_prompt.py`'s `_camera_to_view_description()` auto-computes azimuth/elevation from camera location vectors in `render_config.json`
+   - Each view gets a unique description, e.g. "rear-left oblique view at 25° elevation, 222° azimuth (50mm perspective)"
+   - Prompt template opens with `VIEWPOINT & GEOMETRY LOCK — HIGHEST PRIORITY`
+
+2. **Image Role Separation (IMAGE ROLES)**
+   - Source image placed **first** in the content array (locks composition), reference image placed **second** (provides material style only)
+   - Prompt explicitly instructs: "Image 1 = SOURCE — preserve EXACT viewpoint; Image 2 = STYLE REFERENCE ONLY"
+   - Style anchor text no longer contains phrases like "match lighting angle" that could contaminate viewpoint
+
+3. **V1-anchor Reference Image**
+   - V1 enhanced result serves as the material style reference for subsequent views (`reference_mode: "v1_anchor"`)
+   - Reference image conveys only material texture and color, not viewpoint
+   - Reference image compressed to 1280×720 q90
+
+4. **Source Image High-Fidelity**
+   - Source images ≤4MB are sent uncompressed — original 1920×1080 PNG (~1.5MB) sent as-is
+   - Full spatial detail preserved, helping Gemini recognize the source viewpoint
+
+**Related config (pipeline_config.json):**
+```json
+"enhance": {
+  "temperature": 0.2,
+  "seed_from_image": true,
+  "reference_mode": "v1_anchor"
+}
 ```
-[SYSTEM]
-You are an industrial product visualization expert. ...
 
-[TASK]
-Enhance this Blender render into a photorealistic product image.
+### Core Principles
 
-[GEOMETRY LOCK — CRITICAL]
-Do NOT change: part shapes, dimensions, proportions, assembly relationships, camera angle, ...
-
-[VIEW TYPE: {view_type}]
-{view_specific_instructions}
-
-[MATERIAL]
-{material_descriptions}
-
-[ASSEMBLY]
-{assembly_context}
-```
-
-`prompt_data_builder.py` automatically fills `{material_descriptions}`, `{assembly_context}` and other placeholders from `params.py` at runtime (in-memory, no disk write).
-
-### View Type Dispatch
-
-Based on `camera.V*.type` in `render_config.json`, the template auto-selects view-specific instructions:
-
-| View Type | Instructions Focus |
-|-----------|-------------------|
-| `perspective` | Global material quality, lighting realism |
-| `orthographic` | No perspective distortion, engineering accuracy |
-| `exploded` | Preserve part spacing, show assembly relationships |
-| `section` | Interior structure visible, cut surface material |
-
-Each view type uses a different template segment to ensure exploded views retain spacing and orthographic views have no perspective.
+- **Viewpoint Lock**: Prompt opens with "Preserve the EXACT camera angle, viewpoint, and framing"; each view includes specific azimuth/elevation; IMAGE ROLES clearly separate source composition from reference style
+- **Geometry Lock**: Gemini mode — prompt says "Keep ALL geometry EXACTLY unchanged"; ComfyUI mode — enforced by ControlNet hard constraints
+- **Material Source**: All material descriptions read from render_config.json `prompt_vars` and `materials` — never fabricated
+- **Layout Awareness**: Non-radial layout subsystems do not inject hardcoded part descriptions
 
 ### Standard Parts Enhancement
 

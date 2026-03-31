@@ -10,6 +10,7 @@ assembly_description, material_descriptions, standard_parts, and
 negative_constraints from params.py via prompt_data_builder.
 """
 
+import math
 import os
 import re
 
@@ -80,6 +81,83 @@ _MATERIAL_SECTION_HINTS = {
 }
 
 
+# ── Camera angle → human-readable description ──
+
+_AZIMUTH_NAMES = [
+    (22.5, "front"),
+    (67.5, "front-right"),
+    (112.5, "right"),
+    (157.5, "rear-right"),
+    (202.5, "rear"),
+    (247.5, "rear-left"),
+    (292.5, "left"),
+    (337.5, "front-left"),
+    (360.1, "front"),
+]
+
+
+def _camera_to_view_description(view_key, rc):
+    """Generate a human-readable view description from camera location/target vectors.
+
+    Computes azimuth and elevation angles from the camera's 3D position relative
+    to its target, then maps to directional names like "front-right oblique at 32° elevation".
+    Falls back to rc["view_descriptions"][view_key] if manually set, or "isometric view".
+    """
+    # Prefer manually set descriptions
+    manual = rc.get("view_descriptions", {}).get(view_key)
+    if manual:
+        return manual
+
+    cameras = rc.get("camera", {})
+    cam = cameras.get(view_key, {})
+    loc = cam.get("location")
+    tgt = cam.get("target")
+    if not loc or not tgt or len(loc) < 3 or len(tgt) < 3:
+        return "isometric view"
+
+    dx = loc[0] - tgt[0]
+    dy = loc[1] - tgt[1]
+    dz = loc[2] - tgt[2]
+    horiz_dist = math.sqrt(dx * dx + dy * dy)
+
+    # Azimuth: angle in XY plane (0° = front/−Y, CW positive)
+    # In Blender convention: -Y is front, +X is right
+    azimuth_rad = math.atan2(dx, -dy)
+    azimuth_deg = math.degrees(azimuth_rad) % 360
+
+    # Elevation: angle above horizontal
+    elevation_deg = math.degrees(math.atan2(dz, horiz_dist)) if horiz_dist > 0.01 else 90.0
+
+    # Map azimuth to name
+    direction = "front"
+    for threshold, name in _AZIMUTH_NAMES:
+        if azimuth_deg < threshold:
+            direction = name
+            break
+
+    # Elevation descriptor
+    if elevation_deg > 60:
+        elev_desc = "top-down"
+    elif elevation_deg > 35:
+        elev_desc = "elevated"
+    elif elevation_deg > 15:
+        elev_desc = "oblique"
+    else:
+        elev_desc = "eye-level"
+
+    # Lens info
+    cam_type = cam.get("type", "standard")
+    if cam_type == "ortho":
+        lens = "orthographic projection"
+    else:
+        lens_mm = cam.get("lens", 50)
+        lens = f"{lens_mm}mm perspective"
+
+    desc = (f"{direction} {elev_desc} view at {elevation_deg:.0f}° elevation, "
+            f"{azimuth_deg:.0f}° azimuth ({lens})")
+    return desc
+
+
 def _build_section_face_treatment(rc):
     """Build section face treatment text dynamically from rc['materials'] presets."""
     materials = rc.get("materials", {})
@@ -96,8 +174,13 @@ def _build_section_face_treatment(rc):
 
 
 def _build_consistency_rules(rc):
-    """Build generic consistency rules from render_config; no hardcoded subsystem dims."""
+    """Build generic consistency rules from render_config; no hardcoded subsystem dims.
+
+    When rc["_has_reference"] is True, adds style anchor instructions that tell the
+    model to match the appearance of the first (reference) input image.
+    """
     nc = rc.get("negative_constraints", [])
+    has_reference = rc.get("_has_reference", False)
 
     # Derive constraint lines from negative_constraints entries (if any)
     dim_lines = ""
@@ -112,6 +195,16 @@ def _build_consistency_rules(rc):
     )
     if dim_lines:
         rules += "- Key dimensional constraints to maintain:\n" + dim_lines
+
+    if has_reference:
+        rules += (
+            "- STYLE REFERENCE: From the style reference image, copy ONLY: "
+            "material textures, surface finish, color palette, and sheen.\n"
+            "  Do NOT copy: camera angle, viewpoint, framing, composition, or spatial layout.\n"
+            "- The SOURCE image's viewpoint and composition are LOCKED — "
+            "the output must look like the source image with better materials, nothing else.\n"
+        )
+
     rules += (
         "- Do NOT alter any part orientation to \"look better\" from a camera angle — "
         "geometry is physically fixed.\n"
@@ -163,9 +256,12 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
     # §2 {coordinate_system}
     coordinate_system = rc.get("coordinate_system", "")
 
-    # §3 {product_name}, {view_description}, {view_type_note}
+    # §3 {product_name}, {view_description}, {view_type_note}, {view_camera_description}
     product_name = pv.get("product_name", "precision mechanical assembly")
-    view_desc = rc.get("view_descriptions", {}).get(view_key, "isometric view")
+    view_desc = _camera_to_view_description(view_key, rc)
+
+    # Detailed camera description for viewpoint lock
+    view_camera_desc = view_desc  # reuse the computed description
 
     view_type_note = _VIEW_TYPE_NOTES.get(view_type, "")
     # Fill {cut_plane} in section note if applicable
@@ -217,12 +313,25 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
     # §9 {environment}
     environment = _VIEW_TYPE_ENV.get(view_type, _VIEW_TYPE_ENV["standard"])
 
+    # §10 {image_roles} — only when reference is present
+    has_reference = rc.get("_has_reference", False)
+    if has_reference:
+        image_roles = (
+            "IMAGE ROLES (CRITICAL):\n"
+            "- Image 1 (FIRST) = SOURCE — preserve its EXACT viewpoint, framing, and composition.\n"
+            "- Image 2 (SECOND) = STYLE REFERENCE ONLY — borrow ONLY its material textures and color palette.\n"
+            "  Do NOT copy the reference image's camera angle, viewpoint, or spatial layout."
+        )
+    else:
+        image_roles = ""
+
     # Fill all placeholders
     prompt = tmpl_text
     for key, val in [
         ("{coordinate_system}", coordinate_system),
         ("{product_name}", product_name),
         ("{view_description}", view_desc),
+        ("{view_camera_description}", view_camera_desc),
         ("{view_type_note}", view_type_note),
         ("{assembly_description}", assembly_desc),
         ("{material_descriptions}", material_desc),
@@ -230,6 +339,7 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
         ("{standard_parts_description}", std_parts_desc),
         ("{negative_constraints}", neg_text),
         ("{consistency_rules}", consistency_rules),
+        ("{image_roles}", image_roles),
         ("{environment}", environment),
     ]:
         prompt = prompt.replace(key, val)

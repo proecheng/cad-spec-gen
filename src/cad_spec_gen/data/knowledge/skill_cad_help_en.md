@@ -330,10 +330,19 @@ Template variables (filled from render_config.json prompt_vars):
   {material_descriptions}  ← prompt_vars.material_descriptions[]
 
 Core principles:
-  1. First line of prompt must state "Keep ALL geometry EXACTLY unchanged"
-  2. Material descriptions are read from render_config.json — never fabricated
-  3. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
-  4. Geometry is 100% locked — Gemini only "re-skins", never alters shapes
+  1. Viewpoint lock: prompt opens with "Preserve EXACT camera angle, viewpoint, framing";
+     each view includes computed azimuth/elevation; IMAGE ROLES separate source composition from reference style
+  2. Geometry lock: Gemini — prompt constraint; ComfyUI — ControlNet depth+canny hard constraint
+  3. Material descriptions are read from render_config.json — never fabricated
+  4. Layout awareness: non-radial subsystems do not inject hardcoded part descriptions
+  5. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
+
+Multi-view consistency (v2.1):
+  Four-layer defense for Gemini backend:
+  1. Viewpoint Lock — _camera_to_view_description() computes azimuth/elevation from camera vectors
+  2. Image Role Separation — source image FIRST (locks composition), reference SECOND (style only)
+  3. V1-anchor Reference — V1 result serves as material style reference for V2-VN
+  4. Source High-Fidelity — source ≤4MB sent uncompressed (original 1920×1080 PNG)
 
 Standard workflow:
   1. Confirm Blender PNGs exist (V1~VN, from render_manifest.json)

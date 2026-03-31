@@ -162,12 +162,14 @@ python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_co
 ```
 
 **Key principles:**
-- Prompt line 1 MUST say "Keep ALL geometry EXACTLY unchanged"
+- Viewpoint lock (v2.1): prompt opens with "Preserve EXACT camera angle, viewpoint, framing"; each view includes computed azimuth/elevation
+- Geometry lock: Gemini — prompt constraint; ComfyUI — ControlNet hard constraint
+- Multi-view consistency: source image FIRST (locks composition) + reference SECOND (style only) + V1-anchor + source uncompressed (≤4MB)
 - Material descriptions come from `render_config.json` `prompt_vars`
 - Standard parts enhancement descriptions come from `render_config.json` `standard_parts` array (`{standard_parts_description}` placeholder)
+- Layout awareness: non-radial subsystems do not inject hardcoded part descriptions
 - 1 unified template auto-switches by camera type (standard / exploded / ortho)
-- Model selection: `pipeline_config.json` `enhance.model` field selects Gemini model alias (nano_banana / nano_banana_pro / nano_banana_2 / nano_banana_4k)
-- Output: ~6MB JPG per view, photorealistic studio quality
+- Model selection: `pipeline_config.json` `enhance.model` field selects Gemini model alias
 - Timestamp versioning: files named `V*_viewname_YYYYMMDD_HHMM_enhanced.ext` to prevent overwriting
 
 ### Component Label Annotation (CN/EN)

@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "CAD pipeline skill: design doc → design review → structured spec → code generation → 2D drawings → 3D renders → photorealistic images",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
@@ -34,7 +34,7 @@
       "id": "cad-enhance",
       "name": "Gemini AI Enhancement",
       "trigger": "/cad-enhance",
-      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI (geometry locked, reskin only). Unified prompt template (prompt_enhance_unified.txt) with auto view-type switching via camera.V*.type field (standard/exploded/ortho/section). Auto-generates prompt data from params.py via prompt_data_builder. Model selection via pipeline_config.json enhance section."
+      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI or ComfyUI (geometry locked, reskin only). v2.1: multi-view consistency — viewpoint lock (auto azimuth/elevation), image role separation (source first), V1-anchor reference, source high-fidelity. Layout-aware prompt routing (radial/linear/custom). Model selection via pipeline_config.json enhance section."
     },
     {
       "id": "mechdesign",

@@ -101,11 +101,43 @@ python comfyui_env_check.py
 
 非 radial 子系统（如 lifting_platform）**不会**注入任何末端执行器专用术语（flange、PEEK、station、cable chain 等），避免 Gemini 生成幽灵零件。
 
+### 多视角一致性（v2.1 新增）
+
+Gemini 后端的四层一致性防线：
+
+1. **视角锁定（Viewpoint Lock）**
+   - `enhance_prompt.py` 的 `_camera_to_view_description()` 从 `render_config.json` 的 camera 位置向量自动计算方位角/仰角
+   - 每个视角生成唯一描述，如 "rear-left oblique view at 25° elevation, 222° azimuth (50mm perspective)"
+   - prompt 模板首行为 `VIEWPOINT & GEOMETRY LOCK — HIGHEST PRIORITY`
+
+2. **图片角色分离（IMAGE ROLES）**
+   - 源图放在 content 数组**第一位**（锁定构图），参考图放**第二位**（仅提供材质风格）
+   - prompt 中明确指示："Image 1 = SOURCE — preserve EXACT viewpoint; Image 2 = STYLE REFERENCE ONLY"
+   - 风格锚定文本**不再**包含 "match lighting angle" 等可能污染视角的词语
+
+3. **V1-anchor 参考图**
+   - V1 增强结果作为后续视角的材质风格参考（`reference_mode: "v1_anchor"`）
+   - 参考图仅传递材质纹理和色彩，不传递视角
+   - 参考图压缩至 1280×720 q90
+
+4. **源图高保真**
+   - 源图 ≤4MB 时不压缩，直接发送原始 1920×1080 PNG（~1.5MB）
+   - 保留完整空间细节，帮助 Gemini 识别源图视角
+
+**相关配置（pipeline_config.json）：**
+```json
+"enhance": {
+  "temperature": 0.2,
+  "seed_from_image": true,
+  "reference_mode": "v1_anchor"
+}
+```
+
 ### 核心原则
 
-- **几何锁定**：Gemini 模式下 prompt 首行写 "Keep ALL geometry EXACTLY unchanged"；ComfyUI 模式下由 ControlNet 硬约束
+- **视角锁定**：prompt 首行 "Preserve the EXACT camera angle, viewpoint, and framing"；每视角写入具体方位角/仰角；IMAGE ROLES 明确分离源图构图和参考图风格
+- **几何锁定**：Gemini 模式下 prompt 写 "Keep ALL geometry EXACTLY unchanged"；ComfyUI 模式下由 ControlNet 硬约束
 - **材质来源**：所有材质描述从 render_config.json `prompt_vars` 和 `materials` 读取，不要凭空编造
-- **视角一致**：不同视角使用不同模板，确保爆炸图保留间距、正交图无透视
 - **Layout 感知**：非 radial 布局的子系统不注入硬编码零件描述
 
 ### 标准件增强

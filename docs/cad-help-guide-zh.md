@@ -163,12 +163,14 @@ python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_co
 ```
 
 **核心原则：**
-- Prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
+- 视角锁定（v2.1）：prompt 首行 "Preserve EXACT camera angle, viewpoint, framing"；每视角写入计算方位角/仰角
+- 几何锁定：Gemini 靠 prompt 约束；ComfyUI 靠 ControlNet 硬约束
+- 多视角一致性：源图第一位（锁构图）+ 参考图第二位（仅风格）+ V1-anchor + 源图不压缩（≤4MB）
 - 材质描述来源于 `render_config.json` 的 `prompt_vars` 字段
 - 标准件增强描述来源于 `render_config.json` 的 `standard_parts` 数组（`{standard_parts_description}` 占位符）
+- Layout 感知：非 radial 子系统不注入硬编码零件描述
 - 1套统一模板按相机类型自动切换（标准/爆炸/正交）
-- 模型选择：`pipeline_config.json` 的 `enhance.model` 字段选择 Gemini 模型别名（nano_banana / nano_banana_pro / nano_banana_2 / nano_banana_4k）
-- 输出：每张约6MB JPG，照片级影棚品质
+- 模型选择：`pipeline_config.json` 的 `enhance.model` 字段选择 Gemini 模型别名
 - 时间戳版本：文件命名 `V*_视图名_YYYYMMDD_HHMM_enhanced.ext`，防止覆盖历史版本
 - 双输出：PNG用于工程审图/加工参考，JPG用于答辩/展示/商业计划书
 

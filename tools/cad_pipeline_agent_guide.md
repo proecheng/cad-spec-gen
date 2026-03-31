@@ -381,6 +381,19 @@ prompt 模板包含 `{standard_parts_description}` 占位符，由 `render_confi
 
 Gemini 收到简化几何的位置描述 + 真实零件外观描述，将简化形状增强为逼真外观。
 
+#### 多视角一致性（v2.1 新增）
+
+Gemini 后端四层视角保持防线：
+
+| 层级 | 机制 | 实现 |
+|------|------|------|
+| 1. 视角锁定 | 从 `render_config.json` 相机位置向量计算方位角/仰角 | `enhance_prompt.py` → `_camera_to_view_description()` |
+| 2. 图片角色分离 | 源图放第一位（锁定构图），参考图放第二位（仅材质风格） | `gemini_gen.py` 中 content 数组顺序 |
+| 3. V1-anchor 参考 | V1 增强结果作为 V2-VN 的材质风格参考 | `cad_pipeline.py` → `reference_mode: "v1_anchor"` |
+| 4. 源图高保真 | 源图 ≤4MB 不压缩，直接发送原始 PNG | `_compress_for_api()` 阈值 4MB |
+
+Prompt 模板首行 `VIEWPOINT & GEOMETRY LOCK — HIGHEST PRIORITY`，每视角写入唯一描述（如 "rear-left oblique view at 25° elevation, 222° azimuth (50mm perspective)"）。
+
 ---
 
 ## 4. render_config.json 配置格式

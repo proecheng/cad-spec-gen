@@ -135,7 +135,10 @@ python cad_pipeline.py enhance --subsystem <name>
 python cad_pipeline.py enhance --dir <custom_dir> [--model <key>]
 ```
 
-**Key principle**: Gemini only changes surface materials — geometry stays 100% locked.
+**Key principles**:
+- Geometry 100% locked — Gemini only changes surface materials
+- Viewpoint lock (v2.1): each view gets computed azimuth/elevation; source image sent first to lock composition; reference image provides style only
+- Non-radial subsystems do not inject end-effector-specific terminology
 
 ### Prompt Template Variables
 

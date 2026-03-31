@@ -938,9 +938,61 @@ def cmd_enhance(args):
 
     failures = 0
     v1_done = False
+    hero_image = None  # V1 enhanced result for multi-view anchoring
+
+    # ── Multi-view consistency settings from pipeline_config ──
+    _enhance_cfg = _pcfg.get("enhance", {})
+    _ref_mode = _enhance_cfg.get("reference_mode", "none")
+    _seed_from_image = _enhance_cfg.get("seed_from_image", False)
+    _temperature = _enhance_cfg.get("temperature")  # None = don't send
+    if _ref_mode != "none" or _seed_from_image or _temperature is not None:
+        log.info("Enhance consistency: reference=%s, seed=%s, temperature=%s",
+                 _ref_mode, _seed_from_image, _temperature)
+
+    def _pixel_seed(image_path):
+        """Deterministic seed from pixel content, ignoring file metadata.
+        Returns value in INT32 range (0..2^31-1) as required by Gemini API."""
+        import hashlib
+        from PIL import Image as _SeedImg
+        _im = _SeedImg.open(image_path)
+        h = int(hashlib.md5(_im.tobytes()).hexdigest()[:8], 16)
+        return h & 0x7FFFFFFF  # clamp to signed INT32 max
+
+    def _compress_for_api(src_path, max_res=(1920, 1080), quality=95):
+        """Compress image for API send. Returns (tmp_path, size_kb) or (None, 0).
+
+        Gemini accepts up to 20MB per image. Only compress if over 4MB to
+        preserve spatial detail (critical for viewpoint preservation).
+        """
+        import tempfile as _ctf_mod
+        from PIL import Image as _CImg
+        _src_size = os.path.getsize(src_path)
+        if _src_size <= 4 * 1024 * 1024:
+            return None, _src_size / 1024  # under 4MB, send original
+        _im = _CImg.open(src_path).convert("RGB")
+        _im.thumbnail(max_res, _CImg.LANCZOS)
+        _tmp = _ctf_mod.NamedTemporaryFile(suffix=".jpg", delete=False)
+        _tmp.close()
+        _im.save(_tmp.name, "JPEG", quality=quality)
+        return _tmp.name, os.path.getsize(_tmp.name) / 1024
+
+    def _parse_gemini_output(stdout_text):
+        """Extract saved image path from gemini_gen.py stdout."""
+        for line in (stdout_text or "").split("\n"):
+            if "图片已保存:" in line:
+                return line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+            if "已保存:" in line:
+                return line[line.rfind("已保存:") + len("已保存:"):].strip()
+        return None
 
     for png in pngs:
+        new_path = None  # reset each iteration (A5 fix)
         view_key = extract_view_key(png, rc)
+
+        # ── Set reference flag in rc for prompt building (A1 fix) ──
+        _use_ref = (_ref_mode == "v1_anchor" and hero_image
+                    and view_key != "V1" and backend == "gemini")
+        rc["_has_reference"] = _use_ref
 
         # Build prompt with all placeholders filled
         try:
@@ -948,6 +1000,9 @@ def cmd_enhance(args):
         except FileNotFoundError:
             prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
                       "to photo-realistic quality with proper lighting and reflections.")
+
+        # Compute seed (if enabled)
+        _seed = _pixel_seed(png) if _seed_from_image else None
 
         if args.dry_run:
             log.info("  [DRY-RUN] %s prompt (%d chars):", view_key, len(prompt))
@@ -960,6 +1015,12 @@ def cmd_enhance(args):
             residual = _re.findall(r'\{[a-z_]+\}', prompt)
             if residual:
                 log.warning("  UNFILLED placeholders: %s", residual)
+            if _seed is not None:
+                log.info("  [DRY-RUN] seed: %d", _seed)
+            if _use_ref:
+                log.info("  [DRY-RUN] reference: (will use V1 enhanced result at runtime)")
+            elif _ref_mode == "v1_anchor" and view_key != "V1":
+                log.info("  [DRY-RUN] reference: (pending V1 completion)")
             if getattr(args, "labeled", False) and backend == "gemini":
                 _lbl_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
                 if _lbl_prompt != prompt:
@@ -973,6 +1034,7 @@ def cmd_enhance(args):
         import tempfile
         prompt_file = None
         _compressed_tmp = None
+        _ref_compressed_tmp = None  # A6: separate tracking for reference temp file
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -1015,35 +1077,51 @@ def cmd_enhance(args):
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────
-            # Compress image to JPEG before sending (API rejects large base64)
-            import tempfile as _tf
+            # Compress source image (upgraded: 1280×720, quality 90)
             _img_to_send = png
-            _compressed_tmp = None
             try:
-                from PIL import Image as _Img
-                _src_size = os.path.getsize(png)
-                if _src_size > 300 * 1024:  # >300KB → compress
-                    _im = _Img.open(png).convert("RGB")
-                    _im.thumbnail((960, 540), _Img.LANCZOS)
-                    _ctf = _tf.NamedTemporaryFile(
-                        suffix=".jpg", delete=False)
-                    _ctf.close()
-                    _im.save(_ctf.name, "JPEG", quality=88)
-                    _compressed_tmp = _ctf.name
+                _ctmp, _csz = _compress_for_api(png, (1280, 720), 90)
+                if _ctmp:
+                    _compressed_tmp = _ctmp
                     _img_to_send = _compressed_tmp
                     log.info("  Compressed %s: %.0fKB → %.0fKB",
                              os.path.basename(png),
-                             _src_size / 1024,
-                             os.path.getsize(_compressed_tmp) / 1024)
+                             os.path.getsize(png) / 1024, _csz)
             except Exception as _ce:
                 log.warning("  Could not compress image: %s", _ce)
 
+            # Build command with optional reference, seed, temperature
             cmd = [sys.executable, gemini_script,
                    "--prompt-file", prompt_file,
                    "--image", _img_to_send] + model_arg
 
-            log.info("  Running: enhance %s (%s, %d chars)",
-                     os.path.basename(png), view_key, len(prompt))
+            ref_args = []
+            if _use_ref and hero_image:
+                # Compress reference image more aggressively to keep payload small
+                try:
+                    _rctmp, _rsz = _compress_for_api(hero_image, (1280, 720), 90)
+                    _ref_to_send = _rctmp if _rctmp else hero_image
+                    if _rctmp:
+                        _ref_compressed_tmp = _rctmp
+                    ref_args = ["--reference", _ref_to_send]
+                    log.info("  Reference: %s (%.0fKB)",
+                             os.path.basename(hero_image), _rsz)
+                except Exception as _re_err:
+                    log.warning("  Could not prepare reference image: %s", _re_err)
+
+            seed_args = []
+            if _seed is not None:
+                seed_args = ["--seed", str(_seed)]
+
+            temp_args = []
+            if _temperature is not None:
+                temp_args = ["--temperature", str(_temperature)]
+
+            cmd = cmd + ref_args + seed_args + temp_args
+
+            log.info("  Running: enhance %s (%s, %d chars%s)",
+                     os.path.basename(png), view_key, len(prompt),
+                     " +ref" if ref_args else "")
             t0 = time.time()
             result = None
             for _attempt in range(3):
@@ -1060,6 +1138,21 @@ def cmd_enhance(args):
                 except subprocess.TimeoutExpired:
                     log.warning("  TIMEOUT attempt %d for %s", _attempt + 1, os.path.basename(png))
                     result = None
+
+            # ── Fallback: retry without reference if reference mode failed ──
+            if (result is None or result.returncode != 0) and ref_args:
+                log.warning("  Reference mode failed for %s, retrying without reference...",
+                            os.path.basename(png))
+                cmd_fallback = [a for a in cmd if a not in ref_args
+                                and a != "--reference"]
+                try:
+                    result = subprocess.run(
+                        cmd_fallback, capture_output=True, text=True, timeout=180,
+                        encoding="utf-8", errors="replace",
+                    )
+                except subprocess.TimeoutExpired:
+                    result = None
+
             elapsed = time.time() - t0
             if result is None or result.returncode != 0:
                 rc_val = result.returncode if result is not None else -1
@@ -1080,14 +1173,7 @@ def cmd_enhance(args):
                 v1_done = True
 
             # Rename gemini output: V*_YYYYMMDD_HHMM_enhanced.ext → same dir as source
-            gemini_path = None
-            for line in (result.stdout or "").split("\n"):
-                if "图片已保存:" in line:
-                    gemini_path = line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
-                    break
-                if "已保存:" in line:
-                    gemini_path = line[line.rfind("已保存:") + len("已保存:"):].strip()
-                    break
+            gemini_path = _parse_gemini_output(result.stdout)
             if gemini_path and os.path.isfile(gemini_path):
                 from datetime import datetime as _dt
                 src_stem = os.path.splitext(os.path.basename(png))[0]
@@ -1101,6 +1187,11 @@ def cmd_enhance(args):
                 except OSError:
                     pass  # copied successfully, removal is best-effort
                 log.info("  Saved: %s", new_path)
+
+                # ── Set hero image after V1 succeeds (A5 fix) ──
+                if view_key == "V1" and _ref_mode == "v1_anchor":
+                    hero_image = new_path
+                    log.info("  Hero image set: %s", os.path.basename(new_path))
             else:
                 log.warning("  Could not locate gemini output for %s",
                             os.path.basename(png))
@@ -1176,9 +1267,11 @@ def cmd_enhance(args):
                 if _labeled_prompt_file and os.path.isfile(_labeled_prompt_file):
                     os.unlink(_labeled_prompt_file)
 
-        # Clean up compressed temp image (deferred from first call's finally)
+        # Clean up compressed temp images (deferred from first call's finally)
         if _compressed_tmp and os.path.isfile(_compressed_tmp):
             os.unlink(_compressed_tmp)
+        if _ref_compressed_tmp and os.path.isfile(_ref_compressed_tmp):
+            os.unlink(_ref_compressed_tmp)
 
     return 1 if failures else 0
 

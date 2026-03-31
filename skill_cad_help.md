@@ -1,16 +1,16 @@
-# skill_cad_help — CAD 混合渲染管线交互式帮助
+# skill_cad_help — CAD Hybrid Rendering Pipeline Interactive Help
 
-## 搜索优先原则
+## Search-First Principle
 
-**每个意图动作执行前，必须先搜索项目实际文件，不要凭记忆假设。**
+**Before executing any intent action, always search the actual project files first — never assume from memory.**
 
-1. **先搜后答** — 对任何涉及"某个文件在不在""某个配置怎么设的"的问题，先搜索文件系统（ls/find/grep 或等效工具），再回答
-2. **多路径搜索** — 同一信息可能存在于多处（环境变量、配置文件、代码默认值），全部检查：
-   - Gemini 配置：`~/.claude/gemini_image_config.json` > 环境变量 `GEMINI_API_KEY` > `gemini_gen.py` 代码默认值
-   - 渲染工具：`cad/<subsystem>/render_3d.py` > `tools/blender/`
-   - prompt模板：`templates/` 或 `enhance_prompt.py`
-3. **搜到即记录** — 搜索到的实际路径/版本/配置值，直接写进输出，不用模板中的占位值
-4. **不猜测缺失** — 搜不到的不要假设存在，标注 ❌ 并给出创建/安装指引
+1. **Search before answering** — For any question like "does a file exist" or "how is a config set", search the filesystem (ls/find/grep or equivalent tools) first, then answer
+2. **Multi-path search** — The same information may exist in multiple places (environment variables, config files, code defaults); check all of them:
+   - Gemini config: `~/.claude/gemini_image_config.json` > env var `GEMINI_GEN_PATH` > `gemini_gen.py`
+   - Render tools: `cad/<subsystem>/render_3d.py` > `tools/blender/`
+   - Prompt templates: `templates/` or `enhance_prompt.py`
+3. **Record what you find** — Write the actual paths/versions/config values found into the output; do not use placeholder values from templates
+4. **Don't guess what's missing** — If something cannot be found, do not assume it exists; mark it ❌ and provide creation/installation guidance
 
 ### Known Key Paths (search at runtime — these are examples)
 
@@ -22,239 +22,228 @@
 | Render scripts | `cad/<subsystem>/render_3d.py`, `render_exploded.py`, `render_section.py` |
 | Prompt builder | `enhance_prompt.py`, `prompt_data_builder.py` |
 
-## 意图匹配表
+## Intent Matching Table
 
-从用户问题文本提取关键词，匹配到最佳意图后执行对应动作。
+Extract keywords from the user's question text, match to the best intent, then execute the corresponding action.
 
-| 意图 | 关键词 | 动作 |
-|------|--------|------|
-| env_check | 运行环境, 安装, 环境, 依赖, 需要什么, requirements, install, env | → 环境检查 |
-| validate | 验证, 检查配置, config对不对, validate, 配置正确 | → 验证配置 |
-| next_step | 下一步, 接下来, 做什么, 怎么继续, next, what to do | → 推荐下一步 |
-| new_subsys | 新子系统, 新建, 开始, 怎么开始, quick start, 从零, 初始化, init | → Quick Start引导 + init命令 |
-| material | 材质, 颜色, preset, 外观, material, 铝, 钢, 塑料, PBR | → 材质预设表 |
-| camera | 相机, 视角, 角度, camera, 拍摄, 视图, view | → 相机配置说明 |
-| explode | 爆炸, explode, 分解, 拆开, 展开图 | → 爆炸图配置 |
-| render | 渲染, render, 画图, 出图, blender, cycles, 生成图片 | → 渲染执行/引导 |
-| ai_enhance | gemini, AI, 增强, prompt, 照片级, enhance, 混合 | → AI增强说明 |
-| troubleshoot | 报错, error, 失败, 不行, 问题, bug, 出错, 崩溃, fix | → 排错指南 |
-| file_struct | 文件, 目录, 在哪, 结构, 文件树, tree, layout | → 文件结构 |
-| status | 状态, 进度, 哪些子系统, status, progress | → 子系统状态 |
-| integration | 集成, 接入, 其他模型, GLM, GPT, LLM, agent, 调用, 通用, 怎么接, 框架 | → 集成其他LLM/Agent |
-| parts | 零件, 部件, 模块, BOM, 清单, 有哪些零件, 零件树, 结构, 物料, 分解 | → 解析设计文档BOM |
-| spec | CAD_SPEC, spec, 规范, 提取数据, 生成spec, 参数提取, cad_spec | → CAD Spec生成/查看 |
-| review | 审查, 审查设计, review, 检查设计, 力学, 装配检查, 设计审查 | → 设计审查 |
+| Intent | Keywords | Action |
+|--------|----------|--------|
+| env_check | environment, install, setup, dependencies, requirements, what do I need, env | → Environment Check |
+| validate | validate, check config, is config correct, verify, configuration valid | → Validate Configuration |
+| next_step | next step, what's next, what to do, how to continue, next, proceed | → Recommend Next Step |
+| new_subsys | new subsystem, create new, start, how to begin, quick start, from scratch, initialize, init | → Quick Start Guide + init scaffold |
+| material | material, color, preset, appearance, aluminum, steel, plastic, PBR | → Material Preset Table |
+| camera | camera, angle, viewpoint, view, shot, perspective | → Camera Configuration |
+| explode | explode, exploded, disassemble, take apart, exploded view | → Exploded View Configuration |
+| render | render, rendering, generate image, output image, blender, cycles, produce image | → Render Execution/Guide |
+| ai_enhance | gemini, AI, enhance, prompt, photo-realistic, enhance, hybrid | → AI Enhancement Guide |
+| troubleshoot | error, failed, not working, problem, bug, crash, fix, broken | → Troubleshooting Guide |
+| file_struct | file, directory, where is, structure, file tree, tree, layout | → File Structure |
+| status | status, progress, which subsystems, progress report | → Subsystem Status |
+| integration | integrate, connect, other models, GLM, GPT, LLM, agent, invoke, universal, how to connect, framework | → Integrate Other LLMs/Agents |
+| parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown | → Parse Design Document BOM |
+| spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
+| review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
 
 ---
 
-## 动作详情
+## Action Details
 
-### 1. env_check — 环境检查
+### 1. env_check — Environment Check
 
-**搜索优先**：先搜实际文件再报告，不凭模板假设。
+**Search first**: Search actual files before reporting — do not assume from templates.
 
-执行以下检查并汇报结果：
+Perform the following checks and report results:
 
 ```
-检查项:
-1. Python 版本 (需 3.10+): python --version
+Check items:
+1. Python version (requires 3.10+): python --version
 2. CadQuery: python -c "import cadquery; print(cadquery.__version__)"
 3. ezdxf: python -c "import ezdxf; print(ezdxf.__version__)"
 4. matplotlib: python -c "import matplotlib; print(matplotlib.__version__)"
-5. Blender: 搜索 tools/blender/blender.exe → --version (需 4.x LTS)
-6. GPU渲染: 在Blender中检测GPU (OptiX/CUDA/HIP/OneAPI)
-   - 有GPU → 自动使用GPU (render_3d.py/render_exploded.py自动检测)
-   - 无GPU → 回落CPU（可用但较慢）
-   - 可通过 --gpu / --cpu 强制指定
-7. Gemini AI增强 (按优先级逐项检查，任一通过即✅):
-   a. 读取 ~/.claude/gemini_image_config.json → 显示 api_base_url + model (隐藏key)
-   b. 检查环境变量 GEMINI_GEN_PATH (gemini_gen.py 路径)
-   c. 检查 gemini_gen.py 是否存在: $GEMINI_GEN_PATH
-   d. 运行 python cad_pipeline.py env-check
-8. ComfyUI AI增强 (可选，本地GPU方案):
-   a. 运行 python comfyui_env_check.py → 自动检测GPU/服务/模型/依赖
-   b. 显示就绪状态 ✅/❌，缺少项给出安装指引
-9. 字体: 检查 FangSong (仿宋) 字体是否可用
+5. Blender: search tools/blender/blender.exe → --version (requires 4.x LTS)
+6. GPU rendering: detect GPU in Blender (OptiX/CUDA/HIP/OneAPI)
+   - GPU found → automatically uses GPU (render_3d.py/render_exploded.py auto-detect)
+   - No GPU → falls back to CPU (works but slower)
+   - Can force with --gpu / --cpu flags
+7. Gemini AI enhancement (check in priority order, any pass = ✅):
+   a. Read ~/.claude/gemini_image_config.json → show api_base_url + model (hide key)
+   b. Check env vars GEMINI_GEN_PATH
+   c. Check if gemini_gen.py exists: gemini_gen.py or $GEMINI_GEN_PATH
+   d. Run python cad_pipeline.py env-check (if it exists)
+8. Fonts: check if FangSong font is available
 ```
 
-输出格式（用实际搜索到的值填充）：
+Output format (fill with actual values found by searching):
 ```
-环境检查结果:
+Environment Check Results:
   ✅ Python 3.11.9
   ✅ CadQuery 2.7.0
   ✅ ezdxf 1.4.3
   ✅ matplotlib 3.10.8
   ✅ Blender 4.2.10 LTS (tools/blender/blender.exe)
-  ⚠️ GPU渲染: 无GPU检测到 — 使用CPU (较慢)
-     提示: 如有NVIDIA GPU环境可自动加速5-20倍 (OptiX/CUDA)
+  ⚠️ GPU rendering: no GPU detected — using CPU (slower)
+     Tip: NVIDIA GPU can accelerate 5-20x (OptiX/CUDA)
   ✅ Gemini AI: ~/.claude/gemini_image_config.json
      API: https://your-proxy.com/v1
-     模型: gemini-3-pro-image-preview
+     Model: gemini-3-pro-image-preview
      gemini_gen.py: /path/to/gemini_gen.py
-  ✅ FangSong 仿宋字体 (C:\Windows\Fonts\simfang.ttf)
+  ✅ FangSong font (C:\Windows\Fonts\simfang.ttf)
 ```
 
-缺失项给出安装命令：
+For missing items, provide installation commands:
 - CadQuery: `pip install cadquery`
 - ezdxf: `pip install ezdxf`
 - matplotlib: `pip install matplotlib`
-- Blender: 下载 Blender 4.2 LTS portable 到 `tools/blender/`
-- Gemini: 运行 `python gemini_gen.py --config` 启动配置向导
+- Blender: Download Blender 4.2 LTS portable to `tools/blender/`
+- Gemini: Run `python gemini_gen.py --config` to launch the configuration wizard
 
-### 2. validate — 验证配置
+### 2. validate — Validate Configuration
 
-读取目标子系统的 `render_config.json`，检查：
+Read the target subsystem's `render_config.json` and check:
 
 ```
-1. JSON语法正确性
-2. 必需字段: subsystem, materials, camera
-3. materials 中每个条目有 part_pattern + preset/custom
-4. camera 中至少1个视角存在（视角数不限于5个，按子系统 render_config.json camera 段定义）
-5. preset名在15种预设中: brushed_aluminum, stainless_304, black_anodized, dark_steel,
+1. JSON syntax correctness
+2. Required fields: subsystem, materials, camera
+3. Each entry in materials has part_pattern + preset/custom
+4. At least 1 view exists in camera (number of views is not limited to 5; defined by subsystem render_config.json camera section)
+5. Preset name is among 15 presets: brushed_aluminum, stainless_304, black_anodized, dark_steel,
    bronze, copper, gunmetal, anodized_blue, anodized_green, anodized_purple, anodized_red,
    peek_amber, white_nylon, black_rubber, polycarbonate_clear
-6. explode 中 axis 值合法 (radial/axial/custom)
+6. axis values in explode are valid (radial/axial/custom)
 ```
 
-报告格式：`✅ 通过` 或 `❌ 第N项失败: 具体原因`
+Report format: `✅ Passed` or `❌ Item N failed: specific reason`
 
-### 3. next_step — 推荐下一步
+### 3. next_step — Recommend Next Step
 
-扫描项目状态后推荐：
+Scan project status then recommend:
 
 ```python
-# 决策逻辑:
-1. 扫描 cad/*/render_config.json 找已配置的子系统
-2. 扫描 cad/*/build_all.py 找已实现的子系统
-3. 扫描 cad/output/*.step, *.dxf, *.glb, *.png, *.jpg 统计产物
-4. 扫描 cad/output/renders/ 统计当前渲染产物
-5. 对比 docs/design/ 和 D:/jiehuo/docs/ 章节列表，找出差距
+# Decision logic:
+1. Scan cad/*/render_config.json to find configured subsystems
+2. Scan cad/*/build_all.py to find implemented subsystems
+3. Scan cad/output/*.step, *.dxf, *.glb, *.png, *.jpg to count artifacts
+4. Check output/ for existing render results
+5. Compare with docs/design/ chapter list to find gaps
 
-推荐优先级:
-  a. 有 render_config.json 但无 build_all.py → "完成3D建模"
-  b. 有 build_all.py 但无 .glb → "运行 build_all.py --render 生成GLB"
-  c. 有 .glb 但无 PNG → "运行 Blender 渲染: render_3d.py"
-  d. 有 PNG 但无 JPG → "运行 Gemini AI增强"
-  e. 全部完成 → "选择下一个子系统" (按成熟度排序推荐)
+Recommendation priority:
+  a. Has render_config.json but no build_all.py → "Complete 3D modeling"
+  b. Has build_all.py but no .glb → "Run build_all.py --render to generate GLB"
+  c. Has .glb but no PNG → "Run Blender rendering: render_3d.py"
+  d. Has PNG but no JPG → "Run Gemini AI enhancement"
+  e. All complete → "Choose next subsystem" (sorted by maturity)
 ```
 
-### 4. new_subsys — Quick Start 引导 + init 命令
+### 4. new_subsys — Quick Start 3-Step Guide
 
 ```
-═══ 新子系统 Quick Start ═══
+=== New Subsystem Quick Start ===
 
-方式一：一键脚手架（推荐）
-  python cad_pipeline.py init --subsystem <名称> --name-cn <中文名> --prefix <前缀>
+Step 0: One-command scaffold (recommended)
+  python cad_pipeline.py init --subsystem <name> [--name-cn <Chinese name>] [--prefix <prefix>]
+  → Auto-generates three files:
+      cad/<name>/render_config.json   (V1-V5 views + 15 materials + components with name_cn/name_en)
+      cad/<name>/params.py            (parameter skeleton: envelope dims, material IDs, assembly name)
+      docs/design/XX-<name>.md        (chapter template prompting user to fill requirements)
+  → Edit the three files as prompted, then run the full pipeline
 
-  例如:
-    python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix GIS-RA
+Step 1: Design normalization
+  Extract parameters from design document docs/design/NN-*.md
+  python cad_pipeline.py spec --design-doc docs/design/NN-*.md [--auto-fill]
+  → Outputs DESIGN_REVIEW.md + CAD_SPEC.md
 
-  自动生成:
-    output/<名称>/render_config.json   ← 含 V1-V4 标准视角模板、components 带 name_cn/name_en
-    output/<名称>/params.py            ← 参数化建模起点
-    docs/design/XX-<名称>.md           ← 设计文档模板
+Step 2: Code generation + parametric modeling
+  python cad_pipeline.py codegen --subsystem <name>
+  → Generates params.py / build_all.py / station_*.py / assembly.py scaffolds
+  (Note: scaffolds are incomplete — manually complete geometry logic before entering BUILD)
+  Run /mechdesign <subsystem_name> to launch interactive full workflow
 
-Step 1: 编辑生成的文件
-  填写 params.py 中的实际尺寸
-  填写设计文档 docs/design/XX-<名称>.md
-  编辑 render_config.json 更新相机视角和标注坐标
-
-Step 2: 参数化建模
-  运行 /mechdesign <子系统名> 启动全流程
-  (或手动创建 3D脚本 → assembly.py → build_all.py)
-
-Step 3: 全管线
-  运行 /cad-help 全管线 或 /cad-help 绘图
-  Agent 会先扫描各阶段产物状态，展示总览表，让你选择从哪一步开始
-  （完全从头重建 / 从某阶段续跑 / 仅重建指定阶段）
-  注意：禁止直接运行 cad_pipeline.py full，必须通过 /cad-help 走 Step 0 用户确认流程
+Step 3: Full pipeline
+  Run /cad-help full pipeline  or  /cad-help draw
+  The agent will scan each phase's artifact status, show an overview table,
+  and let you choose the starting point:
+  (full rebuild / resume from a phase / rebuild specific phases only)
+  Note: Do NOT run cad_pipeline.py full directly — must go through /cad-help Step 0 user confirmation flow
 ```
 
-### 5. material — 材质预设表
+### 5. material — Material Preset Table
 
-列出 `render_config.py` 中的 15 种 `MATERIAL_PRESETS`：
+List the 15 `MATERIAL_PRESETS` from `render_config.py`:
 
 ```
-═══ 15种工程材质预设 ═══
+=== 15 Engineering Material Presets ===
 
-金属类 (11种):
-  brushed_aluminum  — 拉丝铝 (银白, metallic=1.0, roughness=0.18, anisotropic=0.6)
-  stainless_304     — 304不锈钢 (亮银, metallic=1.0, roughness=0.15)
-  black_anodized    — 黑色阳极氧化铝 (深黑, metallic=0.85, roughness=0.30)
-  dark_steel        — 深色钢 (深灰, metallic=0.90, roughness=0.28)
-  bronze            — 青铜 (铜黄, metallic=0.90, roughness=0.25)
-  copper            — 紫铜 (红铜色, metallic=1.0, roughness=0.15)
-  gunmetal          — 枪灰色 (深灰, metallic=0.90, roughness=0.25)
-  anodized_blue     — 蓝色阳极氧化 (蓝, metallic=0.85, roughness=0.22)
-  anodized_green    — 绿色阳极氧化 (绿, metallic=0.85, roughness=0.22)
-  anodized_purple   — 紫色阳极氧化 (紫, metallic=0.85, roughness=0.22)
-  anodized_red      — 红色阳极氧化 (红, metallic=0.85, roughness=0.22)
+Metals (11 types):
+  brushed_aluminum  — Brushed aluminum (silver-white, metallic=1.0, roughness=0.18, anisotropic=0.6)
+  stainless_304     — 304 stainless steel (bright silver, metallic=1.0, roughness=0.15)
+  black_anodized    — Black anodized aluminum (deep black, metallic=0.85, roughness=0.30)
+  dark_steel        — Dark steel (dark gray, metallic=0.90, roughness=0.28)
+  bronze            — Bronze (copper-yellow, metallic=0.90, roughness=0.25)
+  copper            — Copper (reddish copper, metallic=1.0, roughness=0.15)
+  gunmetal          — Gunmetal (dark gray, metallic=0.90, roughness=0.25)
+  anodized_blue     — Blue anodized (blue, metallic=0.85, roughness=0.22)
+  anodized_green    — Green anodized (green, metallic=0.85, roughness=0.22)
+  anodized_purple   — Purple anodized (purple, metallic=0.85, roughness=0.22)
+  anodized_red      — Red anodized (red, metallic=0.85, roughness=0.22)
 
-工程塑料/橡胶 (4种):
-  peek_amber        — PEEK琥珀色 (米黄, metallic=0, roughness=0.30, sss=0.08)
-  white_nylon       — 尼龙白 (白, metallic=0, roughness=0.45)
-  black_rubber      — 橡胶黑 (黑, metallic=0, roughness=0.75)
-  polycarbonate_clear — 透明聚碳酸酯 (透明, metallic=0, roughness=0.05, ior=1.58)
+Engineering Plastics/Rubber (4 types):
+  peek_amber        — PEEK amber (yellowish, metallic=0, roughness=0.30, sss=0.08)
+  white_nylon       — White nylon (white, metallic=0, roughness=0.45)
+  black_rubber      — Black rubber (black, metallic=0, roughness=0.75)
+  polycarbonate_clear — Clear polycarbonate (transparent, metallic=0, roughness=0.05, ior=1.58)
 
-自定义示例 (render_config.json):
+Custom example (render_config.json):
   "materials": {
     "flange*": {"preset": "brushed_aluminum"},
     "sensor*": {"color": [0.2, 0.3, 0.8, 1.0], "metallic": 0.5, "roughness": 0.3}
   }
 ```
 
-### 6. camera — 相机配置说明
+### 6. camera — Camera Configuration
 
 ```
-═══ 相机配置 ═══
+=== Camera Configuration ===
 
-两种坐标系:
+Two coordinate systems:
 
-1. 球坐标 (推荐，直观):
+1. Spherical coordinates (recommended, intuitive):
    "type": "spherical",
-   "azimuth": 45,      // 水平角度 (0=正前, 90=右侧, 180=正后)
-   "elevation": 30,    // 仰角 (0=水平, 90=正上方)
-   "distance_factor": 2.5  // 距离 = factor × 模型包围球半径
+   "azimuth": 45,      // Horizontal angle (0=front, 90=right side, 180=rear)
+   "elevation": 30,    // Elevation angle (0=horizontal, 90=directly above)
+   "distance_factor": 2.5  // Distance = factor x model bounding sphere radius
 
-2. 笛卡尔坐标 (精确控制):
+2. Cartesian coordinates (precise control):
    "type": "cartesian",
-   "x": 0.3, "y": -0.4, "z": 0.2  // 相机位置 (米)
+   "x": 0.3, "y": -0.4, "z": 0.2  // Camera position (meters)
 
-标准5视角 (默认，可在 render_config.json 中自定义视角数和名称):
-  V1_front_iso     — 正面等距 (az=35, el=25)  → 主展示图
-  V2_rear_oblique  — 背面斜视 (az=215, el=20) → 背部细节
-  V3_side_elevation — 侧视图 (az=90, el=0)    → 轮廓/尺寸
-  V4_exploded      — 爆炸图 (az=35, el=35)    → 装配关系  type="exploded"
-  V5_ortho_front   — 正视图 (az=0, el=0)      → 正交投影  type="ortho"
+Standard 5 views (default; views count and names can be customized in render_config.json):
+  V1_front_iso     — Front isometric (az=35, el=25)  → Main showcase image
+  V2_rear_oblique  — Rear oblique (az=215, el=20)    → Rear detail
+  V3_side_elevation — Side elevation (az=90, el=0)   → Profile/dimensions
+  V4_exploded      — Exploded view (az=35, el=35)    → Assembly relationships
+  V5_ortho_front   — Front orthographic (az=0, el=0) → Orthographic projection
 
-视图类型 (type 字段驱动渲染脚本选择):
-  standard  — 普通 Blender 渲染 (render_3d.py)
-  exploded  — 爆炸图渲染 (render_exploded.py)
-  ortho     — 正交投影 (render_3d.py, ortho=true)
-  section   — 截面图 (render_section.py)
-
-  注意: 无需硬编码 V4=爆炸图，type 字段自动决定调用哪个脚本。
-
-render_config.json 示例:
+render_config.json example:
   "camera": {
     "V1": {"name": "V1_front_iso", "type": "spherical", "azimuth": 35, "elevation": 25, "distance_factor": 2.5},
     "V2": {"name": "V2_rear_oblique", "type": "spherical", "azimuth": 215, "elevation": 20, "distance_factor": 2.8}
   }
 ```
 
-### 7. explode — 爆炸图配置
+### 7. explode — Exploded View Configuration
 
 ```
-═══ 爆炸图配置 ═══
+=== Exploded View Configuration ===
 
-render_config.json 中的 explode_rules:
+explode_rules in render_config.json:
 
 "explode_rules": [
   {
-    "group": "station1",           // 组名
-    "part_pattern": "station1_*",  // 匹配零件名
-    "axis": "radial",              // radial=径向 | axial=沿Z轴 | custom
-    "distance_factor": 1.5         // 爆炸距离 = factor × 零件尺寸
+    "group": "station1",           // Group name
+    "part_pattern": "station1_*",  // Match part names
+    "axis": "radial",              // radial=outward from center | axial=along Z-axis | custom
+    "distance_factor": 1.5         // Explosion distance = factor x part size
   },
   {
     "group": "flange",
@@ -266,479 +255,426 @@ render_config.json 中的 explode_rules:
     "group": "sensor",
     "part_pattern": "uhf_*",
     "axis": "custom",
-    "direction": [0.5, 0.5, 1.0], // 自定义方向向量
+    "direction": [0.5, 0.5, 1.0], // Custom direction vector
     "distance_factor": 1.8
   }
 ]
 
-axis 类型:
-  radial  — 从模型中心沿径向外推 (适合旋转体零件)
-  axial   — 沿Z轴方向分离 (适合层叠结构)
-  custom  — 自定义方向向量 direction: [x, y, z]
+axis types:
+  radial  — Push outward radially from model center (suitable for rotational parts)
+  axial   — Separate along Z-axis (suitable for stacked structures)
+  custom  — Custom direction vector direction: [x, y, z]
 
-render_exploded.py 会自动绘制装配线(虚线连接器)。
+render_exploded.py automatically draws assembly lines (dashed connectors).
 ```
 
-### 8. render — 渲染执行/引导
+### 8. render — Render Execution/Guide
 
-**原则：任何渲染/绘图请求均须先执行 Step 0（产物扫描 + 用户选择），不可直接开跑。**
+**Principle: Any render/drawing request must first execute Step 0 (artifact scan + user choice) — never start running directly.**
 
-Agent 收到渲染请求后，按 `/cad-help` 路由规则第 3 条执行：
-1. 先扫描目标子系统的 6 个阶段产物状态
-2. 向用户展示总览表（✅/❌ 标记各阶段）
-3. 给出选项（完全从头 / 续跑 / 指定阶段），等待用户选择
-4. 用户确认后，按选择执行
+When the agent receives a render request, follow `/cad-help` routing rule #3:
+1. Scan the target subsystem's 6 phase artifact statuses
+2. Show the user an overview table (✅/❌ for each phase)
+3. Present options (full rebuild / resume / specific phases), wait for user choice
+4. After user confirms, execute accordingly
 
-**执行时的技术约束**：
+**Technical constraints during execution**:
 ```
-无论全管线还是单独渲染，均须先 build 重新生成 GLB，再执行 Blender 渲染。
-GLB 是 Blender 的输入，必须与当前代码/设计保持一致，不可复用旧 GLB。
+Whether running the full pipeline or a standalone render, always run build first
+to regenerate GLB, then execute Blender rendering.
+GLB is Blender's input and must be consistent with the current code/design.
 
-  # 推荐方式：build 同时触发渲染（自动生成新 GLB 后渲染）
+  # Recommended: build triggers rendering (auto-generates new GLB then renders)
   cd cad/<subsystem> && python build_all.py --render
 
-  # 或分两步：先 build 生成 GLB，再单独渲染特定视角
+  # Or two steps: build GLB first, then render specific views
   cd cad/<subsystem> && python build_all.py
   tools/blender/blender.exe -b -P cad/<subsystem>/render_3d.py -- \
     --config cad/<subsystem>/render_config.json
 
-  # 爆炸图（同样需先确认 GLB 已由本次 build 重新生成）
+  # Exploded view (GLB must have been regenerated by this build session)
   tools/blender/blender.exe -b -P cad/<subsystem>/render_exploded.py -- \
     --config cad/<subsystem>/render_config.json
 ```
 
-渲染后自动产出:
-- `cad/output/renders/V1_front_iso.png` 等PNG文件
-- `cad/output/renders/render_manifest.json` — 本次会话新增文件列表
-- `cad/output/renders/V1_front_iso_labels.json` — 各组件2D投影锚点（Blender精确坐标，供annotate使用）
+### 9. ai_enhance — AI Enhancement Guide
 
-### 9. ai_enhance — AI增强说明
-
-**搜索优先**：先读 `pipeline_config.json` enhance 段获取实际后端配置，再回答。
+**Search first**: Read `~/.claude/gemini_image_config.json` to get actual config before answering.
 
 ```
-═══ AI 混合增强（双后端）═══
+=== Gemini AI Hybrid Enhancement ===
 
-技术路线: Blender PNG (几何精确) → AI增强后端 → 照片级 JPG
+Technical approach: Blender PNG (geometry accurate) → Gemini --image mode → Photo-realistic PNG
 
-后端选择 (优先级: CLI --backend > pipeline_config.json backend > 默认gemini):
-  gemini   — 云端API，需配置 ~/.claude/gemini_image_config.json
-  comfyui  — 本地GPU，ControlNet几何硬锁，多视角一致性更强
+First-time setup:
+  python gemini_gen.py --config
+  # Prompts for: API Key, API Base URL (your proxy), model name, output dir
+  # Saved to: ~/.claude/gemini_image_config.json
 
-环境检查:
-  gemini:   python gemini_gen.py --config  (首次使用需配置 api_key/api_base_url/model)
-  comfyui:  python comfyui_env_check.py  (检测GPU/服务/模型/依赖)
+Actual config (~/.claude/gemini_image_config.json):
+  API:    https://your-proxy.com/v1
+  Model:  gemini-3-pro-image-preview (or whichever your proxy supports)
+  Key:    *** (configured)
+  Timeout: 120s
 
-核心工具:
-  gemini_gen.py:        全局命令行工具 (Gemini后端)
-  comfyui_enhancer.py:  ComfyUI REST API适配器 (ComfyUI后端)
-  comfyui_env_check.py: ComfyUI环境检测与安装引导
+Core tools:
+  gemini_gen.py:     gemini_gen.py (global CLI tool)
+  check_env.py:      python cad_pipeline.py env-check (environment check)
 
-渲染文件追踪 (Manifest-based):
-  render步骤结束后写出 cad/output/renders/render_manifest.json
-  格式: {"subsystem":"...", "timestamp":"...", "render_dir":"...", "files":[...], "partial":false}
-  partial=true 表示本次渲染有部分视角失败，files 仅含成功的PNG
-  enhance 优先读 manifest 中的 files 列表（避免处理历史文件）
-  传 --dir 时优先读该目录下的 render_manifest.json（如有），再 fallback 到 glob V*.png
-  glob fallback 自动排除 *_enhanced.png 避免重复处理
-
-Prompt自动填充 (Auto-enrich):
-  enhance 启动时自动读取 params.py，调用 prompt_data_builder.generate_prompt_data()
-  在内存中合并 assembly_description / material_descriptions 等字段到 render_config
-  不修改磁盘上的 render_config.json
-  若 params.py 不存在或 auto-enrich 失败，继续使用 render_config.json 静态值（非致命）
-
-prompt模板 (templates/ 目录):
+Prompt templates (templates/ directory):
   templates/prompt_enhance_unified.txt — all views (unified template, auto-switches by camera type)
 
-模板变量 (从 render_config.json prompt_vars 填充):
-  {product_name}                ← prompt_vars.product_name
-  {view_description}            ← camera.V*.description
-  {material_descriptions}       ← prompt_vars.material_descriptions[] (或 params.py auto-enrich)
-  {standard_parts_description}  ← standard_parts[] (简化几何→真实外观映射)
+Template variables (filled from render_config.json prompt_vars):
+  {product_name}           ← prompt_vars.product_name
+  {view_description}       ← camera.V*.description
+  {material_descriptions}  ← prompt_vars.material_descriptions[]
 
-Auto-enrich (P2):
-  若子系统含 params.py，enhance 阶段启动时自动调用 prompt_data_builder.generate_prompt_data()
-  并在内存中合并到 rc，无需手动 --update-config。失败时 warning 不阻断管线。
+Core principles:
+  1. Viewpoint lock: prompt opens with "Preserve EXACT camera angle, viewpoint, framing";
+     each view includes computed azimuth/elevation; IMAGE ROLES separate source composition from reference style
+  2. Geometry lock: Gemini — prompt constraint; ComfyUI — ControlNet depth+canny hard constraint
+  3. Material descriptions are read from render_config.json — never fabricated
+  4. Layout awareness: non-radial subsystems do not inject hardcoded part descriptions
+  5. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
 
-Manifest-based 文件选择 (P1):
-  render 阶段成功后写 output/<subsystem>/renders/render_manifest.json
-  enhance/annotate 未指定 --dir 时优先读 manifest，只处理本次渲染产出文件
-  指定 --dir 时 fallback 到 glob 全目录（兼容旧用法）
+Multi-view consistency (v2.1):
+  Four-layer defense for Gemini backend:
+  1. Viewpoint Lock — _camera_to_view_description() computes azimuth/elevation from camera vectors
+  2. Image Role Separation — source image FIRST (locks composition), reference SECOND (style only)
+  3. V1-anchor Reference — V1 result serves as material style reference for V2-VN
+  4. Source High-Fidelity — source ≤4MB sent uncompressed (original 1920×1080 PNG)
 
-标准件增强:
-  render_config.json 的 standard_parts 数组描述简化几何与真实零件的映射:
-    {"visual_cue": "Small cylinder Φ22×68mm under flange", "real_part": "Maxon ECX motor..."}
-  Gemini 收到位置描述+外观描述，将简化形状增强为逼真外观
-  如 standard_parts 为空，占位符替换为空字符串，不影响原有流程
+Standard workflow:
+  1. Confirm Blender PNGs exist (V1~VN, from render_manifest.json)
+  2. Read prompt_vars field from render_config.json
+  3. Execute (choose one):
+     python cad_pipeline.py enhance --subsystem <name>
+     python cad_pipeline.py enhance --dir <dir>  # reads manifest from that dir
+     python cad_pipeline.py enhance --dir <dir> --model <key>  # override model
+     (V1 processed first as style anchor, V2~VN follow)
+  4. Output: photo-realistic PNG (timestamped to prevent overwriting history)
+  5. Optional: Add component labels (Chinese/English):
+     python cad_pipeline.py annotate --dir <dir> --lang cn
+     python cad_pipeline.py annotate --dir <dir> --lang en
+     Output: *_labeled_cn.png / *_labeled_en.png
+     Note: Chinese text is drawn programmatically via PIL+SimHei font, not through AI generation
 
-后端配置 (pipeline_config.json enhance 段):
-  backend: gemini        ← 切换为 comfyui 启用本地GPU后端
+Dual purpose:
+  PNG → Design review/manufacturing reference (100% geometry accurate)
+  PNG_enhanced → Presentations/proposals/business plans (visual appeal)
+  PNG_labeled → Labeled showcase images (presentations/reports/manuals)
 
-  [Gemini后端]
-  model: nano_banana_pro  ← 当前使用的模型别名
-  可选: nano_banana (gemini-2.5-flash-image)
-        nano_banana_pro (gemini-3-pro-image-preview)
-        nano_banana_2 (gemini-3.1-flash-image)
-        nano_banana_4k (gemini-3-pro-image-preview-4k)
-  切换: 修改 pipeline_config.json 的 enhance.model 值，或用 --model <key> 临时覆盖
-  注意: 模型必须在你的代理服务商处可用，否则返回 403/model_not_found
-
-  [ComfyUI后端]
-  comfyui.host: 127.0.0.1  comfyui.port: 8188
-  comfyui.workflow_template: templates/comfyui_workflow.json
-  comfyui.controlnet_model: control_v11p_sd15_depth.pth
-  comfyui.sd_model: v1-5-pruned-emaonly.ckpt
-  GPU要求: NVIDIA 6GB+ VRAM (推荐 8GB+)
-
-核心原则:
-  1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
-  2. 材质描述从 render_config.json 读取，不凭空编造
-  3. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
-  4. 几何锁定: Gemini靠prompt约束; ComfyUI靠ControlNet depth+canny硬约束
-
-标准工作流:
-  1. 确认 Blender PNG 已存在 (V1~VN，来自 render_manifest.json)
-  2. 读取 render_config.json 的 prompt_vars 字段
-  3. 执行 (任选其一):
-     python cad_pipeline.py enhance --subsystem <name>          # 从默认输出目录读manifest
-     python cad_pipeline.py enhance --dir <目录>                # 指定目录，自动读该目录manifest
-     python cad_pipeline.py enhance --dir <目录> --model <key>  # 临时覆盖模型
-     (V1先处理作为风格锚点，V2~VN依次处理)
-  4. 输出: 照片级 PNG (时间戳命名防止覆盖历史版本)
-  5. 可选: 添加元件标注 (中文/英文):
-     python cad_pipeline.py annotate --dir <目录> --lang cn
-     输出: *_labeled_cn.png / *_labeled_en.png
-     注意: 中文文字用PIL+SimHei字体程序化绘制，不经过AI生成
-
-双用途:
-  PNG → 审图/加工参考 (几何100%精确)
-  JPG → 展示/答辩/商业计划书 (视觉吸引力)
-  JPG_labeled → 带元件标注的展示图 (答辩/报告/说明书)
-
-标注工具 (annotate_render.py):
-  依赖: Pillow (PIL)
-  锚点数据源 (优先级):
-    1. Blender投影sidecar (精确) — render_3d/exploded/section.py 渲染后自动写出
-       文件: <PNG同名>_labels.json，例 V1_front_iso_labels.json
-       格式: {"view": "V1", "labels": [{"component": "part_id", "anchor": [px, py]}]}
-       原理: bpy_extras.object_utils.world_to_camera_view(scene, cam, obj.location)
-              Y轴翻转 (Blender v=0 底→像素 y=0 顶)
-    2. render_config.json labels 段 (fallback，手工坐标)
-       格式: "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
-  标签文字位置: 始终取 render_config.json labels[VN][i].label（不被sidecar覆盖）
-  components 数据源: render_config.json components 段
+Annotation tool (annotate_render.py):
+  Dependency: Pillow (PIL)
+  Data source: render_config.json components section (CN/EN names extracted from design doc BOM) + labels section (2D anchor+label position per view per component)
+  Data schema:
     "components": {"part_id": {"name_cn": "...", "name_en": "...", "bom_id": "GIS-XX-NNN"}}
-  关键规范:
-    - components 名称必须从设计文档§X.8 BOM原文提取，不可自行编造
-    - Blender对象名 = render_config.json components 键名（保持一致）
-    - labels 每视角仅标注该视角可见的元件（被遮挡的不标）
-    - 坐标基于1920×1080参考分辨率，自动按实际图片尺寸缩放
-  样式: dark(白字黑底) / light(黑字白底)，引线+圆点+半透明背景矩形
-  字体: 中文SimHei(黑体) / 英文Arial
+    "labels": {"V1": [{"component": "part_id", "anchor": [x,y], "label": [x,y]}]}
+  Key requirements:
+    - Component names must be extracted verbatim from design document section X.8 BOM — never fabricated
+    - Labels per view only annotate components visible in that view (occluded ones are omitted)
+    - Coordinates are based on 1920x1080 reference resolution, automatically scaled to actual image size
+  Styles: dark (white text on black background) / light (black text on white background), leader lines + dots + semi-transparent background rectangles
+  Fonts: Chinese SimHei / English Arial
 
-首次配置:
+First-time setup:
   python gemini_gen.py --config
-  (交互式向导，设置 API Key / Base URL / Model)
+  (Interactive wizard to set API Key / Base URL / Model)
 ```
 
-### 10. troubleshoot — 排错指南
+### 10. troubleshoot — Troubleshooting Guide
 
 ```
-═══ 常见问题排错 ═══
+=== Common Issue Troubleshooting ===
 
-Q: Blender 找不到 / 启动失败
-A: 确认 tools/blender/blender.exe 存在，Blender 4.2 LTS portable版
+Q: Blender not found / fails to launch
+A: Confirm tools/blender/blender.exe exists, Blender 4.2 LTS portable version
 
-Q: CadQuery import 报错
-A: pip install cadquery  (需要 Python 3.10+)
+Q: CadQuery import error
+A: pip install cadquery  (requires Python 3.10+)
 
-Q: GLB 导出失败
-A: 检查 assembly.py 是否正确生成了 Assembly 对象
-   确认 cad/output/ 目录存在
+Q: GLB export failed
+A: Check that assembly.py correctly generates an Assembly object
+   Confirm cad/output/ directory exists
 
-Q: Blender 渲染全黑/全白
-A: 检查 render_config.json 中相机距离是否合理 (distance_factor 2~4)
-   检查灯光是否配置
+Q: Blender render is all black/all white
+A: Check if camera distance in render_config.json is reasonable (distance_factor 2~4)
+   Check if lighting is configured
 
-Q: Gemini API 报错
-A: 1. 检查 ~/.config/gemini_image_config.json 是否存在且格式正确
-   2. 确认 api_base_url 和 model 是否匹配你的服务商
-   3. 检查网络连接 (中转代理可能需要科学上网)
-   4. 运行 python gemini_gen.py --config 重新配置
-   5. 确认 Blender PNG 已生成
+Q: Gemini API error
+A: 1. Check if ~/.claude/gemini_image_config.json exists and is properly formatted
+   2. Confirm api_base_url and model match your service provider
+   3. Check network connectivity (proxy relay may require VPN)
+   4. Run python gemini_gen.py --config to reconfigure
+   5. Confirm Blender PNGs have been generated
 
-Q: DXF 打开乱码
-A: 确认 FangSong 字体已安装
-   ezdxf 版本需 >= 0.18
+Q: DXF opens with garbled text
+A: Confirm FangSong font is installed
+   ezdxf version must be >= 0.18
 
-Q: render_config.json 加载失败
-A: 运行 /cad-help 验证配置 检查JSON格式
-   常见: 尾逗号、中文引号、缺少必需字段
+Q: render_config.json fails to load
+A: Run /cad-help validate config to check JSON format
+   Common issues: trailing commas, non-ASCII quotes, missing required fields
 
-Q: 材质不生效
-A: 检查 part_pattern 是否匹配实际零件名
-   用 python -c "import glob; print(glob.glob('cad/output/*.glb'))" 看实际文件名
+Q: Material not applied
+A: Check if part_pattern matches actual part names
+   Use python -c "import glob; print(glob.glob('cad/output/*.glb'))" to see actual file names
 
-Q: 渲染分辨率太低
+Q: Render resolution too low
 A: render_config.json → "resolution": {"width": 1920, "height": 1080}
-   默认 1280×720
+   Default is 1280x720
 ```
 
-### 11. file_struct — 文件结构
+### 11. file_struct — File Structure
 
 ```
-═══ CAD渲染管线文件结构 ═══
+=== CAD Rendering Pipeline File Structure ===
 
-cad/<subsystem>/                   ← 每个子系统独立目录
-├── params.py                      ← 参数单一数据源
-├── *.py                           ← 3D模型脚本 (零件/装配)
-├── std_*.py                       ← 标准件简化几何 (外购件, 自动生成)
-├── assembly.py                    ← 总装配 → STEP + GLB (含标准件)
-├── drawing.py                     ← 2D工程图引擎 (GB/T国标)
-├── draw_*.py                      ← 各零件工程图
-├── render_dxf.py                  ← DXF→PNG转换
-├── render_config.json             ← 渲染配置 (材质/相机/爆炸/标注/标准件)
-├── render_config.py               ← 配置引擎 (15材质预设)
-├── render_3d.py                   ← Blender Cycles渲染脚本
-├── render_exploded.py             ← 爆炸图渲染脚本
-└── build_all.py                   ← 一键构建 (--render触发Blender)
+cad/<subsystem>/                   ← Each subsystem has its own directory
+├── params.py                      ← Single source of truth for parameters
+├── *.py                           ← 3D model scripts (parts/assemblies)
+├── assembly.py                    ← Main assembly → STEP + GLB
+├── drawing.py                     ← 2D engineering drawing engine (GB/T national standard)
+├── draw_*.py                      ← Engineering drawings per part
+├── render_dxf.py                  ← DXF→PNG conversion
+├── render_config.json             ← Render configuration (materials/camera/explode/labels)
+├── render_config.py               ← Config engine (15 material presets)
+├── render_3d.py                   ← Blender Cycles render script
+├── render_exploded.py             ← Exploded view render script
+└── build_all.py                   ← One-click build (--render triggers Blender)
 
-参考实现: cad/end_effector/ (§4末端执行器, 14脚本, 8 STEP + 11 DXF)
+Reference implementation: cad/end_effector/ (section 4 End Effector, 14 scripts, 8 STEP + 11 DXF)
 
-cad/output/                    ← 输出目录
-├── XX-000_assembly.step/.glb  ← 总装配
-├── XX-NNN_*.step              ← 子装配STEP
-├── XX-NNN-NN_*.dxf            ← 2D工程图DXF
-└── *.png / *.jpg              ← 渲染结果
+cad/output/                    ← Output directory
+├── XX-000_assembly.step/.glb  ← Main assembly
+├── XX-NNN_*.step              ← Sub-assembly STEP
+├── XX-NNN-NN_*.dxf            ← 2D engineering drawing DXF
+└── *.png / *.jpg              ← Render results
 
-templates/                     ← 模板
-├── render_config_template.json← 空白渲染配置模板（新子系统起点）
-├── cad_spec_template.md       ← CAD Spec模板
-├── prompt_enhance_unified.txt ← AI增强prompt: all views (unified template)
-└── prompt_section.txt         ← 剖面视图prompt模板
+templates/                     ← Templates
+├── render_config_template.json← Blank render config template (starting point for new subsystems)
+├── cad_spec_template.md       ← CAD Spec template
+├── prompt_enhance_unified.txt ← AI enhancement prompt: all views (unified template)
+└── prompt_section.txt         ← Section view prompt template
 
-tools/hybrid_render/           ← 混合渲染工具
-├── check_env.py               ← 环境检查脚本
-└── prompt_builder.py          ← Prompt模板生成
+cad/<subsystem>/               ← Per-subsystem CAD scripts
+├── render_3d.py               ← Blender render script
+├── render_exploded.py         ← Exploded view render
+├── render_section.py          ← Cross-section render
+└── render_config.json         ← Camera/material/prompt config
 
 tools/blender/blender.exe      ← Blender 4.2 LTS portable
 
-gemini_gen.py  ← Gemini图生图全局工具 (项目外)
-~/.config/gemini_image_config.json ← Gemini API配置 (key/url/model)
+gemini_gen.py  ← Gemini image-to-image global tool (outside project)
+~/.claude/gemini_image_config.json ← Gemini API config (key/url/model)
 ```
 
-### 12. status — 子系统状态
+### 12. status — Subsystem Status
 
-扫描并报告：
+Scan and report:
 
 ```python
-# 扫描逻辑:
-1. glob cad/*/render_config.json → 已配置子系统列表
-2. glob cad/*/build_all.py → 已实现子系统列表
-3. glob cad/output/*.step → STEP产物数
-4. glob cad/output/*.dxf → DXF产物数
-5. glob cad/output/*.glb → GLB产物数
-6. ls bananapro/*.png, *.jpg → 渲染结果数
-7. ls docs/design/*.md → 全部设计章节
+# Scanning logic:
+1. glob cad/*/render_config.json → list of configured subsystems
+2. glob cad/*/build_all.py → list of implemented subsystems
+3. glob cad/output/*.step → STEP artifact count
+4. glob cad/output/*.dxf → DXF artifact count
+5. glob cad/output/*.glb → GLB artifact count
+6. ls output/*.png, *.jpg → render result count
+7. ls docs/design/*.md → all design chapters
 
-# 输出:
-═══ CAD子系统状态 ═══
+# Output:
+=== CAD Subsystem Status ===
 
-已完成:
-  ✅ end_effector (§4末端执行器) — 8 STEP, 11 DXF, 1 GLB, 5 PNG, 5 JPG
+Completed:
+  ✅ end_effector (section 4 End Effector) — 8 STEP, 11 DXF, 1 GLB, 5 PNG, 5 JPG
 
-待建模 (按设计成熟度排序):
-  ⬜ §5  电气系统 (★★★★☆)
-  ⬜ §2  系统总体 (★★★★☆)
-  ⬜ §3  底盘导航 (★★★☆☆)
+Pending modeling (sorted by design maturity):
+  ⬜ §5  Electrical System (★★★★☆)
+  ⬜ §2  System Overview (★★★★☆)
+  ⬜ §3  Chassis Navigation (★★★☆☆)
   ...
 
-推荐: 下一步建模 §5 电气系统 (成熟度最高的未建模章节)
+Recommendation: Next model §5 Electrical System (highest maturity unmodeled chapter)
 ```
 
-### 13. integration — 集成其他 LLM / Agent
+### 13. integration — Integrate Other LLMs / Agents
 
 ```
-═══ 跨模型集成指南 ═══
+=== Cross-Model Integration Guide ===
 
-本管线分3层，其他LLM/Agent只需对接底层工具即可:
+This pipeline has 3 layers; other LLMs/Agents only need to interface with the bottom layer tools:
 
-第1层: 底层Python脚本 (任何能执行shell的LLM/Agent均可调用)
+Layer 1: Low-level Python scripts (any LLM/Agent that can execute shell commands can call these)
   ┌──────────────────────────────────────────────────────────────┐
-  │ 脚本                          用途          CLI参数            │
-  │ cad_pipeline.py              6阶段统一入口  spec/codegen/build/│
-  │                                             render/enhance/   │
-  │                                             annotate/full/    │
-  │                                             init/status/      │
-  │                                             env-check         │
-  │ build_all.py                 一键构建      --render           │
-  │ render_3d.py (Blender内)     3D渲染        --config --view --all │
-  │ render_exploded.py (Blender内) 爆炸图      --config --spread  │
-  │ render_dxf.py                DXF→PNG       [file.dxf ...]     │
-  │ prompt_builder.py            生成prompt     --config --type    │
-  │ validate_config.py           验证配置       <config.json>      │
-  │ check_env.py                 环境检查       --json             │
-  │ gemini_gen.py                图生图         --image --model    │
+  │ Script                          Purpose       CLI Args       │
+  │ build_all.py                   One-click build --render      │
+  │ render_3d.py (inside Blender)  3D rendering   --config --view --all │
+  │ render_exploded.py (inside Blender) Exploded view --config --spread │
+  │ render_dxf.py                  DXF→PNG        [file.dxf ...] │
+  │ prompt_builder.py              Generate prompt --config --type │
+  │ validate_config.py             Validate config <config.json>  │
+  │ check_env.py                   Env check      --json          │
+  │ gemini_gen.py                  Image-to-image --image <png> "prompt" │
   └──────────────────────────────────────────────────────────────┘
 
-第2层: 技能知识文档 (可直接作为 system prompt)
-  system_prompt.md                     ← 通用系统提示词 (任何LLM)
-  skill_cad_help.md                    ← 完整知识库 (15意图+动作)
-  docs/cad_pipeline_agent_guide.md     ← 详细Agent集成指南
+Layer 2: Skill knowledge documents (can be used directly as system prompt)
+  system_prompt.md                     ← Universal system prompt (any LLM)
+  skill_cad_help.md                    ← Complete knowledge base (15 intents + actions)
+  docs/cad_pipeline_agent_guide.md     ← Detailed Agent integration guide
 
-第3层: 平台适配器 (按需选装)
-  .claude/commands/                    ← Claude Code 斜杠命令
+Layer 3: Platform adapters (install as needed)
+  .claude/commands/                    ← Claude Code slash commands
   adapters/openai/functions.json       ← OpenAI Function Calling
   adapters/langchain/tools.py          ← LangChain Tool wrapper
-  adapters/dify/README.md              ← Dify/Coze 知识库导入
+  adapters/dify/README.md              ← Dify/Coze knowledge base import
 
-接入示例:
+Integration examples:
 
   GLM-4 + Function Calling:
     system_prompt = open("tools/cad_pipeline_agent_guide.md").read()
-    tools = [{"name": "run_shell", "description": "执行shell命令"}]
-    → GLM读取指南 → 按流程调用 build_all.py / render_3d.py 等
+    tools = [{"name": "run_shell", "description": "Execute shell command"}]
+    → GLM reads the guide → calls build_all.py / render_3d.py etc. per workflow
 
   GPT-4 + Assistants API:
-    上传 cad_pipeline_agent_guide.md 为知识文件
-    启用 Code Interpreter → 可直接运行Python脚本
+    Upload cad_pipeline_agent_guide.md as a knowledge file
+    Enable Code Interpreter → can directly run Python scripts
 
   LangChain / AutoGen / Dify:
-    将知识文档注入 Agent 的 system prompt
-    注册 shell tool → Agent 自主调用管线脚本
+    Inject knowledge documents into the Agent's system prompt
+    Register shell tool → Agent autonomously calls pipeline scripts
 
-  任何 Agent 框架:
-    1. 给 LLM 喂 cad_pipeline_agent_guide.md 作为知识
-    2. 提供 shell/subprocess 执行能力
-    3. LLM 按文档指引生成命令并执行
+  Any Agent framework:
+    1. Feed cad_pipeline_agent_guide.md to the LLM as knowledge
+    2. Provide shell/subprocess execution capability
+    3. LLM generates and executes commands following the document guidance
 
-安装（推荐 PyPI）:
-  pip install cad-spec-gen     # 安装技能包
-  cad-skill-setup              # 交互式向导（语言/环境/依赖/注册）
-  cad-skill-check              # 检查环境状态
+Installation (PyPI recommended):
+  pip install cad-spec-gen     # Install skill package
+  cad-skill-setup              # Interactive wizard (language/env/deps/register)
+  cad-skill-check              # Check environment status
 
-其他平台适配器: 见 adapters/ 目录 (openai, langchain, dify)
+Adapters for other platforms: see adapters/ directory (openai, langchain, dify)
 ```
 
-### 14. parts — 零件/BOM 解析
+### 14. parts — Parts/BOM Parsing
 
-**触发**: 用户询问某子系统有哪些零件、BOM清单、部件结构等。
+**Trigger**: User asks about a subsystem's parts, BOM list, component structure, etc.
 
-**执行步骤**:
+**Execution steps**:
 
-1. **定位子系统**: 从用户输入提取子系统名称，匹配 `docs/design/NN-*.md`
-   - 如未指定 → 提示选择子系统
-   - 常用映射: 末端/执行器→04, 电气→05, 底盘→01, 系统→02
+1. **Locate subsystem**: Extract subsystem name from user input, match to `docs/design/NN-*.md`
+   - If not specified → prompt user to select a subsystem
+   - Common mappings: end effector→04, electrical→05, chassis→01, system→02
 
-2. **运行解析器**:
+2. **Run parser**:
    ```bash
-   python bom_parser.py docs/design/NN-*设计.md          # 树形输出
-   python bom_parser.py docs/design/NN-*设计.md --json   # JSON输出
-   python bom_parser.py docs/design/NN-*设计.md --summary # 仅统计
+   python bom_parser.py docs/design/NN-*design.md          # Tree output
+   python bom_parser.py docs/design/NN-*design.md --json   # JSON output
+   python bom_parser.py docs/design/NN-*design.md --summary # Statistics only
    ```
 
-3. **展示结果**: 以树形结构输出（总成→零件层级 + 自制/外购标记 + 价格统计）
+3. **Display results**: Output as tree structure (assembly→part hierarchy + make/buy tags + cost summary)
 
-4. **无BOM时**: 如果解析器报 "未找到 BOM 表"
-   - 提示: "该子系统设计文档尚无 §X.8 BOM 章节"
-   - 给出模板: `docs/templates/bom_section_template.md`
-   - 引导用户按模板补充
+4. **When no BOM found**: If the parser reports "No BOM table found"
+   - Prompt: "This subsystem's design document does not yet have a section X.8 BOM chapter"
+   - Provide template: `docs/templates/bom_section_template.md`
+   - Guide user to fill in using the template
 
-**BOM Markdown 规范**（与 §4.8 一致）:
-- 表头行必须含 `料号` 和 `名称` 列
-- 总成行: 料号格式 `GIS-XX-NNN`（3段，加粗），自制/外购列写 `总成`
-- 零件行: 料号格式 `GIS-XX-NNN-NN`（4段），归属最近的上方总成
-- 单价格式: `500元`、`100元×2`、`—`
+**BOM Markdown specification** (consistent with section 4.8):
+- Header row must contain `Part Number` and `Name` columns
+- Assembly rows: part number format `GIS-XX-NNN` (3 segments, bold), make/buy column shows `Assembly`
+- Part rows: part number format `GIS-XX-NNN-NN` (4 segments), belongs to the nearest assembly row above
+- Unit price format: `500 CNY`, `100 CNY x2`, `—`
 
-### 15. spec — CAD Spec 生成/查看
+### 15. spec — CAD Spec Generation/Viewing
 
-**触发**: 用户询问 CAD_SPEC、数据提取、参数规范等。
+**Trigger**: User asks about CAD_SPEC, data extraction, parameter specifications, etc.
 
-**执行步骤**:
+**Execution steps**:
 
-1. **生成 CAD_SPEC**: 对指定子系统运行提取器
+1. **Generate CAD_SPEC**: Run the extractor for the specified subsystem
    ```bash
-   python cad_spec_gen.py docs/design/NN-*设计.md --config config/gisbot.json           # 单个子系统
-   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --force   # 强制重生成
-   python cad_spec_gen.py --all --config config/gisbot.json                              # 全部18个子系统
+   python cad_spec_gen.py docs/design/NN-*design.md --config config/gisbot.json           # Single subsystem
+   python cad_spec_gen.py docs/design/NN-*design.md --config config/gisbot.json --force   # Force regeneration
+   python cad_spec_gen.py --all --config config/gisbot.json                                # All 18 subsystems
    ```
 
-2. **查看已有 CAD_SPEC**: 读取 `cad/<subsystem>/CAD_SPEC.md`
+2. **View existing CAD_SPEC**: Read `cad/<subsystem>/CAD_SPEC.md`
 
-3. **检查缺失项**: 查看 §9 缺失数据报告
-   - CRITICAL → 告知用户需在设计文档补充哪些内容
-   - WARNING → 列出默认值，确认可否接受
-   - INFO → 可选优化项
+3. **Check missing items**: Review section 9 Missing Data Report
+   - CRITICAL → Inform user which content needs to be added to the design document
+   - WARNING → List default values, confirm if acceptable
+   - INFO → Optional optimization items
 
-4. **模板**: `templates/cad_spec_template.md`（空白模板带填写说明）
+4. **Template**: `templates/cad_spec_template.md` (blank template with filling instructions)
 
-### 16. review — 设计审查
+### 16. review — Design Review
 
-**触发**: 用户要求审查设计、检查力学/装配/材质、design review。
+**Trigger**: User requests design review, mechanics/assembly/material checks, design audit.
 
-**执行步骤**:
+**Execution steps**:
 
-1. **运行审查**: 对设计文档提取数据后执行工程校验
+1. **Run review**: Extract data from design document then perform engineering validation
    ```bash
-   # 仅审查（推荐首次使用）
-   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --review-only --force
+   # Review only (recommended for first use)
+   python cad_spec_gen.py docs/design/NN-*design.md --config config/gisbot.json --review-only --force
 
-   # 审查 + 生成 CAD_SPEC
-   python cad_pipeline.py spec --subsystem <subsystem> --design-doc <doc.md> --review --force
+   # Review + generate CAD_SPEC
+   python cad_spec_gen.py docs/design/NN-*design.md --config config/gisbot.json --review --force
    ```
 
-2. **展示审查结果**: 读取 `cad/<subsystem>/DESIGN_REVIEW.md`，向用户汇总：
-   - A. 力学审查（悬臂弯矩、螺栓剪切、弹簧力）
-   - B. 装配审查（尺寸链、包络干涉、安装面校核、悬空零件、连接方式合理性、空间重叠）
-   - C. 材质审查（电偶腐蚀、温度裕度、强度余量）
-   - D. 缺失数据（CRITICAL/WARNING/INFO + 可否自动填充）
+2. **Present review results**: Read `cad/<subsystem>/DESIGN_REVIEW.md` and summarize to user:
+   - A. Mechanical review (cantilever bending moment, bolt shear, spring force)
+   - B. Assembly review (dimension chain, envelope interference, mounting surface check, floating parts, connection method validation, spatial overlap)
+   - C. Material review (galvanic corrosion, temperature margin, strength margin)
+   - D. Missing data (CRITICAL/WARNING/INFO + whether auto-fill is possible)
 
-3. **用户选择**:
-   - **「继续审查」** → 逐项讨论 WARNING/CRITICAL，用户可调整参数
-   - **「自动补全」** → 对可计算的缺失项（螺栓力矩、单位、粗糙度）自动补全并写入 CAD_SPEC.md
-   - **「下一步」** → 接受当前结果，生成 CAD_SPEC.md
+3. **User choices**:
+   - **"Continue review"** → Discuss WARNING/CRITICAL items one by one; user can adjust parameters
+   - **"Auto-fill"** → Automatically fill computable missing items (bolt torque, units, surface roughness) and write to CAD_SPEC.md
+   - **"Next step"** → Accept current results, generate CAD_SPEC.md
 
-4. **重要原则**: 不直接修改用户设计文档，所有变更仅反映在 CAD_SPEC.md 中
+4. **Important principle**: Never directly modify the user's design document — all changes are reflected only in CAD_SPEC.md
 
 ---
 
-## 帮助面板（无参数时显示）
+## Help Panel (displayed when no parameters given)
 
 ```
-═══ /cad-help — CAD混合渲染管线帮助 ═══
+=== /cad-help — CAD Hybrid Rendering Pipeline Help ===
 
-直接用自然语言提问，例如:
+Ask your question in natural language, for example:
 
-  环境与安装
-    /cad-help 需要安装什么？
-    /cad-help 运行环境检查
+  Environment & Installation
+    /cad-help What needs to be installed?
+    /cad-help Run an environment check
 
-  配置与验证
-    /cad-help 验证我的render_config.json
-    /cad-help 有哪些材质可以用？
-    /cad-help 相机怎么配置？
-    /cad-help 爆炸图怎么设置？
+  Configuration & Validation
+    /cad-help Validate my render_config.json
+    /cad-help What materials are available?
+    /cad-help How do I configure the camera?
+    /cad-help How do I set up an exploded view?
 
-  工作流
-    /cad-help 下一步做什么？
-    /cad-help 怎么给新子系统配置？
-    /cad-help 怎么渲染出图？
-    /cad-help Gemini AI增强怎么用？
+  Workflow
+    /cad-help What should I do next?
+    /cad-help How do I set up a new subsystem?
+    /cad-help How do I render images?
+    /cad-help How do I use Gemini AI enhancement?
 
-  零件与BOM
-    /cad-help 末端执行器有哪些零件？
-    /cad-help 电气系统BOM清单
+  Parts & BOM
+    /cad-help What parts does the end effector have?
+    /cad-help Electrical system BOM list
 
-  状态与排错
-    /cad-help 目前进度如何？
-    /cad-help 报错了怎么办？
-    /cad-help 文件都在哪？
+  Status & Troubleshooting
+    /cad-help What is the current progress?
+    /cad-help What do I do when I get an error?
+    /cad-help Where are all the files?
 
-  集成与接入
-    /cad-help 其他大模型怎么调用？
-    /cad-help GLM/GPT怎么接入？
-    /cad-help 通用Agent指南在哪？
+  Integration
+    /cad-help How do other LLMs call this pipeline?
+    /cad-help How to integrate with GLM/GPT?
+    /cad-help Where is the universal Agent guide?
 
-提示: 无需记住命令语法，描述你想做的事即可。
+Tip: No need to memorize command syntax — just describe what you want to do.
 ```

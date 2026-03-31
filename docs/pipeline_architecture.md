@@ -218,10 +218,15 @@ render_manifest.json
     → 为每个视角构建增强 prompt
         │
         ├─► [backend=gemini]
-        │     gemini_gen.py  --prompt-file <tmp.txt> --image <VN_compressed.jpg>
+        │     gemini_gen.py  --prompt-file <tmp.txt> --image <VN.png>
         │     V1（基准视角）先处理，建立风格一致性锚点
         │     V2~VN 依次处理，引用 V1 作为风格参考
-        │     几何锁定：依赖 prompt 文字指令（"Do NOT crop/pan/zoom/reframe"）
+        │     多视角一致性（v2.1 四层防线）:
+        │       1. 视角锁定 — 从相机向量计算方位角/仰角，写入 prompt
+        │       2. 图片角色分离 — 源图第一位（锁构图），参考图第二位（仅风格）
+        │       3. V1-anchor — V1 增强结果作为后续视角材质参考
+        │       4. 源图高保真 — ≤4MB 不压缩，保留完整空间细节
+        │     几何锁定：依赖 prompt 文字指令（"Preserve EXACT camera angle, viewpoint"）
         │
         └─► [backend=comfyui]
               comfyui_enhancer.py

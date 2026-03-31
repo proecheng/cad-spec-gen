@@ -392,10 +392,19 @@ Manifest-based 文件选择 (P1):
   GPU要求: NVIDIA 6GB+ VRAM (推荐 8GB+)
 
 核心原则:
-  1. prompt首行必须写 "Keep ALL geometry EXACTLY unchanged"
-  2. 材质描述从 render_config.json 读取，不凭空编造
-  3. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
-  4. 几何锁定: Gemini靠prompt约束; ComfyUI靠ControlNet depth+canny硬约束
+  1. 视角锁定: prompt首行 "Preserve EXACT camera angle, viewpoint, framing"；
+     每视角写入计算得到的方位角/仰角；IMAGE ROLES 分离源图构图与参考图风格
+  2. 几何锁定: Gemini靠prompt约束; ComfyUI靠ControlNet depth+canny硬约束
+  3. 材质描述从 render_config.json 读取，不凭空编造
+  4. Layout感知: 非 radial 子系统不注入硬编码零件描述
+  5. 统一模板按相机类型自动切换（爆炸图保留间距，正交图无透视）
+
+多视角一致性 (v2.1):
+  Gemini 后端四层防线:
+  1. 视角锁定 — _camera_to_view_description() 从相机位置向量自动计算方位角/仰角
+  2. 图片角色分离 — 源图放第一位（锁定构图），参考图放第二位（仅材质风格）
+  3. V1-anchor 参考图 — V1 增强结果作为 V2-VN 的材质风格参考
+  4. 源图高保真 — 源图 ≤4MB 不压缩，直接发送原始 1920×1080 PNG
 
 标准工作流:
   1. 确认 Blender PNG 已存在 (V1~VN，来自 render_manifest.json)
