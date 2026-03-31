@@ -164,7 +164,10 @@ Step 2: 参数化建模
   (或手动创建 3D脚本 → assembly.py → build_all.py)
 
 Step 3: 全管线
-  python cad_pipeline.py full --subsystem <名称> --design-doc docs/design/XX-<名称>.md
+  运行 /cad-help 全管线 或 /cad-help 绘图
+  Agent 会先扫描各阶段产物状态，展示总览表，让你选择从哪一步开始
+  （完全从头重建 / 从某阶段续跑 / 仅重建指定阶段）
+  注意：禁止直接运行 cad_pipeline.py full，必须通过 /cad-help 走 Step 0 用户确认流程
 ```
 
 ### 5. material — 材质预设表
@@ -278,13 +281,19 @@ render_exploded.py 会自动绘制装配线(虚线连接器)。
 
 ### 8. render — 渲染执行/引导
 
-判断用户需求后执行或引导：
+**原则：任何渲染/绘图请求均须先执行 Step 0（产物扫描 + 用户选择），不可直接开跑。**
 
+Agent 收到渲染请求后，按 `/cad-help` 路由规则第 3 条执行：
+1. 先扫描目标子系统的 6 个阶段产物状态
+2. 向用户展示总览表（✅/❌ 标记各阶段）
+3. 给出选项（完全从头 / 续跑 / 指定阶段），等待用户选择
+4. 用户确认后，按选择执行
+
+**执行时的技术约束**：
 ```
-**原则：无论全管线还是单独渲染，均须先 build 重新生成 GLB，再执行 Blender 渲染。**
+无论全管线还是单独渲染，均须先 build 重新生成 GLB，再执行 Blender 渲染。
 GLB 是 Blender 的输入，必须与当前代码/设计保持一致，不可复用旧 GLB。
 
-情况A: 用户想直接渲染 → 先 build 再 render
   # 推荐方式：build 同时触发渲染（自动生成新 GLB 后渲染）
   cd cad/<subsystem> && python build_all.py --render
 
@@ -296,12 +305,6 @@ GLB 是 Blender 的输入，必须与当前代码/设计保持一致，不可复
   # 爆炸图（同样需先确认 GLB 已由本次 build 重新生成）
   tools/blender/blender.exe -b -P cad/<subsystem>/render_exploded.py -- \
     --config cad/<subsystem>/render_config.json
-
-情况B: GLB 可能是旧版 → 必须先重新构建
-  1. python cad/<subsystem>/build_all.py  → 重新生成 STEP + DXF + GLB
-  2. 再 --render 触发 Blender
-
-情况C: 用户想渲染其他子系统 → 检查是否有 render_config.json
 ```
 
 渲染后自动产出:
