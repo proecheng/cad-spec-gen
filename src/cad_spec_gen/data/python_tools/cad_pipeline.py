@@ -45,13 +45,13 @@ if hasattr(sys.stderr, "reconfigure"):
 import time
 
 from cad_paths import (
-    SKILL_ROOT, get_blender_path, get_subsystem_dir, get_output_dir,
-    get_gemini_script,
+    SKILL_ROOT, PROJECT_ROOT, get_blender_path, get_subsystem_dir,
+    get_output_dir, get_gemini_script,
 )
 
 log = logging.getLogger("cad_pipeline")
 
-CAD_DIR = os.path.join(SKILL_ROOT, "cad")
+CAD_DIR = os.path.join(PROJECT_ROOT, "cad")
 TOOLS_DIR = os.path.join(SKILL_ROOT, "tools")
 CONFIG_PATH = os.path.join(SKILL_ROOT, "config", "gisbot.json")
 PIPELINE_CONFIG_PATH = os.path.join(SKILL_ROOT, "pipeline_config.json")
@@ -94,7 +94,7 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
         config = _load_config()
     doc_base = doc_dir or config.get("doc_dir", "docs/design")
     if not os.path.isabs(doc_base):
-        doc_base = os.path.join(SKILL_ROOT, doc_base)
+        doc_base = os.path.join(PROJECT_ROOT, doc_base)
 
     # Find chapter number for this subsystem
     for chapter, info in config.get("subsystems", {}).items():
@@ -591,7 +591,7 @@ def cmd_spec(args):
     # Append user supplements to CAD_SPEC.md if any were collected
     if supplements:
         # CAD_SPEC.md is written to output/<subsystem>/ by cad_spec_gen.py
-        output_dir = os.path.join(SKILL_ROOT, "output", args.subsystem)
+        output_dir = os.path.join(PROJECT_ROOT, "output", args.subsystem)
         spec_path = os.path.join(output_dir, "CAD_SPEC.md")
         if not os.path.isfile(spec_path):
             # Fallback: cad/<subsystem>/
@@ -1539,7 +1539,7 @@ def cmd_init(args):
     config = _load_config()
     output_dir = config.get("output_dir", "./output")
     if not os.path.isabs(output_dir):
-        output_dir = os.path.join(SKILL_ROOT, output_dir)
+        output_dir = os.path.join(PROJECT_ROOT, output_dir)
     sub_dir = os.path.join(output_dir, sub_name)
 
     if os.path.exists(sub_dir) and not args.force:
@@ -1656,7 +1656,7 @@ ASSEMBLY_NAME    = "{sub_name}_assembly"
     # ── design doc placeholder ───────────────────────────────────────────────
     doc_base = config.get("doc_dir", "docs/design")
     if not os.path.isabs(doc_base):
-        doc_base = os.path.join(SKILL_ROOT, doc_base)
+        doc_base = os.path.join(PROJECT_ROOT, doc_base)
     os.makedirs(doc_base, exist_ok=True)
     doc_path = os.path.join(doc_base, f"XX-{sub_name}.md")
     doc_content = f"""# {args.name_cn or sub_name} 设计文档

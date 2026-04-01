@@ -40,7 +40,10 @@ plt.rcParams["axes.unicode_minus"] = False
 # Dark background like AutoCAD model space — makes color-7 (white) text visible
 BG_COLOR = "#000000"
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+OUTPUT_DIR = os.path.normpath(
+    os.environ.get("CAD_OUTPUT_DIR",
+                   os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output"))
+)
 
 
 def render_dxf_to_png(dxf_path: str, png_path: str = None,
