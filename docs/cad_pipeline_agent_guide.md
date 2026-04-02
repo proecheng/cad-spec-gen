@@ -180,7 +180,7 @@ scaffold 模式不覆盖已有文件；`--force` 全部重新生成。
 
 ```json
 {
-  "blender_path": "D:/cad-skill/tools/blender/blender.exe",
+  "blender_path": "tools/blender/blender.exe",
   "cadquery_python": "python",
   "render": {"engine": "CYCLES", "samples": 512, "resolution": [1920, 1080]},
   "timestamp": {"enabled": true, "format": "%Y%m%d_%H%M"},
@@ -198,9 +198,23 @@ scaffold 模式不覆盖已有文件；`--force` 全部重新生成。
 }
 ```
 
-管线自动读取此文件获取 Blender 路径和渲染设置。也可通过环境变量覆盖：
+管线自动读取此文件获取 Blender 路径和渲染设置。`blender_path` 为相对路径时基于 SKILL_ROOT 解析。
+
+### 3.0d 路径体系 — SKILL_ROOT vs PROJECT_ROOT
+
+`cad_paths.py` 将路径分为两类：
+
+| 变量 | 含义 | 决定方式 |
+|------|------|----------|
+| `SKILL_ROOT` | 技能安装目录（模板、脚本、工具） | `__file__` 所在目录（不可变） |
+| `PROJECT_ROOT` | 用户项目目录（输出、设计文档） | `CAD_PROJECT_ROOT` 环境变量 → `os.getcwd()` |
+
+**输出路径**（2D 工程图、3D 渲染、specs）基于 `PROJECT_ROOT`；**工具路径**（Blender、模板、codegen 脚本）基于 `SKILL_ROOT`。
+
+环境变量覆盖：
+- `CAD_PROJECT_ROOT` — 项目根目录（默认 cwd）
+- `CAD_OUTPUT_DIR` — 输出目录（默认 `PROJECT_ROOT/cad/output`）
 - `BLENDER_PATH` — Blender 可执行文件路径
-- `CAD_OUTPUT_DIR` — 输出目录
 - `GEMINI_GEN_PATH` — Gemini 脚本路径
 
 ### 3.1 build_all.py — 一键构建
@@ -595,7 +609,7 @@ python cad_pipeline.py build --subsystem my_device --skip-orientation
 
 ```
 cad_pipeline.py                    ← 统一管线编排器 (6 阶段)
-cad_paths.py                       ← 路径解析（Blender、子系统、输出目录）
+cad_paths.py                       ← 路径解析（SKILL_ROOT / PROJECT_ROOT / 输出目录）
 pipeline_config.json               ← 持久化配置（Blender路径、渲染参数、时间戳）
 
 codegen/                           ← 代码生成器（Jinja2）

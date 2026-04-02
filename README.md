@@ -423,7 +423,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── cad_pipeline.py                 # Unified 6-phase pipeline orchestrator
-├── cad_paths.py                    # Centralized path resolution
+├── cad_paths.py                    # Path resolution (SKILL_ROOT / PROJECT_ROOT)
 ├── pipeline_config.json            # Persistent config (Blender path, render settings)
 ├── cad_spec_gen.py                 # Spec extraction (CLI entry point)
 ├── cad_spec_extractors.py          # 8 extraction functions + table parser
