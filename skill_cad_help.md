@@ -284,7 +284,11 @@ Whether running the full pipeline or a standalone render, always run build first
 to regenerate GLB, then execute Blender rendering.
 GLB is Blender's input and must be consistent with the current code/design.
 
+Note: `cad_pipeline.py build` auto-runs render_dxf.py after build_all.py,
+converting all DXF engineering drawings to PNG previews (if render_dxf.py exists).
+
   # Recommended: build triggers rendering (auto-generates new GLB then renders)
+  # Also auto-generates DXF→PNG previews via render_dxf.py
   cd cad/<subsystem> && python build_all.py --render
 
   # Or two steps: build GLB first, then render specific views

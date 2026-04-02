@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "CAD pipeline skill: design doc → design review → structured spec → code generation → 2D drawings → 3D renders → photorealistic images",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
@@ -62,7 +62,7 @@
     },
     {
       "name": "gemini_enhance",
-      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). NOTE: gemini_gen.py is an EXTERNAL script (not in this repo), located via env var GEMINI_GEN_PATH or cad_paths.get_gemini_script(). Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
+      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). gemini_gen.py is included in this repo; also discoverable via env var GEMINI_GEN_PATH or cad_paths.get_gemini_script(). Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
       "cli": "python cad_pipeline.py enhance --dir <render_dir>"
     },
     {
@@ -73,19 +73,19 @@
   ],
   "pypi": "cad-spec-gen",
   "adapters": {
-    "claude-code": ".claude/commands/",
+    "claude-code": ".claude/commands/ (legacy) or ~/.claude/skills/*/SKILL.md (recommended)",
     "openai": "adapters/openai/",
     "langchain": "adapters/langchain/",
     "dify": "adapters/dify/"
   },
   "pipeline": {
-    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md → Jinja2 codegen → CadQuery (STEP/DXF/GLB) → Blender Cycles PNG → Gemini AI JPG → Annotated JPG",
+    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md → Jinja2 codegen → CadQuery (STEP/DXF/GLB) → DXF→PNG (auto) → Blender Cycles PNG → Gemini AI JPG → Annotated JPG",
     "orchestrator": "cad_pipeline.py",
     "config": "pipeline_config.json",
     "stages": [
       "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review). GATE-1: CRITICAL issues block Phase 2.",
       "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). GATE-2: gen_parts.py scans TODO markers in coord-system blocks → exit(2) if unfilled.",
-      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py).",
+      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py). Post-build: auto-runs render_dxf.py to convert DXF → PNG engineering drawing previews (if script exists in subsystem dir).",
       "Phase 4 RENDER: Blender Cycles N-view PNG from render_config.json camera dict (dynamic, not hardcoded). render_3d.py + render_exploded.py + render_section.py dispatched by view type. Post-render: writes render_manifest.json (session-new files only, partial flag on partial failure) and V*_labels.json sidecar (Blender world_to_camera_view projected anchor coords per component).",
       "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini or ComfyUI backend). Auto-enriches rc from params.py via prompt_data_builder (in-memory, no disk write). Reads render_manifest.json to process only session-new PNGs; falls back to glob when --dir supplied.",
       "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py). Reads V*_labels.json sidecar for geometrically accurate anchor coords (Blender-projected); falls back to render_config.json hardcoded coords when no sidecar present."

@@ -27,6 +27,10 @@ Check environment: `cad-skill-check`
 
 After installation, type `/cad-help` in Claude Code to get started.
 
+**Manual skill registration** (if not using `cad-skill-setup`):
+- **Project-level**: `.claude/commands/*.md` (legacy) — auto-discovered in project dir
+- **Global (recommended)**: Copy to `~/.claude/skills/<name>/SKILL.md` with YAML frontmatter for all-project access
+
 ### Update
 
 ```bash
@@ -55,6 +59,8 @@ CAD_SPEC.md (single source of truth for all downstream CAD work)
 params.py + build_all.py + station_*.py + std_*.py + assembly.py
     ↓ CadQuery parametric modeling
 STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
+    ↓ render_dxf.py — auto DXF→PNG engineering drawing previews (if script exists)
+DXF PNG previews (for design review)
     ↓ Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
     ↓ AI enhancement (reskin only, geometry locked) — Gemini or ComfyUI
@@ -450,7 +456,8 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   ├── design_review_template.md   # Design review output template
 │   ├── prompt_enhance_unified.txt  # AI prompt: all views (unified template)
 │   └── prompt_section.txt          # Section view prompt template
-├── .claude/commands/               # Claude Code slash commands (5 commands)
+├── gemini_gen.py                   # Gemini image generation (OpenAI-compatible API)
+├── .claude/commands/               # Claude Code slash commands (5 commands, legacy format)
 ├── adapters/
 │   ├── openai/
 │   │   ├── functions.json         # OpenAI Function Calling schema

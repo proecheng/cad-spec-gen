@@ -25,6 +25,8 @@ CAD_SPEC.md (single source of truth — never modify user's original doc)
 params.py + build_all.py + station_*.py scaffolds + assembly.py
     ↓ [Phase 3: BUILD] build_all.py — CadQuery parametric modeling
 STEP + DXF (GB/T 2D drawings) + GLB
+    ↓ [Post-Build] render_dxf.py — auto DXF→PNG (if script exists)
+DXF PNG previews (engineering drawing review)
     ↓ [Phase 4: RENDER] Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
     ↓ [Phase 5: ENHANCE] Gemini AI enhancement (reskin only, geometry locked)
@@ -41,7 +43,7 @@ The primary entry point for all pipeline operations:
 # Individual phases
 python cad_pipeline.py spec --design-doc docs/design/04-*.md      # Phase 1: review + CAD_SPEC.md
 python cad_pipeline.py codegen --subsystem end_effector            # Phase 2: generate CadQuery scaffolds
-python cad_pipeline.py build --subsystem end_effector              # Phase 3: STEP + DXF + GLB
+python cad_pipeline.py build --subsystem end_effector              # Phase 3: STEP + DXF + GLB + DXF→PNG
 python cad_pipeline.py render --subsystem end_effector --timestamp # Phase 4: Blender N-view PNG
 python cad_pipeline.py enhance --dir cad/output/renders            # Phase 5: Gemini AI PNG
 python cad_pipeline.py annotate --subsystem end_effector --lang cn # Phase 6: labeled PNG
@@ -110,6 +112,7 @@ python bom_parser.py <design_doc.md> --summary # one-line summary
 ```bash
 python cad/<subsystem>/build_all.py           # STEP + DXF only
 python cad/<subsystem>/build_all.py --render  # + Blender N-view PNG
+# Note: cad_pipeline.py build auto-runs render_dxf.py after build_all.py (DXF→PNG)
 ```
 
 ### 5. Blender Rendering (requires Blender 4.x LTS)

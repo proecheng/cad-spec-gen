@@ -137,6 +137,7 @@ python cad/<subsystem>/render_dxf.py file1.dxf file2.dxf  # 渲染指定
 python cad/<subsystem>/build_all.py               # 构建 STEP + DXF
 python cad/<subsystem>/build_all.py --render       # 构建 + Blender 渲染
 python cad/<subsystem>/build_all.py --dry-run      # 仅验证导入
+# Note: 通过 cad_pipeline.py build 调用时，会自动运行 render_dxf.py 将 DXF 转为 PNG 预览图
 ```
 
 build_all.py 结构：

@@ -28,7 +28,7 @@
    ```
    Phase 1  SPEC      → 检查 cad/<subsystem>/CAD_SPEC.md 是否存在 + mtime
    Phase 2  CODEGEN   → 检查 cad/<subsystem>/build_all.py, params.py, assembly.py 是否存在
-   Phase 3  BUILD     → 检查 cad/output/ 下是否有该子系统的 .step/.glb 文件 + mtime
+   Phase 3  BUILD     → 检查 cad/output/ 下是否有该子系统的 .step/.glb/.png(DXF→PNG) 文件 + mtime
    Phase 4  RENDER    → 检查 cad/output/renders/ 下是否有该子系统的 V*.png + 数量 + mtime
    Phase 5  ENHANCE   → 检查是否有 *_enhanced.* 文件
    Phase 6  ANNOTATE  → 检查是否有 *_labeled_*.png 文件
@@ -93,6 +93,7 @@
 
 - 环境检查（env_check）：逐项运行检测命令，汇报 ✅/❌ 状态
 - 验证配置（validate）：读取并检查 render_config.json 的完整性
+- 构建（build）：`cad_pipeline.py build` 运行 build_all.py 后**自动执行 render_dxf.py** 将 DXF 转为 PNG 工程图预览（如脚本存在）
 - 渲染（render）：**无论全管线还是单独渲染，均须先运行 build 重新生成 GLB，再执行 Blender 渲染**（GLB 是 Blender 的输入，必须与当前设计保持一致）
 - 排错（troubleshoot）：先问用户具体报错信息，再对照排错指南定位
 - 状态（status）：扫描 cad/ 和 cad/output/ 目录，统计产物数量

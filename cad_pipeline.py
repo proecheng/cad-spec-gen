@@ -714,7 +714,24 @@ def cmd_build(args):
 
     ok, elapsed = _run_subprocess(cmd, f"build_all.py ({args.subsystem})",
                                   dry_run=args.dry_run, timeout=1200)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
+    render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
+    if os.path.isfile(render_dxf_script):
+        log.info("[Phase 3 post-build] Rendering DXF → PNG ...")
+        ok_dxf, _ = _run_subprocess(
+            [sys.executable, render_dxf_script],
+            "render_dxf.py (DXF → PNG)", dry_run=args.dry_run, timeout=600
+        )
+        if not ok_dxf:
+            log.warning("DXF → PNG rendering failed (non-fatal, DXF files are still available)")
+    else:
+        log.info("No render_dxf.py in %s — skipping DXF → PNG", sub_dir)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    return 0
 
 
 def cmd_render(args):
