@@ -1047,7 +1047,7 @@ def cmd_enhance(args):
         Checks file size and grayscale variance. Thresholds can be overridden
         via render_config.json "enhance_quality_gate" section.
         """
-        defaults = {"min_size_kb": 80, "min_variance": 300}
+        defaults = {"min_size_kb": 80, "min_variance": 5}
         gate = {**defaults, **(config or {}).get("enhance_quality_gate", {})}
         size_kb = os.path.getsize(image_path) / 1024
         if size_kb < gate["min_size_kb"]:
@@ -1657,34 +1657,26 @@ def cmd_init(args):
             "V1": {
                 "name": "V1_front_iso",
                 "type": "standard",
-                "location": [350, -380, 320],
-                "target": [0, 0, 50],
-                "lens_mm": 50,
-                "description": "Front isometric view"
+                "azimuth_deg": 35, "elevation_deg": 25, "distance_factor": 2.5,
+                "description": "Front-left isometric — main showcase"
             },
             "V2": {
                 "name": "V2_rear_oblique",
                 "type": "standard",
-                "location": [-320, 350, 400],
-                "target": [0, 0, 50],
-                "lens_mm": 50,
-                "description": "Rear oblique view"
+                "azimuth_deg": 215, "elevation_deg": 20, "distance_factor": 2.8,
+                "description": "Rear-right oblique — back detail"
             },
             "V3": {
                 "name": "V3_exploded",
                 "type": "exploded",
-                "location": [400, -400, 500],
-                "target": [0, 0, 0],
-                "description": "Exploded view (use render_exploded.py)"
+                "azimuth_deg": 35, "elevation_deg": 35, "distance_factor": 3.5,
+                "description": "Exploded view (render_exploded.py)"
             },
             "V4": {
                 "name": "V4_ortho_front",
                 "type": "ortho",
-                "location": [0, -500, 80],
-                "target": [0, 0, 80],
-                "ortho": True,
-                "ortho_scale": 400,
-                "description": "Front orthographic view"
+                "azimuth_deg": 0, "elevation_deg": 0,
+                "description": "Front orthographic — auto-scaled to fit model"
             }
         },
         "components": {

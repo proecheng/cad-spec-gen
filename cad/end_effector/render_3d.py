@@ -404,7 +404,12 @@ def setup_lighting():
 
     Light sizes and energies scaled for a scene ~300mm across.
     When config is loaded, energies scale with _BOUNDING_R.
+    Automatically creates studio environment (ground + sky) if not present.
     """
+    # Ensure studio environment exists (called by render_3d main, but
+    # render_exploded.py / render_section.py may skip it)
+    if not any(o.name == "Ground" for o in bpy.context.scene.objects):
+        setup_studio_environment()
     # Energy scaling factor (1.0 at 300mm)
     if _CONFIG:
         sys.path.insert(0, SCRIPT_DIR)
@@ -532,26 +537,41 @@ def setup_camera(preset_key):
     # ── Auto-frame: normalize distance so object fills frame_fill of vertical FOV ──
     # Works for any view direction; disable per-view with "auto_frame": false
     auto_frame = preset.get("auto_frame", True)
-    if cam_data.type == "PERSP" and auto_frame:
+    if auto_frame:
         try:
             bs_center, bs_radius = _get_bounding_sphere()
             frame_fill = (_CONFIG.get("frame_fill", 0.75) if _CONFIG else 0.75)
-            scene = bpy.context.scene
-            sensor_w = cam_data.sensor_width  # Blender default 36mm
-            aspect = scene.render.resolution_x / scene.render.resolution_y
-            sensor_h = sensor_w / aspect
-            fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
-            required_dist = bs_radius / math.sin(fov_half) / frame_fill
-            # Direction: from bounding-sphere center toward camera
-            view_dir = (cam_obj.location - Vector(tgt)).normalized()
-            cam_obj.location = bs_center + view_dir * required_dist
-            # Re-aim at bounding-sphere center
-            aim = bs_center - cam_obj.location
-            cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
-            log.info("  Auto-frame [%s]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
-                     preset_key,
-                     bs_center.x, bs_center.y, bs_center.z,
-                     bs_radius, required_dist, frame_fill * 100)
+
+            if cam_data.type == "PERSP":
+                scene = bpy.context.scene
+                sensor_w = cam_data.sensor_width  # Blender default 36mm
+                aspect = scene.render.resolution_x / scene.render.resolution_y
+                sensor_h = sensor_w / aspect
+                fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
+                required_dist = bs_radius / math.sin(fov_half) / frame_fill
+                # Direction: from bounding-sphere center toward camera
+                view_dir = (cam_obj.location - Vector(tgt)).normalized()
+                cam_obj.location = bs_center + view_dir * required_dist
+                # Re-aim at bounding-sphere center
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                log.info("  Auto-frame [%s]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
+                         preset_key,
+                         bs_center.x, bs_center.y, bs_center.z,
+                         bs_radius, required_dist, frame_fill * 100)
+
+            elif cam_data.type == "ORTHO":
+                # Auto-scale ortho to fit model bounding sphere
+                cam_data.ortho_scale = bs_radius * 2.0 / frame_fill
+                # Re-center camera aim at bounding-sphere center
+                view_dir = (cam_obj.location - Vector(tgt)).normalized()
+                cam_obj.location = bs_center + view_dir * (bs_radius * 4)
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                log.info("  Auto-frame ORTHO [%s]: ortho_scale=%.0f r=%.0f fill=%.0f%%",
+                         preset_key, cam_data.ortho_scale,
+                         bs_radius, frame_fill * 100)
+
         except Exception as _af_err:
             log.warning("  Auto-frame skipped: %s", _af_err)
 
