@@ -99,10 +99,12 @@ def _part_no_to_module_name(part_no: str, name_cn: str) -> str:
     """Convert part number to Python module name.
 
     GIS-EE-001 → flange (from name_cn)
-    GIS-EE-002 → station1_applicator
+    ACME-PLT-002 → station1_applicator
     """
-    # Strip prefix
-    suffix = re.sub(r"^GIS-\w+-", "", part_no)
+    from cad_spec_defaults import strip_part_prefix
+    # 通用前缀剥离后取最后一段
+    stripped = strip_part_prefix(part_no)
+    suffix = stripped.split("-")[-1] if "-" in stripped else stripped
     # Use name as base
     name = re.sub(r"[（(].*$", "", name_cn).strip()
     name = name.lower().replace(" ", "_").replace("-", "_")
@@ -142,22 +144,17 @@ def generate_build_tables(parts: list) -> dict:
         name = p["name_cn"]
 
         if p["is_assembly"]:
-            # Assembly module → STEP build
-            mod = _part_no_to_module_name(pno, name)
-            func = _part_no_to_func_name(pno, name)
-            filename = _part_no_to_step_filename(pno)
-            label = re.sub(r"[（(].*$", "", name).strip()
-
-            step_builds.append({
-                "label": label,
-                "module": mod,
-                "func": func,
-                "filename": filename,
-            })
+            # Assembly-level entries (GIS-EE-001, 002...) are exported by
+            # assembly.py as EE-000_assembly.step — skip individual STEP builds
+            # since there are no standalone sub-assembly Python modules.
+            continue
         elif "自制" in p.get("make_buy", ""):
             # Custom-made leaf part → DXF drawing
-            mod = f"draw_{_part_no_to_module_name(pno, name)}"
-            func = f"draw_{_part_no_to_module_name(pno, name)}_sheet"
+            # Module name must match gen_parts.py: GIS-EE-001-01 → ee_001_01
+            from cad_spec_defaults import strip_part_prefix
+            ee_mod = strip_part_prefix(pno).lower().replace("-", "_")
+            mod = ee_mod
+            func = f"draw_{ee_mod}_sheet"
             label = re.sub(r"[（(].*$", "", name).strip()
 
             dxf_builds.append({

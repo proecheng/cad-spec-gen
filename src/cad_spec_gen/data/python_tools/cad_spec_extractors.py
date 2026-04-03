@@ -473,8 +473,8 @@ def extract_fasteners(lines: list) -> list:
 
         for row in tbl["rows"]:
             location = row[loc_i].strip() if loc_i < len(row) else ""
-            # BUG-10: skip fasteners for GIS-EE-006 (on J3-J4 arm, not on flange)
-            if "信号调理" in location or "GIS-EE-006" in location:
+            # Skip empty location rows
+            if not location:
                 continue
             # BUG-03: skip rows where location looks like a section heading (e.g. "4.5 标准...")
             if re.match(r"^\d+\.\d+\s", location):

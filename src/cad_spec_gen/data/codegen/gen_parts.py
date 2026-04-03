@@ -28,12 +28,13 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8")
 
 from codegen.gen_build import parse_bom_tree
+from cad_spec_defaults import strip_part_prefix
 
 
 def _safe_module_name(part_no: str, name_cn: str) -> str:
     """Generate a clean Python module/function name from part number."""
-    # Use part_no suffix: GIS-EE-001-01 → ee_001_01
-    suffix = re.sub(r"^GIS-", "", part_no).lower().replace("-", "_")
+    # 通用前缀剥离: GIS-EE-001-01 → EE-001-01 → ee_001_01
+    suffix = strip_part_prefix(part_no).lower().replace("-", "_")
     return suffix
 
 
@@ -62,6 +63,45 @@ def _guess_envelope(name_cn: str, material: str) -> dict:
     return defaults
 
 
+def _parse_spec_title(spec_path: str) -> tuple:
+    """Extract project_name and subsystem_name from CAD_SPEC.md title line.
+
+    Returns (project_name, subsystem_name).
+    """
+    text = Path(spec_path).read_text(encoding="utf-8")
+    m = re.search(r"# CAD Spec\s*[—\-]\s*(.+?)(?:\s*\((.+?)\)|$)", text.split("\n")[0])
+    if m:
+        subsystem_name = m.group(1).strip()
+        project_prefix = m.group(2).strip() if m.group(2) else ""
+        return project_prefix, subsystem_name
+    return "", ""
+
+
+def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
+    """Extract §2 annotation metadata for a specific part.
+
+    Returns dict with dim_tolerances, gdt, surfaces filtered for this part.
+    """
+    from cad_spec_extractors import extract_tolerances
+    text = Path(spec_path).read_text(encoding="utf-8")
+    tol_data = extract_tolerances(text.splitlines())
+
+    # Filter tolerances — keep all (they may apply to any part)
+    dim_tols = tol_data.get("dim_tols", [])
+    # Filter GD&T — keep entries matching this part name
+    gdt = [g for g in tol_data.get("gdt", [])
+           if not g.get("parts") or part_name in g["parts"]]
+    # Filter surfaces — keep entries matching this part name
+    surfaces = [s for s in tol_data.get("surfaces", [])
+                if not s.get("part") or part_name in s["part"]]
+
+    return {
+        "dim_tolerances": dim_tols,
+        "gdt": gdt,
+        "surfaces": surfaces,
+    }
+
+
 def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold") -> list:
     """Generate part module scaffolds for all custom-made leaf parts.
 
@@ -73,6 +113,15 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
     parts = parse_bom_tree(spec_path)
     generated = []
     skipped = []
+
+    # Parse project/subsystem name from spec title
+    project_name, subsystem_name = _parse_spec_title(spec_path)
+
+    # Parse §2 annotation metadata (once for all parts)
+    try:
+        full_meta = _parse_annotation_meta(spec_path, "")
+    except Exception:
+        full_meta = {"dim_tolerances": [], "gdt": [], "surfaces": []}
 
     template_dir = os.path.join(_PROJECT_ROOT, "templates")
     env = jinja2.Environment(
@@ -101,6 +150,20 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
         envelope = _guess_envelope(p["name_cn"], p["material"])
 
+        # Derive material_type
+        from cad_spec_defaults import classify_material_type, SURFACE_RA
+        mat_type = classify_material_type(p["material"])
+        if mat_type is None:
+            print(f"  WARNING: Cannot classify material '{p['material']}' for {p['part_no']}, "
+                  f"defaulting to 'al'")
+            mat_type = "al"
+
+        # Per-part annotation meta
+        part_meta = _parse_annotation_meta(spec_path, p["name_cn"])
+
+        # Default Ra from material type
+        default_ra = SURFACE_RA.get(mat_type, SURFACE_RA.get("default", 3.2))
+
         content = template.render(
             part_name_cn=p["name_cn"],
             part_no=p["part_no"],
@@ -113,9 +176,15 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             envelope_h=envelope["h"],
             weight="?",
             has_mounting_holes=False,
-            mount_bolt_pcd=28.0,
-            mount_bolt_num=4,
             has_dxf=True,
+            # Annotation metadata — from CAD_SPEC.md §2 + BOM material
+            material_type=mat_type,
+            project_name=project_name,
+            subsystem_name=subsystem_name,
+            dim_tolerances=part_meta["dim_tolerances"],
+            gdt_entries=part_meta["gdt"],
+            surface_ra=part_meta["surfaces"],
+            default_ra=default_ra,
         )
 
         Path(out_file).write_text(content, encoding="utf-8")

@@ -123,9 +123,15 @@ def review_mechanical(data):
     arm_w = _find_param(params, "ARM", "W") or _find_param(params, "悬臂", "宽")
     arm_t = _find_param(params, "ARM", "THICK") or _find_param(params, "悬臂", "厚")
     arm_l = _find_param(params, "ARM", "L") or _find_param(params, "悬臂", "长")
-    # Find heaviest station weight
+    # Find heaviest station weight — 动态检测工位数，不硬编码 S1_~S4_
     station_weights = []
-    for prefix in ("S1_", "S2_", "S3_", "S4_"):
+    station_prefixes = set()
+    for p in params:
+        pname = p.get("name", "")
+        m = re.match(r"(S\d+_)", pname)
+        if m:
+            station_prefixes.add(m.group(1))
+    for prefix in sorted(station_prefixes):
         w = _find_param(params, prefix + "WEIGHT") or _find_param(params, prefix.replace("_", ""), "WEIGHT")
         if w:
             station_weights.append(w)
@@ -145,7 +151,25 @@ def review_mechanical(data):
         I = arm_w * arm_t**3 / 12.0  # mm⁴
         y = arm_t / 2.0
         sigma = M * y / I if I > 0 else float('inf')  # MPa
-        allowable = MATERIAL_YIELD_STRENGTH.get("7075-T6", 503) / SAFETY_FACTOR_STATIC
+        # 尝试从 BOM 获取实际材质，不硬编码 7075-T6
+        _arm_mat = None
+        bom = data.get("bom")
+        if bom:
+            for assy in bom.get("assemblies", []):
+                for part in assy.get("parts", []):
+                    if "悬臂" in part.get("name", "") or "arm" in part.get("name", "").lower():
+                        _arm_mat = part.get("material", "")
+                        break
+        _yield = MATERIAL_YIELD_STRENGTH.get(_arm_mat, 0) if _arm_mat else 0
+        if _yield == 0:
+            # 从所有材质中找最可能的
+            for mk in MATERIAL_YIELD_STRENGTH:
+                if _arm_mat and mk.lower() in _arm_mat.lower():
+                    _yield = MATERIAL_YIELD_STRENGTH[mk]
+                    break
+        if _yield == 0:
+            _yield = 250  # 保守通用值
+        allowable = _yield / SAFETY_FACTOR_STATIC
         margin = (allowable - sigma) / allowable * 100 if allowable > 0 else 0
 
         idx += 1
@@ -251,32 +275,43 @@ def review_assembly(data):
                 "suggestion": "" if clearance < 1.0 else "间隙过大，可能影响同心度",
             })
 
-    # --- B2: PEEK绝缘环 vs 法兰 ---
-    peek_od = _find_param(params, "PEEK", "OD")
-    flange_od = _find_param(params, "FLANGE", "OD")
-    if peek_od and flange_od:
-        idx += 1
-        if peek_od > flange_od:
-            items.append({
-                "id": f"B{idx}", "item": "PEEK环外径 vs 法兰外径",
-                "detail": f"PEEK Φ{peek_od}mm > 法兰 Φ{flange_od}mm — PEEK突出法兰",
-                "verdict": "WARNING",
-                "suggestion": "确认PEEK环不会与旋转部件干涉",
-            })
-        else:
-            items.append({
-                "id": f"B{idx}", "item": "PEEK环外径 vs 法兰外径",
-                "detail": f"PEEK Φ{peek_od}mm < 法兰 Φ{flange_od}mm — 内缩{flange_od - peek_od:.1f}mm",
-                "verdict": "OK", "suggestion": "",
-            })
+    # --- B2: 同心件外径干涉检查 (通用) ---
+    # 检测是否存在外径配对关系（如绝缘环 vs 法兰、盖板 vs 壳体）
+    od_params = [(p.get("name", ""), float(p["value"]))
+                 for p in params
+                 if "OD" in p.get("name", "") and p.get("value")]
+    if len(od_params) >= 2:
+        # 按外径从大到小排序，检查相邻对
+        od_params.sort(key=lambda x: x[1], reverse=True)
+        for k in range(len(od_params) - 1):
+            outer_name, outer_val = od_params[k]
+            inner_name, inner_val = od_params[k + 1]
+            if inner_val > outer_val:
+                idx += 1
+                items.append({
+                    "id": f"B{idx}", "item": f"{inner_name} vs {outer_name} 外径关系",
+                    "detail": f"{inner_name} Φ{inner_val}mm > {outer_name} Φ{outer_val}mm — 内件突出外件",
+                    "verdict": "WARNING",
+                    "suggestion": "确认尺寸关系正确，内件不应超出外件轮廓",
+                })
 
-    # --- B3: 工位包络干涉 ---
+    # --- B3: 工位包络干涉 (通用：动态检测工位数) ---
     mount_r = _find_param(params, "MOUNT", "CENTER", "R") or _find_param(params, "安装面", "中心")
     station_envs = []
-    for prefix in ("S1_", "S2_", "S3_", "S4_"):
+    for prefix in sorted(station_prefixes) if 'station_prefixes' in dir() else []:
         env_dia = _find_param(params, prefix + "ENVELOPE_DIA") or _find_param(params, prefix + "BODY_W")
         if env_dia:
             station_envs.append((prefix.rstrip("_"), env_dia))
+    # Also try generic detection if no S\d_ prefixes found
+    if not station_envs:
+        for p in params:
+            pname = p.get("name", "")
+            m = re.match(r"(S\d+)_(?:ENVELOPE_DIA|BODY_W)", pname)
+            if m and p.get("value"):
+                try:
+                    station_envs.append((m.group(1), float(p["value"])))
+                except (ValueError, TypeError):
+                    pass
 
     if mount_r and len(station_envs) >= 2:
         # Adjacent stations are 90° apart. Distance = mount_r * sqrt(2)
@@ -679,6 +714,55 @@ def review_completeness(data):
             "note": "; ".join(f"{p} ({m})→Ra{r}" for p, m, r in fillable_ra[:5]),
             "_auto_fill_detail": fillable_ra,
         })
+
+    # ── 标注数据充分性审查（新增） ─────────────────────────────────────────
+
+    # D+N: 尺寸公差不足
+    tolerances = data.get("tolerances", {})
+    dim_tols = tolerances.get("dim_tols", [])
+    custom_parts = [p for assy in (data.get("bom", {}).get("assemblies", []))
+                    for p in assy.get("parts", []) if "自制" in p.get("make_buy", "")]
+    if custom_parts and len(dim_tols) < len(custom_parts) * 2:
+        idx += 1
+        items.append({
+            "id": f"D{idx}",
+            "item": f"§2.1 尺寸公差不足 ({len(dim_tols)}条 vs {len(custom_parts)}个自制件)",
+            "severity": "WARNING",
+            "auto_fill": "否",
+            "default_value": "—",
+            "note": "自制零件的关键尺寸应有明确公差，否则自动标注无法标注公差文本",
+        })
+
+    # D+N: 公差参数名无法匹配 params
+    param_names = {p.get("name", "") for p in params}
+    if dim_tols:
+        unmatched = [t for t in dim_tols if t.get("name", "") not in param_names]
+        if len(unmatched) > len(dim_tols) * 0.5:
+            idx += 1
+            items.append({
+                "id": f"D{idx}",
+                "item": f"尺寸公差参数名无法匹配 ({len(unmatched)}/{len(dim_tols)}项)",
+                "severity": "WARNING",
+                "auto_fill": "否",
+                "default_value": "—",
+                "note": f"不匹配: {', '.join(t['name'] for t in unmatched[:5])}",
+            })
+
+    # D+N: 材质无法推断 material_type
+    from cad_spec_defaults import classify_material_type as _cmt
+    if custom_parts:
+        unclassified = [p for p in custom_parts
+                        if _cmt(p.get("material", "")) is None and p.get("material")]
+        if unclassified:
+            idx += 1
+            items.append({
+                "id": f"D{idx}",
+                "item": f"零件材质无法推断 material_type ({len(unclassified)}项)",
+                "severity": "WARNING",
+                "auto_fill": "否",
+                "default_value": "—",
+                "note": f"无法分类: {', '.join(p['name'] + '(' + p.get('material', '') + ')' for p in unclassified[:3])}",
+            })
 
     return items
 

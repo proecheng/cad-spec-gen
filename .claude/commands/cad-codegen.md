@@ -1,3 +1,8 @@
+---
+name: cad-codegen
+description: "Phase 2: Generate CadQuery scaffold code (params.py, build_all.py, assembly.py, part modules) from CAD_SPEC.md using Jinja2 templates."
+---
+
 # /cad-codegen — 从 CAD_SPEC.md 生成 CadQuery 脚手架代码
 
 用户输入: $ARGUMENTS
@@ -57,11 +62,23 @@
 
 | 步骤 | 生成器 | 模板 | 输入(CAD_SPEC) | 输出 |
 |------|--------|------|----------------|------|
-| 1 | `gen_params.py` | `params.py.j2` | §1 全局参数表 | `params.py` — 尺寸常量 |
-| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM树 | `build_all.py` — STEP/STD/DXF 构建表 |
-| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(自制叶零件) | `station_*.py` — 零件脚手架 |
-| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构（含标准件） |
-| 5 | `gen_std_parts.py` | — | §5 BOM(外购件) | `std_*.py` — 标准件简化几何 |
+| 1 | `gen_params.py` | `params.py.j2` | §1 全局参数表 + §6.2 装配层叠 | `params.py` — 尺寸常量 + 派生装配参数 |
+| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM树 | `build_all.py` — STD STEP + DXF 构建表 |
+| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(自制叶零件) + §2 公差/表面 + §标题 | `ee_NNN_NN.py` — 零件脚手架（含自动标注） |
+| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构（含方向变换） |
+| 5 | `gen_std_parts.py` | — | §5 BOM(外购件) | `std_ee_NNN_NN.py` — 标准件简化几何 |
+
+**命名规则**：零件编号通过 `strip_part_prefix()` 通用前缀剥离（不绑定 "GIS-"），如 `GIS-EE-001-01` → `ee_001_01.py` / `make_ee_001_01()`；外购件 `std_ee_001_03.py` / `make_std_ee_001_03()`
+
+**自动标注**（v2.2.0+）：`gen_parts.py` 现在还解析 CAD_SPEC.md 的 §2 公差/表面数据和标题行，传入模板。生成的 `draw_*_sheet()` 函数自动调用 `auto_annotate(solid, sheet, annotation_meta={...})`，在 HLR 投影后添加 GB/T 合规标注：
+- **几何驱动**（无需 §2 数据）：外形尺寸、圆直径、中心线
+- **Spec 驱动**（从 §2 注入）：公差文本、形位公差框、个别面粗糙度
+- **材质分类**：`classify_material_type(material)` 自动推断 material_type（al/steel/peek/nylon/rubber），驱动技术要求和默认 Ra 选取
+- **项目名参数化**：`ThreeViewSheet` 接收 `project_name`/`subsystem_name`（从 spec 标题解析），标题栏不再硬编码
+
+**派生参数**：`gen_params.py` 自动从 §6.2 装配层叠表提取 `MOUNT_CENTER_R`（工位安装半径）、`STATION_ANGLES`（工位角度列表）等装配级参数，写入 `params.py` 的 `Derived (computed)` 区。
+
+**方向变换**：`gen_assembly.py` 读取 §6.2 的 `轴线方向` 列，按零件名匹配子句（如 "壳体轴沿-Z，储罐轴∥XY"），对需要旋转的零件生成 `rotate()` 代码。优先级：盘面∥XY / 环∥XY → 无旋转 > 沿-Z / 垂直 → 无旋转 > ∥XY / 水平 → 绕X轴转90°。
 
 ### 标准件自动生成（步骤 5）
 
@@ -80,7 +97,10 @@
 | tank | 圆柱 | 不锈钢储罐 |
 
 - 跳过 `fastener`（太小）和 `cable`（柔性体）
-- 尺寸来源: `cad_spec_defaults.py` → `STD_PART_DIMENSIONS` 查找表
+- **尺寸三级查找**: `cad_spec_defaults.py` → `lookup_std_part_dims()`:
+  1. 型号匹配（如 `GP22C` → d=22, l=35）
+  2. 正则提取 BOM 材质字段中的 `Φd×l` / `w×h×l` 模式（如 `Φ25×110mm` → d=25, l=110）
+  3. 分类 fallback（如 `_tank` → d=38, l=280）
 - 输出命名: `std_ee_001_05.py`（`std_` 前缀 + 料号后缀）
 - scaffold 模式下不覆盖已有文件
 
@@ -88,8 +108,6 @@
 
 - **scaffold**：仅生成不存在的文件，已有工程师手动修改的文件不会被覆盖
 - **force**（`gen_params.py` 默认）：全部重新生成覆盖，适用于首次生成或 CAD_SPEC 大幅变更后的完全重置
-
-> **v2.0 变更**: `gen_params.py` 的默认模式已从 `scaffold` 改为 `force`（每次 codegen 完整重新生成 `params.py`）。`gen_parts.py` 和 `gen_std_parts.py` 新增 `--mode force` 选项。pipeline `codegen --force` 会统一向所有生成器传递 `--mode force`。
 
 ### 生成后汇总
 

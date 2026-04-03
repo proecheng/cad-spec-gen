@@ -78,16 +78,38 @@ def _orientation_spec():
 
 {% if has_dxf %}
 def draw_{{ func_name }}_sheet(output_dir: str = None) -> str:
-    """Generate DXF three-view drawing for {{ part_no }}."""
-    from drawing import ThreeViewSheet
+    """Generate DXF three-view drawing for {{ part_no }}.
+
+    Auto-projects the 3D solid into GB/T first-angle front/top/left views
+    using OCC HLR (Hidden Line Removal) via cq_to_dxf module,
+    then adds GB/T compliant annotations (dimensions, center lines,
+    tolerances, GD&T, surface symbols) via auto_annotate.
+    """
+    from draw_three_view import ThreeViewSheet
+    from cq_to_dxf import auto_three_view, auto_annotate
+    from datetime import date
+
     solid = make_{{ func_name }}()
     sheet = ThreeViewSheet(
-        solid,
-        title="{{ part_name_cn }}",
         part_no="{{ part_no }}",
+        name="{{ part_name_cn }}",
         material="{{ material }}",
+        scale="1:1",
+        weight_g=0,
+        date=date.today().isoformat(),
+        project_name="{{ project_name }}",
+        subsystem_name="{{ subsystem_name }}",
     )
-    return sheet.save(output_dir)
+    auto_three_view(solid, sheet)
+
+    # GB/T 标注 — 数据来自 CAD_SPEC.md §2，不硬编码
+    auto_annotate(solid, sheet, annotation_meta={
+        "dim_tolerances": {{ dim_tolerances | tojson }},
+        "gdt": {{ gdt_entries | tojson }},
+        "surfaces": {{ surface_ra | tojson }},
+    })
+
+    return sheet.save(output_dir, material_type="{{ material_type }}")
 {% endif %}
 
 

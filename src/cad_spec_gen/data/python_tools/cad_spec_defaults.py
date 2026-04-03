@@ -132,6 +132,7 @@ STD_PART_DIMENSIONS = {
     "ECX SPEED 22": {"d": 22, "l": 68, "shaft_d": 4, "shaft_l": 14},
     "ECX 22":       {"d": 22, "l": 55, "shaft_d": 4, "shaft_l": 14},
     "ECX 16":       {"d": 16, "l": 44, "shaft_d": 3, "shaft_l": 10},
+    "DC 3V":        {"d": 16, "l": 30, "shaft_d": 2, "shaft_l": 8},
     "DC Φ16":       {"d": 16, "l": 30, "shaft_d": 2, "shaft_l": 8},
     # --- Reducers / Gearboxes ---
     "GP22C":        {"d": 22, "l": 35, "shaft_d": 6, "shaft_l": 10},
@@ -150,16 +151,20 @@ STD_PART_DIMENSIONS = {
     "608ZZ":        {"od": 22, "id": 8, "w": 7},
     # --- Sensors ---
     "ATI Nano17":   {"d": 17, "l": 14.5},
-    "TWAE-03":      {"d": 8, "l": 10},
-    "I300-UHF":     {"w": 30, "h": 20, "l": 15},
+    "KWR42":        {"d": 42, "l": 20},
+    "TWAE-03":      {"d": 28, "l": 26},
+    "I300-UHF":     {"d": 45, "l": 60},
     # --- Connectors ---
     "LEMO FGG.0B":  {"d": 10, "l": 30},
     "LEMO EGG.0B":  {"d": 12, "l": 20},
     "SMA":          {"d": 6.5, "l": 15},
     "Molex ZIF":    {"w": 12, "h": 3, "l": 8},
+    "Molex 5052":   {"w": 12, "h": 3, "l": 8},
+    "Molex 15168":  {"w": 12, "h": 1, "l": 500},
     # --- Pumps ---
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
+    "电磁阀":       {"w": 20, "h": 15, "l": 30},
     # --- Generic fallbacks by category ---
     "_motor":       {"d": 22, "l": 50, "shaft_d": 4, "shaft_l": 12},
     "_reducer":     {"d": 25, "l": 35, "shaft_d": 6, "shaft_l": 10},
@@ -173,24 +178,114 @@ STD_PART_DIMENSIONS = {
 }
 
 
+def _parse_dims_from_text(text: str) -> dict:
+    """Extract dimensions from free-text material/model fields.
+
+    Recognizes patterns commonly found in BOM material columns:
+      Φ38×280mm  → {"d": 38, "l": 280}
+      Φ80×2.4    → {"d": 80, "l": 2.4}   (O-ring: od × section)
+      120×100×55mm → {"w": 120, "h": 100, "l": 55}
+      Φ25mm      → {"d": 25}
+      20芯×500mm → {"l": 500}  (cable length)
+    """
+    import re
+    # Pattern 1: Φd×l (cylinder: diameter × length)
+    m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
+    if m:
+        return {"d": float(m.group(1)), "l": float(m.group(2))}
+
+    # Pattern 2: w×h×l (box: three dimensions)
+    m = re.search(r'(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)\s*mm', text)
+    if m:
+        return {"w": float(m.group(1)), "h": float(m.group(2)), "l": float(m.group(3))}
+
+    # Pattern 3: Φd alone (just diameter)
+    m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*mm', text)
+    if m:
+        return {"d": float(m.group(1))}
+
+    # Pattern 4: N芯×Lmm (cable: count × length)
+    m = re.search(r'\d+芯\s*[×x×]\s*(\d+)\s*mm', text)
+    if m:
+        return {"d": 10, "l": float(m.group(1))}
+
+    return {}
+
+
 def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> dict:
     """Look up standard part dimensions from name/material/model text.
+
+    Resolution order:
+      1. Specific model match in STD_PART_DIMENSIONS (e.g. "GP22C", "MR105ZZ")
+      2. Regex extraction from material/model text (e.g. Φ25×110mm → d=25, l=110)
+      3. Category fallback (e.g. _tank → d=38, l=280)
 
     Returns dict with dimensional keys (d, l, w, h, od, id, etc.) or empty dict.
     """
     text = name + " " + material
-    # Try specific model matches first
+    # Pass 1: Try specific model matches
     for key, dims in STD_PART_DIMENSIONS.items():
         if key.startswith("_"):
             continue  # Skip generic fallbacks in first pass
         if key.upper() in text.upper():
             return dict(dims)  # Return copy
-    # Try generic fallback by category
+
+    # Pass 2: Try regex extraction from material/model text
+    parsed = _parse_dims_from_text(text)
+    if parsed:
+        return parsed
+
+    # Pass 3: Category fallback
     if category:
         fallback_key = f"_{category}"
         if fallback_key in STD_PART_DIMENSIONS:
             return dict(STD_PART_DIMENSIONS[fallback_key])
     return {}
+
+
+# ─── 材质分类 ────────────────────────────────────────────────────────────
+
+MATERIAL_TYPE_KEYWORDS = {
+    "al":     ["铝", "Al", "7075", "6061", "6063", "2024", "5052",
+               "铝合金", "aluminum", "aluminium"],
+    "steel":  ["钢", "Steel", "SUS", "不锈钢", "Q235", "45钢",
+               "碳钢", "合金钢", "弹簧钢", "stainless"],
+    "peek":   ["PEEK"],
+    "nylon":  ["尼龙", "PA66", "PA6", "POM", "塑料", "ABS",
+               "PC", "Nylon", "nylon"],
+    "rubber": ["硅橡胶", "FKM", "NBR", "EPDM", "橡胶",
+               "Shore", "rubber", "silicone"],
+}
+
+
+def classify_material_type(material: str):
+    """从 BOM material 字段推断 material_type。
+
+    遍历 MATERIAL_TYPE_KEYWORDS 查找关键词匹配。
+    无匹配时返回 None（不静默 fallback）。
+
+    Returns:
+        "al" | "steel" | "peek" | "nylon" | "rubber" | None
+    """
+    if not material:
+        return None
+    for mtype, keywords in MATERIAL_TYPE_KEYWORDS.items():
+        if any(kw.lower() in material.lower() for kw in keywords):
+            return mtype
+    return None
+
+
+# ─── 零件编号通用前缀剥离 ────────────────────────────────────────────────
+
+def strip_part_prefix(part_no: str) -> str:
+    """通用前缀剥离：去掉第一段（首个 '-' 之前）。
+
+    GIS-EE-001-01   → EE-001-01
+    ACME-PLT-002-03 → PLT-002-03
+    NOPREFIX         → NOPREFIX (无 '-' 则原样返回)
+    """
+    idx = part_no.find("-")
+    return part_no[idx + 1:] if idx >= 0 else part_no
 
 
 # ─── 必填项规则 ──────────────────────────────────────────────────────────
