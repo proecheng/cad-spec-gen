@@ -3,11 +3,11 @@ Top-Level Assembly — 末端执行机构 (EE-000)
 
 Auto-generated scaffold by codegen/gen_assembly.py
 Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
-Generated: 2026-04-03 16:18
+Generated: 2026-04-03 20:15
 
 Coordinate system:
 - Origin at assembly geometric center
-- Z-up, X-right
+- 垂直方向（平行于重力）
 
 Assembly hierarchy:
   ├── GIS-EE-001 法兰总成
@@ -19,18 +19,18 @@ Assembly hierarchy:
     ├── GIS-EE-001-06 行星减速器
     ├── GIS-EE-001-07 弹簧销组件（含弹簧）
     ├── GIS-EE-001-08 ISO 9409适配板
+    ├── GIS-EE-001-09 FFC线束总成
+    ├── GIS-EE-001-10 ZIF连接器
+    ├── GIS-EE-001-11 Igus拖链段
+    ├── GIS-EE-001-12 定位销
   ├── GIS-EE-002 工位1涂抹模块
     ├── GIS-EE-002-01 涂抹模块壳体
-    ├── GIS-EE-002-02 储罐
-    ├── GIS-EE-002-03 齿轮泵
-    ├── GIS-EE-002-04 刮涂头
-    ├── GIS-EE-002-05 LEMO插头
 """
 
 import cadquery as cq
 import math
 import os
-import params  # noqa: F401 — params loaded for downstream use
+import params  # noqa: F401
 
 
 def _station_transform(part, angle: float, tx: float, ty: float, tz: float):
@@ -49,6 +49,7 @@ def make_assembly() -> cq.Assembly:
     from ee_003_03 import make_ee_003_03
     from ee_003_04 import make_ee_003_04
     from ee_004_01 import make_ee_004_01
+    from ee_004_12 import make_ee_004_12
     from ee_005_02 import make_ee_005_02
     from ee_006_01 import make_ee_006_01
     from ee_006_03 import make_ee_006_03
@@ -57,17 +58,25 @@ def make_assembly() -> cq.Assembly:
     from std_ee_001_05 import make_std_ee_001_05
     from std_ee_001_06 import make_std_ee_001_06
     from std_ee_001_07 import make_std_ee_001_07
+    from std_ee_001_09 import make_std_ee_001_09
+    from std_ee_001_10 import make_std_ee_001_10
     from std_ee_002_02 import make_std_ee_002_02
     from std_ee_002_03 import make_std_ee_002_03
     from std_ee_002_05 import make_std_ee_002_05
     from std_ee_003_01 import make_std_ee_003_01
     from std_ee_003_02 import make_std_ee_003_02
+    from std_ee_003_08 import make_std_ee_003_08
     from std_ee_004_03 import make_std_ee_004_03
     from std_ee_004_04 import make_std_ee_004_04
     from std_ee_004_06 import make_std_ee_004_06
     from std_ee_004_08 import make_std_ee_004_08
     from std_ee_004_09 import make_std_ee_004_09
+    from std_ee_004_11 import make_std_ee_004_11
+    from std_ee_004_13 import make_std_ee_004_13
     from std_ee_005_01 import make_std_ee_005_01
+    from std_ee_005_03 import make_std_ee_005_03
+    from std_ee_006_04 import make_std_ee_006_04
+    from std_ee_006_05 import make_std_ee_006_05
 
     assy = cq.Assembly()
 
@@ -86,10 +95,11 @@ def make_assembly() -> cq.Assembly:
     C_STD_SPRING = cq.Color(0.78, 0.68, 0.2)
     C_STD_MOTOR = cq.Color(0.75, 0.75, 0.78)
     C_STD_REDUCER = cq.Color(0.7, 0.7, 0.72)
+    C_STD_CONN = cq.Color(0.25, 0.25, 0.25)
     C_STD_TANK = cq.Color(0.82, 0.82, 0.85)
     C_STD_PUMP = cq.Color(0.55, 0.55, 0.6)
-    C_STD_CONN = cq.Color(0.25, 0.25, 0.25)
     C_STD_SENSOR = cq.Color(0.2, 0.2, 0.2)
+    C_STD_BEARING = cq.Color(0.6, 0.6, 0.65)
 
     # ═══════ 法兰总成 (0.0°) ═══════
 
@@ -117,61 +127,126 @@ def make_assembly() -> cq.Assembly:
     p_ee_001_08 = make_ee_001_08()
     assy.add(p_ee_001_08, name="EE-001-08", color=C_DARK)
 
+    p_std_ee_001_09 = make_std_ee_001_09()
+    assy.add(p_std_ee_001_09, name="STD-GIS-EE-001-09", color=C_STD_CONN)
+
+    p_std_ee_001_10 = make_std_ee_001_10()
+    assy.add(p_std_ee_001_10, name="STD-GIS-EE-001-10", color=C_STD_CONN)
+
     # ═══════ 工位1涂抹模块 (0.0°) ═══════
+    _a = 0.0
+    _rad = math.radians(_a)
+    _tx = 65.0 * math.cos(_rad)
+    _ty = 65.0 * math.sin(_rad)
+    _tz = 0.0
 
     p_ee_002_01 = make_ee_002_01()
+    p_ee_002_01 = _station_transform(p_ee_002_01, _a, _tx, _ty, _tz)
     assy.add(p_ee_002_01, name="EE-002-01", color=C_SILVER)
 
     p_std_ee_002_02 = make_std_ee_002_02()
+    # Orient: axis horizontal per §6.2: 储罐轴∥XY（水平径向外伸）**
+    # Rule:   
+    p_std_ee_002_02 = p_std_ee_002_02.rotate((0,0,0), (1,0,0), 90)
+    p_std_ee_002_02 = _station_transform(p_std_ee_002_02, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_002_02, name="STD-GIS-EE-002-02", color=C_STD_TANK)
 
     p_std_ee_002_03 = make_std_ee_002_03()
+    p_std_ee_002_03 = _station_transform(p_std_ee_002_03, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_002_03, name="STD-GIS-EE-002-03", color=C_STD_PUMP)
 
     p_std_ee_002_05 = make_std_ee_002_05()
+    p_std_ee_002_05 = _station_transform(p_std_ee_002_05, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_002_05, name="STD-GIS-EE-002-05", color=C_STD_CONN)
 
-    # ═══════ 工位2 AE检测模块 (0.0°) ═══════
+    # ═══════ 工位2 AE检测模块 (90.0°) ═══════
+    _a = 90.0
+    _rad = math.radians(_a)
+    _tx = 65.0 * math.cos(_rad)
+    _ty = 65.0 * math.sin(_rad)
+    _tz = 0.0
 
     p_std_ee_003_01 = make_std_ee_003_01()
+    p_std_ee_003_01 = _station_transform(p_std_ee_003_01, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_003_01, name="STD-GIS-EE-003-01", color=C_STD_SENSOR)
 
     p_std_ee_003_02 = make_std_ee_003_02()
+    p_std_ee_003_02 = _station_transform(p_std_ee_003_02, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_003_02, name="STD-GIS-EE-003-02", color=C_STD_SENSOR)
 
     p_ee_003_03 = make_ee_003_03()
+    p_ee_003_03 = _station_transform(p_ee_003_03, _a, _tx, _ty, _tz)
     assy.add(p_ee_003_03, name="EE-003-03", color=C_AMBER)
 
     p_ee_003_04 = make_ee_003_04()
+    p_ee_003_04 = _station_transform(p_ee_003_04, _a, _tx, _ty, _tz)
     assy.add(p_ee_003_04, name="EE-003-04", color=C_AMBER)
 
-    # ═══════ 工位3卷带清洁模块 (0.0°) ═══════
+    p_std_ee_003_08 = make_std_ee_003_08()
+    p_std_ee_003_08 = _station_transform(p_std_ee_003_08, _a, _tx, _ty, _tz)
+    assy.add(p_std_ee_003_08, name="STD-GIS-EE-003-08", color=C_STD_CONN)
+
+    # ═══════ 工位3卷带清洁模块 (180.0°) ═══════
+    _a = 180.0
+    _rad = math.radians(_a)
+    _tx = 65.0 * math.cos(_rad)
+    _ty = 65.0 * math.sin(_rad)
+    _tz = 0.0
 
     p_ee_004_01 = make_ee_004_01()
+    p_ee_004_01 = _station_transform(p_ee_004_01, _a, _tx, _ty, _tz)
     assy.add(p_ee_004_01, name="EE-004-01", color=C_BLUE)
 
     p_std_ee_004_03 = make_std_ee_004_03()
+    p_std_ee_004_03 = _station_transform(p_std_ee_004_03, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_004_03, name="STD-GIS-EE-004-03", color=C_STD_MOTOR)
 
     p_std_ee_004_04 = make_std_ee_004_04()
+    p_std_ee_004_04 = _station_transform(p_std_ee_004_04, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_004_04, name="STD-GIS-EE-004-04", color=C_STD_REDUCER)
 
     p_std_ee_004_06 = make_std_ee_004_06()
+    p_std_ee_004_06 = _station_transform(p_std_ee_004_06, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_004_06, name="STD-GIS-EE-004-06", color=C_STD_SPRING)
 
     p_std_ee_004_08 = make_std_ee_004_08()
+    p_std_ee_004_08 = _station_transform(p_std_ee_004_08, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_004_08, name="STD-GIS-EE-004-08", color=C_STD_TANK)
 
     p_std_ee_004_09 = make_std_ee_004_09()
+    p_std_ee_004_09 = _station_transform(p_std_ee_004_09, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_004_09, name="STD-GIS-EE-004-09", color=C_STD_PUMP)
 
-    # ═══════ 工位4 UHF模块 (0.0°) ═══════
+    p_std_ee_004_11 = make_std_ee_004_11()
+    p_std_ee_004_11 = _station_transform(p_std_ee_004_11, _a, _tx, _ty, _tz)
+    assy.add(p_std_ee_004_11, name="STD-GIS-EE-004-11", color=C_STD_BEARING)
+
+    p_ee_004_12 = make_ee_004_12()
+    p_ee_004_12 = _station_transform(p_ee_004_12, _a, _tx, _ty, _tz)
+    assy.add(p_ee_004_12, name="EE-004-12", color=C_BLUE)
+
+    p_std_ee_004_13 = make_std_ee_004_13()
+    p_std_ee_004_13 = _station_transform(p_std_ee_004_13, _a, _tx, _ty, _tz)
+    assy.add(p_std_ee_004_13, name="STD-GIS-EE-004-13", color=C_STD_CONN)
+
+    # ═══════ 工位4 UHF模块（方案A） (270.0°) ═══════
+    _a = 270.0
+    _rad = math.radians(_a)
+    _tx = 65.0 * math.cos(_rad)
+    _ty = 65.0 * math.sin(_rad)
+    _tz = 0.0
 
     p_std_ee_005_01 = make_std_ee_005_01()
+    p_std_ee_005_01 = _station_transform(p_std_ee_005_01, _a, _tx, _ty, _tz)
     assy.add(p_std_ee_005_01, name="STD-GIS-EE-005-01", color=C_STD_SENSOR)
 
     p_ee_005_02 = make_ee_005_02()
+    p_ee_005_02 = _station_transform(p_ee_005_02, _a, _tx, _ty, _tz)
     assy.add(p_ee_005_02, name="EE-005-02", color=C_GREEN)
+
+    p_std_ee_005_03 = make_std_ee_005_03()
+    p_std_ee_005_03 = _station_transform(p_std_ee_005_03, _a, _tx, _ty, _tz)
+    assy.add(p_std_ee_005_03, name="STD-GIS-EE-005-03", color=C_STD_CONN)
 
     # ═══════ 信号调理模块 (0.0°) ═══════
 
@@ -180,6 +255,12 @@ def make_assembly() -> cq.Assembly:
 
     p_ee_006_03 = make_ee_006_03()
     assy.add(p_ee_006_03, name="EE-006-03", color=C_BRONZE)
+
+    p_std_ee_006_04 = make_std_ee_006_04()
+    assy.add(p_std_ee_006_04, name="STD-GIS-EE-006-04", color=C_STD_CONN)
+
+    p_std_ee_006_05 = make_std_ee_006_05()
+    assy.add(p_std_ee_006_05, name="STD-GIS-EE-006-05", color=C_STD_CONN)
 
     return assy
 

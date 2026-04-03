@@ -4,7 +4,7 @@ Build All — One-click STEP + DXF generation for 末端执行机构.
 
 Auto-generated scaffold by codegen/gen_build.py
 Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
-Generated: 2026-04-03 16:18
+Generated: 2026-04-03 20:15
 
 Usage:
     python cad/end_effector/build_all.py
@@ -45,6 +45,7 @@ _DXF_BUILDS = [
     ("弹簧限力机构总成", "ee_003_03", "draw_ee_003_03_sheet"),
     ("柔性关节", "ee_003_04", "draw_ee_003_04_sheet"),
     ("清洁模块壳体", "ee_004_01", "draw_ee_004_01_sheet"),
+    ("清洁窗口翻盖", "ee_004_12", "draw_ee_004_12_sheet"),
     ("UHF安装支架", "ee_005_02", "draw_ee_005_02_sheet"),
     ("壳体", "ee_006_01", "draw_ee_006_01_sheet"),
     ("安装支架", "ee_006_03", "draw_ee_006_03_sheet"),
@@ -56,17 +57,25 @@ _STD_STEP_BUILDS = [
     ("[标准件] 伺服电机", "std_ee_001_05", "make_std_ee_001_05", "GIS-EE-001-05_std.step"),
     ("[标准件] 行星减速器", "std_ee_001_06", "make_std_ee_001_06", "GIS-EE-001-06_std.step"),
     ("[标准件] 弹簧销组件", "std_ee_001_07", "make_std_ee_001_07", "GIS-EE-001-07_std.step"),
+    ("[标准件] FFC线束总成", "std_ee_001_09", "make_std_ee_001_09", "GIS-EE-001-09_std.step"),
+    ("[标准件] ZIF连接器", "std_ee_001_10", "make_std_ee_001_10", "GIS-EE-001-10_std.step"),
     ("[标准件] 储罐", "std_ee_002_02", "make_std_ee_002_02", "GIS-EE-002-02_std.step"),
     ("[标准件] 齿轮泵", "std_ee_002_03", "make_std_ee_002_03", "GIS-EE-002-03_std.step"),
     ("[标准件] LEMO插头", "std_ee_002_05", "make_std_ee_002_05", "GIS-EE-002-05_std.step"),
     ("[标准件] AE传感器", "std_ee_003_01", "make_std_ee_003_01", "GIS-EE-003-01_std.step"),
     ("[标准件] 六轴力传感器", "std_ee_003_02", "make_std_ee_003_02", "GIS-EE-003-02_std.step"),
+    ("[标准件] LEMO插头", "std_ee_003_08", "make_std_ee_003_08", "GIS-EE-003-08_std.step"),
     ("[标准件] 微型电机", "std_ee_004_03", "make_std_ee_004_03", "GIS-EE-004-03_std.step"),
     ("[标准件] 齿轮减速组", "std_ee_004_04", "make_std_ee_004_04", "GIS-EE-004-04_std.step"),
     ("[标准件] 恒力弹簧", "std_ee_004_06", "make_std_ee_004_06", "GIS-EE-004-06_std.step"),
     ("[标准件] 溶剂储罐", "std_ee_004_08", "make_std_ee_004_08", "GIS-EE-004-08_std.step"),
     ("[标准件] 微量泵", "std_ee_004_09", "make_std_ee_004_09", "GIS-EE-004-09_std.step"),
+    ("[标准件] 微型轴承", "std_ee_004_11", "make_std_ee_004_11", "GIS-EE-004-11_std.step"),
+    ("[标准件] LEMO插头", "std_ee_004_13", "make_std_ee_004_13", "GIS-EE-004-13_std.step"),
     ("[标准件] I300-UHF-GT传感器", "std_ee_005_01", "make_std_ee_005_01", "GIS-EE-005-01_std.step"),
+    ("[标准件] LEMO插头", "std_ee_005_03", "make_std_ee_005_03", "GIS-EE-005-03_std.step"),
+    ("[标准件] LEMO插座", "std_ee_006_04", "make_std_ee_006_04", "GIS-EE-006-04_std.step"),
+    ("[标准件] SMA穿壁连接器", "std_ee_006_05", "make_std_ee_006_05", "GIS-EE-006-05_std.step"),
 ]
 
 

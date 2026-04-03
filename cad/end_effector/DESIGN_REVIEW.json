@@ -1,0 +1,63 @@
+{
+  "critical": 0,
+  "warning": 5,
+  "info": 1,
+  "ok": 1,
+  "auto_fill": 3,
+  "items": [
+    {
+      "id": "B2",
+      "category": "assembly",
+      "check": "悬空零件 (6项)",
+      "detail": "BOM中以下零件未出现在连接矩阵: 壳体（含散热鳍片）, 信号调理PCB, 安装支架（抱箍+L型）, LEMO插座, SMA穿壁连接器...",
+      "verdict": "WARNING",
+      "suggestion": "补充这些零件的连接关系，或确认为独立附件",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B3",
+      "category": "assembly",
+      "check": "连接描述缺失 (1条)",
+      "detail": "缺少连接方式: UHF检测工位(270°) (GIS-EE-005)↔全部",
+      "verdict": "WARNING",
+      "suggestion": "补充连接类型（螺栓规格、配合方式等）",
+      "auto_fill": "否"
+    },
+    {
+      "id": "M01",
+      "category": "completeness",
+      "check": "§1 全局参数表: 缺少重量预算参数",
+      "detail": "在参数表中添加 '总重量' 行",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "是"
+    },
+    {
+      "id": "D2",
+      "category": "completeness",
+      "check": "参数缺少单位 (5项)",
+      "detail": "多个参数缺少单位，可能导致下游计算错误",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "是"
+    },
+    {
+      "id": "D3",
+      "category": "completeness",
+      "check": "BOM缺少材质 (1项)",
+      "detail": "缺失: 齿轮泵",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
+    },
+    {
+      "id": "D4",
+      "category": "completeness",
+      "check": "零件缺少表面粗糙度 (1项)",
+      "detail": "法兰本体 (7075-T6铝合金)→Ra3.2",
+      "verdict": "INFO",
+      "suggestion": "",
+      "auto_fill": "是"
+    }
+  ]
+}

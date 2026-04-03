@@ -36,12 +36,15 @@ def make_ee_006_03() -> cq.Workplane:
     # Principal axis: TODO
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
-    # TODO: Replace placeholder box with actual geometry.
-    #       Each .extrude() / .circle() / .box() call must reference the
-    #       param name whose value comes from the design doc (see params.py).
-    body = cq.Workplane("XY").box(
-        50.0, 40.0, 25.0,
-        centered=(True, True, False))  # § replace with real geometry
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
+    _base = cq.Workplane("XY").box(50.0, 40.0, 3.0,
+                                   centered=(True, True, False))
+    _wall = (cq.Workplane("XY")
+             .transformed(offset=(0, -40.0 / 2 + 3.0 / 2, 0))
+             .box(50.0, 3.0, 25.0,
+                  centered=(True, True, False)))
+    body = _base.union(_wall)
 
     return body
 
@@ -89,9 +92,9 @@ def draw_ee_006_03_sheet(output_dir: str = None) -> str:
 
     # GB/T 标注 — 数据来自 CAD_SPEC.md §2，不硬编码
     auto_annotate(solid, sheet, annotation_meta={
-        "dim_tolerances": [],
+        "dim_tolerances": [{"fit_code": "", "label": "\u00b1135\u00b0", "lower": "-135", "name": "ROT_RANGE", "nominal": "135", "upper": "+135"}, {"fit_code": "", "label": "\u00b10.1mm", "lower": "-0.1", "name": "FLANGE_DIA", "nominal": "90", "upper": "+0.1"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_THICK", "nominal": "30", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.1mm", "lower": "-0.1", "name": "FLANGE_BODY_OD", "nominal": "90", "upper": "+0.1"}, {"fit_code": "", "label": "+0.021/0mm", "lower": "0", "name": "FLANGE_BODY_ID", "nominal": "22", "upper": "+0.021"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_AL_THICK", "nominal": "25", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_TOTAL_THICK", "nominal": "30", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "ARM_SEC_W", "nominal": "12", "upper": "+0.2"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "ARM_SEC_THICK", "nominal": "8", "upper": "+0.2"}, {"fit_code": "", "label": "\u00b10.3mm", "lower": "-0.3", "name": "ARM_L_2", "nominal": "40", "upper": "+0.3"}, {"fit_code": "", "label": "+0.012/0mm", "lower": "0", "name": "SPRING_PIN_BORE", "nominal": "4", "upper": "+0.012"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "FLANGE_BOLT_PCD", "nominal": "70", "upper": "+0.2"}],
         "gdt": [],
-        "surfaces": [{"material_type": "", "part": "\u5b89\u88c5\u652f\u67b6\uff08\u62b1\u7b8d+L\u578b\uff09", "process": "\u4e0d\u9508\u94a2", "ra": "Ra3.2"}],
+        "surfaces": [],
     })
 
     return sheet.save(output_dir, material_type="steel")

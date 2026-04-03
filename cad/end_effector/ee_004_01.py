@@ -1,11 +1,11 @@
 """
-清洁模块壳体 (GIS-EE-004-01)
+清洁模块壳体（含卷轴腔+清洁窗口） (GIS-EE-004-01)
 
 Auto-generated scaffold by codegen/gen_parts.py
 Source: CAD_SPEC.md §5 BOM
 Material: 7075-T6铝合金
 
-BOM: GIS-EE-004-01 清洁模块壳体
+BOM: GIS-EE-004-01 清洁模块壳体（含卷轴腔+清洁窗口）
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
 │ Local origin : TODO: e.g. bottom-left corner of mounting face
@@ -24,9 +24,9 @@ from params import *
 
 
 def make_ee_004_01() -> cq.Workplane:
-    """GIS-EE-004-01: 清洁模块壳体 — 7075-T6铝合金
+    """GIS-EE-004-01: 清洁模块壳体（含卷轴腔+清洁窗口） — 7075-T6铝合金
 
-    Envelope: 50.0 x 40.0 x 60.0 mm
+    Envelope: 50.0 x 50.0 x 60.0 mm
     Weight: ?g
 
     Axis: TODO — must match COORDINATE SYSTEM block above
@@ -36,12 +36,9 @@ def make_ee_004_01() -> cq.Workplane:
     # Principal axis: TODO
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
-    # TODO: Replace placeholder box with actual geometry.
-    #       Each .extrude() / .circle() / .box() call must reference the
-    #       param name whose value comes from the design doc (see params.py).
-    body = cq.Workplane("XY").box(
-        50.0, 40.0, 60.0,
-        centered=(True, True, False))  # § replace with real geometry
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
+    body = cq.Workplane("XY").circle(50.0 / 2).extrude(60.0)
 
     return body
 
@@ -77,7 +74,7 @@ def draw_ee_004_01_sheet(output_dir: str = None) -> str:
     solid = make_ee_004_01()
     sheet = ThreeViewSheet(
         part_no="GIS-EE-004-01",
-        name="清洁模块壳体",
+        name="清洁模块壳体（含卷轴腔+清洁窗口）",
         material="7075-T6铝合金",
         scale="1:1",
         weight_g=0,
@@ -89,9 +86,9 @@ def draw_ee_004_01_sheet(output_dir: str = None) -> str:
 
     # GB/T 标注 — 数据来自 CAD_SPEC.md §2，不硬编码
     auto_annotate(solid, sheet, annotation_meta={
-        "dim_tolerances": [],
+        "dim_tolerances": [{"fit_code": "", "label": "\u00b1135\u00b0", "lower": "-135", "name": "ROT_RANGE", "nominal": "135", "upper": "+135"}, {"fit_code": "", "label": "\u00b10.1mm", "lower": "-0.1", "name": "FLANGE_DIA", "nominal": "90", "upper": "+0.1"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_THICK", "nominal": "30", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.1mm", "lower": "-0.1", "name": "FLANGE_BODY_OD", "nominal": "90", "upper": "+0.1"}, {"fit_code": "", "label": "+0.021/0mm", "lower": "0", "name": "FLANGE_BODY_ID", "nominal": "22", "upper": "+0.021"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_AL_THICK", "nominal": "25", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.5mm", "lower": "-0.5", "name": "FLANGE_TOTAL_THICK", "nominal": "30", "upper": "+0.5"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "ARM_SEC_W", "nominal": "12", "upper": "+0.2"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "ARM_SEC_THICK", "nominal": "8", "upper": "+0.2"}, {"fit_code": "", "label": "\u00b10.3mm", "lower": "-0.3", "name": "ARM_L_2", "nominal": "40", "upper": "+0.3"}, {"fit_code": "", "label": "+0.012/0mm", "lower": "0", "name": "SPRING_PIN_BORE", "nominal": "4", "upper": "+0.012"}, {"fit_code": "", "label": "\u00b10.2mm", "lower": "-0.2", "name": "FLANGE_BOLT_PCD", "nominal": "70", "upper": "+0.2"}],
         "gdt": [],
-        "surfaces": [{"material_type": "", "part": "\u6e05\u6d01\u6a21\u5757\u58f3\u4f53", "process": "7075-T6\u94dd\u5408\u91d1", "ra": "Ra3.2"}],
+        "surfaces": [],
     })
 
     return sheet.save(output_dir, material_type="al")
