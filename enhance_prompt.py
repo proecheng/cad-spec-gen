@@ -110,23 +110,30 @@ def _camera_to_view_description(view_key, rc):
 
     cameras = rc.get("camera", {})
     cam = cameras.get(view_key, {})
-    loc = cam.get("location")
-    tgt = cam.get("target")
-    if not loc or not tgt or len(loc) < 3 or len(tgt) < 3:
-        return "isometric view"
 
-    dx = loc[0] - tgt[0]
-    dy = loc[1] - tgt[1]
-    dz = loc[2] - tgt[2]
-    horiz_dist = math.sqrt(dx * dx + dy * dy)
+    # Spherical coords available directly — no need to reverse-compute
+    if "azimuth_deg" in cam:
+        azimuth_deg = float(cam["azimuth_deg"])
+        elevation_deg = float(cam.get("elevation_deg", 0))
+    else:
+        # Reverse-compute from cartesian location/target
+        loc = cam.get("location")
+        tgt = cam.get("target")
+        if not loc or not tgt or len(loc) < 3 or len(tgt) < 3:
+            return "isometric view"
 
-    # Azimuth: angle in XY plane (0° = front/−Y, CW positive)
-    # In Blender convention: -Y is front, +X is right
-    azimuth_rad = math.atan2(dx, -dy)
-    azimuth_deg = math.degrees(azimuth_rad) % 360
+        dx = loc[0] - tgt[0]
+        dy = loc[1] - tgt[1]
+        dz = loc[2] - tgt[2]
+        horiz_dist = math.sqrt(dx * dx + dy * dy)
 
-    # Elevation: angle above horizontal
-    elevation_deg = math.degrees(math.atan2(dz, horiz_dist)) if horiz_dist > 0.01 else 90.0
+        # Azimuth: angle in XY plane (0° = front/−Y, CW positive)
+        # In Blender convention: -Y is front, +X is right
+        azimuth_rad = math.atan2(dx, -dy)
+        azimuth_deg = math.degrees(azimuth_rad) % 360
+
+        # Elevation: angle above horizontal
+        elevation_deg = math.degrees(math.atan2(dz, horiz_dist)) if horiz_dist > 0.01 else 90.0
 
     # Map azimuth to name
     direction = "front"
