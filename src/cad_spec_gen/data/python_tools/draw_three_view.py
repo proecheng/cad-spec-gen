@@ -255,12 +255,18 @@ class ThreeViewSheet:
 def _slug(name: str) -> str:
     """通用中英文名→文件名安全字符串。不含硬编码映射表。"""
     import re as _re
+    # 先清理：去除括号及其内容中的特殊字符，保留有意义的文字
+    clean = _re.sub(r"[（(][^）)]*[）)]", "", name)  # 去括号内容
+    clean = _re.sub(r"[+/\\|]", "_", clean)          # 特殊符号→下划线
+    clean = clean.strip()
+    if not clean:
+        clean = name  # 如果全被清掉了，用原名
     try:
         from pypinyin import lazy_pinyin
-        slug = "_".join(lazy_pinyin(name))
+        slug = "_".join(lazy_pinyin(clean))
     except ImportError:
         # fallback: 仅保留 ASCII 字母数字，其他替换为 _
-        slug = "".join(c if (c.isascii() and c.isalnum()) or c == '_' else '_' for c in name)
+        slug = "".join(c if (c.isascii() and c.isalnum()) or c == '_' else '_' for c in clean)
     # 去除连续下划线、首尾下划线、截断
     slug = _re.sub(r"_+", "_", slug).strip("_").lower()
     return slug[:40] if slug else "unnamed"

@@ -81,6 +81,36 @@ def _deploy_tool_modules(sub_dir: str):
         log.info("  Deployed: %s → %s", fname, os.path.basename(sub_dir))
 
 
+def _resolve_camera_coords(rc):
+    """Ensure all camera entries in rc have location/target fields.
+
+    For spherical entries (azimuth_deg/elevation_deg/distance_factor),
+    computes cartesian location/target using standard spherical-to-cartesian
+    conversion. Original spherical fields are preserved for consumers that
+    prefer them (e.g. enhance_prompt.py reads azimuth_deg directly).
+
+    This function is the single resolve point — downstream consumers can
+    safely call cam.get("location") without checking coordinate format.
+
+    Math matches render_config.py camera_to_blender() — pure spherical-to-
+    cartesian, no subsystem-specific logic.
+    """
+    import math as _m
+    br = rc.get("subsystem", {}).get("bounding_radius_mm", 300)
+    for cam in rc.get("camera", {}).values():
+        if "azimuth_deg" in cam and "location" not in cam:
+            az = _m.radians(cam["azimuth_deg"])
+            el = _m.radians(cam.get("elevation_deg", 0))
+            dist = br * cam.get("distance_factor", 2.5)
+            tgt = cam.get("target", [0, 0, br * 0.33])
+            cam["location"] = [
+                dist * _m.cos(el) * _m.cos(az) + tgt[0],
+                dist * _m.cos(el) * _m.sin(az) + tgt[1],
+                dist * _m.sin(el) + tgt[2],
+            ]
+            cam["target"] = list(tgt)
+
+
 def _load_pipeline_config():
     """Load pipeline_config.json (render/timestamp/archive settings)."""
     if os.path.isfile(PIPELINE_CONFIG_PATH):
@@ -611,6 +641,16 @@ def cmd_spec(args):
     if not ok:
         return 1
 
+    # Deploy spec artifacts from output/ to cad/ so codegen can read them
+    _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
+    _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+    if _cad_sub and os.path.isdir(_output_sub):
+        for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
+            _src = os.path.join(_output_sub, _fname)
+            if os.path.isfile(_src):
+                shutil.copy2(_src, os.path.join(_cad_sub, _fname))
+                log.info("  Deployed: %s → %s", _fname, os.path.basename(_cad_sub))
+
     # Append user supplements to CAD_SPEC.md if any were collected
     if supplements:
         # CAD_SPEC.md is written to output/<subsystem>/ by cad_spec_gen.py
@@ -638,6 +678,9 @@ def cmd_spec(args):
                 with open(spec_path, "w", encoding="utf-8", errors="replace") as _sf:
                     _sf.write(updated)
             log.info("用户补充数据已追加到 CAD_SPEC.md (%d 项)", len(supplements))
+            # Re-deploy after supplements were appended
+            if _cad_sub and os.path.isfile(spec_path):
+                shutil.copy2(spec_path, os.path.join(_cad_sub, "CAD_SPEC.md"))
     return 0
 
 
@@ -925,6 +968,7 @@ def cmd_enhance(args):
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
             rc = json.load(f)
+        _resolve_camera_coords(rc)
 
     # P2: Auto-enrich rc with generated prompt data from params.py (in-memory only)
     if sub_dir and os.path.isfile(os.path.join(sub_dir, "params.py")):
@@ -1028,9 +1072,40 @@ def cmd_enhance(args):
                 return line[line.rfind("已保存:") + len("已保存:"):].strip()
         return None
 
+    def _is_render_acceptable(image_path, config=None):
+        """Reject near-blank renders before sending to AI enhance.
+
+        Checks file size and grayscale variance. Thresholds can be overridden
+        via render_config.json "enhance_quality_gate" section.
+        """
+        defaults = {"min_size_kb": 80, "min_variance": 5}
+        gate = {**defaults, **(config or {}).get("enhance_quality_gate", {})}
+        size_kb = os.path.getsize(image_path) / 1024
+        if size_kb < gate["min_size_kb"]:
+            return False
+        try:
+            from PIL import Image, ImageStat
+            im = Image.open(image_path).convert("L")
+            stat = ImageStat.Stat(im)
+            if stat.var[0] < gate["min_variance"]:
+                return False
+        except Exception:
+            pass  # If PIL fails, allow through — don't block on import errors
+        return True
+
+    skipped = 0
     for png in pngs:
         new_path = None  # reset each iteration (A5 fix)
         view_key = extract_view_key(png, rc)
+
+        # Quality gate: skip blank/near-empty renders
+        if not _is_render_acceptable(png, rc):
+            _sz = os.path.getsize(png) / 1024
+            log.warning("  SKIP %s: render appears blank (%.0fKB). "
+                        "Check BUILD output before enhancing.",
+                        os.path.basename(png), _sz)
+            skipped += 1
+            continue
 
         # ── Set reference flag in rc for prompt building (A1 fix) ──
         _use_ref = (_ref_mode == "v1_anchor" and hero_image
@@ -1613,34 +1688,26 @@ def cmd_init(args):
             "V1": {
                 "name": "V1_front_iso",
                 "type": "standard",
-                "location": [350, -380, 320],
-                "target": [0, 0, 50],
-                "lens_mm": 50,
-                "description": "Front isometric view"
+                "azimuth_deg": 35, "elevation_deg": 25, "distance_factor": 2.5,
+                "description": "Front-left isometric — main showcase"
             },
             "V2": {
                 "name": "V2_rear_oblique",
                 "type": "standard",
-                "location": [-320, 350, 400],
-                "target": [0, 0, 50],
-                "lens_mm": 50,
-                "description": "Rear oblique view"
+                "azimuth_deg": 215, "elevation_deg": 20, "distance_factor": 2.8,
+                "description": "Rear-right oblique — back detail"
             },
             "V3": {
                 "name": "V3_exploded",
                 "type": "exploded",
-                "location": [400, -400, 500],
-                "target": [0, 0, 0],
-                "description": "Exploded view (use render_exploded.py)"
+                "azimuth_deg": 35, "elevation_deg": 35, "distance_factor": 3.5,
+                "description": "Exploded view (render_exploded.py)"
             },
             "V4": {
                 "name": "V4_ortho_front",
                 "type": "ortho",
-                "location": [0, -500, 80],
-                "target": [0, 0, 80],
-                "ortho": True,
-                "ortho_scale": 400,
-                "description": "Front orthographic view"
+                "azimuth_deg": 0, "elevation_deg": 0,
+                "description": "Front orthographic — auto-scaled to fit model"
             }
         },
         "components": {
