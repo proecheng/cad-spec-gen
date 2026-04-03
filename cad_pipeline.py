@@ -611,6 +611,16 @@ def cmd_spec(args):
     if not ok:
         return 1
 
+    # Deploy spec artifacts from output/ to cad/ so codegen can read them
+    _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
+    _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+    if _cad_sub and os.path.isdir(_output_sub):
+        for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
+            _src = os.path.join(_output_sub, _fname)
+            if os.path.isfile(_src):
+                shutil.copy2(_src, os.path.join(_cad_sub, _fname))
+                log.info("  Deployed: %s → %s", _fname, os.path.basename(_cad_sub))
+
     # Append user supplements to CAD_SPEC.md if any were collected
     if supplements:
         # CAD_SPEC.md is written to output/<subsystem>/ by cad_spec_gen.py
@@ -638,6 +648,9 @@ def cmd_spec(args):
                 with open(spec_path, "w", encoding="utf-8", errors="replace") as _sf:
                     _sf.write(updated)
             log.info("用户补充数据已追加到 CAD_SPEC.md (%d 项)", len(supplements))
+            # Re-deploy after supplements were appended
+            if _cad_sub and os.path.isfile(spec_path):
+                shutil.copy2(spec_path, os.path.join(_cad_sub, "CAD_SPEC.md"))
     return 0
 
 
@@ -1028,9 +1041,40 @@ def cmd_enhance(args):
                 return line[line.rfind("已保存:") + len("已保存:"):].strip()
         return None
 
+    def _is_render_acceptable(image_path, config=None):
+        """Reject near-blank renders before sending to AI enhance.
+
+        Checks file size and grayscale variance. Thresholds can be overridden
+        via render_config.json "enhance_quality_gate" section.
+        """
+        defaults = {"min_size_kb": 80, "min_variance": 300}
+        gate = {**defaults, **(config or {}).get("enhance_quality_gate", {})}
+        size_kb = os.path.getsize(image_path) / 1024
+        if size_kb < gate["min_size_kb"]:
+            return False
+        try:
+            from PIL import Image, ImageStat
+            im = Image.open(image_path).convert("L")
+            stat = ImageStat.Stat(im)
+            if stat.var[0] < gate["min_variance"]:
+                return False
+        except Exception:
+            pass  # If PIL fails, allow through — don't block on import errors
+        return True
+
+    skipped = 0
     for png in pngs:
         new_path = None  # reset each iteration (A5 fix)
         view_key = extract_view_key(png, rc)
+
+        # Quality gate: skip blank/near-empty renders
+        if not _is_render_acceptable(png, rc):
+            _sz = os.path.getsize(png) / 1024
+            log.warning("  SKIP %s: render appears blank (%.0fKB). "
+                        "Check BUILD output before enhancing.",
+                        os.path.basename(png), _sz)
+            skipped += 1
+            continue
 
         # ── Set reference flag in rc for prompt building (A1 fix) ──
         _use_ref = (_ref_mode == "v1_anchor" and hero_image

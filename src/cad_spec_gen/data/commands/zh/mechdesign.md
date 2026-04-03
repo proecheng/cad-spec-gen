@@ -39,15 +39,19 @@
      2. BOM建模 → `bom.py`
      3. 3D参数化建模 → CadQuery `.py` + `assembly.py`
      4. 2D工程图 → GB/T 国标A3 DXF（含技术要求/基准/螺纹/剖视图）
+        - `/cad-codegen` 生成的代码已自动包含 `auto_annotate()` 调用，提供几何驱动标注（外形尺寸、中心线、圆直径）
+        - 手工精细标注（剖视图、局部放大、详细公差）在此阶段补充
      5. 渲染预览 → DXF→PNG（复用 `render_dxf.py`）
      6. 一键构建 → `build_all.py`
    - 每阶段完成后执行检查点验证
-   - 可复用模块从 `cad/end_effector/` 复制：`drawing.py`, `draw_three_view.py`, `render_dxf.py`
+   - 可复用模块从 `cad/end_effector/` 复制：`drawing.py`, `draw_three_view.py`, `cq_to_dxf.py`, `render_dxf.py`, `cad_spec_defaults.py`
 
 ## 关键约束
 
 - 所有参数从设计文档提取，params.py 是单一数据源
-- 2D 工程图直接从 params.py 绘制轮廓，不依赖 3D→2D 投影
+- 2D 工程图两种路径：①手工精绘（直接从 params.py）②自动投影（`auto_three_view` + `auto_annotate` 从 3D→2D）
+- 自动标注由 `auto_annotate()` 提供：外形尺寸、中心线、圆直径（几何驱动）+ 公差/GD&T/Ra（§2 spec 驱动）
+- 材质分类由 `classify_material_type()` 自动推断，驱动技术要求和默认粗糙度选取
 - 输出到 `cad/output/`，已纳入 git 版本管理
 - 字体：仿宋体 FangSong（GB/T 14691），DXF 格式 R2013
 - GB/T 4458.1 第一角投影法，A3 图纸（420×297mm）

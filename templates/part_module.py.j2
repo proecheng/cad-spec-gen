@@ -44,12 +44,35 @@ def make_{{ func_name }}() -> cq.Workplane:
     # Principal axis: {{ principal_axis_desc | default('TODO') }}
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
-    # TODO: Replace placeholder box with actual geometry.
-    #       Each .extrude() / .circle() / .box() call must reference the
-    #       param name whose value comes from the design doc (see params.py).
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
+{% if geom_type == "cylinder" %}
+    body = cq.Workplane("XY").circle({{ geom_d }} / 2).extrude({{ geom_h }})
+{% elif geom_type == "ring" %}
+    body = (cq.Workplane("XY")
+            .circle({{ geom_od }} / 2).extrude({{ geom_h }})
+            .faces(">Z").workplane()
+            .circle({{ geom_id }} / 2).cutThruAll())
+{% elif geom_type == "disc_arms" %}
+    _disc = cq.Workplane("XY").circle({{ geom_d }} / 2).extrude({{ geom_t }})
+    _arm = cq.Workplane("XY").box({{ geom_arm_l }}, {{ geom_arm_w }}, {{ geom_t }},
+                                  centered=(False, True, False))
+    body = _disc
+    for _angle in range(0, 360, {{ (360 // geom_arm_count) | int }}):
+        body = body.union(_arm.rotate((0, 0, 0), (0, 0, 1), _angle))
+{% elif geom_type == "l_bracket" %}
+    _base = cq.Workplane("XY").box({{ geom_w }}, {{ geom_d }}, {{ geom_t }},
+                                   centered=(True, True, False))
+    _wall = (cq.Workplane("XY")
+             .transformed(offset=(0, -{{ geom_d }} / 2 + {{ geom_t }} / 2, 0))
+             .box({{ geom_w }}, {{ geom_t }}, {{ geom_h }},
+                  centered=(True, True, False)))
+    body = _base.union(_wall)
+{% else %}
     body = cq.Workplane("XY").box(
         {{ envelope_w }}, {{ envelope_d }}, {{ envelope_h }},
-        centered=(True, True, False))  # § replace with real geometry
+        centered=(True, True, False))  # § refine with real geometry
+{% endif %}
 {% if has_mounting_holes %}
 
     # Mounting face bolt holes — per {{ mount_source_ref | default('TODO: cite doc line') }}

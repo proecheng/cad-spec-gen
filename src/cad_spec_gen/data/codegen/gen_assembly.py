@@ -215,23 +215,48 @@ _STD_COLOR_MAP = {
 }
 
 
-def _extract_station_angles(pose: dict) -> list:
-    """Extract station angles from §6 pose layers.
+def _extract_station_pose(pose: dict) -> dict:
+    """Extract per-assembly positioning from §6.2 layer stacking table.
 
-    Looks for layers with angle information (e.g. "0°", "90°", "旋转90").
-    Returns list of floats, or empty list if no radial pattern found.
+    Matches layers by GIS-XX-NNN part number to extract:
+    - angle: from θ=NNN° in offset column
+    - radius: from R=NNNmm in offset column
+    - z: from Z=±NNNmm in offset column
+
+    Returns {assembly_part_no: {"angle": float, "radius": float, "z": float}}.
+    Only layers with θ= and R= in offset are considered radial stations.
     """
-    angles = []
+    result = {}
     for layer in pose.get("layers", []):
         offset = layer.get("offset", "")
-        fix_move = layer.get("fix_move", "")
-        # Look for angle patterns in offset or fix_move
-        for text in (offset, fix_move):
-            m = re.search(r"(\d+(?:\.\d+)?)\s*[°度]", text)
-            if m:
-                angles.append(float(m.group(1)))
-                break
-    return angles
+        part = layer.get("part", "")
+
+        m_pno = re.search(r"(GIS-\w+-\d+)", part)
+        if not m_pno:
+            continue
+        pno = m_pno.group(1)
+
+        pose_data = {}
+
+        # θ=NNN° (station angle)
+        m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°?", offset)
+        if m_theta:
+            pose_data["angle"] = float(m_theta.group(1))
+
+        # R=NNNmm (radial mount distance)
+        m_r = re.search(r"R\s*=\s*(\d+(?:\.\d+)?)\s*mm", offset)
+        if m_r:
+            pose_data["radius"] = float(m_r.group(1))
+
+        # Z=±NNNmm (axial offset)
+        m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset)
+        if m_z:
+            pose_data["z"] = float(m_z.group(1))
+
+        if pose_data:
+            result[pno] = pose_data
+
+    return result
 
 
 def _extract_origin_axis(pose: dict) -> tuple:
@@ -282,9 +307,8 @@ def generate_assembly(spec_path: str) -> str:
     color_idx = 0
     std_colors_used = {}  # track which std colors we need
 
-    # C1: Extract station angles from §6 pose layers instead of hardcoding
-    station_angles = _extract_station_angles(pose)
-    has_radial = any("旋转" in l.get("fix_move", "") for l in pose.get("layers", []))
+    # C1: Extract per-assembly pose from §6.2 (keyed by part number)
+    station_poses = _extract_station_pose(pose)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
@@ -370,20 +394,19 @@ def generate_assembly(spec_path: str) -> str:
         for si in std_func_imports:
             std_part_imports.append(si)
 
-        # C2: Use has_radial flag and actual station_angles from spec
-        is_radial = has_radial and i < len(station_angles)
-        angle = station_angles[i] if is_radial else 0.0
+        # C2: Look up this assembly's pose by part number from §6.2
+        sp = station_poses.get(pno, {})
+        is_radial = "angle" in sp and "radius" in sp
 
-        # C3: Only reference mount_radius/base_z params if radial layout detected
         station_entry = {
             "name_cn": name,
-            "angle": angle,
+            "angle": sp.get("angle", 0.0),
             "is_radial": is_radial,
             "parts": station_parts,
         }
         if is_radial:
-            station_entry["mount_radius"] = "MOUNT_CENTER_R"
-            station_entry["base_z"] = "FLANGE_AL_THICK"
+            station_entry["mount_radius"] = sp["radius"]
+            station_entry["base_z"] = sp.get("z", 0.0)
         stations.append(station_entry)
 
         color_idx += 1
@@ -403,16 +426,9 @@ def generate_assembly(spec_path: str) -> str:
     # C5: Extract origin/axis from spec §6 instead of hardcoding
     origin_desc, axis_desc = _extract_origin_axis(pose)
 
-    # C4: Collect assembly_params from what stations actually use
-    assembly_params_set = set()
-    for stn in stations:
-        if stn.get("mount_radius"):
-            assembly_params_set.add(stn["mount_radius"])
-        if stn.get("base_z"):
-            assembly_params_set.add(stn["base_z"])
-    if station_angles:
-        assembly_params_set.add("STATION_ANGLES")
-    assembly_params = sorted(assembly_params_set)
+    # C4: Collect assembly_params — now mount_radius/base_z are numeric
+    # literals in the template, no longer params.py references.
+    assembly_params = []
 
     content = template.render(
         subsystem_name_cn=re.search(r"# CAD Spec — (.+?)(?:\s*\(|$)", text).group(1)

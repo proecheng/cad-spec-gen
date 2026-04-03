@@ -18,11 +18,15 @@ Assembly hierarchy:
 import cadquery as cq
 import math
 import os
+{% if assembly_params %}
 from params import (
 {% for p in assembly_params %}
     {{ p }},
 {% endfor %}
 )
+{% else %}
+import params  # noqa: F401
+{% endif %}
 
 
 def _station_transform(part, angle: float, tx: float, ty: float, tz: float):

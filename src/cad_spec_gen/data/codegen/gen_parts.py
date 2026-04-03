@@ -38,29 +38,79 @@ def _safe_module_name(part_no: str, name_cn: str) -> str:
     return suffix
 
 
-def _guess_envelope(name_cn: str, material: str) -> dict:
-    """Guess reasonable envelope dimensions from part name (generic defaults)."""
-    defaults = {"w": 40.0, "d": 40.0, "h": 20.0}
+def _guess_geometry(name_cn: str, material: str) -> dict:
+    """Infer approximate geometry type and dimensions for a custom part.
 
-    # Generic patterns by part type keywords
-    if "壳体" in name_cn or "模块" in name_cn or "housing" in name_cn.lower():
-        defaults = {"w": 50.0, "d": 40.0, "h": 60.0}
-    elif "支架" in name_cn or "bracket" in name_cn.lower():
-        defaults = {"w": 50.0, "d": 40.0, "h": 25.0}
-    elif "法兰" in name_cn or "flange" in name_cn.lower():
-        defaults = {"w": 80.0, "d": 80.0, "h": 20.0}
-    elif "适配" in name_cn or "adapter" in name_cn.lower():
-        defaults = {"w": 60.0, "d": 60.0, "h": 10.0}
-    elif "垫" in name_cn or "ring" in name_cn.lower():
-        defaults = {"w": 30.0, "d": 30.0, "h": 5.0}
-    elif "盖" in name_cn or "cover" in name_cn.lower():
-        defaults = {"w": 25.0, "d": 20.0, "h": 3.0}
-    elif "板" in name_cn or "plate" in name_cn.lower():
-        defaults = {"w": 60.0, "d": 40.0, "h": 10.0}
-    elif "柱" in name_cn or "column" in name_cn.lower():
-        defaults = {"w": 30.0, "d": 30.0, "h": 80.0}
+    Priority 1: Parse explicit dimensions from BOM material column
+                (e.g. "6063铝合金 140×100×55mm" → box, "Φ38×280mm" → cylinder).
+    Priority 2: Keyword-based heuristics from part name (generic types only).
 
-    return defaults
+    Returns dict with "type" key and type-specific dimension keys.
+    Also always includes "envelope_w/d/h" for docstring use.
+    """
+    # ── Priority 1: Parse explicit dimensions from material text ──
+    # Cylinder: Φ38×280mm or φ38x280mm
+    m_cyl = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", material)
+    if m_cyl:
+        d, h = float(m_cyl.group(1)), float(m_cyl.group(2))
+        return {"type": "cylinder", "d": d, "h": h,
+                "envelope_w": d, "envelope_d": d, "envelope_h": h}
+
+    # Box: 140×100×55mm (three dimensions with ×)
+    m_box = re.search(
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
+        material)
+    if m_box:
+        w, d, h = float(m_box.group(1)), float(m_box.group(2)), float(m_box.group(3))
+        return {"type": "box", "w": w, "d": d, "h": h,
+                "envelope_w": w, "envelope_d": d, "envelope_h": h}
+
+    # Diameter only: Φ90mm (no height) → flat disc
+    m_dia = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*mm", material)
+    if m_dia:
+        d = float(m_dia.group(1))
+        h = max(5.0, round(d * 0.25, 1))
+        return {"type": "cylinder", "d": d, "h": h,
+                "envelope_w": d, "envelope_d": d, "envelope_h": h}
+
+    # ── Priority 2: Keyword heuristics (generic types) ──
+    if ("壳体" in name_cn or "筒" in name_cn or "缸" in name_cn):
+        return {"type": "cylinder", "d": 50.0, "h": 60.0,
+                "envelope_w": 50.0, "envelope_d": 50.0, "envelope_h": 60.0}
+
+    if "法兰" in name_cn and "悬臂" in name_cn:
+        return {"type": "disc_arms", "d": 80.0, "arm_l": 40.0, "arm_w": 12.0,
+                "t": 20.0, "arm_count": 4,
+                "envelope_w": 160.0, "envelope_d": 160.0, "envelope_h": 20.0}
+
+    if "法兰" in name_cn or "盘" in name_cn:
+        return {"type": "cylinder", "d": 80.0, "h": 20.0,
+                "envelope_w": 80.0, "envelope_d": 80.0, "envelope_h": 20.0}
+
+    if "环" in name_cn or "绝缘段" in name_cn:
+        d = 80.0
+        return {"type": "ring", "od": d, "id": round(d * 0.75, 1), "h": 5.0,
+                "envelope_w": d, "envelope_d": d, "envelope_h": 5.0}
+
+    if "支架" in name_cn and ("L" in name_cn or "抱箍" in name_cn):
+        return {"type": "l_bracket", "w": 50.0, "d": 40.0, "h": 25.0, "t": 3.0,
+                "envelope_w": 50.0, "envelope_d": 40.0, "envelope_h": 25.0}
+
+    if "支架" in name_cn:
+        return {"type": "box", "w": 50.0, "d": 40.0, "h": 25.0,
+                "envelope_w": 50.0, "envelope_d": 40.0, "envelope_h": 25.0}
+
+    if "适配" in name_cn:
+        return {"type": "cylinder", "d": 60.0, "h": 10.0,
+                "envelope_w": 60.0, "envelope_d": 60.0, "envelope_h": 10.0}
+
+    if "板" in name_cn:
+        return {"type": "box", "w": 60.0, "d": 40.0, "h": 10.0,
+                "envelope_w": 60.0, "envelope_d": 40.0, "envelope_h": 10.0}
+
+    # Default fallback
+    return {"type": "box", "w": 40.0, "d": 40.0, "h": 20.0,
+            "envelope_w": 40.0, "envelope_d": 40.0, "envelope_h": 20.0}
 
 
 def _parse_spec_title(spec_path: str) -> tuple:
@@ -148,7 +198,7 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             skipped.append(out_file)
             continue
 
-        envelope = _guess_envelope(p["name_cn"], p["material"])
+        geom = _guess_geometry(p["name_cn"], p["material"])
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA
@@ -164,6 +214,10 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
         # Default Ra from material type
         default_ra = SURFACE_RA.get(mat_type, SURFACE_RA.get("default", 3.2))
 
+        # Flatten geometry dict for template: geom_type, geom_d, geom_h, etc.
+        geom_vars = {f"geom_{k}": v for k, v in geom.items() if k != "type"}
+        geom_vars["geom_type"] = geom["type"]
+
         content = template.render(
             part_name_cn=p["name_cn"],
             part_no=p["part_no"],
@@ -171,12 +225,14 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             material=p["material"],
             func_name=func_name,
             param_imports=[],  # Empty — user adds specific params
-            envelope_w=envelope["w"],
-            envelope_d=envelope["d"],
-            envelope_h=envelope["h"],
+            envelope_w=geom["envelope_w"],
+            envelope_d=geom["envelope_d"],
+            envelope_h=geom["envelope_h"],
             weight="?",
             has_mounting_holes=False,
             has_dxf=True,
+            # Geometry type dispatch
+            **geom_vars,
             # Annotation metadata — from CAD_SPEC.md §2 + BOM material
             material_type=mat_type,
             project_name=project_name,

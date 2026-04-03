@@ -64,8 +64,8 @@ description: "Phase 2: Generate CadQuery scaffold code (params.py, build_all.py,
 |------|--------|------|----------------|------|
 | 1 | `gen_params.py` | `params.py.j2` | §1 全局参数表 + §6.2 装配层叠 | `params.py` — 尺寸常量 + 派生装配参数 |
 | 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM树 | `build_all.py` — STD STEP + DXF 构建表 |
-| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(自制叶零件) + §2 公差/表面 + §标题 | `ee_NNN_NN.py` — 零件脚手架（含自动标注） |
-| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构（含方向变换） |
+| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM(自制叶零件) + §2 公差/表面 + §标题 | `ee_NNN_NN.py` — 零件近似几何（含自动标注） |
+| 4 | `gen_assembly.py` | `assembly.py.j2` | §4连接 + §5BOM + §6姿态 | `assembly.py` — 装配结构（含径向定位+方向变换） |
 | 5 | `gen_std_parts.py` | — | §5 BOM(外购件) | `std_ee_NNN_NN.py` — 标准件简化几何 |
 
 **命名规则**：零件编号通过 `strip_part_prefix()` 通用前缀剥离（不绑定 "GIS-"），如 `GIS-EE-001-01` → `ee_001_01.py` / `make_ee_001_01()`；外购件 `std_ee_001_03.py` / `make_std_ee_001_03()`
@@ -76,9 +76,19 @@ description: "Phase 2: Generate CadQuery scaffold code (params.py, build_all.py,
 - **材质分类**：`classify_material_type(material)` 自动推断 material_type（al/steel/peek/nylon/rubber），驱动技术要求和默认 Ra 选取
 - **项目名参数化**：`ThreeViewSheet` 接收 `project_name`/`subsystem_name`（从 spec 标题解析），标题栏不再硬编码
 
-**派生参数**：`gen_params.py` 自动从 §6.2 装配层叠表提取 `MOUNT_CENTER_R`（工位安装半径）、`STATION_ANGLES`（工位角度列表）等装配级参数，写入 `params.py` 的 `Derived (computed)` 区。
+**近似几何**（v2.2.1+）：`gen_parts.py` 的 `_guess_geometry()` 按两级策略推断自制件近似几何：
+1. **BOM 尺寸解析**：从 §5 材质列提取显式尺寸（如 `6063铝合金 140×100×55mm` → box, `Φ38×280mm` → cylinder）
+2. **关键词推断**：按零件名匹配通用几何类型（壳体/筒→cylinder, 法兰+悬臂→disc_arms, 环/绝缘段→ring, L型支架→l_bracket, 默认→box）
+
+模板 `part_module.py.j2` 按 `geom_type` 分发生成 CadQuery 代码（cylinder/ring/disc_arms/l_bracket/box），不再全部生成 placeholder box。
+
+**装配定位**（v2.2.1+）：`gen_assembly.py` 从 §6.2 `偏移(Z/R/θ)` 列按 GIS-XX-NNN 料号匹配各总成的定位参数（`θ=NNN°` 角度、`R=NNNmm` 半径、`Z=±NNNmm` 轴向偏移），以数值字面量写入 `assembly.py` 模板（如 `_tx = 65.0 * math.cos(_rad)`），不依赖 params.py 中的参数名。无 θ=/R= 数据的总成（如法兰总成）自动跳过径向变换。
 
 **方向变换**：`gen_assembly.py` 读取 §6.2 的 `轴线方向` 列，按零件名匹配子句（如 "壳体轴沿-Z，储罐轴∥XY"），对需要旋转的零件生成 `rotate()` 代码。优先级：盘面∥XY / 环∥XY → 无旋转 > 沿-Z / 垂直 → 无旋转 > ∥XY / 水平 → 绕X轴转90°。
+
+**SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
+
+**增强质量门控**（v2.2.1+）：`cad_pipeline.py enhance` 在发送 PNG 到 Gemini 前检查文件大小和灰度方差，跳过空白/近空白渲染图并报 WARNING。阈值可通过 `render_config.json` 的 `enhance_quality_gate` 覆盖。
 
 ### 标准件自动生成（步骤 5）
 
