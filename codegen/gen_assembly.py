@@ -73,6 +73,7 @@ def parse_assembly_pose(spec_path: str) -> dict:
                     "fix_move": cells[2],
                     "connection": cells[3],
                     "offset": cells[4] if len(cells) > 4 else "",
+                    "axis_dir": cells[5] if len(cells) > 5 else "",
                 })
 
     return {"coord_sys": coord_sys, "layers": layers}
@@ -113,6 +114,79 @@ def parse_connections(spec_path: str) -> list:
                 })
 
     return connections
+
+
+def _axis_dir_to_local_transform(axis_dir: str, var_name: str,
+                                   part_name: str = "") -> tuple:
+    """Convert §6.2 axis_dir text to CadQuery rotation code.
+
+    All std parts are generated with principal axis along +Z.
+    This function returns (transform_code, doc_ref) to reorient parts
+    based on their assembly axis description.
+
+    The axis_dir field may contain multiple sub-descriptions separated by
+    commas, e.g. "壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）".
+    When part_name is given, match the relevant sub-clause first.
+
+    Returns (None, None) if no rotation needed (default +Z or -Z is OK).
+    """
+    if not axis_dir:
+        return None, None
+
+    text = axis_dir.strip()
+
+    # If axis_dir has multiple sub-clauses (e.g. "壳体轴沿-Z，储罐轴∥XY"),
+    # find the clause relevant to this part by matching part_name keywords.
+    if part_name and ("，" in text or "," in text):
+        clauses = re.split(r"[，,]", text)
+        matched_clause = None
+        for clause in clauses:
+            keywords = []
+            if len(part_name) >= 2:
+                keywords.append(part_name[:2])
+            if len(part_name) >= 3:
+                keywords.append(part_name[:3])
+            if len(part_name) >= 4:
+                keywords.append(part_name[-2:])
+            if any(kw in clause for kw in keywords if kw):
+                matched_clause = clause.strip()
+                break
+        if matched_clause:
+            text = matched_clause
+
+    # PRIORITY 1: "盘面∥XY" / "环∥XY" / "弧形∥XY" → face parallel to XY → axis already Z → NO rotation
+    if any(k in text for k in ["盘面∥XY", "环∥XY", "弧形∥XY"]):
+        return None, None
+
+    # PRIORITY 2: "沿-Z" / "沿Z" / "垂直" / "⊥法兰" → already along Z → NO rotation
+    if any(k in text for k in ["沿-Z", "沿Z", "垂直", "⊥法兰"]):
+        return None, None
+
+    # PRIORITY 3: "轴∥XY" / "水平" / "径向外伸" → needs horizontal → rotate 90° around X
+    if any(k in text for k in ["∥XY", "水平", "径向外伸"]):
+        code = f"{var_name}.rotate((0,0,0), (1,0,0), 90)"
+        return code, f"axis horizontal per §6.2: {text[:60]}"
+
+    return None, None
+
+
+def _build_layer_axis_map(pose: dict) -> dict:
+    """Build a map from part-name substring to axis_dir for orientation lookup.
+
+    Uses §6.2 layer data. Returns {part_substring: axis_dir_text}.
+    """
+    axis_map = {}
+    for layer in pose.get("layers", []):
+        part = layer.get("part", "")
+        axis = layer.get("axis_dir", "")
+        if part and axis:
+            # Extract the key identifier (e.g. "GIS-EE-002" from layer part name)
+            m = re.search(r"GIS-\w+-\d+", part)
+            if m:
+                axis_map[m.group(0)] = axis
+            # Also store by part description keywords for fuzzy matching
+            axis_map[part[:20]] = axis
+    return axis_map
 
 
 # ── Default color palette for assemblies ──
@@ -212,6 +286,9 @@ def generate_assembly(spec_path: str) -> str:
     station_angles = _extract_station_angles(pose)
     has_radial = any("旋转" in l.get("fix_move", "") for l in pose.get("layers", []))
 
+    # C6: Build orientation map from §6.2 axis_dir column
+    axis_map = _build_layer_axis_map(pose)
+
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
         name = assy["name_cn"]
@@ -222,9 +299,14 @@ def generate_assembly(spec_path: str) -> str:
                      if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
 
         station_parts = []
-        mod_name = f"module_{suffix.lower()}"
-        func_names = []
         std_func_imports = []  # std parts for this station
+
+        # C6: Find axis_dir for this station from §6.2 (match by assembly part_no)
+        station_axis_dir = ""
+        for akey, adir in axis_map.items():
+            if pno in akey or name[:6] in akey:
+                station_axis_dir = adir
+                break
 
         for child in children:
             c_suffix = re.sub(r"^GIS-\w+-\d+-", "", child["part_no"])
@@ -240,10 +322,17 @@ def generate_assembly(spec_path: str) -> str:
                 color_info = _STD_COLOR_MAP.get(category, ("C_STD_SENSOR", 0.2, 0.2, 0.2))
                 std_colors_used[color_info[0]] = color_info
 
+                # C6: Apply station-level orientation from §6.2 axis_dir
+                var_name = f"p_{std_mod}"
+                local_xform, orient_ref = _axis_dir_to_local_transform(
+                    station_axis_dir, var_name, child["name_cn"])
+
                 station_parts.append({
-                    "var": f"p_{std_mod}",
+                    "var": var_name,
                     "make_call": f"{std_func}()",
-                    "local_transform": None,
+                    "local_transform": local_xform,
+                    "orient_doc_ref": orient_ref or "",
+                    "orient_rule": "",
                     "assy_name": f"STD-{child['part_no']}",
                     "color_var": color_info[0],
                 })
@@ -252,24 +341,31 @@ def generate_assembly(spec_path: str) -> str:
                     "func": std_func,
                 })
             else:
-                # Custom-made part
-                c_func = f"make_{suffix.lower()}_{c_suffix}"
-                func_names.append(c_func)
+                # Custom-made part — import from individual ee_NNN_NN module
+                # gen_parts.py names: GIS-EE-001-01 → ee_001_01.py / make_ee_001_01()
+                ee_mod = re.sub(r"^GIS-", "", child["part_no"]).lower().replace("-", "_")
+                ee_func = f"make_{ee_mod}"
                 c_color = _COLOR_PALETTE[color_idx % len(_COLOR_PALETTE)][0]
 
+                # C6: Apply station-level orientation from §6.2 axis_dir
+                var_name = f"p_{ee_mod}"
+                local_xform, orient_ref = _axis_dir_to_local_transform(
+                    station_axis_dir, var_name, child["name_cn"])
+
                 station_parts.append({
-                    "var": f"p_{suffix.lower()}_{c_suffix}",
-                    "make_call": f"{c_func}()",
-                    "local_transform": None,
+                    "var": var_name,
+                    "make_call": f"{ee_func}()",
+                    "local_transform": local_xform,
+                    "orient_doc_ref": orient_ref or "",
+                    "orient_rule": "",
                     "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
                     "color_var": c_color,
                 })
-
-        if func_names:
-            part_imports.append({
-                "module": mod_name,
-                "functions": func_names,
-            })
+                # Each custom part gets its own import line
+                part_imports.append({
+                    "module": ee_mod,
+                    "functions": [ee_func],
+                })
 
         for si in std_func_imports:
             std_part_imports.append(si)

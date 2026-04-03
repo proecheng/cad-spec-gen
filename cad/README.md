@@ -8,19 +8,30 @@ CadQuery 参数化脚本，从 `docs/design/04-末端执行机构设计.md`（§
 
 ## 文件结构
 
+由 `/cad-codegen` 自动生成，命名规则：`GIS-EE-NNN-NN` → `ee_nnn_nn.py`（自制件）/ `std_ee_nnn_nn.py`（外购件）。
+
 ```
 cad/
 ├── end_effector/
-│   ├── params.py              全部尺寸参数（单一数据源）
-│   ├── flange.py              法兰本体（Al圆盘+PEEK+4悬臂+孔位）
-│   ├── station1_applicator.py 工位1：耦合剂涂覆
-│   ├── station2_ae.py         工位2：AE检测（串联堆叠）
-│   ├── station3_cleaner.py    工位3：卷带清洁（双卷轴+溶剂罐）
-│   ├── station4_uhf.py        工位4：UHF传感器
-│   ├── drive_assembly.py      驱动总成（电机+减速器+适配板）
-│   ├── assembly.py            顶层装配（CadQuery Assembly API）
-│   └── build_all.py           主入口：一键生成所有 STEP
-└── output/                    STEP 输出（已 .gitignore 排除）
+│   ├── CAD_SPEC.md            结构化规范（由 /cad-spec 生成）
+│   ├── params.py              全部尺寸参数 + 派生装配参数（MOUNT_CENTER_R等）
+│   ├── ee_001_01.py           GIS-EE-001-01 法兰本体（含十字悬臂）
+│   ├── ee_001_02.py           GIS-EE-001-02 PEEK绝缘环
+│   ├── ee_001_08.py           GIS-EE-001-08 ISO 9409适配板
+│   ├── ee_002_01.py           GIS-EE-002-01 涂抹模块壳体
+│   ├── ee_003_03.py           GIS-EE-003-03 弹簧限力机构
+│   ├── ee_003_04.py           GIS-EE-003-04 柔性万向节
+│   ├── ee_004_01.py           GIS-EE-004-01 清洁模块壳体
+│   ├── ee_004_12.py           GIS-EE-004-12 清洁窗口翻盖
+│   ├── ee_005_02.py           GIS-EE-005-02 UHF安装支架
+│   ├── ee_006_01.py           GIS-EE-006-01 信号调理壳体
+│   ├── ee_006_03.py           GIS-EE-006-03 信号调理安装支架
+│   ├── std_ee_*.py (×22)      外购件简化几何（电机/传感器/储罐等）
+│   ├── assembly.py            顶层装配（含方向变换，从§6.2自动生成）
+│   ├── build_all.py           构建调度（STD STEP + DXF）
+│   ├── drawing.py             ezdxf 2D工程图引擎
+│   └── draw_three_view.py     GB/T三视图图框（ThreeViewSheet）
+└── output/                    构建输出（STEP/DXF/PNG/GLB）
 ```
 
 ## 使用方法
@@ -37,18 +48,14 @@ pip install cadquery
 python cad/end_effector/build_all.py
 ```
 
-输出 8 个 STEP 文件到 `cad/output/`：
+输出到 `cad/output/`：
 
-| 文件 | 内容 |
-|------|------|
-| EE-001_flange_al.step | 法兰铝合金本体 |
-| EE-001_flange_peek.step | PEEK绝缘环 |
-| EE-002_station1_applicator.step | 工位1涂覆模块 |
-| EE-003_station2_ae.step | 工位2 AE模块 |
-| EE-004_station3_cleaner.step | 工位3清洁模块 |
-| EE-005_station4_uhf.step | 工位4 UHF模块 |
-| EE-006_drive.step | 驱动总成 |
-| EE-000_assembly.step | 完整装配体 |
+| 类型 | 数量 | 示例 |
+|------|------|------|
+| 装配体 STEP + GLB | 1+1 | `EE-000_assembly.step`, `.glb` |
+| 标准件 STEP | ~24 | `GIS-EE-001-05_std.step`（电机）, `GIS-EE-004-08_std.step`（溶剂罐）|
+| 2D 工程图 DXF | ~11 | `EE-001-01_flange.dxf`（法兰）, `EE-005-02_uhf_bracket.dxf` |
+| DXF 预览 PNG | ~11 | `EE-001-01_flange.png` |
 
 ### 后续 SolidWorks 工作流
 
@@ -57,23 +64,23 @@ python cad/end_effector/build_all.py
 3. 在 SolidWorks 中添加圆角、倒角、螺纹等精细特征
 4. 参数变更时重新运行 `build_all.py` 并对比差异
 
-## 与 §4 同步规则
+## 与设计文档同步规则
 
-1. §4 变更 → 更新 `params.py` 对应参数（保持行号注释同步）
-2. 重新运行 `build_all.py`
-3. 用 CAD 软件打开 STEP 验证几何正确
-4. 提交 `params.py` 变更（STEP 文件不入版本库）
+1. 设计文档变更 → 重新运行 `/cad-spec` 生成新的 `CAD_SPEC.md`
+2. 重新运行 `/cad-codegen --force` 更新所有脚手架（会覆盖 params.py、build_all.py、assembly.py）
+3. **注意**：`--force` 会覆盖坐标系声明和手动修改的几何代码，需重新填写
+4. 运行 `cad_pipeline.py build` 生成 STEP/DXF
+5. 提交代码变更（output/ 文件不入版本库）
 
 ## 建模精度说明
 
-当前模型为概念级参数化几何，包含：
-- 主要外形尺寸和包络
-- 安装接口（螺栓孔、定位销孔、ISO 9409）
-- 串联装配关系
+**脚手架阶段**（codegen 生成）：
+- 自制件为占位方块几何（需通过 `/mechdesign` 手动实现实际形状）
+- 标准件为简化圆柱/方盒（尺寸从 BOM 自动提取，方向从 §6.2 自动推导）
+- 装配定位正确（工位角度、安装半径、储罐水平/竖直方向）
+- 2D 工程图仅有图框和标题栏（视图待实现几何后填充）
 
-不包含（需在 SolidWorks 中完善）：
-- 圆角/倒角
-- 螺纹（仅通孔）
-- 表面处理标注
-- 形位公差标注
-- 密封槽精细截面
+**精细建模阶段**（mechdesign / SolidWorks）：
+- 圆角/倒角、螺纹、密封槽精细截面
+- 形位公差标注、表面处理标注
+- 内腔/盲孔剖视图

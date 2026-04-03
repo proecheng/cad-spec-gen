@@ -98,6 +98,86 @@ def parse_spec_params(spec_path: str) -> list:
     return params
 
 
+def parse_assembly_params(spec_path: str) -> list:
+    """Parse §6.2 装配层叠 from CAD_SPEC.md for assembly-level derived params.
+
+    Extracts:
+    - MOUNT_CENTER_R from R=XXmm in offset column
+    - STATION_ANGLES list from θ=XXX° in offset column
+    - PEEK/motor/adapter geometry from layer descriptions
+    """
+    text = Path(spec_path).read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    derived = []
+    in_section = False
+    header_found = False
+    station_angles = []
+    mount_r = None
+
+    for line in lines:
+        if re.match(r"###?\s*6\.2\s", line) or "装配层叠" in line:
+            in_section = True
+            continue
+        if in_section and re.match(r"##\s*[78]", line):
+            break
+        if not in_section:
+            continue
+
+        if "层级" in line and "零件" in line:
+            header_found = True
+            continue
+        if re.match(r"\|\s*---", line):
+            continue
+
+        if header_found and line.startswith("|"):
+            cells = [c.strip() for c in line.split("|")]
+            cells = [c for c in cells if c != ""]
+            if len(cells) < 5:
+                continue
+
+            offset_col = cells[4] if len(cells) > 4 else ""
+
+            # Extract R=XXmm (mount center radius)
+            m_r = re.search(r"R\s*=\s*(\d+(?:\.\d+)?)\s*mm", offset_col)
+            if m_r and mount_r is None:
+                mount_r = float(m_r.group(1))
+
+            # Extract θ=XXX° (station angles)
+            m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°", offset_col)
+            if m_theta:
+                station_angles.append(float(m_theta.group(1)))
+
+            # Extract Z offsets for key layers
+            m_z = re.search(r"Z\s*=\s*([+\-]?\d+(?:\.\d+)?)\s*mm", offset_col)
+            if m_z:
+                z_val = float(m_z.group(1))
+                layer_name = cells[1] if len(cells) > 1 else ""
+                if "电机" in layer_name or "减速器" in layer_name:
+                    derived.append({
+                        "name": "MOTOR_L",
+                        "expr": str(abs(z_val)),
+                        "remark": f"mm — 电机+减速器总长 (§6.2 {offset_col.strip()})",
+                    })
+
+    if mount_r is not None:
+        derived.insert(0, {
+            "name": "MOUNT_CENTER_R",
+            "expr": str(int(mount_r) if mount_r == int(mount_r) else mount_r),
+            "remark": "mm — 工位安装面中心到旋转轴距离 (§6.2)",
+        })
+
+    if station_angles:
+        angles_str = "[" + ", ".join(str(int(a) if a == int(a) else a) for a in station_angles) + "]"
+        derived.append({
+            "name": "STATION_ANGLES",
+            "expr": angles_str,
+            "remark": f"° — {len(station_angles)}工位角度 (§6.2)",
+        })
+
+    return derived
+
+
 def _normalize_param_name(raw_name: str) -> str:
     """Convert raw parameter name to Python constant name.
 
@@ -189,7 +269,8 @@ def _group_params(params: list) -> list:
 
 # ── Render with Jinja2 ────────────────────────────────────────────────────────
 
-def render_params_py(params: list, spec_path: str, design_doc: str = "") -> str:
+def render_params_py(params: list, spec_path: str, design_doc: str = "",
+                     derived_params: list = None) -> str:
     """Render params.py content from parsed parameters."""
     import jinja2
 
@@ -211,7 +292,7 @@ def render_params_py(params: list, spec_path: str, design_doc: str = "") -> str:
         design_doc=design_doc or "design document",
         total_lines="?",
         param_groups=groups,
-        derived_params=[],
+        derived_params=derived_params or [],
     )
 
 
@@ -296,7 +377,8 @@ def main():
 
     # Parse spec
     params = parse_spec_params(spec_path)
-    print(f"[gen_params] Parsed {len(params)} parameters from {os.path.basename(spec_path)}")
+    derived = parse_assembly_params(spec_path)
+    print(f"[gen_params] Parsed {len(params)} parameters + {len(derived)} assembly-derived from {os.path.basename(spec_path)}")
 
     if args.mode == "update" and os.path.exists(output_path):
         # Diff-merge mode
@@ -315,7 +397,8 @@ def main():
 
     else:
         # Generate from scratch
-        content = render_params_py(params, spec_path, args.design_doc)
+        content = render_params_py(params, spec_path, args.design_doc,
+                                   derived_params=derived)
         Path(output_path).write_text(content, encoding="utf-8")
         print(f"[gen_params] Generated: {output_path}")
 

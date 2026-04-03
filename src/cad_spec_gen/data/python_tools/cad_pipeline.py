@@ -58,6 +58,29 @@ PIPELINE_CONFIG_PATH = os.path.join(SKILL_ROOT, "pipeline_config.json")
 DEFAULT_OUTPUT = get_output_dir()
 
 
+def _deploy_tool_modules(sub_dir: str):
+    """Copy shared Python tool modules to a subsystem directory.
+
+    These modules are needed at runtime by generated code (ee_*.py, build_all.py):
+      - drawing.py        — ezdxf GB/T drawing primitives
+      - draw_three_view.py — ThreeViewSheet class
+      - cq_to_dxf.py      — CadQuery→DXF HLR projection bridge
+      - render_dxf.py      — DXF→PNG batch renderer
+    Only copies if source is newer or target is missing (scaffold-safe).
+    """
+    import shutil
+    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py"]
+    for fname in tool_files:
+        src = os.path.join(SKILL_ROOT, fname)
+        dst = os.path.join(sub_dir, fname)
+        if not os.path.isfile(src):
+            continue
+        if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+            continue  # Target is up-to-date
+        shutil.copy2(src, dst)
+        log.info("  Deployed: %s → %s", fname, os.path.basename(sub_dir))
+
+
 def _load_pipeline_config():
     """Load pipeline_config.json (render/timestamp/archive settings)."""
     if os.path.isfile(PIPELINE_CONFIG_PATH):
@@ -639,6 +662,9 @@ def cmd_codegen(args):
     mode = "force" if getattr(args, "force", False) else "scaffold"
     failures = 0
 
+    # 2-pre: Deploy shared tool modules to subsystem directory
+    _deploy_tool_modules(sub_dir)
+
     # 2a: params.py
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_params.py"),
            spec_path, "--mode", mode]
@@ -714,7 +740,24 @@ def cmd_build(args):
 
     ok, elapsed = _run_subprocess(cmd, f"build_all.py ({args.subsystem})",
                                   dry_run=args.dry_run, timeout=1200)
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
+    render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
+    if os.path.isfile(render_dxf_script):
+        log.info("[Phase 3 post-build] Rendering DXF → PNG ...")
+        ok_dxf, _ = _run_subprocess(
+            [sys.executable, render_dxf_script],
+            "render_dxf.py (DXF → PNG)", dry_run=args.dry_run, timeout=600
+        )
+        if not ok_dxf:
+            log.warning("DXF → PNG rendering failed (non-fatal, DXF files are still available)")
+    else:
+        log.info("No render_dxf.py in %s — skipping DXF → PNG", sub_dir)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    return 0
 
 
 def cmd_render(args):
