@@ -28,7 +28,7 @@ Read the skill document `skill_cad_help.md` (project root), then execute based o
    ```
    Phase 1  SPEC      → Check if cad/<subsystem>/CAD_SPEC.md exists + mtime
    Phase 2  CODEGEN   → Check if cad/<subsystem>/build_all.py, params.py, assembly.py exist
-   Phase 3  BUILD     → Check cad/output/ for subsystem .step/.glb files + mtime
+   Phase 3  BUILD     → Check cad/output/ for subsystem .step/.glb/.png(DXF→PNG) files + mtime
    Phase 4  RENDER    → Check cad/output/renders/ for subsystem V*.png + count + mtime
    Phase 5  ENHANCE   → Check for *_enhanced.* files
    Phase 6  ANNOTATE  → Check for *_labeled_*.png files
@@ -93,6 +93,7 @@ Read the skill document `skill_cad_help.md` (project root), then execute based o
 
 - Environment check (env_check): Run detection commands one by one, report ✅/❌ status
 - Validate config (validate): Read and check render_config.json completeness
+- Build: `cad_pipeline.py build` runs build_all.py then **auto-executes render_dxf.py** to convert DXF to PNG engineering drawing preview (if script exists)
 - Render: **Whether running the full pipeline or a standalone render, always run `build` first to regenerate the GLB, then execute the Blender render** (GLB is Blender's input and must be consistent with the current design)
 - Troubleshoot: Ask user for specific error message first, then diagnose using troubleshooting guide
 - Status: Scan cad/ and cad/output/ directories, count artifacts

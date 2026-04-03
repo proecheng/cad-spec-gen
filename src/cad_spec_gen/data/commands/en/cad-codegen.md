@@ -35,7 +35,7 @@ Auto-generate CadQuery Python scripts from the structured data in CAD_SPEC.md vi
 
 ### Post-generation Auto-check (Gate 2)
 
-`gen_parts.py` immediately scans all newly generated files for `TODO:` markers:
+`gen_parts.py` immediately scans all newly generated files for `TODO:` markers after scaffold generation:
 
 - **Unfilled TODOs found** → Print WARNING list (filename + line number + content), exit with **exit code 2**
 - **All TODOs filled** → Print `All coordinate system blocks filled. Ready for build.`
@@ -44,10 +44,10 @@ Each generated `<part>.py` file header contains a mandatory coordinate system de
 
 ```python
 # ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-# Local origin : <e.g. bottom-left corner of mounting face>
-# Principal axis: <e.g. extrude along +Z (axial), body height = PARAM_H>
-# Assembly orient: <e.g. rotate X+90deg → axis becomes +Y (radial)>
-# Design doc ref : <e.g. §4.1.2 L176 — "tank axis collinear with cantilever (radial)">
+# Local origin : <fill in: e.g. bottom-left corner of mounting face>
+# Principal axis: <fill in: e.g. extrude along +Z (axial), body height = PARAM_H>
+# Assembly orient: <fill in: e.g. rotate X+90deg → axis becomes +Y (radial)>
+# Design doc ref : <fill in: e.g. §4.1.2 L176 — "tank axis collinear with cantilever (radial)">
 # └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -57,11 +57,33 @@ Code generation runs in 5 steps using generators in `codegen/` and Jinja2 templa
 
 | Step | Generator | Template | Input (CAD_SPEC) | Output |
 |------|-----------|----------|------------------|--------|
-| 1 | `gen_params.py` | `params.py.j2` | §1 Global params table | `params.py` — dimension constants |
-| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM tree | `build_all.py` — STEP/STL/DXF build table |
-| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM (fabricated leaf parts) | `station_*.py` — part scaffolds |
-| 4 | `gen_assembly.py` | `assembly.py.j2` | §4 connections + §5 BOM + §6 poses | `assembly.py` — assembly structure (incl. standard parts) |
-| 5 | `gen_std_parts.py` | — | §5 BOM (purchased parts) | `std_*.py` — simplified standard part geometry |
+| 1 | `gen_params.py` | `params.py.j2` | §1 Global params table + §6.2 assembly stack-up | `params.py` — dimension constants + derived assembly params |
+| 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM tree | `build_all.py` — STD STEP + DXF build table |
+| 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM (fabricated leaf parts) + §2 tolerance/surface + §title | `ee_NNN_NN.py` — approximate part geometry (with auto-annotation) |
+| 4 | `gen_assembly.py` | `assembly.py.j2` | §4 connections + §5 BOM + §6 poses | `assembly.py` — assembly structure (with radial positioning + direction transform) |
+| 5 | `gen_std_parts.py` | — | §5 BOM (purchased parts) | `std_ee_NNN_NN.py` — simplified standard part geometry |
+
+**Naming rules**: Part numbers are stripped via `strip_part_prefix()` with generic prefix removal (not hardcoded to "GIS-"), e.g. `GIS-EE-001-01` → `ee_001_01.py` / `make_ee_001_01()`; purchased parts `std_ee_001_03.py` / `make_std_ee_001_03()`
+
+**Auto-annotation** (v2.2.0+): `gen_parts.py` now also parses §2 tolerance/surface data and the title line from CAD_SPEC.md, passing them into the template. The generated `draw_*_sheet()` functions automatically call `auto_annotate(solid, sheet, annotation_meta={...})`, adding GB/T-compliant annotations after HLR projection:
+- **Geometry-driven** (no §2 data needed): bounding dimensions, circle diameters, centerlines
+- **Spec-driven** (injected from §2): tolerance text, GD&T frames, per-face surface roughness
+- **Material classification**: `classify_material_type(material)` auto-infers material_type (al/steel/peek/nylon/rubber), driving technical requirements and default Ra selection
+- **Project name parameterization**: `ThreeViewSheet` receives `project_name`/`subsystem_name` (parsed from spec title); title block is no longer hardcoded
+
+**Approximate geometry** (v2.2.1+): `gen_parts.py`'s `_guess_geometry()` infers fabricated part geometry via a two-tier strategy:
+1. **BOM dimension parsing**: Extracts explicit dimensions from the §5 material column (e.g. `6063 aluminum 140x100x55mm` → box, `Phi38x280mm` → cylinder)
+2. **Keyword inference**: Matches part name against common geometry types (shell/barrel → cylinder, flange + cantilever → disc_arms, ring/insulator → ring, L-bracket → l_bracket, default → box)
+
+Template `part_module.py.j2` dispatches CadQuery code generation by `geom_type` (cylinder/ring/disc_arms/l_bracket/box), instead of generating placeholder boxes for everything.
+
+**Assembly positioning** (v2.2.1+): `gen_assembly.py` reads §6.2 `Offset (Z/R/theta)` column, matching each assembly's positioning parameters by GIS-XX-NNN part number (theta=NNN deg angle, R=NNNmm radius, Z=+/-NNNmm axial offset), and writes numeric literals into the `assembly.py` template (e.g. `_tx = 65.0 * math.cos(_rad)`), without depending on parameter names in params.py. Assemblies without theta=/R= data (e.g. flange assemblies) automatically skip radial transforms.
+
+**Direction transform**: `gen_assembly.py` reads the `Axis direction` column from §6.2, matching clauses by part name (e.g. "shell axis along -Z, tank axis parallel to XY"), and generates `rotate()` code for parts that need rotation. Priority: disc parallel to XY / ring parallel to XY → no rotation > along -Z / vertical → no rotation > parallel to XY / horizontal → rotate 90 deg around X axis.
+
+**SPEC deployment** (v2.2.1+): After `cad_pipeline.py spec` succeeds, it automatically copies `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` to `cad/<subsystem>/`, ensuring codegen always reads the latest SPEC version.
+
+**Enhance quality gate** (v2.2.1+): `cad_pipeline.py enhance` checks file size and grayscale variance before sending PNGs to Gemini, skipping blank/near-blank renders with a WARNING. Thresholds can be overridden via `render_config.json`'s `enhance_quality_gate`.
 
 ### Standard Part Auto-generation (Step 5)
 
@@ -80,7 +102,10 @@ Code generation runs in 5 steps using generators in `codegen/` and Jinja2 templa
 | tank | Cylinder | Stainless tank |
 
 - Skips `fastener` (too small) and `cable` (flexible body)
-- Dimensions sourced from: `cad_spec_defaults.py` → `STD_PART_DIMENSIONS` lookup table
+- **Three-tier dimension lookup**: `cad_spec_defaults.py` → `lookup_std_part_dims()`:
+  1. Model matching (e.g. `GP22C` → d=22, l=35)
+  2. Regex extraction of `Phi-d x l` / `w x h x l` patterns from BOM material field (e.g. `Phi25x110mm` → d=25, l=110)
+  3. Category fallback (e.g. `_tank` → d=38, l=280)
 - Output naming: `std_ee_001_05.py` (`std_` prefix + part number suffix)
 - In scaffold mode, existing files are not overwritten
 
@@ -88,8 +113,6 @@ Code generation runs in 5 steps using generators in `codegen/` and Jinja2 templa
 
 - **scaffold**: Only generates files that don't exist; preserves files that engineers have manually edited
 - **force** (default for `gen_params.py`): Regenerates and overwrites everything; use for initial generation or full reset after major CAD_SPEC changes
-
-> **v2.0 change**: `gen_params.py` default mode changed from `scaffold` to `force` (always fully regenerates `params.py` on codegen). `gen_parts.py` and `gen_std_parts.py` added `--mode force` option. Pipeline `codegen --force` passes `--mode force` to all generators.
 
 ### Post-generation Summary
 

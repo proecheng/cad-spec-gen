@@ -24,6 +24,8 @@ PYTHON_TOOLS = [
     "enhance_prompt.py",
     "prompt_data_builder.py",
     "pipeline_config.json",
+    "drawing.py",
+    "draw_three_view.py",
 ]
 
 # Directories to copy as-is
@@ -67,12 +69,15 @@ class CustomBuildHook(BuildHookInterface):
             for md in cmd_src.glob("*.md"):
                 shutil.copy2(md, cmd_zh / md.name)
 
-        # --- knowledge/skill_cad_help_zh.md ---
+        # --- knowledge/*_zh.md ---
         knowledge_dir = data_dir / "knowledge"
         knowledge_dir.mkdir(parents=True, exist_ok=True)
         zh_help = root / "skill_cad_help.md"
         if zh_help.exists():
             shutil.copy2(zh_help, knowledge_dir / "skill_cad_help_zh.md")
+        zh_mech = root / "skill_mech_design.md"
+        if zh_mech.exists():
+            shutil.copy2(zh_mech, knowledge_dir / "skill_mech_design_zh.md")
 
         # --- system_prompt.md ---
         sys_prompt = root / "system_prompt.md"

@@ -284,7 +284,11 @@ Whether running the full pipeline or a standalone render, always run build first
 to regenerate GLB, then execute Blender rendering.
 GLB is Blender's input and must be consistent with the current code/design.
 
+Note: `cad_pipeline.py build` auto-runs render_dxf.py after build_all.py,
+converting all DXF engineering drawings to PNG previews (if render_dxf.py exists).
+
   # Recommended: build triggers rendering (auto-generates new GLB then renders)
+  # Also auto-generates DXF→PNG previews via render_dxf.py
   cd cad/<subsystem> && python build_all.py --render
 
   # Or two steps: build GLB first, then render specific views
@@ -423,6 +427,23 @@ A: Check if part_pattern matches actual part names
 Q: Render resolution too low
 A: render_config.json → "resolution": {"width": 1920, "height": 1080}
    Default is 1280x720
+
+Q: Rendered image is nearly blank / only shows a few stacked boxes
+A: 1. Check cad/<subsystem>/CAD_SPEC.md §6.2 — if it says "暂无数据",
+      re-run: cad_pipeline.py spec --subsystem <name> --force --auto-fill
+      then:   cad_pipeline.py codegen --subsystem <name> --force
+      (spec generates §6.2 data; codegen reads it for assembly transforms)
+   2. Check assembly.py — if all stations show (0.0°) with no transforms,
+      §6.2 data was not consumed; re-run codegen after spec --force
+   3. Check ee_*.py files — codegen generates approximate geometry
+      (cylinder/ring/disc based on BOM dimensions); refine manually if needed
+
+Q: Gemini enhanced image looks completely different from source PNG
+A: The enhance pipeline has a quality gate that skips blank/near-empty renders.
+   If you see "SKIP: render appears blank" in the log, the BUILD phase produced
+   invalid output. Fix BUILD first, then re-run enhance.
+   If the gate was not triggered but the enhanced image is wrong, the source PNG
+   may have too few features for geometry lock to work — improve the 3D model.
 ```
 
 ### 11. file_struct — File Structure

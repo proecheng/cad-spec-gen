@@ -78,25 +78,17 @@ Sample output:
 [OK]  ComfyUI service running (localhost:8188)
 [OK]  ControlNet model: control_v11p_sd15_depth.pth
 [OK]  ControlNet model: control_v11p_sd15_canny.pth
-[WARN] Checkpoint: realisticVisionV60B1_v51VAE.safetensors not found
-       → Download from CivitAI and place in ComfyUI/models/checkpoints/
+[WARN] Stable Diffusion base model not found → recommend downloading realisticVisionV60B1.safetensors
 ```
 
-If `[WARN]` or `[FAIL]` items are present, the tool shows targeted installation instructions.
+When components are missing, the script outputs the corresponding download/install commands.
 
-### Execution Commands
+### ComfyUI How It Works
 
-```bash
-# Gemini backend
-python cad_pipeline.py enhance --subsystem end_effector --backend gemini
-
-# ComfyUI backend
-python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
-
-# Enhance specific directory
-python cad_pipeline.py enhance --subsystem end_effector --backend gemini \
-  --dir cad/output/end_effector/20240315_143022/
-```
+- Auto-generates a depth map (MiDaS) + canny edge map for each PNG
+- These two control images constrain SD generation — **geometry is hard-locked by the images**, independent of text prompts
+- Submits workflow JSON via `localhost:8188` REST API and polls for results
+- Workflow template located at `templates/comfyui_workflow_template.json`
 
 ### Layout Routing (v2.0)
 
@@ -190,9 +182,9 @@ Configure the Gemini model in the `enhance` section of `pipeline_config.json`:
   "host": "127.0.0.1",
   "port": 8188,
   "workflow_template": "templates/comfyui_workflow_template.json",
-  "sd_model": "realisticVisionV60B1.safetensors",
-  "controlnet_depth": "control_v11p_sd15_depth.pth",
-  "controlnet_canny": "control_v11p_sd15_canny.pth",
+  "checkpoint": "realisticVisionV60B1_v51VAE.safetensors",
+  "controlnet_depth_model": "control_v11f1p_sd15_depth.pth",
+  "controlnet_canny_model": "control_v11p_sd15_canny.pth",
   "steps": 28,
   "cfg_scale": 7.0,
   "denoise_strength": 0.55,

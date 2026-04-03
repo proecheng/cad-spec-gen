@@ -127,7 +127,7 @@ def _write_version_marker(target, version):
     )
 
 
-def register_skill(target_dir, lang="zh", version="1.4.0", update=False):
+def register_skill(target_dir, lang="zh", version=None, update=False):
     """Copy all skill files to the target project directory.
 
     Args:
@@ -139,6 +139,9 @@ def register_skill(target_dir, lang="zh", version="1.4.0", update=False):
     Returns:
         int: Number of files copied
     """
+    if version is None:
+        from .. import __version__
+        version = __version__
     target = Path(target_dir).resolve()
     data = _data_root()
     installed = _read_installed_version(target) if update else None

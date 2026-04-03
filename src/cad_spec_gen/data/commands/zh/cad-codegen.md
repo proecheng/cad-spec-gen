@@ -1,8 +1,3 @@
----
-name: cad-codegen
-description: "Phase 2: Generate CadQuery scaffold code (params.py, build_all.py, assembly.py, part modules) from CAD_SPEC.md using Jinja2 templates."
----
-
 # /cad-codegen — 从 CAD_SPEC.md 生成 CadQuery 脚手架代码
 
 用户输入: $ARGUMENTS

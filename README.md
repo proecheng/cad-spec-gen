@@ -193,7 +193,7 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 - Section views (A-A cut lines), datum triangles, default Ra callouts
 
 ### 3D Rendering
-- **Blender Cycles CPU** — works on remote desktops without GPU
+- **Blender Cycles** with GPU auto-detect (OptiX > CUDA > HIP > OneAPI > CPU fallback) — also works on remote desktops without GPU
 - **5 standard views** (default, configurable per subsystem): V1 front-iso, V2 rear-oblique, V3 side-elevation, V4 exploded, V5 ortho-front
 - **15 PBR material presets**: brushed aluminum, PEEK, carbon fiber, rubber, glass, etc.
 - **Exploded views**: radial / axial / custom explosion with assembly lines
@@ -425,7 +425,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ## Project Structure
 
 ```
-├── skill.json                      # Machine-readable skill manifest (v1.9.0)
+├── skill.json                      # Machine-readable skill manifest
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── cad_pipeline.py                 # Unified 6-phase pipeline orchestrator
