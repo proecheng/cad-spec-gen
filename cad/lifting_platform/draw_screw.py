@@ -24,6 +24,8 @@ from ezdxf.layouts import Modelspace
 def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """主视图：正视（轴向截面）"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - SCREW_TOTAL_L / 2 * s
     total = SCREW_TOTAL_L * s
     td = SCREW_THREAD_D * s   # 螺纹大径 16
     sd = SCREW_SHAFT_D * s    # 轴径 12

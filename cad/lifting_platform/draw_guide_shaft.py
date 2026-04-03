@@ -21,6 +21,8 @@ from ezdxf.layouts import Modelspace
 def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """主视图：轴向正视"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - GUIDE_L / 2 * s
     total = GUIDE_L * s
     r = GUIDE_D / 2 * s
     cy = oy + r

@@ -118,6 +118,38 @@ GB/T 国标要求：
 - 螺纹标注（如有螺纹孔）
 - 材料名用中文国标格式（"铝合金" 非 "Al"）
 
+#### 绘图函数坐标约定（强制）
+
+`draw_*.py` 中的每个绘图函数签名为 `func(msp, ox, oy, scale)`，其中 **(ox, oy) 是视图的中心点**。
+布局计算器 `calc_multi_view_layout` / `calc_three_view_layout` 返回的 origin 均为视图 bbox 的**中心坐标**。
+
+**必须遵守 center-center 约定**：
+
+```python
+def my_front_view(msp, ox, oy, scale):
+    """ox, oy = 视图中心."""
+    s = scale
+    hw = PART_W / 2 * s   # 半宽
+    hh = PART_H / 2 * s   # 半高
+    # 轮廓以 (ox, oy) 对称展开
+    msp.add_lwpolyline([
+        (ox - hw, oy - hh), (ox + hw, oy - hh),
+        (ox + hw, oy + hh), (ox - hw, oy + hh), (ox - hw, oy - hh)
+    ], dxfattribs={"layer": "OUTLINE"})
+```
+
+禁止模式（会导致视图超出图框）：
+- ❌ `oy` 到 `oy + ht`（bottom-Y）
+- ❌ `ox` 到 `ox + w*s`（left-X）
+- ❌ bbox 传入半尺寸
+
+**bbox 必须传入完整尺寸**（宽 × 高），不是半尺寸：
+
+```python
+sheet.draw_front(my_front_view, bbox=(PART_W, PART_H))      # ✅ 完整尺寸
+sheet.draw_front(my_front_view, bbox=(PART_W/2, PART_H/2))  # ❌ 半尺寸
+```
+
 ### Phase 5: 渲染预览 → DXF→PNG
 
 **工具**: `cad/<subsystem>/render_dxf.py`

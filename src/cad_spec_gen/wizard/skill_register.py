@@ -24,6 +24,8 @@ PYTHON_TOOLS = [
     "enhance_prompt.py", "prompt_data_builder.py",
     "comfyui_enhancer.py", "comfyui_env_check.py",
     "pipeline_config.json",
+    "drawing.py",           # 2D 工程图引擎（GB/T 母版）
+    "draw_three_view.py",   # 三视图框架（GB/T 母版）
 ]
 
 # Directories to copy from data/{name}/ → target/{name}/
@@ -97,8 +99,8 @@ def _write_version_marker(target, version):
         p = target / name
         if p.exists():
             hashes[name] = _file_hash(p)
-    # Knowledge file
-    for name in ["skill_cad_help.md"]:
+    # Knowledge files
+    for name in ["skill_cad_help.md", "skill_mech_design.md"]:
         p = target / name
         if p.exists():
             hashes[name] = _file_hash(p)
@@ -153,13 +155,16 @@ def register_skill(target_dir, lang="zh", version="1.4.0", update=False):
             count += 1
     ui.success(f".claude/commands/ ({len(COMMAND_FILES)} commands, {lang})")
 
-    # 2. Knowledge file (language-specific)
-    knowledge_name = f"skill_cad_help_{lang}.md"
-    knowledge_src = data / "knowledge" / knowledge_name
-    if knowledge_src.exists():
-        _safe_copy(knowledge_src, target / "skill_cad_help.md")
-        count += 1
-        ui.success("skill_cad_help.md")
+    # 2. Knowledge files (language-specific)
+    for (src_pattern, dst_name) in [
+        (f"skill_cad_help_{lang}.md", "skill_cad_help.md"),
+        (f"skill_mech_design_{lang}.md", "skill_mech_design.md"),
+    ]:
+        knowledge_src = data / "knowledge" / src_pattern
+        if knowledge_src.exists():
+            _safe_copy(knowledge_src, target / dst_name)
+            count += 1
+            ui.success(dst_name)
 
     # 3. System prompt (language-neutral)
     sys_prompt = data / "system_prompt.md"

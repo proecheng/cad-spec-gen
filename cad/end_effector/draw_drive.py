@@ -85,6 +85,8 @@ def adapter_front_view(msp, ox, oy, scale):
 def adapter_top_view(msp, ox, oy, scale):
     """Top view (section): plate thickness + pilot step."""
     s = scale
+    # centre → bottom-left origin
+    ox = ox - (ADAPTER_THICK + ADAPTER_PILOT_DEPTH + 20) / 2 * s
     r_outer = ADAPTER_OD / 2
     r_center = ADAPTER_CENTER_HOLE / 2
     r_pilot = ADAPTER_PILOT_DIA / 2

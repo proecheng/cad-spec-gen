@@ -35,6 +35,9 @@ from draw_three_view import ThreeViewSheet
 def spring_limiter_front_view(msp, ox, oy, scale):
     """Front view (axial section): stacked endplate-sleeve-endplate."""
     s = scale
+    # centre → bottom-left origin
+    total_h = S2_ENDPLATE_THICK * 2 + S2_SHIM_THICK + S2_SLEEVE_H
+    oy = oy - (total_h + 15) / 2 * s
     ep_r = S2_ENDPLATE_DIA / 2
     slv_or = S2_SLEEVE_OD / 2
     slv_ir = S2_SLEEVE_ID / 2
@@ -185,6 +188,9 @@ def draw_spring_limiter_sheet(output_dir: str) -> str:
 def gimbal_front_view(msp, ox, oy, scale):
     """Front view: outer profile Φ30 with flange."""
     s = scale
+    # centre → bottom-left origin
+    total_h = S2_GIMBAL_H + S2_GIMBAL_FLANGE_THICK
+    oy = oy - (total_h + 15) / 2 * s
     od_r = S2_GIMBAL_OD / 2
     id_r = S2_GIMBAL_ID / 2
     fl_r = S2_GIMBAL_FLANGE_DIA / 2

@@ -21,6 +21,9 @@ from ezdxf.layouts import Modelspace
 def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """主视图：俯视（XY平面 50x100）"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - SUP_BAR_W / 2 * s
+    oy = oy - SUP_BAR_H / 2 * s
     w = SUP_BAR_W * s
     h = SUP_BAR_H * s
     cx = ox + w / 2
@@ -55,6 +58,9 @@ def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 def side_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """侧视图：厚度方向"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - SUP_BAR_H / 2 * s
+    oy = oy - PLATE_THICK / 2 * s
     w = SUP_BAR_H * s
     h = PLATE_THICK * s
 

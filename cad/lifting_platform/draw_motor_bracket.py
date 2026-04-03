@@ -27,6 +27,9 @@ _NEMA_ANGLES = [45, 135, 225, 315]
 def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """主视图：正视（XY 平面，70x90）"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - BRACKET_W / 2 * s
+    oy = oy - BRACKET_H / 2 * s
     w = BRACKET_W * s
     h = BRACKET_H * s
     cx = ox + w / 2
@@ -64,6 +67,9 @@ def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 def side_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """侧视图：厚度方向"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - BRACKET_H / 2 * s
+    oy = oy - PLATE_THICK / 2 * s
     w = BRACKET_H * s
     h = PLATE_THICK * s
 

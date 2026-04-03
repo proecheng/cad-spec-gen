@@ -18,6 +18,7 @@ import os
 from typing import Callable, Optional, Tuple
 
 from drawing import (
+    A3_W, A3_H, MARGIN_STD, TITLE_BLOCK_H,
     create_drawing, add_border_frame, add_gb_title_block,
     calc_three_view_layout, calc_multi_view_layout,
     add_projection_symbol,
@@ -25,6 +26,10 @@ from drawing import (
     add_section_view_label, add_detail_label, add_auxiliary_label,
 )
 from ezdxf.layouts import Modelspace
+
+# ─── View label offsets ───────────────────────────────────────────────────────
+_LABEL_OFFSET_X = -5.0    # 标签 X 偏移（相对视图中心）
+_LABEL_OFFSET_Y = 3.0     # 标签 Y 偏移（相对视图顶边）
 
 
 ViewDrawFunc = Callable[[Modelspace, float, float, float], None]
@@ -185,7 +190,8 @@ class ThreeViewSheet:
                 # Fallback: use left view position (replace left view)
                 ox, oy = layout.get("left_origin",
                                     layout.get("section_right_origin",
-                                               (280, 160)))
+                                               (A3_W * 2 / 3,
+                                                (A3_H + TITLE_BLOCK_H) / 2)))
 
             # For detail views, use enlarged scale
             view_scale = s
@@ -194,10 +200,10 @@ class ThreeViewSheet:
 
             ev["func"](msp, ox, oy, view_scale)
 
-            # Add view label above the view
+            # Add view label above the view (origin is now centre)
             bw, bh = ev["bbox"]
-            label_x = ox + bw * s / 2 - 5
-            label_y = oy + bh * s + 3
+            label_x = ox + _LABEL_OFFSET_X
+            label_y = oy + bh * s / 2 + _LABEL_OFFSET_Y
             if vtype == "section":
                 add_section_view_label(msp, (label_x, label_y), ev["label"])
             elif vtype == "detail":
@@ -228,7 +234,7 @@ class ThreeViewSheet:
         )
 
         # 第一角投影符号
-        add_projection_symbol(msp, (210.0, 15.0))
+        add_projection_symbol(msp, (A3_W / 2, MARGIN_STD + 5.0))
 
         # 保存
         fname = f"{self.part_no.replace('GIS-', '')}_{_slug(self.name)}.dxf"

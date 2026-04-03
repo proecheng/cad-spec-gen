@@ -37,6 +37,8 @@ from draw_three_view import ThreeViewSheet
 def cleaner_front_view(msp, ox, oy, scale):
     """Front view: 50×120 face with dual spool cavities (hidden circles)."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S3_BODY_H + 25) / 2 * s
     w = S3_BODY_W
     h = S3_BODY_H
     wall = S3_WALL_THICK
@@ -109,6 +111,8 @@ def cleaner_section_aa(msp, ox, oy, scale):
     """Section A-A: longitudinal cut through center of width, showing
     dual spool cavities, inner walls, and window opening."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S3_BODY_H + 25) / 2 * s
     d, h, wall = S3_BODY_D, S3_BODY_H, S3_WALL_THICK
     hd = d / 2
 
@@ -242,6 +246,8 @@ def cleaner_top_view(msp, ox, oy, scale):
 def cleaner_left_view(msp, ox, oy, scale):
     """Left view: 40×120 side with cleaning window opening."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S3_BODY_H + 25) / 2 * s
     d = S3_BODY_D
     h = S3_BODY_H
     wall = S3_WALL_THICK
@@ -317,6 +323,8 @@ def draw_cleaner_body_sheet(output_dir: str) -> str:
 def flap_front_view(msp, ox, oy, scale):
     """Front view: flat rectangle 22mm wide × 2mm thick (side elevation)."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S3_FLAP_THICK * 5 + 30) / 2 * s
     w = S3_FLAP_W
     t = S3_FLAP_THICK
     hw = w / 2
@@ -347,6 +355,9 @@ def flap_front_view(msp, ox, oy, scale):
 def flap_top_view(msp, ox, oy, scale):
     """Top view: arc profile cross-section."""
     s = scale
+    # centre → bottom-left origin
+    ox = ox - (S3_WINDOW_D * 5 + 20) / 2 * s
+    oy = oy - (S3_FLAP_THICK * 5 + 20) / 2 * s
     w = S3_FLAP_W
     # Simplified: show a thin arc (the flap has a slight curve)
     ds = s * 5.0

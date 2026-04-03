@@ -20,7 +20,9 @@
     "skill.json": "151bc524ac354ed55f4b20a64ef74194",
     "system_prompt.md": "4a8092b703a80a1995831c81ce3fc396",
     "skill_cad_help.md": "da3feffada71b2a16a95fb3ecba45760",
-    "skill_mech_design.md": "1a886361604b33af2e097111b0a31b50",
+    "skill_mech_design.md": "140d0d9cda01a49ce7b48e08b05655f6",
+    "drawing.py": "fd466b549aff68c56235a3a8dc143869",
+    "draw_three_view.py": "34518ffcf77d60fc358872345cabfee3",
     "config/gisbot.json": "8cb1724087f9e17fea9fca7c5a79cca8",
     "templates/assembly.py.j2": "a5a418d9ee64c531099228286a92fb8e",
     "templates/build_all.py.j2": "992a6964cdecaef116545253d3b37a96",
@@ -50,6 +52,6 @@
     ".claude/commands/cad-enhance.md": "778e4f2f4a2872d1d00ac67fc321d2bf",
     ".claude/commands/cad-help.md": "c2b71a2d63b3b33dca397cfa3ab8ddd5",
     ".claude/commands/cad-spec.md": "d05dca7a90e66b64b3dfb0eb0e2c60c7",
-    ".claude/commands/mechdesign.md": "mechdesign_placeholder"
+    ".claude/commands/mechdesign.md": "333a9f7b33d36a5c3aa899a6fd6669c4"
   }
 }

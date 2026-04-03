@@ -29,6 +29,15 @@ from ezdxf.math import Vec2
 # A3 landscape paper (mm)
 A3_W, A3_H = 420.0, 297.0
 
+# ─── Drawing area margins (GB/T 10609.1) ─────────────────────────────────────
+MARGIN_BIND = 25.0        # 装订侧（左）边距 mm
+MARGIN_STD = 10.0         # 其余三侧边距 mm
+TITLE_BLOCK_H = 56.0      # 标题栏高度 mm (7 rows × 8mm)
+
+# ─── Layout spacing ──────────────────────────────────────────────────────────
+SCALE_RESERVE_W = 40.0    # 水平缩放余量（留给标注/引出线）mm
+SCALE_RESERVE_H = 30.0    # 垂直缩放余量 mm
+
 # ─── Dimension / Arrow module constants (GB/T 4458.4) ─────────────────────────
 DIM_TEXT_H = 3.5                        # 尺寸文字高度 mm (GB/T 标准系列)
 DIM_ARROW = 3.0                         # 箭头长度 mm
@@ -636,89 +645,99 @@ def calc_multi_view_layout(
 ) -> dict:
     """Calculate layout for flexible view configurations.
 
-    Supports standard 3-view + additional section/detail/auxiliary views.
+    All returned ``*_origin`` values are the **centre** of each view's
+    bounding box.  Drawing functions must draw symmetrically around
+    ``(ox, oy)`` — i.e. from ``ox ± w/2*s`` and ``oy ± h/2*s``.
 
     Args:
         views: dict mapping position keys to (width, height) tuples.
             Standard keys: "front", "top", "left"
             Additional keys: "section_right", "section_below",
                              "detail_br", "auxiliary_br"
-            Each value is (width_mm, height_mm) at 1:1 scale.
+            Each value is (width_mm, height_mm) at **1:1 full scale**
+            (not half-dimensions).
         paper: paper size
         title_h: title block height
         gap: inter-view gap
 
     Returns:
-        dict with "{key}_origin": (x, y) and "scale": float
+        dict with "{key}_origin": (x, y) centre coords and "scale": float
     """
-    draw_left = 25.0
-    draw_right = paper[0] - 10.0
-    draw_bottom = 10.0 + title_h
-    draw_top = paper[1] - 10.0
+    draw_left = MARGIN_BIND
+    draw_right = paper[0] - MARGIN_STD
+    draw_bottom = MARGIN_STD + title_h
+    draw_top = paper[1] - MARGIN_STD
     avail_w = draw_right - draw_left
     avail_h = draw_top - draw_bottom
 
     fw, fh = views.get("front", (1, 1))
     tw, th = views.get("top", (fw, 1))
+
+    has_left = "left" in views
     lw, lh = views.get("left", (1, fh))
 
-    # Compute total needed width/height
-    total_w = fw + gap + lw
-    total_h = fh + gap + th
-
-    # If there's a section view to the right of left view
     sr = views.get("section_right", None)
+    dbr = views.get("detail_br", None)
+    sb = views.get("section_below", None)
+
+    # --- total extent (edge-to-edge at 1:1) ---
+    total_w = fw
+    if has_left:
+        total_w += gap + lw
     if sr:
         total_w += gap + sr[0]
 
-    # If there's a detail view below-right
-    dbr = views.get("detail_br", None)
+    total_h = fh
+    if "top" in views:
+        total_h += gap + th
 
-    # Scale to fit
-    scale_w = (avail_w - 40) / total_w if total_w > 0 else 1.0
-    scale_h = (avail_h - 30) / total_h if total_h > 0 else 1.0
+    # Scale to fit (with margin for dims)
+    scale_w = (avail_w - SCALE_RESERVE_W) / total_w if total_w > 0 else 1.0
+    scale_h = (avail_h - SCALE_RESERVE_H) / total_h if total_h > 0 else 1.0
     scale = min(scale_w, scale_h, 1.0)
 
     sgap = gap * scale
     result = {"scale": scale}
 
-    # Front view origin
-    # Center the group horizontally and vertically
+    # --- group bounding box (scaled) ---
     total_sw = total_w * scale
     total_sh = total_h * scale
-    cx = draw_left + (avail_w - total_sw) / 2
-    cy = draw_bottom + (avail_h - total_sh) / 2
 
+    # gx, gy = left-bottom corner of the whole view group
+    gx = draw_left + (avail_w - total_sw) / 2
+    gy = draw_bottom + (avail_h - total_sh) / 2
+
+    # --- position each view (return centres) ---
+    front_cx = gx + fw * scale / 2
     if "top" in views:
-        front_y = cy + th * scale + sgap
+        front_cy = gy + th * scale + sgap + fh * scale / 2
     else:
-        front_y = cy + (avail_h - fh * scale) / 2
-    front_x = cx
+        front_cy = gy + fh * scale / 2
 
-    result["front_origin"] = (front_x, front_y)
+    result["front_origin"] = (front_cx, front_cy)
 
     if "top" in views:
-        result["top_origin"] = (front_x, cy)
+        result["top_origin"] = (front_cx, gy + th * scale / 2)
 
-    if "left" in views:
-        result["left_origin"] = (front_x + fw * scale + sgap, front_y)
+    # cursor tracks the right edge of the last placed column
+    col_right = gx + fw * scale
+
+    if has_left:
+        left_cx = col_right + sgap + lw * scale / 2
+        result["left_origin"] = (left_cx, front_cy)
+        col_right += sgap + lw * scale
 
     if sr:
-        lx = front_x + fw * scale + sgap
-        if "left" in views:
-            lx += lw * scale + sgap
-        result["section_right_origin"] = (lx, front_y)
+        sr_cx = col_right + sgap + sr[0] * scale / 2
+        result["section_right_origin"] = (sr_cx, front_cy)
 
     if dbr:
-        # Place detail view below the left/section area
-        dx = front_x + fw * scale + sgap
-        dy = cy
-        result["detail_br_origin"] = (dx, dy)
+        dbr_cx = gx + fw * scale + sgap + dbr[0] * scale / 2
+        dbr_cy = gy + dbr[1] * scale / 2
+        result["detail_br_origin"] = (dbr_cx, dbr_cy)
 
-    # Section below front (replaces or supplements top)
-    sb = views.get("section_below", None)
     if sb:
-        result["section_below_origin"] = (front_x, cy)
+        result["section_below_origin"] = (front_cx, gy + sb[1] * scale / 2)
 
     return result
 
@@ -977,19 +996,21 @@ def calc_three_view_layout(
       主视图(front) 在左上，俯视图(top) 在主视图正下方，
       左视图(left) 在主视图正右方。
 
+    所有 wh 参数均为 **1:1 完整尺寸**（非半尺寸）。
+
     Returns:
         dict with keys: front_origin, top_origin, left_origin, scale
-        每个 origin 是 (x, y) 表示视图左下角坐标。
+        每个 origin 是 (x, y) 表示视图**中心**坐标。
     """
     fw, fh = front_wh
     tw, th = top_wh
     lw, lh = left_wh
 
     # 可用绘图区域（去掉边距和标题栏）
-    draw_left = 25.0
-    draw_right = paper[0] - 10.0
-    draw_bottom = 10.0 + title_h
-    draw_top = paper[1] - 10.0
+    draw_left = MARGIN_BIND
+    draw_right = paper[0] - MARGIN_STD
+    draw_bottom = MARGIN_STD + title_h
+    draw_top = paper[1] - MARGIN_STD
 
     avail_w = draw_right - draw_left
     avail_h = draw_top - draw_bottom
@@ -999,8 +1020,8 @@ def calc_three_view_layout(
     total_h = fh + gap + th
 
     # 计算缩放因子使图形适合图纸
-    scale_w = (avail_w - 40) / total_w
-    scale_h = (avail_h - 30) / total_h
+    scale_w = (avail_w - SCALE_RESERVE_W) / total_w
+    scale_h = (avail_h - SCALE_RESERVE_H) / total_h
     scale = min(scale_w, scale_h, 1.0)
 
     # 缩放后的尺寸
@@ -1009,23 +1030,23 @@ def calc_three_view_layout(
     slw, slh = lw * scale, lh * scale
     sgap = gap * scale
 
-    # 居中计算
+    # 居中计算 — origin 返回视图中心坐标
     total_sw = sfw + sgap + slw
     total_sh = sfh + sgap + sth
 
     cx = draw_left + (avail_w - total_sw) / 2
     cy = draw_bottom + (avail_h - total_sh) / 2
 
-    # 主视图左下角
-    front_x = cx
-    front_y = cy + sth + sgap
+    # 主视图中心
+    front_x = cx + sfw / 2
+    front_y = cy + sth + sgap + sfh / 2
 
-    # 俯视图左下角（在主视图正下方，X对齐）
-    top_x = cx
-    top_y = cy
+    # 俯视图中心（在主视图正下方，X对齐）
+    top_x = front_x
+    top_y = cy + sth / 2
 
-    # 左视图左下角（在主视图正右方，Y底部对齐 = "高平齐"）
-    left_x = cx + sfw + sgap
+    # 左视图中心（在主视图正右方，Y中心对齐）
+    left_x = cx + sfw + sgap + slw / 2
     left_y = front_y
 
     return {

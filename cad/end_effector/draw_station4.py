@@ -30,6 +30,8 @@ from draw_three_view import ThreeViewSheet
 def uhf_bracket_front_view(msp, ox, oy, scale):
     """Front view: L-bracket front face (top plate visible, sensor bore hidden)."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S4_BRACKET_H + 25) / 2 * s
     bw = S4_BRACKET_W
     bh = S4_BRACKET_H
     bd = S4_BRACKET_D
@@ -143,6 +145,8 @@ def uhf_bracket_top_view(msp, ox, oy, scale):
 def uhf_bracket_left_view(msp, ox, oy, scale):
     """Left view: L-shaped cross section 40×25."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S4_BRACKET_H + 25) / 2 * s
     bd = S4_BRACKET_D
     bh = S4_BRACKET_H
     bt = S4_BRACKET_THICK
@@ -201,6 +205,8 @@ def uhf_bracket_auxiliary_c(msp, ox, oy, scale):
     Shows sensor bore (visible) and LEMO bore from the fold-inner perspective.
     """
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S4_BRACKET_H - S4_BRACKET_THICK + 20) / 2 * s
     bd = S4_BRACKET_D
     bh = S4_BRACKET_H
     bt = S4_BRACKET_THICK

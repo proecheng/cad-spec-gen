@@ -305,6 +305,8 @@ def flange_top_view(msp, ox, oy, scale):
 def flange_left_view(msp, ox, oy, scale):
     """Left view: side profile showing arm cross-section."""
     s = scale
+    # centre → bottom-left origin
+    ox = ox - (FLANGE_TOTAL_THICK + 15) / 2 * s
     al_t = FLANGE_AL_THICK
     total_t = FLANGE_TOTAL_THICK
     r_outer = FLANGE_R
@@ -377,6 +379,8 @@ def flange_detail_oring(msp, ox, oy, scale):
     Al flange body at the PEEK mating face.
     """
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (ORING_GROOVE_DEPTH * 5 + 20) / 2 * s
     groove_w = ORING_GROOVE_WIDTH
     groove_d = ORING_GROOVE_DEPTH
     al_t = FLANGE_AL_THICK

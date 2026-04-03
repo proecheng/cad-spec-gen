@@ -118,6 +118,38 @@ GB/T 国标要求：
 - 螺纹标注（如有螺纹孔）
 - 材料名用中文国标格式（"铝合金" 非 "Al"）
 
+#### Drawing function origin convention (mandatory)
+
+Every drawing function in `draw_*.py` has the signature `func(msp, ox, oy, scale)` where **(ox, oy) is the view centre**.
+Layout calculators `calc_multi_view_layout` / `calc_three_view_layout` return the **centre** of each view's bbox.
+
+**Centre-centre convention is mandatory**:
+
+```python
+def my_front_view(msp, ox, oy, scale):
+    """ox, oy = view centre."""
+    s = scale
+    hw = PART_W / 2 * s   # half-width
+    hh = PART_H / 2 * s   # half-height
+    # outline expands symmetrically from (ox, oy)
+    msp.add_lwpolyline([
+        (ox - hw, oy - hh), (ox + hw, oy - hh),
+        (ox + hw, oy + hh), (ox - hw, oy + hh), (ox - hw, oy - hh)
+    ], dxfattribs={"layer": "OUTLINE"})
+```
+
+Forbidden patterns (cause views to exceed sheet border):
+- ❌ `oy` to `oy + ht` (bottom-Y)
+- ❌ `ox` to `ox + w*s` (left-X)
+- ❌ passing half-dimensions as bbox
+
+**bbox must use full dimensions** (width × height), not half:
+
+```python
+sheet.draw_front(my_front_view, bbox=(PART_W, PART_H))      # ✅ full size
+sheet.draw_front(my_front_view, bbox=(PART_W/2, PART_H/2))  # ❌ half size
+```
+
 ### Phase 5: 渲染预览 → DXF→PNG
 
 **工具**: `cad/<subsystem>/render_dxf.py`

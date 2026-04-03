@@ -27,6 +27,8 @@ _NUT_TOTAL_L = NUT_FLANGE_THICK + NUT_BODY_L   # 25mm
 def front_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
     """主视图：轴向截面"""
     s = scale
+    # Convert centre origin to bottom-left for legacy geometry code
+    ox = ox - _NUT_TOTAL_L / 2 * s
     r_f = NUT_FLANGE_D / 2 * s    # 法兰大径 r=16
     r_b = NUT_BODY_D / 2 * s     # 体径 r=11
     r_minor = 6.5 * s             # 内螺纹大径 Tr16 → r=8, 用大径虚线

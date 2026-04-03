@@ -33,6 +33,8 @@ from draw_three_view import ThreeViewSheet
 def applicator_front_view(msp, ox, oy, scale):
     """Front view: body 60×55 outline, hidden internal features, scraper."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S1_BODY_H + S1_SCRAPER_H + 25) / 2 * s
     w, h, wall = S1_BODY_W, S1_BODY_H, S1_WALL_THICK
     hw = w / 2
 
@@ -125,6 +127,8 @@ def applicator_section_aa(msp, ox, oy, scale):
     pump cavity depth, NTC bore, and hatched solid material.
     """
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (S1_BODY_H + S1_SCRAPER_H + 25) / 2 * s
     d, h, wall = S1_BODY_D, S1_BODY_H, S1_WALL_THICK
     hd = d / 2
 

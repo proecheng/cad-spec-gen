@@ -74,6 +74,8 @@ def peek_front_view(msp, ox, oy, scale):
 def peek_top_view(msp, ox, oy, scale):
     """Top view (section): L-shaped cross-section showing step insert."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (PEEK_THICK * 2 + PEEK_STEP_HEIGHT * 2 + 30) / 2 * s
     r_outer = PEEK_OD / 2
     r_inner = PEEK_ID / 2
     step_h = PEEK_STEP_HEIGHT

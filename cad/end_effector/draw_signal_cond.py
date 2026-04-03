@@ -50,6 +50,8 @@ CLAMP_SLIT = 2.0        # slit width
 def sig_shell_front_view(msp, ox, oy, scale):
     """Front view: 140×55 rectangle with heat sink fins on top."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (SHELL_H + FIN_H + 20) / 2 * s
     w = SHELL_W
     h = SHELL_H
     hw = w / 2
@@ -135,6 +137,8 @@ def sig_shell_section_aa(msp, ox, oy, scale):
     """Section A-A: longitudinal cut through shell center, showing
     inner cavity, wall thickness, fin roots, and connector bores."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (SHELL_H + FIN_H + 20) / 2 * s
     d, h, wall = SHELL_D, SHELL_H, SHELL_WALL
     hd = d / 2
     fin_h = FIN_H
@@ -264,6 +268,8 @@ def sig_shell_top_view(msp, ox, oy, scale):
 def sig_shell_left_view(msp, ox, oy, scale):
     """Left view: 100×55 side with fin cross-section."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (SHELL_H + FIN_H + 20) / 2 * s
     d = SHELL_D
     h = SHELL_H
     hd = d / 2
@@ -335,6 +341,9 @@ def draw_sig_shell_sheet(output_dir: str) -> str:
 def sig_bracket_front_view(msp, ox, oy, scale):
     """Front view: L-bracket + pipe clamp outline."""
     s = scale
+    # centre → bottom-left origin
+    total_h = BRKT_VERT_H + BRKT_THICK + CLAMP_OD + 10
+    oy = oy - (total_h + 20) / 2 * s
     bw = BRKT_BASE_W
     vh = BRKT_VERT_H
     bt = BRKT_THICK
@@ -437,6 +446,8 @@ def sig_bracket_top_view(msp, ox, oy, scale):
 def sig_bracket_left_view(msp, ox, oy, scale):
     """Left view: L-profile + clamp cross-section."""
     s = scale
+    # centre → bottom-left origin
+    oy = oy - (BRKT_VERT_H + BRKT_THICK + 20) / 2 * s
     bd = BRKT_BASE_D
     vh = BRKT_VERT_H
     bt = BRKT_THICK
