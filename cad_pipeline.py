@@ -81,6 +81,36 @@ def _deploy_tool_modules(sub_dir: str):
         log.info("  Deployed: %s → %s", fname, os.path.basename(sub_dir))
 
 
+def _resolve_camera_coords(rc):
+    """Ensure all camera entries in rc have location/target fields.
+
+    For spherical entries (azimuth_deg/elevation_deg/distance_factor),
+    computes cartesian location/target using standard spherical-to-cartesian
+    conversion. Original spherical fields are preserved for consumers that
+    prefer them (e.g. enhance_prompt.py reads azimuth_deg directly).
+
+    This function is the single resolve point — downstream consumers can
+    safely call cam.get("location") without checking coordinate format.
+
+    Math matches render_config.py camera_to_blender() — pure spherical-to-
+    cartesian, no subsystem-specific logic.
+    """
+    import math as _m
+    br = rc.get("subsystem", {}).get("bounding_radius_mm", 300)
+    for cam in rc.get("camera", {}).values():
+        if "azimuth_deg" in cam and "location" not in cam:
+            az = _m.radians(cam["azimuth_deg"])
+            el = _m.radians(cam.get("elevation_deg", 0))
+            dist = br * cam.get("distance_factor", 2.5)
+            tgt = cam.get("target", [0, 0, br * 0.33])
+            cam["location"] = [
+                dist * _m.cos(el) * _m.cos(az) + tgt[0],
+                dist * _m.cos(el) * _m.sin(az) + tgt[1],
+                dist * _m.sin(el) + tgt[2],
+            ]
+            cam["target"] = list(tgt)
+
+
 def _load_pipeline_config():
     """Load pipeline_config.json (render/timestamp/archive settings)."""
     if os.path.isfile(PIPELINE_CONFIG_PATH):
@@ -938,6 +968,7 @@ def cmd_enhance(args):
     if rc_path and os.path.isfile(rc_path):
         with open(rc_path, encoding="utf-8") as f:
             rc = json.load(f)
+        _resolve_camera_coords(rc)
 
     # P2: Auto-enrich rc with generated prompt data from params.py (in-memory only)
     if sub_dir and os.path.isfile(os.path.join(sub_dir, "params.py")):

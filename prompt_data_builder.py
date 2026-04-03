@@ -748,17 +748,12 @@ def _generate_radial_prompt_data(p, rc):
     cameras = rc.get("camera", {})
 
     # Generate per-view assembly descriptions
+    # NOTE: cam["location"] is guaranteed by cad_pipeline.py _resolve_camera_coords()
+    # which resolves spherical → cartesian before passing rc to this function.
     assembly_desc = {}
-    br = rc.get("subsystem", {}).get("bounding_radius_mm", 300)
     for vk in sorted(cameras.keys()):
         cam = cameras[vk]
-        # Resolve spherical → cartesian if needed, so cam_loc is always available
-        if "azimuth_deg" in cam and "location" not in cam:
-            from render_config import camera_to_blender
-            resolved = camera_to_blender(cam, br)
-            cam_loc = resolved.get("location")
-        else:
-            cam_loc = cam.get("location")
+        cam_loc = cam.get("location")
         view_type = cam.get("type", "standard")
         assembly_desc[vk] = generate_assembly_description(parts, cam_loc, view_type, p)
 
