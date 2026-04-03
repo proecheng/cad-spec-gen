@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Build All — One-click STEP + DXF generation for the end effector.
+Build All — One-click STEP + DXF generation for 末端执行机构.
+
+Auto-generated scaffold by codegen/gen_build.py
+Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
+Generated: 2026-04-03 16:18
 
 Usage:
     python cad/end_effector/build_all.py
     python cad/end_effector/build_all.py --render
     python cad/end_effector/build_all.py --dry-run
-
-Output:
-    cad/output/EE-001_flange_al.step      (+ 7 more STEP files)
-    cad/output/EE-001-01_flange.dxf       (+ 10 more DXF three-view sheets)
+    python cad/end_effector/build_all.py --render --timestamp
 """
 
 import logging
@@ -19,7 +20,6 @@ import sys
 import time
 import traceback
 
-# Ensure imports work from any CWD
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cadquery as cq
@@ -35,33 +35,43 @@ OUTPUT_DIR = os.environ.get(
 # ── Build step definitions (declarative) ─────────────────────────────────────
 
 _STEP_BUILDS = [
-    ("flange",       "flange",              "make_flange_al",     "EE-001_flange_al.step"),
-    ("peek ring",    "flange",              "make_peek_ring",     "EE-001_flange_peek.step"),
-    ("station 1",    "station1_applicator", "make_applicator",    "EE-002_station1_applicator.step"),
-    ("station 2",    "station2_ae",         "make_ae_module",     "EE-003_station2_ae.step"),
-    ("station 3",    "station3_cleaner",    "make_cleaner",       "EE-004_station3_cleaner.step"),
-    ("station 4",    "station4_uhf",        "make_uhf_module",    "EE-005_station4_uhf.step"),
-    ("drive",        "drive_assembly",      "make_drive_assembly","EE-001_drive.step"),
-    ("signal cond",  "signal_conditioning", "make_sig_cond_assembly", "EE-006_signal_conditioning.step"),
 ]
 
 _DXF_BUILDS = [
-    ("flange",         "draw_flange",      "draw_flange_sheet"),
-    ("peek ring",      "draw_peek_ring",   "draw_peek_ring_sheet"),
-    ("adapter",        "draw_drive",       "draw_adapter_sheet"),
-    ("applicator",     "draw_station1",    "draw_applicator_sheet"),
-    ("spring limiter", "draw_station2_ae", "draw_spring_limiter_sheet"),
-    ("gimbal",         "draw_station2_ae", "draw_gimbal_sheet"),
-    ("cleaner body",   "draw_station3",    "draw_cleaner_body_sheet"),
-    ("flap",           "draw_station3",    "draw_flap_sheet"),
-    ("uhf bracket",    "draw_station4",    "draw_uhf_bracket_sheet"),
-    ("sig shell",      "draw_signal_cond", "draw_sig_shell_sheet"),
-    ("sig bracket",    "draw_signal_cond", "draw_sig_bracket_sheet"),
+    ("法兰本体", "ee_001_01", "draw_ee_001_01_sheet"),
+    ("PEEK绝缘段", "ee_001_02", "draw_ee_001_02_sheet"),
+    ("ISO 9409适配板", "ee_001_08", "draw_ee_001_08_sheet"),
+    ("涂抹模块壳体", "ee_002_01", "draw_ee_002_01_sheet"),
+    ("弹簧限力机构总成", "ee_003_03", "draw_ee_003_03_sheet"),
+    ("柔性关节", "ee_003_04", "draw_ee_003_04_sheet"),
+    ("清洁模块壳体", "ee_004_01", "draw_ee_004_01_sheet"),
+    ("UHF安装支架", "ee_005_02", "draw_ee_005_02_sheet"),
+    ("壳体", "ee_006_01", "draw_ee_006_01_sheet"),
+    ("安装支架", "ee_006_03", "draw_ee_006_03_sheet"),
+]
+
+_STD_STEP_BUILDS = [
+    ("[标准件] O型圈", "std_ee_001_03", "make_std_ee_001_03", "GIS-EE-001-03_std.step"),
+    ("[标准件] 碟形弹簧垫圈", "std_ee_001_04", "make_std_ee_001_04", "GIS-EE-001-04_std.step"),
+    ("[标准件] 伺服电机", "std_ee_001_05", "make_std_ee_001_05", "GIS-EE-001-05_std.step"),
+    ("[标准件] 行星减速器", "std_ee_001_06", "make_std_ee_001_06", "GIS-EE-001-06_std.step"),
+    ("[标准件] 弹簧销组件", "std_ee_001_07", "make_std_ee_001_07", "GIS-EE-001-07_std.step"),
+    ("[标准件] 储罐", "std_ee_002_02", "make_std_ee_002_02", "GIS-EE-002-02_std.step"),
+    ("[标准件] 齿轮泵", "std_ee_002_03", "make_std_ee_002_03", "GIS-EE-002-03_std.step"),
+    ("[标准件] LEMO插头", "std_ee_002_05", "make_std_ee_002_05", "GIS-EE-002-05_std.step"),
+    ("[标准件] AE传感器", "std_ee_003_01", "make_std_ee_003_01", "GIS-EE-003-01_std.step"),
+    ("[标准件] 六轴力传感器", "std_ee_003_02", "make_std_ee_003_02", "GIS-EE-003-02_std.step"),
+    ("[标准件] 微型电机", "std_ee_004_03", "make_std_ee_004_03", "GIS-EE-004-03_std.step"),
+    ("[标准件] 齿轮减速组", "std_ee_004_04", "make_std_ee_004_04", "GIS-EE-004-04_std.step"),
+    ("[标准件] 恒力弹簧", "std_ee_004_06", "make_std_ee_004_06", "GIS-EE-004-06_std.step"),
+    ("[标准件] 溶剂储罐", "std_ee_004_08", "make_std_ee_004_08", "GIS-EE-004-08_std.step"),
+    ("[标准件] 微量泵", "std_ee_004_09", "make_std_ee_004_09", "GIS-EE-004-09_std.step"),
+    ("[标准件] I300-UHF-GT传感器", "std_ee_005_01", "make_std_ee_005_01", "GIS-EE-005-01_std.step"),
 ]
 
 
 def _build_step(label, module_name, func_name, filename):
-    """Build a single STEP file. Returns path on success, None on failure."""
+    """Build a single STEP file."""
     log.info("Building %s...", label)
     try:
         mod = __import__(module_name)
@@ -76,186 +86,113 @@ def _build_step(label, module_name, func_name, filename):
 
 
 def _build_dxf(label, module_name, func_name):
-    """Build a single DXF sheet. Returns path on success, None on failure."""
+    """Build a single DXF sheet."""
     log.info("Drawing %s...", label)
     try:
         mod = __import__(module_name)
         func = getattr(mod, func_name)
-        return func(OUTPUT_DIR)
+        path = func(OUTPUT_DIR)
+        return path
     except Exception:
         log.error("FAILED drawing %s:\n%s", label, traceback.format_exc())
         return None
 
 
-def build_all(dry_run=False):
+def build_all(render: bool = False, dry_run: bool = False, timestamp: bool = False):
+    """Run the full build."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%H:%M:%S")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    t0 = time.time()
-    results = []
-    failures = []
 
     if dry_run:
         log.info("DRY RUN — validating imports only")
+        for label, mod_name, func_name, _ in _STEP_BUILDS:
+            mod = __import__(mod_name)
+            assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
+            log.info("  OK: %s.%s", mod_name, func_name)
+        for label, mod_name, func_name, _ in _STD_STEP_BUILDS:
+            mod = __import__(mod_name)
+            assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
+            log.info("  OK: %s.%s (std)", mod_name, func_name)
+        log.info("All %d STEP + %d STD + %d DXF targets validated",
+                 len(_STEP_BUILDS), len(_STD_STEP_BUILDS), len(_DXF_BUILDS))
+        return
 
-    # ═══ 3D STEP models ═══
-    for label, mod, func, fname in _STEP_BUILDS:
-        if dry_run:
-            try:
-                __import__(mod)
-                log.info("  OK: %s.%s importable", mod, func)
-            except ImportError as e:
-                log.error("  FAIL: cannot import %s — %s", mod, e)
-                failures.append(label)
-            continue
+    # Build STEP files
+    step_results = []
+    for args in _STEP_BUILDS:
+        r = _build_step(*args)
+        step_results.append(r)
 
-        p = _build_step(label, mod, func, fname)
-        if p:
-            results.append(p)
-        else:
-            failures.append(label)
+    # Build standard part STEP files
+    std_results = []
+    for args in _STD_STEP_BUILDS:
+        r = _build_step(*args)
+        std_results.append(r)
 
-    # Full assembly
-    if not dry_run:
-        log.info("Building full assembly...")
-        try:
-            from assembly import export_assembly
-            p = export_assembly(OUTPUT_DIR)
-            results.append(p)
-        except Exception:
-            log.error("FAILED building assembly:\n%s", traceback.format_exc())
-            failures.append("assembly")
+    # Build DXF files
+    dxf_results = []
+    for args in _DXF_BUILDS:
+        r = _build_dxf(*args)
+        dxf_results.append(r)
 
-    # ═══ GB/T 三视图 DXF engineering drawings ═══
-    log.info("Generating GB/T three-view DXF drawings...")
-    dxf_files = []
-    for label, mod, func in _DXF_BUILDS:
-        if dry_run:
-            try:
-                __import__(mod)
-                log.info("  OK: %s.%s importable", mod, func)
-            except ImportError as e:
-                log.error("  FAIL: cannot import %s — %s", mod, e)
-                failures.append(f"dxf:{label}")
-            continue
+    # Assembly
+    from assembly import export_assembly
+    export_assembly(OUTPUT_DIR)
 
-        p = _build_dxf(label, mod, func)
-        if p:
-            dxf_files.append(p)
-        else:
-            failures.append(f"dxf:{label}")
-
-    if dry_run:
-        if failures:
-            log.warning("Dry run found %d import errors", len(failures))
-            return 1
-        log.info("Dry run OK — all modules importable")
-        return 0
-
-    elapsed = time.time() - t0
+    # Summary
+    ok_step = sum(1 for r in step_results if r)
+    ok_std = sum(1 for r in std_results if r)
+    ok_dxf = sum(1 for r in dxf_results if r)
     log.info("=" * 60)
-    log.info("  Build complete in %.1fs", elapsed)
-    log.info("  %d STEP + %d DXF generated, %d failures",
-             len(results), len(dxf_files), len(failures))
-    for r in results:
-        size_kb = os.path.getsize(r) / 1024
-        log.info("    %-40s %6.1f KB", os.path.basename(r), size_kb)
-    for d in dxf_files:
-        size_kb = os.path.getsize(d) / 1024
-        log.info("    %-40s %6.1f KB", os.path.basename(d), size_kb)
-    if failures:
-        log.error("  FAILED steps: %s", ", ".join(failures))
+    log.info("  STEP: %d/%d OK", ok_step, len(_STEP_BUILDS))
+    log.info("  STD:  %d/%d OK", ok_std, len(_STD_STEP_BUILDS))
+    log.info("  DXF:  %d/%d OK", ok_dxf, len(_DXF_BUILDS))
+    for r in step_results + std_results + dxf_results:
+        if r:
+            size_kb = os.path.getsize(r) / 1024
+            log.info("    %-45s %7.1f KB", os.path.basename(r), size_kb)
     log.info("=" * 60)
 
-    return 1 if failures else 0
+    # Render
+    if render:
+        _run_render(timestamp)
 
 
-def _find_blender():
-    """Locate Blender executable via env var or well-known paths."""
-    candidates = [
-        os.environ.get("BLENDER_PATH", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "..", "tools", "blender", "blender.exe"),
-        "D:/cad-skill/tools/blender/blender.exe",
-    ]
-    for c in candidates:
-        c = os.path.normpath(c) if c else ""
-        if c and os.path.isfile(c):
-            return c
-    return None
+def _run_render(timestamp: bool = False):
+    """Invoke Blender rendering."""
+    import json
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "pipeline_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, encoding="utf-8") as f:
+            pcfg = json.load(f)
+        blender = pcfg.get("blender_path", "blender")
+    else:
+        blender = "blender"
 
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    render_config = os.path.join(script_dir, "render_config.json")
 
-def run_blender(script, extra_args, blender_path):
-    """Run a Blender script as subprocess with error capture."""
-    cmd = [blender_path, "-b", "-P", script, "--"] + extra_args
-    log.info("  Running: %s", " ".join(os.path.basename(c) for c in cmd[:5]))
-    try:
-        result = subprocess.run(
-            cmd, check=True, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=600,
-        )
-        # Print stdout (Blender output) at debug level
-        if result.stdout:
-            for line in result.stdout.strip().split("\n")[-5:]:
-                log.debug("  blender: %s", line)
-        return True
-    except subprocess.CalledProcessError as e:
-        log.error("Blender script failed (exit code %d): %s", e.returncode, script)
-        if e.stderr:
-            for line in e.stderr.strip().split("\n")[-10:]:
-                log.error("  stderr: %s", line)
-        return False
-    except subprocess.TimeoutExpired:
-        log.error("Blender script timed out (600s): %s", script)
-        return False
+    ts_args = ["--timestamp"] if timestamp else []
+
+    # Standard views
+    cmd = [blender, "-b", "-P", os.path.join(script_dir, "render_3d.py"),
+           "--", "--config", render_config, "--all"] + ts_args
+    log.info("Rendering standard views...")
+    subprocess.run(cmd, check=True)
+
+    # Exploded view
+    cmd = [blender, "-b", "-P", os.path.join(script_dir, "render_exploded.py"),
+           "--", "--config", render_config] + ts_args
+    log.info("Rendering exploded view...")
+    subprocess.run(cmd, check=True)
 
 
 if __name__ == "__main__":
-    # ── Logging setup ──
-    level = logging.DEBUG if "--verbose" in sys.argv else logging.INFO
-    if "--quiet" in sys.argv:
-        level = logging.WARNING
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
-    dry_run = "--dry-run" in sys.argv
-    exit_code = build_all(dry_run=dry_run)
-
-    # ═══ Optional: Blender Cycles rendering ═══
-    if "--render" in sys.argv and not dry_run:
-        blender = _find_blender()
-        if not blender:
-            log.error("Blender not found. Set BLENDER_PATH or install to tools/blender/")
-            sys.exit(1)
-        log.info("Blender: %s", blender)
-
-        SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-        render_script = os.path.join(SCRIPT_DIR, "render_3d.py")
-        exploded_script = os.path.join(SCRIPT_DIR, "render_exploded.py")
-        config_path = os.path.join(SCRIPT_DIR, "render_config.json")
-
-        log.info("=" * 60)
-        log.info("  Blender Cycles rendering...")
-        log.info("=" * 60)
-
-        # Build render args — use config if it exists
-        render_args = ["--all"]
-        explode_args = []
-        if os.path.isfile(config_path):
-            render_args = ["--config", config_path, "--all"]
-            explode_args = ["--config", config_path]
-            log.info("  Using config: %s", config_path)
-
-        # Standard views (V1, V2, V3, V5)
-        ok1 = run_blender(render_script, render_args, blender)
-        # Exploded view (V4)
-        ok2 = run_blender(exploded_script, explode_args, blender)
-
-        if ok1 and ok2:
-            log.info("All renders complete. Check cad/output/renders/")
-        else:
-            log.error("Some renders failed. Check logs above.")
-            exit_code = 1
-
-    sys.exit(exit_code)
+    import argparse
+    parser = argparse.ArgumentParser(description="Build all STEP + DXF for 末端执行机构")
+    parser.add_argument("--render", action="store_true", help="Also run Blender rendering")
+    parser.add_argument("--dry-run", action="store_true", help="Validate imports only")
+    parser.add_argument("--timestamp", action="store_true", help="Add timestamp to output filenames")
+    args = parser.parse_args()
+    build_all(render=args.render, dry_run=args.dry_run, timestamp=args.timestamp)
