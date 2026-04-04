@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "2.2.3",
+  "version": "2.2.4",
   "description": "CAD pipeline skill: design doc → design review → structured spec → code generation → 2D drawings → 3D renders → photorealistic images",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
