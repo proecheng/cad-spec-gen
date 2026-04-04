@@ -182,6 +182,8 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 - **Auto-defaults**: standard bolt torques (8.8 grade), surface Ra by material type
 - **Derived calculations**: total cost, part count, BOM completeness %
 - **Configurable**: subsystem mapping via JSON config, no hardcoded paths
+- **Generic part numbers**: supports any prefix format (GIS-EE-xxx, SLP-xxx, ACME-xxx) — not limited to GIS
+- **Flat BOM support**: subsystems without sub-assembly hierarchy are handled correctly
 
 ### Interactive Help (16 Intents)
 - **Natural language** — no need to memorize CLI syntax, just ask in plain language
@@ -212,11 +214,11 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 
 ## Quick Start
 
-> **Example: End Effector subsystem** — adapt paths for your own subsystem.
+> **Two reference subsystems included**: End Effector (GIS-EE, radial layout, 24 parts) and Lifting Platform (SLP, vertical linear actuator, 32 parts). Adapt paths for your own subsystem.
 
 ```bash
 # Scaffold a new subsystem (generates render_config.json, params.py, design doc template)
-python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix GIS-RA
+python cad_pipeline.py init --subsystem robot_arm --name-cn 机器人臂 --prefix RA
 # → output/robot_arm/render_config.json, output/robot_arm/params.py, docs/design/XX-robot_arm.md
 
 # One-click full pipeline (all 6 phases)
@@ -382,14 +384,15 @@ python cad_spec_gen.py --all --config config/gisbot.json --doc-dir docs/design
 ### BOM parser (standalone)
 
 ```bash
-python bom_parser.py examples/04-末端执行机构设计.md          # tree view
+python bom_parser.py examples/04-末端执行机构设计.md          # tree view (GIS-EE format)
 python bom_parser.py examples/04-末端执行机构设计.md --json   # JSON output
 python bom_parser.py examples/04-末端执行机构设计.md --summary # one-line summary
+# Supports any BOM table header: 料号/图号/编号 + 名称 + 数量 (+ optional 材质/类型/备注)
 ```
 
 ## Configuration
 
-Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem example):
+Create a JSON config file (see `config/gisbot.json` for a full 19-subsystem example):
 
 ```json
 {
@@ -401,6 +404,12 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
       "prefix": "GIS-EE",
       "cad_dir": "end_effector",
       "aliases": ["ee", "end_effector"]
+    },
+    "19": {
+      "name": "Lifting Platform",
+      "prefix": "SLP",
+      "cad_dir": "lifting_platform",
+      "aliases": ["升降", "lifting"]
     }
   }
 }
@@ -432,7 +441,8 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 ├── system_prompt.md                # Universal system prompt (any LLM)
 ├── skill_cad_help.md               # Skill knowledge (16 intents + actions)
 ├── cad_pipeline.py                 # Unified 6-phase pipeline orchestrator
-├── cad_paths.py                    # Path resolution (SKILL_ROOT / PROJECT_ROOT)
+├── cad_paths.py                    # Path resolution (SKILL_ROOT / PROJECT_ROOT / Blender / Gemini)
+├── render_config.py                # Render config engine (15 material presets + material bridging)
 ├── pipeline_config.json            # Persistent config (Blender path, render settings)
 ├── cad_spec_gen.py                 # Spec extraction (CLI entry point)
 ├── cad_spec_extractors.py          # 8 extraction functions + table parser
@@ -471,7 +481,10 @@ Create a JSON config file (see `config/gisbot.json` for a full 18-subsystem exam
 │   └── dify/
 │       └── README.md              # Dify / Coze setup guide
 ├── config/
-│   └── gisbot.json                # Example: 18-subsystem config
+│   └── gisbot.json                # Example: 19-subsystem config
+├── cad/
+│   ├── end_effector/              # Reference: radial 4-station layout (GIS-EE, 24 parts)
+│   └── lifting_platform/         # Reference: vertical linear actuator (SLP, 32 parts)
 ├── examples/
 │   └── 04-末端执行机构设计.md       # Example design document
 └── docs/
