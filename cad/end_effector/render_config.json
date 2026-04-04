@@ -436,6 +436,12 @@
       "name_en": "Signal Conditioning",
       "bom_id": "GIS-EE-006",
       "material": "sig_cond"
+    },
+    "adapter": {
+      "name_cn": "ISO 9409适配板",
+      "name_en": "",
+      "bom_id": "GIS-EE-001-08",
+      "material": "adapter"
     }
   },
   "standard_parts": [

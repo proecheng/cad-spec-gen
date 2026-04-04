@@ -494,6 +494,56 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
             }
         changed = True
 
+    # Fill components referenced by labels but missing from components section
+    # (e.g. "adapter" is a part-level item used in labels but not an assembly)
+    labels = rc.get("labels", {})
+    all_parts = {p["part_no"]: p for p in parts if not p["is_assembly"]}
+    for view_key, label_list in labels.items():
+        if isinstance(label_list, str) or view_key.startswith("_"):
+            continue
+        for label in label_list:
+            comp_ref = label.get("component", "")
+            if comp_ref and comp_ref not in components:
+                # Try to find a BOM part matching this component name
+                # by checking if comp_ref matches a materials key (which
+                # was designed to match this component)
+                mat_key = comp_ref if comp_ref in materials else None
+                # Find BOM part by name keyword
+                matched_part = None
+                for pno, part in all_parts.items():
+                    name_lower = part["name_cn"].lower()
+                    if comp_ref in name_lower or comp_ref.replace("_", "") in name_lower:
+                        matched_part = part
+                        break
+                if not matched_part:
+                    # Try English-like matching (adapter → 适配)
+                    _LABEL_CN_MAP = {"adapter": "适配", "motor": "电机",
+                                     "reducer": "减速", "drive": "驱动"}
+                    cn_keyword = _LABEL_CN_MAP.get(comp_ref, "")
+                    if cn_keyword:
+                        for pno, part in all_parts.items():
+                            if cn_keyword in part["name_cn"]:
+                                matched_part = part
+                                break
+                if matched_part:
+                    components[comp_ref] = {
+                        "name_cn": matched_part["name_cn"],
+                        "name_en": "",
+                        "bom_id": matched_part["part_no"],
+                        "material": mat_key or comp_ref,
+                    }
+                    # Ensure materials entry exists
+                    if comp_ref not in materials and mat_key is None:
+                        mat_text = matched_part.get("material", "")
+                        preset = "brushed_aluminum"
+                        for keyword, p_name in _MAT_PRESET.items():
+                            if keyword in mat_text:
+                                preset = p_name
+                                break
+                        materials[comp_ref] = {"preset": preset,
+                                               "label": matched_part["name_cn"]}
+                    changed = True
+
     if changed:
         with open(rc_path, "w", encoding="utf-8") as f:
             json.dump(rc, f, indent=2, ensure_ascii=False)
