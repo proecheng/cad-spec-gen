@@ -74,14 +74,23 @@ def parse_bom_tree(spec_path: str) -> list:
 
             part_no = cells[0].replace("**", "").strip()
             name_cn = cells[1].replace("**", "").strip() if len(cells) > 1 else ""
-            # Determine nesting level from part number segments
-            # GIS-EE-001 = assembly (3 segments), GIS-EE-001-01 = leaf part (4 segments)
-            segments = part_no.split("-")
-            is_assembly = len(segments) == 3  # e.g., GIS-EE-001
-
             material = cells[2] if len(cells) > 2 else ""
             quantity = cells[3] if len(cells) > 3 else "1"
             make_buy = cells[4] if len(cells) > 4 else ""
+
+            # Determine assembly vs leaf part:
+            # 1. Explicit "总成" in make_buy → assembly
+            # 2. GIS-style: 3 segments (GIS-EE-001) → assembly,
+            #               4+ segments (GIS-EE-001-01) → leaf
+            # 3. Flat BOM (SLP-100, UNKNOWN): only "总成" rows are assemblies
+            if "总成" in make_buy:
+                is_assembly = True
+            else:
+                segments = part_no.split("-")
+                # For GIS-XX-NNN style: 3 segments = assembly
+                # For short prefixes (SLP-100): never assembly unless "总成"
+                is_assembly = (len(segments) == 3 and
+                               re.match(r"[A-Z]+-[A-Z]+", part_no) is not None)
 
             parts.append({
                 "part_no": part_no,
@@ -123,8 +132,8 @@ def _part_no_to_func_name(part_no: str, name_cn: str) -> str:
 
 def _part_no_to_step_filename(part_no: str) -> str:
     """Convert part number to STEP filename: EE-001_flange_al.step"""
-    # Strip GIS- prefix
-    suffix = re.sub(r"^GIS-", "", part_no)
+    from cad_spec_defaults import strip_part_prefix
+    suffix = strip_part_prefix(part_no)
     return f"{suffix}.step"
 
 
@@ -153,6 +162,8 @@ def generate_build_tables(parts: list) -> dict:
             # Module name must match gen_parts.py: GIS-EE-001-01 → ee_001_01
             from cad_spec_defaults import strip_part_prefix
             ee_mod = strip_part_prefix(pno).lower().replace("-", "_")
+            if ee_mod and ee_mod[0].isdigit():
+                ee_mod = "p" + ee_mod
             mod = ee_mod
             func = f"draw_{ee_mod}_sheet"
             label = re.sub(r"[（(].*$", "", name).strip()
@@ -162,11 +173,14 @@ def generate_build_tables(parts: list) -> dict:
                 "module": mod,
                 "func": func,
             })
-        elif "外购" in p.get("make_buy", ""):
+        elif "外购" in p.get("make_buy", "") or "标准" in p.get("make_buy", ""):
             # Purchased standard part → simplified STEP
             category = classify_part(name, p.get("material", ""))
             if category in _STD_PART_CATEGORIES:
-                suffix = re.sub(r"^GIS-", "", pno).lower().replace("-", "_")
+                from cad_spec_defaults import strip_part_prefix
+                suffix = strip_part_prefix(pno).lower().replace("-", "_")
+                if suffix and suffix[0].isdigit():
+                    suffix = "p" + suffix
                 mod = f"std_{suffix}"
                 func = f"make_std_{suffix}"
                 filename = f"{pno}_std.step"

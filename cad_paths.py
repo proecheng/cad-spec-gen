@@ -39,8 +39,20 @@ def get_render_dir(override=None, output_dir=None):
 
 def get_blender_path():
     """Locate Blender executable. Returns path or None."""
+    # Try pipeline_config.json first
+    config_blender = ""
+    config_path = os.path.join(SKILL_ROOT, "pipeline_config.json")
+    if os.path.isfile(config_path):
+        try:
+            import json
+            with open(config_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            config_blender = cfg.get("blender_path", "")
+        except Exception:
+            pass
     candidates = [
         os.environ.get("BLENDER_PATH", ""),
+        config_blender,
         os.path.join(SKILL_ROOT, "tools", "blender", "blender.exe"),
     ]
     for c in candidates:
@@ -71,6 +83,10 @@ def get_gemini_script():
     env = os.environ.get("GEMINI_GEN_PATH", "")
     if env and os.path.isfile(env):
         return env
+    # Search in SKILL_ROOT itself
+    local = os.path.join(SKILL_ROOT, "gemini_gen.py")
+    if os.path.isfile(local):
+        return local
     # Search relative to SKILL_ROOT (sibling directories)
     sibling = os.path.join(os.path.dirname(SKILL_ROOT), "imageProduce", "gemini_gen.py")
     if os.path.isfile(sibling):

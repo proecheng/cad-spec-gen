@@ -26,16 +26,21 @@ from pathlib import Path
 # Keyword-based classification for purchased/standard parts
 _PART_CATEGORY_RULES = [
     ("reducer",   ["减速器", "减速机", "减速组", "gearbox", "GP22", "GP32", "GP42", "行星"]),
-    ("motor",     ["电机", "motor", "ECX", "DC马达", "伺服", "servo"]),
+    ("motor",     ["电机", "motor", "ECX", "DC马达", "伺服", "servo", "步进", "NEMA", "stepper"]),
     ("spring",    ["弹簧", "spring", "DIN 2093", "碟簧", "弹性垫圈"]),
-    ("bearing",   ["轴承", "bearing", "MR1", "ZZ", "688", "608", "滚珠"]),
-    ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测"]),
+    ("bearing",   ["轴承", "bearing", "MR1", "ZZ", "688", "608", "滚珠", "LM10", "LM12",
+                   "LM16", "LM20", "LMU", "KFL", "KP0", "KP1", "UCP", "UCF", "法兰座"]),
+    ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测", "接近开关",
+                   "光电", "限位", "编码器", "encoder"]),
     ("pump",      ["泵", "pump", "齿轮泵"]),
-    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头"]),
-    ("seal",      ["O型圈", "O-ring", "FKM", "NBR"]),
+    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头",
+                   "联轴器", "coupler", "coupling", "L070", "L050"]),
+    ("seal",      ["O型圈", "O-ring", "FKM", "NBR", "缓冲垫", "PU垫"]),
     ("tank",      ["储液罐", "储罐", "tank", "容器"]),
-    ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴"]),
-    ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt", "定位销"]),
+    ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴",
+                   "同步带", "GT2", "皮带", "belt"]),
+    ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt", "定位销",
+                   "DIN912", "DIN7991", "DIN933", "挡圈", "钢丝螺套", "护罩"]),
 ]
 
 
@@ -96,7 +101,7 @@ def _detect_columns(header_cells: list) -> dict:
     mapping = {}
     for i, cell in enumerate(header_cells):
         cell_clean = cell.strip().lower()
-        if "料号" in cell_clean:
+        if "料号" in cell_clean or "图号" in cell_clean or "编号" in cell_clean:
             mapping["part_no"] = i
         elif "名称" in cell_clean:
             mapping["name"] = i
@@ -104,10 +109,12 @@ def _detect_columns(header_cells: list) -> dict:
             mapping["material"] = i
         elif "数量" in cell_clean:
             mapping["qty"] = i
-        elif "自制" in cell_clean or "外购" in cell_clean:
+        elif "自制" in cell_clean or "外购" in cell_clean or "类型" in cell_clean:
             mapping["make_buy"] = i
         elif "单价" in cell_clean or "价" in cell_clean:
             mapping["price"] = i
+        elif "备注" in cell_clean:
+            mapping["note"] = i
     return mapping
 
 
@@ -143,7 +150,7 @@ def parse_bom_from_markdown(filepath: str) -> dict:
                 encoding_rule = enc_m.group(0)
 
         # Detect table header
-        if "|" in line and "料号" in line and "名称" in line:
+        if "|" in line and ("料号" in line or "图号" in line or "编号" in line) and "名称" in line:
             cells = [c.strip() for c in line.split("|")]
             cells = [c for c in cells if c]  # remove empty from leading/trailing |
             col_map = _detect_columns(cells)
@@ -172,8 +179,8 @@ def parse_bom_from_markdown(filepath: str) -> dict:
                 if re.match(r"\|[\s\-:|]+\|", row):
                     i += 1
                     continue
-                # Only parse rows containing GIS- part numbers
-                if "GIS-" not in row:
+                # Only parse rows containing part numbers (GIS-*, SLP-*, or any XX-NNN pattern)
+                if not re.search(r"[A-Z]{2,}-[A-Z]?\d", row):
                     i += 1
                     continue
                 cells = [c.strip() for c in row.split("|")]
@@ -195,7 +202,7 @@ def parse_bom_from_markdown(filepath: str) -> dict:
 
                 # Determine level by segment count
                 segments = [s for s in part_no.split("-") if s]
-                is_assembly = (len(segments) <= 3 and "总成" in make_buy) or "**" in part_no_raw
+                is_assembly = (len(segments) <= 3 and ("总成" in make_buy or "装配" in make_buy)) or "**" in part_no_raw
 
                 if is_assembly:
                     current_assy = {
@@ -211,7 +218,7 @@ def parse_bom_from_markdown(filepath: str) -> dict:
                         "material": material,
                         "qty": qty,
                         "make_buy": make_buy,
-                        "part_category": classify_part(name, material) if "外购" in make_buy else "custom",
+                        "part_category": classify_part(name, material) if ("外购" in make_buy or "标准" in make_buy) else "custom",
                         "unit_price": parse_unit_price(price_str),
                         "total_price": parse_price(price_str),
                     }

@@ -162,8 +162,15 @@ _SKIP_CATEGORIES = {"fastener", "cable", "other"}
 
 
 def _safe_module_name(part_no: str) -> str:
-    """GIS-EE-001-05 → std_ee_001_05"""
-    suffix = re.sub(r"^GIS-", "", part_no).lower().replace("-", "_")
+    """Part number → std module name.
+
+    GIS-EE-001-05 → std_ee_001_05
+    SLP-C01       → std_c01
+    """
+    from cad_spec_defaults import strip_part_prefix
+    suffix = strip_part_prefix(part_no).lower().replace("-", "_")
+    if suffix and suffix[0].isdigit():
+        suffix = "p" + suffix
     return f"std_{suffix}"
 
 
@@ -182,7 +189,7 @@ def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffo
     for p in parts:
         if p["is_assembly"]:
             continue
-        if "外购" not in p.get("make_buy", ""):
+        if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
             continue
 
         category = classify_part(p["name_cn"], p["material"])

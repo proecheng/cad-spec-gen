@@ -35,6 +35,9 @@ def _safe_module_name(part_no: str, name_cn: str) -> str:
     """Generate a clean Python module/function name from part number."""
     # 通用前缀剥离: GIS-EE-001-01 → EE-001-01 → ee_001_01
     suffix = strip_part_prefix(part_no).lower().replace("-", "_")
+    # Python identifiers cannot start with a digit; prefix with 'p' if needed
+    if suffix and suffix[0].isdigit():
+        suffix = "p" + suffix
     return suffix
 
 

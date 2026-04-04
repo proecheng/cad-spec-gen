@@ -36,6 +36,8 @@ def _find_param(params, *keywords, prefer="max"):
     """
     matches = []
     for p in params:
+        if not isinstance(p, dict):
+            continue
         name = (p.get("name", "") + " " + p.get("cn_name", "")).upper()
         if all(kw.upper() in name for kw in keywords):
             try:
@@ -116,7 +118,7 @@ def review_mechanical(data):
         [{id, item, calc_value, allowable, margin_pct, verdict, suggestion}]
     """
     items = []
-    params = data.get("params", []) + data.get("derived", [])
+    params = [p for p in (data.get("params", []) + data.get("derived", [])) if isinstance(p, dict)]
     idx = 0
 
     # --- A1: 悬臂弯矩 ---
@@ -250,7 +252,7 @@ def review_assembly(data):
         [{id, item, detail, verdict, suggestion}]
     """
     items = []
-    params = data.get("params", []) + data.get("derived", [])
+    params = [p for p in (data.get("params", []) + data.get("derived", [])) if isinstance(p, dict)]
     tolerances = data.get("tolerances", {})
     idx = 0
 
@@ -342,6 +344,7 @@ def review_assembly(data):
     ]
     mount_face = min(mount_face_candidates) if mount_face_candidates else _find_param(params, "安装面", "尺寸")
     # Prefer flange_od/2 — _find_param("FLANGE","R") may match spring pin R=42mm
+    flange_od = _find_param(params, "FLANGE", "OD") or _find_param(params, "法兰", "外径") or _find_param(params, "FLANGE_OD")
     flange_r = (flange_od / 2.0 if flange_od else None) or _find_param(params, "FLANGE", "R", prefer="max")
     if arm_length and mount_face and flange_r and mount_r and arm_length < 200 and mount_face < 200:
         calc_r = flange_r + arm_length
@@ -569,7 +572,7 @@ def review_material(data):
                 })
 
     # --- C2: 温度评估 (if working temp specified) ---
-    params = data.get("params", []) + data.get("derived", [])
+    params = [p for p in (data.get("params", []) + data.get("derived", [])) if isinstance(p, dict)]
     work_temp = _find_param(params, "TEMP") or _find_param(params, "温度")
     if work_temp and material_map:
         for part_name, mat in material_map.items():
@@ -626,7 +629,7 @@ def review_completeness(data):
         })
 
     # Additional rules
-    params = data.get("params", []) + data.get("derived", [])
+    params = [p for p in (data.get("params", []) + data.get("derived", [])) if isinstance(p, dict)]
     idx = len(items)
 
     # D+1: Check if any param has empty unit — attempt to infer units
@@ -720,7 +723,7 @@ def review_completeness(data):
     # D+N: 尺寸公差不足
     tolerances = data.get("tolerances", {})
     dim_tols = tolerances.get("dim_tols", [])
-    custom_parts = [p for assy in (data.get("bom", {}).get("assemblies", []))
+    custom_parts = [p for assy in ((data.get("bom") or {}).get("assemblies", []))
                     for p in assy.get("parts", []) if "自制" in p.get("make_buy", "")]
     if custom_parts and len(dim_tols) < len(custom_parts) * 2:
         idx += 1

@@ -180,8 +180,8 @@ def _build_layer_axis_map(pose: dict) -> dict:
         part = layer.get("part", "")
         axis = layer.get("axis_dir", "")
         if part and axis:
-            # Extract the key identifier (e.g. "GIS-EE-002" from layer part name)
-            m = re.search(r"GIS-\w+-\d+", part)
+            # Extract the key identifier (e.g. "GIS-EE-002" or "SLP-100")
+            m = re.search(r"[A-Z]+-(?:[A-Z]+-)?[A-Z0-9]+(?:-\d+)?", part)
             if m:
                 axis_map[m.group(0)] = axis
             # Also store by part description keywords for fuzzy matching
@@ -276,7 +276,7 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
 
         # Skip rows with no useful offset
         if not offset_text or offset_text.strip() in ("—", "-", ""):
-            m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+            m_pno = re.search(r"([A-Z]+-(?:[A-Z]+-)?[A-Z0-9]+(?:-\d+)?)", part_text)
             if m_pno:
                 result.setdefault(m_pno.group(1), {
                     "z": None, "r": None, "theta": None,
@@ -307,7 +307,7 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         if m_theta:
             entry["theta"] = float(m_theta.group(1))
 
-        m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+        m_pno = re.search(r"([A-Z]+-(?:[A-Z]+-)?[A-Z0-9]+(?:-\d+)?)", part_text)
         if m_pno:
             result[m_pno.group(1)] = entry
         else:
@@ -408,12 +408,22 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
     result = {}
     assemblies = [p for p in parts if p["is_assembly"]]
     children_of = {}
+
+    # Detect flat BOM: assembly with part_no like "UNKNOWN" or no dash-hierarchy
+    # In flat BOM, all non-assembly parts belong to each assembly
+    non_assy_parts = [p for p in parts if not p["is_assembly"]]
     for assy in assemblies:
-        prefix = assy["part_no"]
-        children_of[prefix] = [
-            p for p in parts
-            if p["part_no"].startswith(prefix + "-") and not p["is_assembly"]
+        assy_pno = assy["part_no"]
+        # Try hierarchical match first (GIS-EE-001 → children GIS-EE-001-xx)
+        hier_children = [
+            p for p in non_assy_parts
+            if p["part_no"].startswith(assy_pno + "-")
         ]
+        if hier_children:
+            children_of[assy_pno] = hier_children
+        else:
+            # Flat BOM: all non-assembly parts are children of this assembly
+            children_of[assy_pno] = non_assy_parts
 
     for assy in assemblies:
         prefix = assy["part_no"]
@@ -498,11 +508,17 @@ def generate_assembly(spec_path: str) -> str:
     # Separate assemblies and their children
     assemblies = [p for p in parts if p["is_assembly"]]
 
-    # Detect subsystem prefix from spec
+    # Detect subsystem prefix from spec — supports both "GIS-EE" and "SLP" forms
     text = Path(spec_path).read_text(encoding="utf-8")
     m = re.search(r"\(([A-Z]+-[A-Z]+)\)", text[:200])
+    if not m:
+        # Try single-word prefix like (SLP)
+        m = re.search(r"\(([A-Z]{2,})\)", text[:200])
     prefix = m.group(1) if m else "GIS-XX"
-    prefix_short = prefix.split("-")[-1]  # EE
+    # For GIS-EE → "EE"; for SLP → "SLP" (no dash → use whole string)
+    prefix_short = prefix.split("-")[-1] if "-" in prefix else prefix
+    # Detect if this is a flat BOM (no sub-assembly hierarchy)
+    is_flat_bom = "-" not in prefix  # SLP = flat, GIS-EE = hierarchical
 
     template_dir = os.path.join(_PROJECT_ROOT, "templates")
     env = jinja2.Environment(
@@ -530,11 +546,19 @@ def generate_assembly(spec_path: str) -> str:
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
         name = assy["name_cn"]
-        suffix = re.sub(r"^GIS-\w+-", "", pno)
 
-        # Gather children
-        children = [p for p in parts
-                     if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
+        if is_flat_bom:
+            # Flat BOM: suffix is the prefix itself (e.g. "SLP")
+            suffix = "000"
+            # All non-assembly parts belong to the single root assembly
+            children = [p for p in parts if not p["is_assembly"]]
+        else:
+            # Hierarchical BOM (GIS-EE-001): suffix is the station number
+            from cad_spec_defaults import strip_part_prefix
+            suffix = strip_part_prefix(pno).split("-")[-1] if "-" in strip_part_prefix(pno) else strip_part_prefix(pno)
+            # Children match by prefix: GIS-EE-001-xx
+            children = [p for p in parts
+                         if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
 
         station_parts = []
         std_func_imports = []  # std parts for this station
@@ -547,15 +571,22 @@ def generate_assembly(spec_path: str) -> str:
                 break
 
         for child in children:
-            c_suffix = re.sub(r"^GIS-\w+-\d+-", "", child["part_no"])
+            # Compute child suffix for display: GIS-EE-001-01 → "01", SLP-100 → "100"
+            from cad_spec_defaults import strip_part_prefix
+            c_stripped = strip_part_prefix(child["part_no"])
+            c_suffix = c_stripped.split("-")[-1] if "-" in c_stripped else c_stripped
             make_buy = child.get("make_buy", "")
 
-            if "外购" in make_buy:
+            if "外购" in make_buy or "标准" in make_buy:
                 # Standard/purchased part — use std_ module
                 category = classify_part(child["name_cn"], child.get("material", ""))
                 if category not in _STD_PART_CATEGORIES:
                     continue
-                std_mod = f"std_{re.sub(r'^GIS-', '', child['part_no']).lower().replace('-', '_')}"
+                # Module name via strip_part_prefix: GIS-EE-001-05 → std_ee_001_05, SLP-C01 → std_c01
+                std_suffix = strip_part_prefix(child["part_no"]).lower().replace("-", "_")
+                if std_suffix and std_suffix[0].isdigit():
+                    std_suffix = "p" + std_suffix
+                std_mod = f"std_{std_suffix}"
                 std_func = f"make_{std_mod}"
                 color_info = _STD_COLOR_MAP.get(category, ("C_STD_SENSOR", 0.2, 0.2, 0.2))
                 std_colors_used[color_info[0]] = color_info
@@ -583,9 +614,14 @@ def generate_assembly(spec_path: str) -> str:
                     "func": std_func,
                 })
             else:
-                # Custom-made part — import from individual ee_NNN_NN module
-                # gen_parts.py names: GIS-EE-001-01 → ee_001_01.py / make_ee_001_01()
-                ee_mod = re.sub(r"^GIS-", "", child["part_no"]).lower().replace("-", "_")
+                # Custom-made part — import from individual module
+                # gen_parts.py names via strip_part_prefix:
+                #   GIS-EE-001-01 → ee_001_01.py / make_ee_001_01()
+                #   SLP-100       → p100.py      / make_p100()
+                #   SLP-P01       → p01.py        / make_p01()
+                ee_mod = strip_part_prefix(child["part_no"]).lower().replace("-", "_")
+                if ee_mod and ee_mod[0].isdigit():
+                    ee_mod = "p" + ee_mod
                 ee_func = f"make_{ee_mod}"
                 c_color = _COLOR_PALETTE[color_idx % len(_COLOR_PALETTE)][0]
 
@@ -604,7 +640,7 @@ def generate_assembly(spec_path: str) -> str:
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
                     "local_offset": offset_str,
-                    "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
+                    "assy_name": f"{prefix_short}-{c_suffix}",
                     "color_var": c_color,
                 })
                 # Each custom part gets its own import line
@@ -637,8 +673,14 @@ def generate_assembly(spec_path: str) -> str:
     # Build BOM tree for docstring
     bom_tree = []
     for p in parts:
-        segments = p["part_no"].split("-")
-        depth = max(0, len(segments) - 3)
+        if p["is_assembly"]:
+            depth = 0
+        elif is_flat_bom:
+            depth = 1  # flat BOM: all parts at depth 1
+        else:
+            # Hierarchical: depth from segment count relative to assembly level
+            segments = p["part_no"].split("-")
+            depth = max(0, len(segments) - 3)
         bom_tree.append({
             "depth": depth,
             "part_no": p["part_no"],
