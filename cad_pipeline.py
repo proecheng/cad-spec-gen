@@ -386,6 +386,148 @@ def _enrich_render_config_materials(sub_dir):
                      if not isinstance(c, str) and "material" in c))
 
 
+def _gen_render_config_from_bom(sub_dir, spec_path):
+    """Auto-generate render_config.json materials+components from BOM.
+
+    Uses comp_key as canonical key for BOTH sections, ensuring naming
+    consistency. Only fills absent entries (setdefault) — never overwrites.
+    """
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if not os.path.isfile(rc_path) or not os.path.isfile(spec_path):
+        return
+
+    from codegen.gen_build import parse_bom_tree
+
+    with open(rc_path, encoding="utf-8") as f:
+        rc = json.load(f)
+
+    parts = parse_bom_tree(spec_path)
+    assemblies = [p for p in parts if p["is_assembly"]]
+    if not assemblies:
+        return
+
+    components = rc.setdefault("components", {})
+    materials = rc.setdefault("materials", {})
+    changed = False
+
+    # Material preset inference from BOM material text
+    _MAT_PRESET = {
+        "铝": "brushed_aluminum", "Al": "brushed_aluminum",
+        "钢": "stainless_304", "SUS": "stainless_304",
+        "PEEK": "peek_amber",
+        "橡胶": "black_rubber", "硅橡胶": "black_rubber",
+        "塑料": "white_nylon", "尼龙": "white_nylon",
+        "铜": "copper",
+    }
+
+    for assy in assemblies:
+        pno = assy["part_no"]
+        name_cn = assy["name_cn"]
+
+        # Derive comp_key: use part_no suffix for guaranteed uniqueness
+        suffix = pno.rsplit("-", 1)[-1]
+        comp_key = f"assy_{suffix}"
+
+        # Check if any existing component already has this bom_id
+        existing = None
+        for ck, cv in components.items():
+            if isinstance(cv, dict) and cv.get("bom_id") == pno:
+                existing = ck
+                break
+
+        if existing:
+            # Already exists under a different key — just ensure material link
+            comp = components[existing]
+            if "material" not in comp:
+                mat_key = existing
+                if mat_key not in materials:
+                    # Try fuzzy: existing key as prefix of some material
+                    candidates = [mk for mk in materials if mk.startswith(existing)]
+                    if len(candidates) == 1:
+                        mat_key = candidates[0]
+                    elif existing in materials:
+                        mat_key = existing
+                comp.setdefault("material", mat_key)
+                changed = True
+            continue
+
+        # New component — create both entries with same key
+        components[comp_key] = {
+            "name_cn": name_cn,
+            "name_en": "",
+            "bom_id": pno,
+            "material": comp_key,
+        }
+
+        # Infer preset from first child's material field
+        children = [p for p in parts
+                    if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
+        preset = "brushed_aluminum"
+        for child in children:
+            mat_text = child.get("material", "")
+            for keyword, p_name in _MAT_PRESET.items():
+                if keyword in mat_text:
+                    preset = p_name
+                    break
+            else:
+                continue
+            break
+
+        if comp_key not in materials:
+            materials[comp_key] = {
+                "preset": preset,
+                "label": name_cn,
+            }
+        changed = True
+
+    if changed:
+        with open(rc_path, "w", encoding="utf-8") as f:
+            json.dump(rc, f, indent=2, ensure_ascii=False)
+        log.info("  BOM→render_config: %d components synced", len(assemblies))
+
+
+def _validate_render_config(rc_path):
+    """Validate render_config.json internal consistency.
+
+    Returns list of warning strings (empty = valid).
+    """
+    import re as _re
+    if not os.path.isfile(rc_path):
+        return []
+    with open(rc_path, encoding="utf-8") as f:
+        rc = json.load(f)
+
+    warnings = []
+    materials = rc.get("materials", {})
+    components = rc.get("components", {})
+
+    for comp_key, comp in components.items():
+        if isinstance(comp, str) or comp_key.startswith("_"):
+            continue
+        # Check material reference exists
+        mat_key = comp.get("material", comp_key)
+        if mat_key not in materials:
+            warnings.append(
+                f"component '{comp_key}': material '{mat_key}' not in materials section")
+        # Check bom_id format
+        bom_id = comp.get("bom_id", "")
+        if bom_id and not _re.match(r'^[A-Z]+-[A-Z]+-\d+', bom_id):
+            warnings.append(
+                f"component '{comp_key}': bom_id '{bom_id}' has unexpected format")
+
+    # Check labels reference valid components
+    for view_key, label_list in rc.get("labels", {}).items():
+        if isinstance(label_list, str) or view_key.startswith("_"):
+            continue
+        for label in label_list:
+            comp_ref = label.get("component", "")
+            if comp_ref and comp_ref not in components:
+                warnings.append(
+                    f"labels.{view_key}: component '{comp_ref}' not found")
+
+    return warnings
+
+
 def _interactive_fill_warnings(review_json_path):
     """逐项引导用户处理所有 WARNING/CRITICAL 项（含自动补全和手动填写）。
 
@@ -791,10 +933,11 @@ def cmd_codegen(args):
     if not ok:
         failures += 1
 
-    # Enrich render_config.json with component→material links
-    rc_path = os.path.join(sub_dir, "render_config.json")
-    if os.path.isfile(rc_path):
-        _enrich_render_config_materials(sub_dir)
+    # Auto-generate materials+components from BOM (fills gaps only)
+    if os.path.isfile(spec_path):
+        _gen_render_config_from_bom(sub_dir, spec_path)
+    # Enrich component→material links
+    _enrich_render_config_materials(sub_dir)
 
     return 1 if failures else 0
 
@@ -871,6 +1014,13 @@ def cmd_render(args):
     render_script = os.path.join(sub_dir, "render_3d.py")
     exploded_script = os.path.join(sub_dir, "render_exploded.py")
     config_path = os.path.join(sub_dir, "render_config.json")
+
+    # Validate render_config consistency
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if os.path.isfile(rc_path):
+        warnings = _validate_render_config(rc_path)
+        for w in warnings:
+            log.warning("  render_config: %s", w)
 
     if not os.path.isfile(render_script):
         log.error("No render_3d.py in %s", sub_dir)

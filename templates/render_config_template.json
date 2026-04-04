@@ -97,7 +97,8 @@
     "example_part": {
       "name_cn": "<中文名称>",
       "name_en": "<English Name>",
-      "bom_id": "<GIS-XX-NNN>"
+      "bom_id": "<GIS-XX-NNN>",
+      "material": "example_part"
     }
   },
   "labels": {
