@@ -287,13 +287,11 @@ def create_pbr_material(name, params):
 
 
 def assign_materials():
-    """Match objects to materials based on bom_id lookup + name patterns.
+    """Match objects to materials based on name patterns and bom_id lookup.
 
-    Priority 1: bom_id prefix match via components section (most reliable)
-    Priority 2: material pattern substring match (fallback)
-    Priority 3: default gray
+    Uses render_config.py's resolve_bom_materials() for bom_id→material bridging.
+    Priority: bom_id prefix match > material pattern substring > default gray.
     """
-    import re as _re
     source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else MATERIAL_MAP
 
     materials = {}
@@ -301,19 +299,13 @@ def assign_materials():
         mat = create_pbr_material(f"PBR_{pattern}", params)
         materials[pattern] = mat
 
-    # Build bom_id → PBR material mapping from components section
+    # Build bom_id → PBR material map via shared render_config function
     bom_mat_map = {}
     if _CONFIG:
-        for comp_key, comp in _CONFIG.get("components", {}).items():
-            if isinstance(comp, str) or comp_key.startswith("_"):
-                continue
-            bom_id = comp.get("bom_id", "")
-            mat_key = comp.get("material", comp_key)
-            if not bom_id or mat_key not in materials:
-                continue
-            # Normalize: strip project prefix (GIS-EE-001 → EE-001)
-            normalized = _re.sub(r'^[A-Z]+-', '', bom_id).lower()
-            bom_mat_map[normalized] = materials[mat_key]
+        bom_key_map = rcfg.resolve_bom_materials(_CONFIG, source)
+        for bid, mat_key in bom_key_map.items():
+            if mat_key in materials:
+                bom_mat_map[bid] = materials[mat_key]
 
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":

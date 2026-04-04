@@ -69,7 +69,8 @@ def _deploy_tool_modules(sub_dir: str):
     Only copies if source is newer or target is missing (scaffold-safe).
     """
     import shutil
-    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py"]
+    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py",
+                  "render_config.py"]
     for fname in tool_files:
         src = os.path.join(SKILL_ROOT, fname)
         dst = os.path.join(sub_dir, fname)
