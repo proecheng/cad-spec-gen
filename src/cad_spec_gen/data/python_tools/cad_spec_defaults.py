@@ -160,7 +160,7 @@ STD_PART_DIMENSIONS = {
     "SMA":          {"d": 6.5, "l": 15},
     "Molex ZIF":    {"w": 12, "h": 3, "l": 8},
     "Molex 5052":   {"w": 12, "h": 3, "l": 8},
-    "Molex 15168":  {"w": 12, "h": 1, "l": 500},
+    "Molex 15168":  {"w": 12, "h": 1, "l": 30},  # stub (connector portion only)
     # --- Pumps ---
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
@@ -207,7 +207,7 @@ def _parse_dims_from_text(text: str) -> dict:
     # Pattern 4: N芯×Lmm (cable: count × length)
     m = re.search(r'\d+芯\s*[×x×]\s*(\d+)\s*mm', text)
     if m:
-        return {"d": 10, "l": float(m.group(1))}
+        return {"d": 10, "l": min(float(m.group(1)), 50)}  # cap cable to stub
 
     return {}
 

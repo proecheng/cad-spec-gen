@@ -215,48 +215,6 @@ _STD_COLOR_MAP = {
 }
 
 
-def _extract_station_pose(pose: dict) -> dict:
-    """Extract per-assembly positioning from §6.2 layer stacking table.
-
-    Matches layers by GIS-XX-NNN part number to extract:
-    - angle: from θ=NNN° in offset column
-    - radius: from R=NNNmm in offset column
-    - z: from Z=±NNNmm in offset column
-
-    Returns {assembly_part_no: {"angle": float, "radius": float, "z": float}}.
-    Only layers with θ= and R= in offset are considered radial stations.
-    """
-    result = {}
-    for layer in pose.get("layers", []):
-        offset = layer.get("offset", "")
-        part = layer.get("part", "")
-
-        m_pno = re.search(r"(GIS-\w+-\d+)", part)
-        if not m_pno:
-            continue
-        pno = m_pno.group(1)
-
-        pose_data = {}
-
-        # θ=NNN° (station angle)
-        m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°?", offset)
-        if m_theta:
-            pose_data["angle"] = float(m_theta.group(1))
-
-        # R=NNNmm (radial mount distance)
-        m_r = re.search(r"R\s*=\s*(\d+(?:\.\d+)?)\s*mm", offset)
-        if m_r:
-            pose_data["radius"] = float(m_r.group(1))
-
-        # Z=±NNNmm (axial offset)
-        m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset)
-        if m_z:
-            pose_data["z"] = float(m_z.group(1))
-
-        if pose_data:
-            result[pno] = pose_data
-
-    return result
 
 
 def _extract_origin_axis(pose: dict) -> tuple:
@@ -276,8 +234,263 @@ def _extract_origin_axis(pose: dict) -> tuple:
     return origin_desc, axis_desc
 
 
+def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
+    """Match §6.2 part_text against BOM entries by name keywords.
+
+    Splits part_text into Chinese character runs and tries to match
+    each BOM entry's name_cn. Returns list of matched part_no strings.
+    """
+    keywords = re.findall(r"[\u4e00-\u9fff]{2,}", part_text)
+    if not keywords:
+        return []
+    matched = []
+    for part in bom_parts:
+        if part.get("is_assembly"):
+            continue
+        name = part.get("name_cn", "")
+        for kw in keywords:
+            if kw in name:
+                matched.append(part["part_no"])
+                break
+    return matched
+
+
+def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
+    """Extract per-part positioning from §6.2 layer stacking table.
+
+    Captures ALL positioning data including Z-only offsets.
+    For rows without a GIS-XX-NNN part number, falls back to
+    name-keyword matching against bom_parts.
+
+    Returns {part_no: {"z": float|None, "r": float|None, "theta": float|None,
+                        "axis_dir": str, "is_origin": bool}}.
+    """
+    if bom_parts is None:
+        bom_parts = []
+    result = {}
+
+    for layer in pose.get("layers", []):
+        part_text = layer.get("part", "")
+        offset_text = layer.get("offset", "")
+        axis_dir = layer.get("axis_dir", "")
+
+        # Skip rows with no useful offset
+        if not offset_text or offset_text.strip() in ("—", "-", ""):
+            m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+            if m_pno:
+                result.setdefault(m_pno.group(1), {
+                    "z": None, "r": None, "theta": None,
+                    "axis_dir": axis_dir, "is_origin": False})
+            continue
+
+        entry = {"z": None, "r": None, "theta": None,
+                 "axis_dir": axis_dir, "is_origin": False}
+
+        if "基准" in offset_text or "原点" in offset_text:
+            entry["z"] = 0.0
+            entry["is_origin"] = True
+
+        m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset_text)
+        if m_z:
+            entry["z"] = float(m_z.group(1))
+
+        if entry["z"] is None:
+            m_z0 = re.search(r"Z\s*=\s*0(?:\s*\(|$)", offset_text)
+            if m_z0:
+                entry["z"] = 0.0
+
+        m_r = re.search(r"R\s*[=≈]\s*(\d+(?:\.\d+)?)\s*mm", offset_text)
+        if m_r:
+            entry["r"] = float(m_r.group(1))
+
+        m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°?", offset_text)
+        if m_theta:
+            entry["theta"] = float(m_theta.group(1))
+
+        m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+        if m_pno:
+            result[m_pno.group(1)] = entry
+        else:
+            matched_pnos = _match_bom_by_keywords(part_text, bom_parts)
+            for pno in matched_pnos:
+                result[pno] = dict(entry)
+
+    return result
+
+
+def _parse_dims_text(text: str):
+    """Extract (w, d, h) envelope from text with dimension specs.
+    Returns (w, d, h) tuple or None.
+    """
+    if not text:
+        return None
+    m = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        d, h = float(m.group(1)), float(m.group(2))
+        return (d, d, h)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        return (float(m.group(1)), float(m.group(2)), float(m.group(3)))
+    m = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        d = float(m.group(1))
+        return (d, d, max(5.0, round(d * 0.25, 1)))
+    return None
+
+
+_STACK_GAP_MM = 2.0
+_MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
+_ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
+
+
+def _infer_stack_direction(axis_dir: str) -> tuple:
+    """Convert axis_dir text to unit stacking vector. Default: (0,0,-1)."""
+    if not axis_dir:
+        return (0, 0, -1)
+    if any(k in axis_dir for k in ["沿+Z", "+Z", "向上"]):
+        return (0, 0, 1)
+    if any(k in axis_dir for k in ["沿-Z", "-Z", "向下", "垂直"]):
+        return (0, 0, -1)
+    if any(k in axis_dir for k in ["∥XY", "水平", "径向"]):
+        return (1, 0, 0)
+    return (0, 0, -1)
+
+
+def _match_axis_clause(axis_dir: str, part_name: str) -> str:
+    """Find axis_dir sub-clause for a specific part.
+    E.g. "壳体轴沿-Z，储罐轴∥XY" + "储罐" → "储罐轴∥XY".
+    Returns matched clause or empty string.
+    """
+    if not axis_dir or not part_name:
+        return ""
+    clauses = re.split(r"[，,]", axis_dir)
+    if len(clauses) <= 1:
+        return ""
+    for clause in clauses:
+        for n in (3, 2):
+            if len(part_name) >= n and part_name[:n] in clause:
+                return clause.strip()
+    return ""
+
+
+def _part_height_along(dims, direction: tuple) -> float:
+    """Part extent along stacking direction. Fallback 20mm."""
+    if dims is None:
+        return 20.0
+    w, d, h = dims
+    ax, ay, az = abs(direction[0]), abs(direction[1]), abs(direction[2])
+    if az >= ax and az >= ay:
+        return h
+    if ax >= ay:
+        return w
+    return d
+
+
+def _stack_sort_key(child: dict, dims_map: dict, direction: tuple) -> tuple:
+    """Sort: custom bodies first, then by extent descending."""
+    is_custom = "自制" in child.get("make_buy", "")
+    is_body = any(k in child["name_cn"] for k in ("壳体", "本体", "支架", "框架", "基座"))
+    extent = _part_height_along(dims_map.get(child["part_no"]), direction)
+    return (-int(is_custom), -int(is_body), -extent)
+
+
+def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
+    """Compute per-part local offsets. Explicit §6.2 wins; auto-stacks rest.
+
+    Per-part axis_dir sub-clause matching: if axis_dir has comma-separated
+    clauses, each child matches its own clause for stacking direction.
+
+    cursor is always a positive scalar distance along direction vector.
+    offset_vector = direction * cursor.
+
+    Returns {part_no: (dx, dy, dz)}.
+    """
+    result = {}
+    assemblies = [p for p in parts if p["is_assembly"]]
+    children_of = {}
+    for assy in assemblies:
+        prefix = assy["part_no"]
+        children_of[prefix] = [
+            p for p in parts
+            if p["part_no"].startswith(prefix + "-") and not p["is_assembly"]
+        ]
+
+    for assy in assemblies:
+        prefix = assy["part_no"]
+        children = children_of.get(prefix, [])
+        if not children:
+            continue
+
+        assy_pose = layer_poses.get(prefix, {})
+        assy_axis_dir = assy_pose.get("axis_dir", "")
+        default_direction = _infer_stack_direction(assy_axis_dir)
+
+        # Detect orphan assembly (no §6.2 positioning at all)
+        is_orphan = (assy_pose.get("r") is None and
+                     assy_pose.get("theta") is None and
+                     assy_pose.get("z") is None and
+                     not assy_pose.get("is_origin", False))
+
+        if is_orphan:
+            default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
+
+        auto_queue = []
+        for child in children:
+            cpno = child["part_no"]
+            if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
+                z = layer_poses[cpno]["z"]
+                result[cpno] = (0, 0, z)
+            else:
+                auto_queue.append(child)
+
+        if not auto_queue:
+            continue
+
+        dims_map = {}
+        for child in auto_queue:
+            text = child.get("material", "") + " " + child.get("name_cn", "")
+            dims_map[child["part_no"]] = _parse_dims_text(text)
+
+        # Group by per-part stacking direction
+        direction_groups = {}
+        for child in auto_queue:
+            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
+            if clause:
+                child_direction = _infer_stack_direction(clause)
+            else:
+                child_direction = default_direction
+            direction_groups.setdefault(child_direction, []).append(child)
+
+        for direction, group in direction_groups.items():
+            group.sort(key=lambda c: _stack_sort_key(c, dims_map, direction))
+            cursor = _ORPHAN_BASE_Z if is_orphan else 0.0
+            for child in group:
+                cpno = child["part_no"]
+                dims = dims_map.get(cpno)
+                extent = _part_height_along(dims, direction)
+                center = cursor + extent / 2.0
+                dx = round(direction[0] * center, 1)
+                dy = round(direction[1] * center, 1)
+                dz = round(direction[2] * center, 1)
+                result[cpno] = (dx, dy, dz)
+                gap = 0.0 if cursor > _MAX_STACK_DEPTH_MM else _STACK_GAP_MM
+                cursor += extent + gap
+
+    return result
+
+
 def generate_assembly(spec_path: str) -> str:
-    """Generate assembly.py scaffold content."""
+    """Generate assembly.py scaffold content.
+
+    Reads §5 BOM, §4 connections, §6 assembly pose from CAD_SPEC.md.
+    Computes per-part positioning:
+      - Explicit: Z/R/θ from §6.2 layer stacking table (part_no or name-fallback)
+      - Per-part axis: multi-clause axis_dir matched by part name keywords
+      - Auto-stacked: parts without explicit positions stacked along their
+        matched axis_dir with envelope-based spacing
+      - Orphan assemblies: no §6.2 pose → safe default offset to avoid overlap
+    Part origin convention: bottom face at Z=0, extrude upward.
+    """
     parts = parse_bom_tree(spec_path)
     pose = parse_assembly_pose(spec_path)
     connections = parse_connections(spec_path)
@@ -308,7 +521,8 @@ def generate_assembly(spec_path: str) -> str:
     std_colors_used = {}  # track which std colors we need
 
     # C1: Extract per-assembly pose from §6.2 (keyed by part number)
-    station_poses = _extract_station_pose(pose)
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    part_offsets = _resolve_child_offsets(parts, layer_poses)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
@@ -351,12 +565,16 @@ def generate_assembly(spec_path: str) -> str:
                 local_xform, orient_ref = _axis_dir_to_local_transform(
                     station_axis_dir, var_name, child["name_cn"])
 
+                offset = part_offsets.get(child["part_no"])
+                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
+                              if offset and offset != (0, 0, 0) else "")
                 station_parts.append({
                     "var": var_name,
                     "make_call": f"{std_func}()",
                     "local_transform": local_xform,
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
+                    "local_offset": offset_str,
                     "assy_name": f"STD-{child['part_no']}",
                     "color_var": color_info[0],
                 })
@@ -376,12 +594,16 @@ def generate_assembly(spec_path: str) -> str:
                 local_xform, orient_ref = _axis_dir_to_local_transform(
                     station_axis_dir, var_name, child["name_cn"])
 
+                offset = part_offsets.get(child["part_no"])
+                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
+                              if offset and offset != (0, 0, 0) else "")
                 station_parts.append({
                     "var": var_name,
                     "make_call": f"{ee_func}()",
                     "local_transform": local_xform,
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
+                    "local_offset": offset_str,
                     "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
                     "color_var": c_color,
                 })
@@ -395,18 +617,19 @@ def generate_assembly(spec_path: str) -> str:
             std_part_imports.append(si)
 
         # C2: Look up this assembly's pose by part number from §6.2
-        sp = station_poses.get(pno, {})
-        is_radial = "angle" in sp and "radius" in sp
+        sp = layer_poses.get(pno, {})
+        is_radial = sp.get("r") is not None and sp.get("theta") is not None
 
         station_entry = {
             "name_cn": name,
-            "angle": sp.get("angle", 0.0),
+            "angle": sp.get("theta", 0.0),
             "is_radial": is_radial,
             "parts": station_parts,
         }
         if is_radial:
-            station_entry["mount_radius"] = sp["radius"]
-            station_entry["base_z"] = sp.get("z", 0.0)
+            station_entry["mount_radius"] = sp["r"]
+            station_entry["base_z"] = sp.get("z") or 0.0
+
         stations.append(station_entry)
 
         color_idx += 1

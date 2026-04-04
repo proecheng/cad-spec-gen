@@ -1,6 +1,6 @@
 {
   "_doc": "CAD pipeline persistent config. Auto-detected on first run; edit manually to override.",
-  "blender_path": "tools/blender/blender.exe",
+  "blender_path": "D:/Blender/blender.exe",
   "cadquery_python": "python",
   "output_base": "cad/output",
   "render": {
