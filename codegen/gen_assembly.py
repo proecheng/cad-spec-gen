@@ -215,48 +215,6 @@ _STD_COLOR_MAP = {
 }
 
 
-def _extract_station_pose(pose: dict) -> dict:
-    """Extract per-assembly positioning from §6.2 layer stacking table.
-
-    Matches layers by GIS-XX-NNN part number to extract:
-    - angle: from θ=NNN° in offset column
-    - radius: from R=NNNmm in offset column
-    - z: from Z=±NNNmm in offset column
-
-    Returns {assembly_part_no: {"angle": float, "radius": float, "z": float}}.
-    Only layers with θ= and R= in offset are considered radial stations.
-    """
-    result = {}
-    for layer in pose.get("layers", []):
-        offset = layer.get("offset", "")
-        part = layer.get("part", "")
-
-        m_pno = re.search(r"(GIS-\w+-\d+)", part)
-        if not m_pno:
-            continue
-        pno = m_pno.group(1)
-
-        pose_data = {}
-
-        # θ=NNN° (station angle)
-        m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°?", offset)
-        if m_theta:
-            pose_data["angle"] = float(m_theta.group(1))
-
-        # R=NNNmm (radial mount distance)
-        m_r = re.search(r"R\s*=\s*(\d+(?:\.\d+)?)\s*mm", offset)
-        if m_r:
-            pose_data["radius"] = float(m_r.group(1))
-
-        # Z=±NNNmm (axial offset)
-        m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset)
-        if m_z:
-            pose_data["z"] = float(m_z.group(1))
-
-        if pose_data:
-            result[pno] = pose_data
-
-    return result
 
 
 def _extract_origin_axis(pose: dict) -> tuple:
@@ -510,7 +468,17 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
 
 
 def generate_assembly(spec_path: str) -> str:
-    """Generate assembly.py scaffold content."""
+    """Generate assembly.py scaffold content.
+
+    Reads §5 BOM, §4 connections, §6 assembly pose from CAD_SPEC.md.
+    Computes per-part positioning:
+      - Explicit: Z/R/θ from §6.2 layer stacking table (part_no or name-fallback)
+      - Per-part axis: multi-clause axis_dir matched by part name keywords
+      - Auto-stacked: parts without explicit positions stacked along their
+        matched axis_dir with envelope-based spacing
+      - Orphan assemblies: no §6.2 pose → safe default offset to avoid overlap
+    Part origin convention: bottom face at Z=0, extrude upward.
+    """
     parts = parse_bom_tree(spec_path)
     pose = parse_assembly_pose(spec_path)
     connections = parse_connections(spec_path)
