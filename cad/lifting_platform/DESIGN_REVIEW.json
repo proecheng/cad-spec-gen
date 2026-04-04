@@ -1,0 +1,90 @@
+{
+  "critical": 0,
+  "warning": 7,
+  "info": 2,
+  "ok": 1,
+  "auto_fill": 3,
+  "items": [
+    {
+      "id": "B1",
+      "category": "assembly",
+      "check": "悬空零件 (25项)",
+      "detail": "BOM中以下零件未出现在连接矩阵: 上固定板, 下限位传感器支架, 上限位传感器支架, 丝杠 L350, 导向轴 L296...",
+      "verdict": "WARNING",
+      "suggestion": "补充这些零件的连接关系，或确认为独立附件",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B3",
+      "category": "assembly",
+      "check": "非常规连接方式 (4条)",
+      "detail": "丝杠从上穿入下 KFL001↔铜螺母旋入丝杠至目标 Z: 丝杠螺母副 T16×4; GT2 带轮装至下轴头 D 型切面处（**暂不锁紧**）↔GT2 带套入: 带传动（无紧固件）; 同步带护罩安装（2×M3 至支撑条底面）↔电气接线（见 §17）: 电气端子连接（见 §17）...",
+      "verdict": "INFO",
+      "suggestion": "确认连接方式符合设计意图",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B4",
+      "category": "assembly",
+      "check": "低强度连接方式 (2条)",
+      "detail": "GT2 带套入↔**相位校准**：推动板至下限位，两侧高差 < 0.5mm，**锁紧 2×M3 紧定螺钉 + 螺纹胶**: M3 紧定螺钉 + 螺纹胶（Loctite 243）; M8 传感器旋入支架，调整 Z 高度（下=+43，上=+240）↔PU 缓冲垫粘贴至下 KFL001 顶面 + 上板底面: 粘接（丁基胶或双面胶）",
+      "verdict": "WARNING",
+      "suggestion": "粘接/卡扣连接承载能力有限，确认该处不承受显著力学载荷",
+      "auto_fill": "否"
+    },
+    {
+      "id": "M01",
+      "category": "completeness",
+      "check": "§1 全局参数表: 缺少重量预算参数",
+      "detail": "在参数表中添加 '总重量' 行",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "是"
+    },
+    {
+      "id": "D2",
+      "category": "completeness",
+      "check": "参数缺少单位 (11项)",
+      "detail": "多个参数缺少单位，可能导致下游计算错误",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "是"
+    },
+    {
+      "id": "D3",
+      "category": "completeness",
+      "check": "BOM缺少材质 (32项)",
+      "detail": "缺失: 上固定板, 左支撑条, 右支撑条, 动板, 电机支架...",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
+    },
+    {
+      "id": "D4",
+      "category": "completeness",
+      "check": "零件缺少表面粗糙度 (7项)",
+      "detail": "上固定板 SLP-100 (6061-T6 铝)→Ra3.2; 左支撑条 SLP-200 (6061-T6 铝)→Ra3.2; 右支撑条 SLP-201 (6061-T6 铝)→Ra3.2; 动板 SLP-300 (6061-T6 铝)→Ra3.2; 电机支架 SLP-400 (6061-T6 铝)→Ra3.2",
+      "verdict": "INFO",
+      "suggestion": "",
+      "auto_fill": "是"
+    },
+    {
+      "id": "D5",
+      "category": "completeness",
+      "check": "§2.1 尺寸公差不足 (6条 vs 10个自制件)",
+      "detail": "自制零件的关键尺寸应有明确公差，否则自动标注无法标注公差文本",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
+    },
+    {
+      "id": "D6",
+      "category": "completeness",
+      "check": "尺寸公差参数名无法匹配 (6/6项)",
+      "detail": "不匹配: Φ10H7, Φ19H7, Φ22, Φ24, Φ32_沉台",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
+    }
+  ]
+}

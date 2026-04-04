@@ -40,7 +40,8 @@ class ThreeViewSheet:
 
     def __init__(self, part_no: str, name: str, material: str,
                  scale: str, weight_g: float, date: str,
-                 designer: str = "GISBOT", checker: str = ""):
+                 designer: str = "", checker: str = "",
+                 project_name: str = "", subsystem_name: str = ""):
         self.part_no = part_no
         self.name = name
         self.material = material
@@ -49,6 +50,8 @@ class ThreeViewSheet:
         self.date = date
         self.designer = designer
         self.checker = checker
+        self.project_name = project_name
+        self.subsystem_name = subsystem_name
 
         self.doc, self.msp = create_drawing(f"{part_no} {name}", scale=1.0)
 
@@ -124,7 +127,7 @@ class ThreeViewSheet:
             "bbox": bbox, "position": position,
         })
 
-    def save(self, output_dir: str, material_type: str = "al") -> str:
+    def save(self, output_dir: str, material_type: str = None) -> str:
         """Render all views onto the A3 sheet and save as DXF."""
         msp = self.msp
 
@@ -215,9 +218,11 @@ class ThreeViewSheet:
         # 技术要求区（左上角）
         add_technical_notes(msp, material_type=material_type)
 
-        # 默认粗糙度符号（右上角）
-        default_ra = {"al": 3.2, "steel": 3.2, "peek": 1.6,
-                      "nylon": 1.6, "rubber": 3.2}.get(material_type, 3.2)
+        # 默认粗糙度符号（右上角）— 从 SURFACE_RA 查表，不硬编码
+        from cad_spec_defaults import SURFACE_RA
+        _ra_map = {"al": 3.2, "steel": 3.2, "peek": 1.6,
+                   "nylon": 1.6, "rubber": 3.2}
+        default_ra = _ra_map.get(material_type, 3.2) if material_type else 3.2
         add_default_roughness(msp, ra=default_ra)
 
         # 国标标题栏
@@ -231,13 +236,16 @@ class ThreeViewSheet:
             designer=self.designer,
             checker=self.checker,
             date=self.date,
+            project_name=self.project_name,
+            subsystem_name=self.subsystem_name,
         )
 
         # 第一角投影符号
         add_projection_symbol(msp, (A3_W / 2, MARGIN_STD + 5.0))
 
         # 保存
-        fname = f"{self.part_no.replace('GIS-', '')}_{_slug(self.name)}.dxf"
+        from cad_spec_defaults import strip_part_prefix
+        fname = f"{strip_part_prefix(self.part_no)}_{_slug(self.name)}.dxf"
         path = os.path.join(output_dir, fname)
         self.doc.saveas(path)
         print(f"  Saved: {path}")
@@ -245,22 +253,20 @@ class ThreeViewSheet:
 
 
 def _slug(name: str) -> str:
-    """Convert Chinese name to a short ASCII-safe filename slug."""
-    _map = {
-        "法兰本体": "flange",
-        "PEEK绝缘环": "peek_ring",
-        "PEEK 绝缘环": "peek_ring",
-        "ISO 9409适配板": "adapter",
-        "涂抹模块壳体": "applicator_body",
-        "弹簧限力机构": "spring_limiter",
-        "柔性万向节": "gimbal",
-        "清洁模块壳体": "cleaner_body",
-        "清洁窗口翻盖": "cleaner_flap",
-        "UHF安装支架": "uhf_bracket",
-        "信号调理壳体": "sig_cond_shell",
-        "信号调理安装支架": "sig_cond_bracket",
-    }
-    for cn, en in _map.items():
-        if cn in name:
-            return en
-    return "".join(c if c.isalnum() or c == '_' else '_' for c in name).strip('_')
+    """通用中英文名→文件名安全字符串。不含硬编码映射表。"""
+    import re as _re
+    # 先清理：去除括号及其内容中的特殊字符，保留有意义的文字
+    clean = _re.sub(r"[（(][^）)]*[）)]", "", name)  # 去括号内容
+    clean = _re.sub(r"[+/\\|]", "_", clean)          # 特殊符号→下划线
+    clean = clean.strip()
+    if not clean:
+        clean = name  # 如果全被清掉了，用原名
+    try:
+        from pypinyin import lazy_pinyin
+        slug = "_".join(lazy_pinyin(clean))
+    except ImportError:
+        # fallback: 仅保留 ASCII 字母数字，其他替换为 _
+        slug = "".join(c if (c.isascii() and c.isalnum()) or c == '_' else '_' for c in clean)
+    # 去除连续下划线、首尾下划线、截断
+    slug = _re.sub(r"_+", "_", slug).strip("_").lower()
+    return slug[:40] if slug else "unnamed"

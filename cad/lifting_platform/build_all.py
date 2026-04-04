@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Build All — One-click STEP + DXF generation for 丝杠式升降平台（液压钳载具）.
+Build All — One-click STEP + DXF generation for 丝杠式升降平台.
 
 Auto-generated scaffold by codegen/gen_build.py
-Source: D:\cad-skill\cad\lifting_platform\CAD_SPEC.md
-Generated: 2026-03-29 20:35
+Source: D:\Work\cad-spec-gen\cad\lifting_platform\CAD_SPEC.md
+Generated: 2026-04-04 13:51
 
 Usage:
     python cad/lifting_platform/build_all.py
@@ -38,17 +38,25 @@ _STEP_BUILDS = [
 ]
 
 _DXF_BUILDS = [
-    # (label, module_name, func_name)
-    ("SLP-100 上固定板",   "draw_top_plate",     "draw_top_plate_sheet"),
-    ("SLP-200 支撑条",     "draw_support_bar",   "draw_support_bar_sheet"),
-    ("SLP-300 动板",       "draw_moving_plate",  "draw_moving_plate_sheet"),
-    ("SLP-400 电机支架",   "draw_motor_bracket", "draw_motor_bracket_sheet"),
-    ("SLP-P01 丝杠",       "draw_screw",         "draw_screw_sheet"),
-    ("SLP-P02 导向轴",     "draw_guide_shaft",   "draw_guide_shaft_sheet"),
-    ("SLP-P03 T16螺母",    "draw_nut",           "draw_nut_sheet"),
+    ("上固定板", "p100", "draw_p100_sheet"),
+    ("左支撑条", "p200", "draw_p200_sheet"),
+    ("右支撑条", "p201", "draw_p201_sheet"),
+    ("动板", "p300", "draw_p300_sheet"),
+    ("电机支架", "p400", "draw_p400_sheet"),
+    ("下限位传感器支架", "p403", "draw_p403_sheet"),
+    ("上限位传感器支架", "p404", "draw_p404_sheet"),
+    ("同步带护罩", "p500", "draw_p500_sheet"),
+    ("丝杠 L350", "p01", "draw_p01_sheet"),
+    ("导向轴 L296", "p02", "draw_p02_sheet"),
 ]
 
 _STD_STEP_BUILDS = [
+    ("[标准件] LM10UU", "std_c02", "make_std_c02", "SLP-C02_std.step"),
+    ("[标准件] KFL001", "std_c03", "make_std_c03", "SLP-C03_std.step"),
+    ("[标准件] L070 联轴器", "std_c06", "make_std_c06", "SLP-C06_std.step"),
+    ("[标准件] NEMA23 闭环步进 ≥1.0Nm", "std_c07", "make_std_c07", "SLP-C07_std.step"),
+    ("[标准件] PU 缓冲垫 20×20×3", "std_f11", "make_std_f11", "SLP-F11_std.step"),
+    ("[标准件] M8 电感接近开关 NPN-NO", "std_f12", "make_std_f12", "SLP-F12_std.step"),
 ]
 
 
@@ -172,7 +180,7 @@ def _run_render(timestamp: bool = False):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Build all STEP + DXF for 丝杠式升降平台（液压钳载具）")
+    parser = argparse.ArgumentParser(description="Build all STEP + DXF for 丝杠式升降平台")
     parser.add_argument("--render", action="store_true", help="Also run Blender rendering")
     parser.add_argument("--dry-run", action="store_true", help="Validate imports only")
     parser.add_argument("--timestamp", action="store_true", help="Add timestamp to output filenames")

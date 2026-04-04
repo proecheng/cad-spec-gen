@@ -38,6 +38,12 @@ TITLE_BLOCK_H = 56.0      # 标题栏高度 mm (7 rows × 8mm)
 SCALE_RESERVE_W = 40.0    # 水平缩放余量（留给标注/引出线）mm
 SCALE_RESERVE_H = 30.0    # 垂直缩放余量 mm
 
+# ─── Annotation placement constants (GB/T 4458.4 §4.2) ──────────────────────
+DIM_FIRST_OFFSET = 10.0   # 第一道尺寸线距轮廓最小距离 (mm 纸面)
+DIM_CHAIN_STEP = 7.0      # 各道尺寸线间距 (mm 纸面)
+DIM_TEXT_MARGIN = 1.5      # 文字与其他元素最小间距 (mm 纸面)
+CENTERLINE_OVERSHOOT = 3.0 # 中心线超出轮廓的长度 (mm 纸面)
+
 # ─── Dimension / Arrow module constants (GB/T 4458.4) ─────────────────────────
 DIM_TEXT_H = 3.5                        # 尺寸文字高度 mm (GB/T 标准系列)
 DIM_ARROW = 3.0                         # 箭头长度 mm
@@ -828,28 +834,114 @@ def add_centerline_v(msp: Modelspace, x: float, y1: float, y2: float,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Annotation placement engine (标注放置引擎)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class _LabelRect:
+    """Axis-aligned bounding box for collision detection."""
+    __slots__ = ("x", "y", "w", "h")
+
+    def __init__(self, x: float, y: float, w: float, h: float):
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+
+    def collides(self, other: "_LabelRect", margin: float = DIM_TEXT_MARGIN) -> bool:
+        return (self.x < other.x + other.w + margin and
+                self.x + self.w > other.x - margin and
+                self.y < other.y + other.h + margin and
+                self.y + self.h > other.y - margin)
+
+
+class AnnotationPlacer:
+    """Manages annotation placement with collision avoidance.
+
+    Maintains offset stacks per side and a collision list for text labels.
+    All coordinates and offsets are in paper-space mm.
+    """
+
+    def __init__(self):
+        self._h_offsets: List[float] = []   # 水平尺寸线偏移（标在上/下方）
+        self._v_offsets: List[float] = []   # 垂直尺寸线偏移（标在左/右方）
+        self._placed: List[_LabelRect] = []
+
+    def next_h_offset(self) -> float:
+        """下一条水平尺寸线的偏移 (纸面 mm)。"""
+        if not self._h_offsets:
+            off = DIM_FIRST_OFFSET
+        else:
+            off = max(self._h_offsets) + DIM_CHAIN_STEP
+        self._h_offsets.append(off)
+        return off
+
+    def next_v_offset(self) -> float:
+        """下一条垂直尺寸线的偏移 (纸面 mm)。"""
+        if not self._v_offsets:
+            off = DIM_FIRST_OFFSET
+        else:
+            off = max(self._v_offsets) + DIM_CHAIN_STEP
+        self._v_offsets.append(off)
+        return off
+
+    def try_place(self, x: float, y: float, w: float, h: float) -> bool:
+        """尝试放置一个标注。如果不碰撞则记录并返回 True。"""
+        rect = _LabelRect(x, y, w, h)
+        for placed in self._placed:
+            if rect.collides(placed):
+                return False
+        self._placed.append(rect)
+        return True
+
+    def register(self, x: float, y: float, w: float, h: float):
+        """强制注册一个已放置的区域（不检查碰撞）。"""
+        self._placed.append(_LabelRect(x, y, w, h))
+
+    @staticmethod
+    def max_dims_for_view(paper_w: float, paper_h: float) -> int:
+        """根据纸面视图尺寸计算最多能放多少条尺寸线。
+        规则：尺寸区域不超过视图短边的 40%。
+        """
+        short_side = min(paper_w, paper_h)
+        dim_zone = short_side * 0.4
+        return max(1, int(dim_zone / DIM_CHAIN_STEP))
+
+
+def allocate_dim_angles(count: int) -> List[float]:
+    """为多个圆/孔分配不重叠的引出线角度 (degrees)。"""
+    base = [45.0, 135.0, -45.0, -135.0, 30.0, 150.0, -30.0, -150.0]
+    return [base[i % len(base)] for i in range(count)]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Technical notes (技术要求)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def add_technical_notes(msp: Modelspace,
                         notes: Optional[List[str]] = None,
-                        material_type: str = "al",
+                        material_type: Optional[str] = None,
                         pos: Tuple[float, float] = (27.0, 275.0),
                         layer: str = "TEXT"):
     """Draw technical notes block in upper-left area of drawing frame.
 
     Args:
         notes: custom notes list; None = use preset for material_type
-        material_type: "al" | "peek" | "steel"
+        material_type: "al" | "peek" | "steel" | "nylon" | "rubber" | None
         pos: top-left position of the notes block
     """
     if notes is None:
+        if material_type is None:
+            import warnings
+            warnings.warn("material_type not specified for technical notes, "
+                          "using generic aluminum preset", stacklevel=2)
+            material_type = "al"
         notes = _TECH_NOTES.get(material_type, TECH_NOTES_AL)
 
     x, y = pos
     line_spacing = 5.0
     for i, line in enumerate(notes):
-        h = 3.0 if i == 0 else 2.5
+        h = 3.5 if i == 0 else 2.5  # GB/T 14691 标准系列 3.5mm
         msp.add_text(line, height=h,
                      dxfattribs={"layer": layer}
                      ).set_placement((x, y - i * line_spacing))
@@ -886,6 +978,8 @@ def add_border_frame(msp: Modelspace, width: float = 420.0,
 def add_gb_title_block(msp: Modelspace, part_no: str, name: str,
                        material: str, scale: str, weight_g: float,
                        designer: str, checker: str, date: str,
+                       project_name: str = "",
+                       subsystem_name: str = "",
                        origin: Tuple[float, float] = (230.0, 10.0),
                        layer: str = "BORDER"):
     """GB/T 10609.1 标题栏 180x56mm，位于图框右下角。
@@ -958,9 +1052,17 @@ def add_gb_title_block(msp: Modelspace, part_no: str, name: str,
     msp.add_text(date, height=th_value,
                  dxfattribs={"layer": "TEXT"}).set_placement((x0 + w - 25, yr2 + 2))
 
-    # Rows 3-6: project info
+    # Rows 3-6: project info (参数化，不硬编码项目名)
     yr3 = y0 + 3 * rh
-    msp.add_text("GISBOT 双模态GIS局放检测机器人 \u2014 末端执行器", height=3.0,
+    if project_name and subsystem_name:
+        title_text = f"{project_name} \u2014 {subsystem_name}"
+    elif project_name:
+        title_text = project_name
+    elif subsystem_name:
+        title_text = subsystem_name
+    else:
+        title_text = ""
+    msp.add_text(title_text, height=3.0,
                  dxfattribs={"layer": "TEXT", "color": 7}
                  ).set_placement((x0 + 2, yr3 + 2))
 
@@ -1113,115 +1215,7 @@ def add_title_block(msp: Modelspace, part_no: str, title: str,
         msp.add_text(val, height=3.0,
                      dxfattribs={"layer": "TEXT"}).set_placement((x0 + 55, yy))
 
-    msp.add_text("GISBOT 末端执行器", height=3.5,
+    # Legacy title — no longer hardcodes device name
+    msp.add_text(title if title else "", height=3.5,
                  dxfattribs={"layer": "TEXT", "color": 7}
                  ).set_placement((x0 + w / 2, y0 + h + 3))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Convenience aliases used by draw_*.py part drawing modules
-# ═══════════════════════════════════════════════════════════════════════════════
-
-LAYER_HIDDEN: str = "HIDDEN"
-LAYER_CENTER: str = "CENTER"
-
-
-def add_line(msp: Modelspace,
-             p1: Tuple[float, float], p2: Tuple[float, float],
-             layer: str = "OUTLINE") -> None:
-    """Thin wrapper: add a plain line entity."""
-    msp.add_line(p1, p2, dxfattribs={"layer": layer})
-
-
-def add_circle(msp: Modelspace,
-               center: Tuple[float, float], radius: float,
-               layer: str = "OUTLINE") -> None:
-    """Thin wrapper: add a circle entity."""
-    msp.add_circle(center, radius, dxfattribs={"layer": layer})
-
-
-def dim_linear(msp: Modelspace,
-               dim_p1: Tuple[float, float], dim_p2: Tuple[float, float],
-               feat_p1: Tuple[float, float], feat_p2: Tuple[float, float],
-               text: str = "",
-               angle: Optional[float] = None) -> None:
-    """Linear dimension: dim line at dim_p1/dim_p2, measuring feat_p1→feat_p2."""
-    # Compute perpendicular offset from feature line to dimension line.
-    # For horizontal dims offset is in Y; for vertical dims in X.
-    dx = feat_p2[0] - feat_p1[0]
-    dy = feat_p2[1] - feat_p1[1]
-    if abs(dy) <= abs(dx):  # horizontal
-        offset = dim_p1[1] - feat_p1[1]
-    else:                   # vertical
-        offset = dim_p1[0] - feat_p1[0]
-    add_linear_dim(msp, feat_p1, feat_p2, offset, text, angle=angle)
-
-
-def dim_diameter(msp: Modelspace,
-                 center: Tuple[float, float], radius: float,
-                 text: str = "") -> None:
-    """Diameter dimension alias."""
-    add_diameter_dim(msp, center, radius, text=text)
-
-
-def add_centerline(msp: Modelspace,
-                   p1: Tuple[float, float], p2: Tuple[float, float]) -> None:
-    """Draw a CENTER-linetype line between two points."""
-    msp.add_line(p1, p2, dxfattribs={"layer": LAYER_CENTER, "linetype": "CENTER"})
-
-
-def add_centerline_circle(msp: Modelspace,
-                          center: Tuple[float, float], radius: float) -> None:
-    """Draw a CENTER-linetype circle (pitch circle / centerline circle)."""
-    msp.add_circle(center, radius,
-                   dxfattribs={"layer": LAYER_CENTER, "linetype": "CENTER"})
-
-
-LAYER_VISIBLE: str = "OUTLINE"
-
-
-def add_arc(msp: Modelspace,
-           center: Tuple[float, float], radius: float,
-           start_angle: float, end_angle: float,
-           layer: str = "OUTLINE") -> None:
-    """Thin wrapper: add an arc entity (angles in degrees)."""
-    msp.add_arc(center, radius, start_angle, end_angle,
-                dxfattribs={"layer": layer})
-
-
-def dim_radius(msp: Modelspace,
-              center: Tuple[float, float], radius: float,
-              text: str = "") -> None:
-    """Radius dimension alias."""
-    add_radius_dim(msp, center, radius, text=text)
-
-
-def add_hatch(msp: Modelspace,
-             boundary_points: Sequence[Tuple[float, float]],
-             layer: str = "HATCH",
-             pattern: str = "ANSI31",
-             scale: float = 1.0) -> None:
-    """Thin wrapper: add a hatched region from a closed boundary polygon."""
-    add_section_hatch(msp, boundary_points, layer=layer,
-                      pattern=pattern, scale=scale)
-
-
-def add_thread_symbol(msp: Modelspace,
-                      x1: float, x2: float, cy: float,
-                      major_r: float, minor_r: float,
-                      scale: float = 1.0) -> None:
-    """Draw GB/T 4459.1 external thread symbol on a side view.
-
-    Draws two solid lines at ±major_r (outline) and two hidden lines at
-    ±minor_r (minor diameter), spanning x1→x2.
-    """
-    # Major diameter — solid outline
-    msp.add_line((x1, cy + major_r), (x2, cy + major_r),
-                 dxfattribs={"layer": "OUTLINE"})
-    msp.add_line((x1, cy - major_r), (x2, cy - major_r),
-                 dxfattribs={"layer": "OUTLINE"})
-    # Minor diameter — hidden (dashed)
-    msp.add_line((x1, cy + minor_r), (x2, cy + minor_r),
-                 dxfattribs={"layer": LAYER_HIDDEN})
-    msp.add_line((x1, cy - minor_r), (x2, cy - minor_r),
-                 dxfattribs={"layer": LAYER_HIDDEN})

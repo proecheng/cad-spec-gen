@@ -1,98 +1,57 @@
 """
 lifting_platform Parametric Dimensions — Single Source of Truth
-Based on: 19-液压钳升降平台设计.md V12.0
-Units: mm unless noted.
+
+Auto-generated from CAD_SPEC.md by codegen/gen_params.py
+Source: D:\Work\cad-spec-gen\cad\lifting_platform\CAD_SPEC.md
+Generated: 2026-04-04 13:51
+
+All values extracted from design document (? lines).
+Units: mm, degrees, grams unless noted.
 """
+
 import math
 
-# ═══ 整体参数 ═══
-RATED_LOAD_KG = 10
-SAFETY_FACTOR = 2.5
-DESIGN_LOAD_N = RATED_LOAD_KG * 9.813 * SAFETY_FACTOR  # ≈245.3N
-PLATE_THICK = 8
-TOTAL_HEIGHT = 280       # 上板顶面 − 下板顶面
-STROKE = 192             # 有效行程 mm
-STROKE_Z_MIN = 43        # 动板底最低
-STROKE_Z_MAX = 235       # 动板底最高
-
-# ═══ 立柱坐标 ═══
-LS_X = 60    # 丝杠 X 偏移
-LS_Y = 30    # 丝杠 Y 偏移
-GS_X = 60    # 导向轴 X 偏移
-GS_Y = 30    # 导向轴 Y 偏移
-
-# ═══ 上固定板 SLP-100 ═══
-TOP_PLATE_W = 200
-TOP_PLATE_H = 100
-TOP_PLATE_Z_BOT = 272
-TOP_PLATE_Z_TOP = 280
-
-# ═══ 下固定板（左右支撑条）═══
-SUP_BAR_W = 50
-SUP_BAR_H = 100
-SUP_BAR_Z_BOT = -8
-SUP_BAR_Z_TOP = 0
-LEFT_BAR_X_CENTER = -60
-RIGHT_BAR_X_CENTER = 60
-
-# ═══ 动板 SLP-300 ═══
-MOV_PLATE_W = 150
-MOV_PLATE_H = 100
-
-# ═══ 丝杠 SLP-P01 ═══
-SCREW_TOTAL_L = 350
-SCREW_THREAD_D = 16      # Tr16x4 大径
-SCREW_SHAFT_D = 12       # 轴头直径
-SCREW_UPPER_SHAFT_L = 40
-SCREW_THREAD_L = 230
-SCREW_LOWER_SHAFT_L = 70
-SCREW_Z_TOP = 302        # 上轴尖
-SCREW_Z_BOT = -48        # 下轴尖
-
-# ═══ 导向轴 SLP-P02 ═══
-GUIDE_D = 10
-GUIDE_L = 296
-GUIDE_Z_TOP = 284
-GUIDE_Z_BOT = -12
-
-# ═══ KFL001 轴承座 ═══
-KFL_HEIGHT = 30
-KFL_BORE = 12
-
-# ═══ 电机支架 SLP-400 ═══
-BRACKET_W = 70   # X
-BRACKET_H = 90   # Y
-BRACKET_CENTER_HOLE = 28
-BRACKET_Z_TOP = -8
-BRACKET_Z_BOT = -16
-
-# ═══ 电机 NEMA23 ═══
-MOTOR_BODY_SIZE = 56.4   # 56.4x56.4 法兰
-MOTOR_BODY_L = 56        # 机身长度
-MOTOR_FLANGE_Z = -52
-MOTOR_Z_BOT = -108
-
-# ═══ T16 螺母 ═══
-NUT_FLANGE_D = 32
-NUT_FLANGE_THICK = 5
-NUT_BODY_D = 22
-NUT_BODY_L = 20
-NUT_RECESS_DEPTH = 2
-
-# ═══ 导向轴 SLP-P02 ═══
-GUIDE_D = 10       # φ10h6 轴径
-GUIDE_L = 296      # 有效长度 mm
-
-# ═══ LM10UU ═══
-LM10UU_OD = 19
-LM10UU_L = 29
-
-# ═══ GT2 同步带系统 ═══
-PULLEY_OD = 12.2
-BELT_CENTER_DIST = math.sqrt(120**2 + 60**2)  # ≈134.2
-PULLEY_Z_TOP = -14
-PULLEY_Z_BOT = -23
-
-# ═══ 联轴器 ═══
-COUPLER_OD = 25
-COUPLER_L = 30  # Z = -30 to -48 (联轴器区间 -30~-48 不精确，实际 30mm 长)
+# ═══════════════════════════════════════════════════════════════════════════
+# Parameters
+# ═══════════════════════════════════════════════════════════════════════════
+PARAM_L25 = 10                   # kg L25
+PARAM_L26 = 2.5                  # L26
+PARAM_L27 = 25                   # kg L27
+SENSOR_STROKE = 192              # mm (下极限 = 传感器触发点 Z=+43，保留 7mm 至 PU 垫) L28
+PITCH = 280                      # mm L29
+PARAM_L30 = 8                    # mm L30
+PARAM_L169 = 5.19                # ° L169
+PARAM_L170 = 8.83                # ° L170
+PARAM_L394 = 350                 # mm L394
+PARAM_L395 = 230                 # mm L395
+PARAM_L396 = 12                  # L396
+PARAM_L397 = 12                  # L397
+PARAM_L470 = 10                  # h L470
+L = 296                          # mm L471
+PARAM_L662 = 0.15                # mm L662
+PARAM_L663 = 0.4                 # mm L663
+MOTOR_RATED_TORQUE = 1.0         # N L681
+MOTOR_L = 56                     # mm L682
+MOTOR_SPEED = 20                 # mm L683
+MOTOR_PARAM_L684 = 20            # W L684
+MOTOR_RPM = 400                  # rpm L687
+SENSOR_PARAM_L753 = 25           # L753
+SENSOR_PARAM_L754 = 20           # L754
+SENSOR_PARAM_L763 = 25           # L763
+SENSOR_PARAM_L764 = 20           # L764
+SENSOR_PARAM_L793 = 2            # mm L793
+SENSOR_PARAM_L794 = 0.8          # L794
+SENSOR_PITCH = 1.2               # mm L795
+SPEED = 20                       # mm L1194
+SPEED_2 = 30                     # mm L1195
+ACCEL = 50                       # mm L1196
+SPEED_3 = 50                     # mm L1197
+PARAM_L1199 = 16                 # L1199
+PARAM_L1200 = 0.1125             # ° L1200
+PARAM_L1201 = 0.00125            # mm L1201
+FREQ = 16                        # L1202
+POS_ACC = 0.1                    # mm (L1203) ±0.1 mm
+PARAM_L1204 = 0.05               # mm (L1204) ±0.05 mm
+PARAM_L1205 = 0.15               # mm L1205
+BOM_PARTS_COUNT = 32             # [计算] 1总成
+BOM_COMPLETENESS = 33.3          # % (32/96 cells filled) [计算]

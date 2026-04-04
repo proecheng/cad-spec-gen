@@ -1,223 +1,255 @@
 """
-Top-Level Assembly — SLP-01 丝杠式升降平台
-Based on: 19-液压钳升降平台设计.md V12.0
+Top-Level Assembly — 丝杠式升降平台 (SLP-000)
+
+Auto-generated scaffold by codegen/gen_assembly.py
+Source: D:\Work\cad-spec-gen\cad\lifting_platform\CAD_SPEC.md
+Generated: 2026-04-04 13:51
+
+Coordinate system:
+- Origin at 下板顶面中心（几何基准点）
+- Z-up, X-right
+
+Assembly hierarchy:
+  ├── UNKNOWN 未分组
+    ├── SLP-100 上固定板
+    ├── SLP-200 左支撑条
+    ├── SLP-201 右支撑条
+    ├── SLP-300 动板
+    ├── SLP-400 电机支架
+    ├── SLP-403 下限位传感器支架
+    ├── SLP-404 上限位传感器支架
+    ├── SLP-500 同步带护罩
+    ├── SLP-P01 丝杠 L350
+    ├── SLP-P02 导向轴 L296
+    ├── SLP-C01 T16 螺母 C7
+    ├── SLP-C02 LM10UU
+    ├── SLP-C03 KFL001
+    ├── SLP-C04 GT2 20T 开式带轮 φ12
 """
+
 import cadquery as cq
 import math
 import os
-from params import *
+import params  # noqa: F401
 
-def make_top_plate():
-    """SLP-100 上固定板 200x100x8"""
-    p = (cq.Workplane("XY")
-         .box(TOP_PLATE_W, TOP_PLATE_H, PLATE_THICK, centered=(True, True, False))
-         )
-    # 丝杠穿过孔 φ24 ×2
-    for x, y in [(-LS_X, LS_Y), (LS_X, -LS_Y)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(24)
-    # 导向轴孔 φ10H7 ×2
-    for x, y in [(GS_X, GS_Y), (-GS_X, -GS_Y)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(10)
-    # M5 机器人接口 ×4
-    for x, y in [(-80, 35), (80, 35), (-80, -35), (80, -35)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(5.5)
-    return p
 
-def make_support_bar():
-    """SLP-200/201 支撑条 50x100x8"""
-    p = (cq.Workplane("XY")
-         .box(SUP_BAR_W, SUP_BAR_H, PLATE_THICK, centered=(True, True, False))
-         )
-    # 丝杠穿过孔 φ24
-    p = p.faces(">Z").workplane().pushPoints([(0, 30)]).hole(24)
-    # 导向轴孔 φ10H7
-    p = p.faces(">Z").workplane().pushPoints([(0, -30)]).hole(10)
-    return p
-
-def make_moving_plate():
-    """SLP-300 动板 150x100x8"""
-    p = (cq.Workplane("XY")
-         .box(MOV_PLATE_W, MOV_PLATE_H, PLATE_THICK, centered=(True, True, False))
-         )
-    # 丝杠螺母穿过孔 φ22 ×2
-    for x, y in [(-LS_X, LS_Y), (LS_X, -LS_Y)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(22)
-    # LM10UU 轴承孔 φ19 ×2
-    for x, y in [(GS_X, GS_Y), (-GS_X, -GS_Y)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(19)
-    # 中心油管孔 φ16
-    p = p.faces(">Z").workplane().pushPoints([(0, 0)]).hole(16)
-    # 电缆孔 φ10
-    p = p.faces(">Z").workplane().pushPoints([(30, 0)]).hole(10)
-    # M6 液压钳安装孔 ×4
-    for x, y in [(-35, 25), (35, 25), (-35, -25), (35, -25)]:
-        p = p.faces(">Z").workplane().pushPoints([(x, y)]).hole(6.7)
-    return p
-
-def make_motor_bracket():
-    """SLP-400 电机支架 70x90x8"""
-    p = (cq.Workplane("XY")
-         .box(BRACKET_W, BRACKET_H, PLATE_THICK, centered=(True, True, False))
-         )
-    # 中心通孔 φ28
-    p = p.faces(">Z").workplane().hole(BRACKET_CENTER_HOLE)
-    # NEMA23 安装孔 ×4 (PCD 47.1)
-    r = 47.1 / 2
-    for ang in [45, 135, 225, 315]:
-        rad = math.radians(ang)
-        hx = r * math.cos(rad)
-        hy = r * math.sin(rad)
-        p = p.faces(">Z").workplane().pushPoints([(hx, hy)]).hole(5.5)
-    return p
-
-def make_lead_screw():
-    """SLP-P01 丝杠 Tr16x4 L350"""
-    # 上端轴头 φ12×40
-    upper = cq.Workplane("XY").circle(SCREW_SHAFT_D/2).extrude(SCREW_UPPER_SHAFT_L)
-    # 螺纹段 φ16×230
-    thread = cq.Workplane("XY").circle(SCREW_THREAD_D/2).extrude(SCREW_THREAD_L)
-    thread = thread.translate((0, 0, SCREW_UPPER_SHAFT_L + 5))  # +5 过渡
-    # 下端轴头 φ12×70
-    lower = cq.Workplane("XY").circle(SCREW_SHAFT_D/2).extrude(SCREW_LOWER_SHAFT_L)
-    lower = lower.translate((0, 0, SCREW_UPPER_SHAFT_L + 5 + SCREW_THREAD_L + 5))
-    result = upper.union(thread).union(lower)
-    return result
-
-def make_guide_shaft():
-    """SLP-P02 导向轴 φ10 L296"""
-    return cq.Workplane("XY").circle(GUIDE_D/2).extrude(GUIDE_L)
-
-def make_kfl001():
-    """KFL001 轴承座（简化几何）"""
-    # 简化为一个矩形块 55x13x30 含 φ12 中心孔
-    p = (cq.Workplane("XY")
-         .box(13, 55, KFL_HEIGHT, centered=(True, True, False))
-         )
-    p = p.faces(">Z").workplane().hole(KFL_BORE)
-    return p
-
-def make_t16_nut():
-    """T16 法兰铜螺母（简化）"""
-    flange = cq.Workplane("XY").circle(NUT_FLANGE_D/2).extrude(NUT_FLANGE_THICK)
-    body = cq.Workplane("XY").circle(NUT_BODY_D/2).extrude(NUT_BODY_L)
-    body = body.translate((0, 0, NUT_FLANGE_THICK))
-    result = flange.union(body)
-    # 中心孔
-    result = result.faces(">Z").workplane().hole(SCREW_THREAD_D)
-    return result
-
-def make_motor():
-    """NEMA23 电机（简化）"""
-    body = cq.Workplane("XY").box(MOTOR_BODY_SIZE, MOTOR_BODY_SIZE, MOTOR_BODY_L, centered=(True, True, False))
-    shaft = cq.Workplane("XY").circle(6.35/2).extrude(21)
-    shaft = shaft.translate((0, 0, MOTOR_BODY_L))
-    return body.union(shaft)
-
-def make_coupler():
-    """L070 联轴器（简化）"""
-    return cq.Workplane("XY").circle(COUPLER_OD/2).extrude(COUPLER_L)
-
-def make_lm10uu():
-    """LM10UU 直线轴承（简化）"""
-    outer = cq.Workplane("XY").circle(LM10UU_OD/2).extrude(LM10UU_L)
-    outer = outer.faces(">Z").workplane().hole(GUIDE_D)
-    return outer
-
-def make_pulley():
-    """GT2 20T 带轮（简化）"""
-    return cq.Workplane("XY").circle(PULLEY_OD/2).extrude(9)
+def _station_transform(part, angle: float, tx: float, ty: float, tz: float):
+    """Apply station rotation + translation."""
+    part = part.rotate((0, 0, 0), (0, 0, 1), angle)
+    part = part.translate((tx, ty, tz))
+    return part
 
 
 def make_assembly() -> cq.Assembly:
-    """Build complete assembly."""
+    """Build CadQuery Assembly with split sub-components."""
+    from p100 import make_p100
+    from p200 import make_p200
+    from p201 import make_p201
+    from p300 import make_p300
+    from p400 import make_p400
+    from p403 import make_p403
+    from p404 import make_p404
+    from p500 import make_p500
+    from p01 import make_p01
+    from p02 import make_p02
+    from std_c02 import make_std_c02
+    from std_c03 import make_std_c03
+    from std_c06 import make_std_c06
+    from std_c07 import make_std_c07
+    from std_f11 import make_std_f11
+    from std_f12 import make_std_f12
+
     assy = cq.Assembly()
 
-    # Colors
-    C_AL = cq.Color(0.15, 0.15, 0.18)       # 黑色阳极氧化铝
-    C_STEEL = cq.Color(0.5, 0.5, 0.52)      # 钢
-    C_BRONZE = cq.Color(0.7, 0.42, 0.2)     # 铜螺母
-    C_MOTOR = cq.Color(0.2, 0.2, 0.22)      # 电机
-    C_SILVER = cq.Color(0.75, 0.75, 0.78)   # 导向轴/轴承
-    C_BLUE = cq.Color(0.35, 0.55, 0.75)     # 动板（区分色）
+    # ── Colors (custom parts) ──
+    C_DARK = cq.Color(0.15, 0.15, 0.15)
+    C_SILVER = cq.Color(0.8, 0.8, 0.82)
+    C_AMBER = cq.Color(0.85, 0.65, 0.13)
+    C_BLUE = cq.Color(0.35, 0.55, 0.75)
+    C_GREEN = cq.Color(0.15, 0.5, 0.25)
+    C_BRONZE = cq.Color(0.7, 0.42, 0.2)
+    C_PURPLE = cq.Color(0.5, 0.18, 0.65)
+    C_RUBBER = cq.Color(0.1, 0.1, 0.1)
 
-    # ── 上固定板 ──
-    top_plate = make_top_plate()
-    assy.add(top_plate, name="SLP-100_top_plate", color=C_AL,
-             loc=cq.Location((0, 0, TOP_PLATE_Z_BOT)))
+    # ── Colors (standard/purchased parts) ──
+    C_STD_BEARING = cq.Color(0.6, 0.6, 0.65)
+    C_STD_CONN = cq.Color(0.25, 0.25, 0.25)
+    C_STD_MOTOR = cq.Color(0.75, 0.75, 0.78)
+    C_STD_SEAL = cq.Color(0.08, 0.08, 0.08)
+    C_STD_SENSOR = cq.Color(0.2, 0.2, 0.2)
 
-    # ── 左支撑条 ──
-    left_bar = make_support_bar()
-    assy.add(left_bar, name="SLP-200_left_bar", color=C_AL,
-             loc=cq.Location((LEFT_BAR_X_CENTER, 0, SUP_BAR_Z_BOT)))
+    # ═══════ Spatial layout — §4 diagonal pattern ═══════
+    # Origin: bottom plate top surface center (Z=0)
+    # Shaft XY positions:
+    #   LS1 (lead screw 1): (-60, +30)
+    #   LS2 (lead screw 2): (+60, -30) — motor-connected
+    #   GS1 (guide shaft 1): (+60, +30)
+    #   GS2 (guide shaft 2): (-60, -30)
 
-    # ── 右支撑条 (丝杠/导向轴孔 Y 对称翻转) ──
-    right_bar = make_support_bar()  # 简化：用相同形状
-    assy.add(right_bar, name="SLP-201_right_bar", color=C_AL,
-             loc=cq.Location((RIGHT_BAR_X_CENTER, 0, SUP_BAR_Z_BOT)))
+    # ── SLP-100 上固定板 ─────────────────────────────────────────────────────
+    # §2: 200×160×8 mm, board bottom Z=+272, centered at (0,0)
+    # Local: flat on XY, bottom at Z=0 → translate Z=+272
+    p_p100 = make_p100()
+    p_p100 = p_p100.translate((0.0, 0.0, 272.0))
+    assy.add(p_p100, name="SLP-100", color=C_DARK)
 
-    # ── 动板 (放在行程中位 Z=140) ──
-    mid_z = (STROKE_Z_MIN + STROKE_Z_MAX) / 2  # ≈139
-    mov_plate = make_moving_plate()
-    assy.add(mov_plate, name="SLP-300_moving_plate", color=C_BLUE,
-             loc=cq.Location((0, 0, mid_z)))
+    # ── SLP-200 左支撑条 ─────────────────────────────────────────────────────
+    # §3.1: 40(X)×260(Y)×15(Z) — but 260mm is the HEIGHT (vertical).
+    # Local: 40(X)×260(Y)×15(Z), bottom at Z=0.
+    # Need to rotate -90° around X so Y→Z (260mm becomes vertical height).
+    # After rotation: 40(X)×15(Y)×260(Z), bottom at Y=0→Z=0.
+    # Position: X=-80 (left side), Y=0, base at Z=0 (support bar bottom),
+    #   top at Z=260. §3.1 says Z=[-8, 0] for the 8mm plate, but the
+    #   visual table says 260mm tall. Using user spec: X=-80, Y=0, Z=[0,260].
+    p_p200 = make_p200()
+    p_p200 = p_p200.rotate((0, 0, 0), (1, 0, 0), -90)
+    p_p200 = p_p200.translate((-80.0, 0.0, 0.0))
+    assy.add(p_p200, name="SLP-200", color=C_DARK)
 
-    # ── 丝杠 ×2 ──
-    for name, x, y in [("LS1", -LS_X, LS_Y), ("LS2", LS_X, -LS_Y)]:
-        screw = make_lead_screw()
-        assy.add(screw, name=f"SLP-P01_{name}", color=C_STEEL,
-                 loc=cq.Location((x, y, SCREW_Z_BOT)))
+    # ── SLP-201 右支撑条 ─────────────────────────────────────────────────────
+    # Mirror of SLP-200 at X=+80
+    p_p201 = make_p201()
+    p_p201 = p_p201.rotate((0, 0, 0), (1, 0, 0), -90)
+    p_p201 = p_p201.translate((80.0, 0.0, 0.0))
+    assy.add(p_p201, name="SLP-201", color=C_DARK)
 
-    # ── 导向轴 ×2 ──
-    for name, x, y in [("GS1", GS_X, GS_Y), ("GS2", -GS_X, -GS_Y)]:
-        shaft = make_guide_shaft()
-        assy.add(shaft, name=f"SLP-P02_{name}", color=C_SILVER,
-                 loc=cq.Location((x, y, GUIDE_Z_BOT)))
+    # ── SLP-300 动板 ─────────────────────────────────────────────────────────
+    # §4: 160×120×8 mm, slides Z=+43 to +235. Mid-stroke ~Z=100.
+    # Local: flat on XY, bottom at Z=0 → translate Z=+100 (mid-stroke)
+    p_p300 = make_p300()
+    p_p300 = p_p300.translate((0.0, 0.0, 100.0))
+    assy.add(p_p300, name="SLP-300", color=C_AMBER)
 
-    # ── KFL001 ×4 ──
-    for label, x, y, z in [
-        ("upper_LS1", -LS_X, LS_Y, TOP_PLATE_Z_TOP),
-        ("upper_LS2", LS_X, -LS_Y, TOP_PLATE_Z_TOP),
-        ("lower_LS1", -LS_X, LS_Y, SUP_BAR_Z_TOP),
-        ("lower_LS2", LS_X, -LS_Y, SUP_BAR_Z_TOP),
-    ]:
-        kfl = make_kfl001()
-        assy.add(kfl, name=f"KFL001_{label}", color=C_SILVER,
-                 loc=cq.Location((x, y, z)))
+    # ── SLP-400 电机支架 ─────────────────────────────────────────────────────
+    # §8.2: 70×90×8 mm, hangs below right support bar bottom face.
+    # Local: flat on XY, bottom at Z=0, top at Z=+8.
+    # Assembly: top face at Z=-8 (flush with support bar bottom).
+    # Translate Z=-16 (top at -16+8=-8). Center at (+80, 0) per user spec.
+    p_p400 = make_p400()
+    p_p400 = p_p400.translate((80.0, 0.0, -16.0))
+    assy.add(p_p400, name="SLP-400", color=C_BLUE)
 
-    # ── T16 螺母 ×2 (在动板上) ──
-    for label, x, y in [("LS1", -LS_X, LS_Y), ("LS2", LS_X, -LS_Y)]:
-        nut = make_t16_nut()
-        nut_z = mid_z - (NUT_FLANGE_THICK - NUT_RECESS_DEPTH)  # 法兰嵌入沉台
-        assy.add(nut, name=f"T16_nut_{label}", color=C_BRONZE,
-                 loc=cq.Location((x, y, nut_z)))
+    # ── SLP-403 下限位传感器支架 ─────────────────────────────────────────────
+    # §9.2: L-shaped, foot at Z=0, arm rises to Z=+43.
+    # Mounts on left support bar. User says: left support bar, Z≈43.
+    # Position: (-80, 0), foot on support bar top face.
+    # The bracket's foot sits at Z=0 (support bar top surface), arm up.
+    # Translate to (-80, 0, 0).
+    p_p403 = make_p403()
+    p_p403 = p_p403.translate((-80.0, 0.0, 0.0))
+    assy.add(p_p403, name="SLP-403", color=C_GREEN)
 
-    # ── LM10UU ×2 ──
-    for label, x, y in [("GS1", GS_X, GS_Y), ("GS2", -GS_X, -GS_Y)]:
-        lm = make_lm10uu()
-        lm_z = mid_z + (PLATE_THICK - LM10UU_L) / 2  # 居中于板厚
-        assy.add(lm, name=f"LM10UU_{label}", color=C_SILVER,
-                 loc=cq.Location((x, y, lm_z)))
+    # ── SLP-404 上限位传感器支架 ─────────────────────────────────────────────
+    # §9.2: Inverted L, top face at Z=0 (mounting face), hangs down 32mm.
+    # Mounts at top plate bottom face Z=+272. Center at (-80, 0).
+    # Local: top at Z=0. Translate Z=+272.
+    p_p404 = make_p404()
+    p_p404 = p_p404.translate((-80.0, 0.0, 272.0))
+    assy.add(p_p404, name="SLP-404", color=C_GREEN)
 
-    # ── 电机支架 ──
-    bracket = make_motor_bracket()
-    assy.add(bracket, name="SLP-400_bracket", color=C_AL,
-             loc=cq.Location((RIGHT_BAR_X_CENTER, -LS_Y, BRACKET_Z_BOT)))
+    # ── SLP-500 同步带护罩 ───────────────────────────────────────────────────
+    # §10.2: 170×80×40 U-shaped, top at Z=0 local, extends down 40mm.
+    # Assembly: top at Z=-8 (bottom plate underside), centered at (0,0).
+    # Translate Z=-8.
+    p_p500 = make_p500()
+    p_p500 = p_p500.translate((0.0, 0.0, -8.0))
+    assy.add(p_p500, name="SLP-500", color=C_PURPLE)
 
-    # ── 电机 ──
-    motor = make_motor()
-    assy.add(motor, name="NEMA23_motor", color=C_MOTOR,
-             loc=cq.Location((LS_X, -LS_Y, MOTOR_Z_BOT)))
+    # ── SLP-P01 丝杠 ×2 ─────────────────────────────────────────────────────
+    # §5.1: 350mm total, bottom at Z=0 local.
+    # Assembly: bottom tip at Z=-48 per doc. Two instances at LS1 and LS2.
+    # LS1 at (-60, +30), LS2 at (+60, -30)
+    p_p01_ls1 = make_p01()
+    p_p01_ls1 = p_p01_ls1.translate((-60.0, 30.0, -48.0))
+    assy.add(p_p01_ls1, name="SLP-P01-LS1", color=C_SILVER)
 
-    # ── 联轴器 ──
-    coupler = make_coupler()
-    assy.add(coupler, name="L070_coupler", color=C_SILVER,
-             loc=cq.Location((LS_X, -LS_Y, -48)))  # Z=-48 to -18
+    p_p01_ls2 = make_p01()
+    p_p01_ls2 = p_p01_ls2.translate((60.0, -30.0, -48.0))
+    assy.add(p_p01_ls2, name="SLP-P01-LS2", color=C_SILVER)
 
-    # ── GT2 带轮 ×2 ──
-    for label, x, y in [("LS1", -LS_X, LS_Y), ("LS2", LS_X, -LS_Y)]:
-        pulley = make_pulley()
-        assy.add(pulley, name=f"GT2_pulley_{label}", color=C_STEEL,
-                 loc=cq.Location((x, y, PULLEY_Z_BOT)))
+    # ── SLP-P02 导向轴 ×2 ───────────────────────────────────────────────────
+    # §5.2: 296mm total, bottom at Z=0 local.
+    # Assembly: bottom tip at Z=-12 per doc. Two instances at GS1 and GS2.
+    # GS1 at (+60, +30), GS2 at (-60, -30)
+    p_p02_gs1 = make_p02()
+    p_p02_gs1 = p_p02_gs1.translate((60.0, 30.0, -12.0))
+    assy.add(p_p02_gs1, name="SLP-P02-GS1", color=C_SILVER)
+
+    p_p02_gs2 = make_p02()
+    p_p02_gs2 = p_p02_gs2.translate((-60.0, -30.0, -12.0))
+    assy.add(p_p02_gs2, name="SLP-P02-GS2", color=C_SILVER)
+
+    # ── SLP-C02 LM10UU 直线轴承 ×2 ──────────────────────────────────────────
+    # On guide shafts at moving plate height. GS1(+60,+30), GS2(-60,-30).
+    # Moving plate bottom at Z=100, plate 8mm thick → center ~Z=104.
+    p_std_c02_gs1 = make_std_c02()
+    p_std_c02_gs1 = p_std_c02_gs1.translate((60.0, 30.0, 100.0))
+    assy.add(p_std_c02_gs1, name="STD-SLP-C02-GS1", color=C_STD_BEARING)
+
+    p_std_c02_gs2 = make_std_c02()
+    p_std_c02_gs2 = p_std_c02_gs2.translate((-60.0, -30.0, 100.0))
+    assy.add(p_std_c02_gs2, name="STD-SLP-C02-GS2", color=C_STD_BEARING)
+
+    # ── SLP-C03 KFL001 轴承座 ×4 ────────────────────────────────────────────
+    # 4 units: bottom of each shaft (Z=0) and top of each shaft (Z=272).
+    # Bottom pair at LS1(-60,+30) and LS2(+60,-30), top face at Z=0.
+    # Top pair at LS1(-60,+30) and LS2(+60,-30), bottom face at Z=272.
+    p_std_c03_ls1_bot = make_std_c03()
+    p_std_c03_ls1_bot = p_std_c03_ls1_bot.translate((-60.0, 30.0, 0.0))
+    assy.add(p_std_c03_ls1_bot, name="STD-SLP-C03-LS1-BOT", color=C_STD_BEARING)
+
+    p_std_c03_ls2_bot = make_std_c03()
+    p_std_c03_ls2_bot = p_std_c03_ls2_bot.translate((60.0, -30.0, 0.0))
+    assy.add(p_std_c03_ls2_bot, name="STD-SLP-C03-LS2-BOT", color=C_STD_BEARING)
+
+    p_std_c03_ls1_top = make_std_c03()
+    p_std_c03_ls1_top = p_std_c03_ls1_top.translate((-60.0, 30.0, 280.0))
+    assy.add(p_std_c03_ls1_top, name="STD-SLP-C03-LS1-TOP", color=C_STD_BEARING)
+
+    p_std_c03_ls2_top = make_std_c03()
+    p_std_c03_ls2_top = p_std_c03_ls2_top.translate((60.0, -30.0, 280.0))
+    assy.add(p_std_c03_ls2_top, name="STD-SLP-C03-LS2-TOP", color=C_STD_BEARING)
+
+    # ── SLP-C06 L070 联轴器 ─────────────────────────────────────────────────
+    # Below motor at LS2 position. §1.2: top at Z=-30, bottom at Z=-48.
+    # Local: bottom at Z=0, 25mm tall. Translate to Z=-48 (bottom).
+    # Actually coupler top=Z=-30, L=18mm per doc spacing. Simplified model
+    # is 25mm. Place bottom at Z=-48: translate Z=-48.
+    p_std_c06 = make_std_c06()
+    p_std_c06 = p_std_c06.translate((60.0, -30.0, -48.0))
+    assy.add(p_std_c06, name="STD-SLP-C06", color=C_STD_CONN)
+
+    # ── SLP-C07 NEMA23 电机 ─────────────────────────────────────────────────
+    # Below platform at LS2 position. Motor hangs below, shaft pointing up.
+    # Local: body Z=[0,50], shaft Z=[50,62]. Shaft tip connects coupler
+    # bottom at Z=-48. Translate: tz = -48 - 62 = -110.
+    # Result: motor body Z=[-110,-60], shaft tip at Z=-48.
+    p_std_c07 = make_std_c07()
+    p_std_c07 = p_std_c07.translate((60.0, -30.0, -110.0))
+    assy.add(p_std_c07, name="STD-SLP-C07", color=C_STD_MOTOR)
+
+    # ── SLP-F11 PU 缓冲垫 ───────────────────────────────────────────────────
+    # PU bumper pads at lower stroke limit. On support bar top face.
+    # Place near the lower travel limit area, centered.
+    p_std_f11 = make_std_f11()
+    p_std_f11 = p_std_f11.translate((0.0, 0.0, 36.0))
+    assy.add(p_std_f11, name="STD-SLP-F11", color=C_STD_SEAL)
+
+    # ── SLP-F12 M8 接近开关 ×2 ──────────────────────────────────────────────
+    # Proximity sensors on left support bar, detecting moving plate side face.
+    # Lower sensor at Z≈43, upper at Z≈240.
+    # Sensor is cylinder along +Z, 12mm tall. Mount horizontally (along +X)
+    # to detect moving plate −X face. Rotate 90° around Y.
+    # Lower sensor near SLP-403 bracket.
+    p_std_f12_low = make_std_f12()
+    p_std_f12_low = p_std_f12_low.rotate((0, 0, 0), (0, 1, 0), -90)
+    p_std_f12_low = p_std_f12_low.translate((-80.0, 0.0, 43.0))
+    assy.add(p_std_f12_low, name="STD-SLP-F12-LOW", color=C_STD_SENSOR)
+
+    p_std_f12_high = make_std_f12()
+    p_std_f12_high = p_std_f12_high.rotate((0, 0, 0), (0, 1, 0), -90)
+    p_std_f12_high = p_std_f12_high.translate((-80.0, 0.0, 240.0))
+    assy.add(p_std_f12_high, name="STD-SLP-F12-HIGH", color=C_STD_SENSOR)
 
     return assy
 
@@ -225,7 +257,6 @@ def make_assembly() -> cq.Assembly:
 def export_assembly(output_dir: str, glb: bool = True) -> str:
     """Build and export the full assembly STEP (and optionally GLB)."""
     assy = make_assembly()
-    os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "SLP-000_assembly.step")
     assy.save(path, "STEP")
     print(f"Exported: {path}")
@@ -237,6 +268,6 @@ def export_assembly(output_dir: str, glb: bool = True) -> str:
 
 
 if __name__ == "__main__":
-    out = os.path.join(os.path.dirname(__file__), "..", "..", "output", "lifting_platform")
+    out = os.path.join(os.path.dirname(__file__), "..", "output")
     os.makedirs(out, exist_ok=True)
     export_assembly(out)
