@@ -541,7 +541,8 @@ def generate_assembly(spec_path: str) -> str:
     std_colors_used = {}  # track which std colors we need
 
     # C1: Extract per-assembly pose from §6.2 (keyed by part number)
-    station_poses = _extract_station_pose(pose)
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    part_offsets = _resolve_child_offsets(parts, layer_poses)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
@@ -584,12 +585,16 @@ def generate_assembly(spec_path: str) -> str:
                 local_xform, orient_ref = _axis_dir_to_local_transform(
                     station_axis_dir, var_name, child["name_cn"])
 
+                offset = part_offsets.get(child["part_no"])
+                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
+                              if offset and offset != (0, 0, 0) else "")
                 station_parts.append({
                     "var": var_name,
                     "make_call": f"{std_func}()",
                     "local_transform": local_xform,
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
+                    "local_offset": offset_str,
                     "assy_name": f"STD-{child['part_no']}",
                     "color_var": color_info[0],
                 })
@@ -609,12 +614,16 @@ def generate_assembly(spec_path: str) -> str:
                 local_xform, orient_ref = _axis_dir_to_local_transform(
                     station_axis_dir, var_name, child["name_cn"])
 
+                offset = part_offsets.get(child["part_no"])
+                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
+                              if offset and offset != (0, 0, 0) else "")
                 station_parts.append({
                     "var": var_name,
                     "make_call": f"{ee_func}()",
                     "local_transform": local_xform,
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
+                    "local_offset": offset_str,
                     "assy_name": f"{prefix_short}-{suffix}-{c_suffix}",
                     "color_var": c_color,
                 })
@@ -628,18 +637,29 @@ def generate_assembly(spec_path: str) -> str:
             std_part_imports.append(si)
 
         # C2: Look up this assembly's pose by part number from §6.2
-        sp = station_poses.get(pno, {})
-        is_radial = "angle" in sp and "radius" in sp
+        sp = layer_poses.get(pno, {})
+        is_radial = sp.get("r") is not None and sp.get("theta") is not None
 
         station_entry = {
             "name_cn": name,
-            "angle": sp.get("angle", 0.0),
+            "angle": sp.get("theta", 0.0),
             "is_radial": is_radial,
             "parts": station_parts,
         }
         if is_radial:
-            station_entry["mount_radius"] = sp["radius"]
-            station_entry["base_z"] = sp.get("z", 0.0)
+            station_entry["mount_radius"] = sp["r"]
+            station_entry["base_z"] = sp.get("z") or 0.0
+
+        if not is_radial and not any(
+            layer_poses.get(c["part_no"], {}).get("z") is not None
+            for c in children
+        ):
+            orphan_z = 100.0
+            for part_dict in station_parts:
+                if not part_dict.get("local_offset"):
+                    part_dict["local_offset"] = f"(0, 0, {orphan_z})"
+                    orphan_z += 30.0
+
         stations.append(station_entry)
 
         color_idx += 1
