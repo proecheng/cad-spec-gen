@@ -339,6 +339,8 @@ def _parse_dims_text(text: str):
 
 
 _STACK_GAP_MM = 2.0
+_MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
+_ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
 
 
 def _infer_stack_direction(axis_dir: str) -> tuple:
@@ -423,6 +425,15 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
         assy_axis_dir = assy_pose.get("axis_dir", "")
         default_direction = _infer_stack_direction(assy_axis_dir)
 
+        # Detect orphan assembly (no §6.2 positioning at all)
+        is_orphan = (assy_pose.get("r") is None and
+                     assy_pose.get("theta") is None and
+                     assy_pose.get("z") is None and
+                     not assy_pose.get("is_origin", False))
+
+        if is_orphan:
+            default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
+
         auto_queue = []
         for child in children:
             cpno = child["part_no"]
@@ -452,7 +463,7 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
 
         for direction, group in direction_groups.items():
             group.sort(key=lambda c: _stack_sort_key(c, dims_map, direction))
-            cursor = 0.0  # positive scalar distance
+            cursor = _ORPHAN_BASE_Z if is_orphan else 0.0
             for child in group:
                 cpno = child["part_no"]
                 dims = dims_map.get(cpno)
@@ -462,7 +473,8 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
                 dy = round(direction[1] * center, 1)
                 dz = round(direction[2] * center, 1)
                 result[cpno] = (dx, dy, dz)
-                cursor += extent + _STACK_GAP_MM
+                gap = 0.0 if cursor > _MAX_STACK_DEPTH_MM else _STACK_GAP_MM
+                cursor += extent + gap
 
     return result
 
@@ -617,16 +629,6 @@ def generate_assembly(spec_path: str) -> str:
         if is_radial:
             station_entry["mount_radius"] = sp["r"]
             station_entry["base_z"] = sp.get("z") or 0.0
-
-        if not is_radial and not any(
-            layer_poses.get(c["part_no"], {}).get("z") is not None
-            for c in children
-        ):
-            orphan_z = 100.0
-            for part_dict in station_parts:
-                if not part_dict.get("local_offset"):
-                    part_dict["local_offset"] = f"(0, 0, {orphan_z})"
-                    orphan_z += 30.0
 
         stations.append(station_entry)
 
