@@ -259,6 +259,40 @@ def resolve_all_materials(config):
     return result
 
 
+def resolve_bom_materials(config, resolved_materials=None):
+    """Build bom_id→material mapping from components section.
+
+    Bridges the components (with bom_id) to materials (with PBR presets)
+    via the component's 'material' field. Falls back to comp_key as
+    material name if no explicit 'material' field.
+
+    Args:
+        config: parsed render_config.json dict
+        resolved_materials: pre-resolved {pattern: PBR_params} dict,
+            or None to resolve from config
+
+    Returns:
+        {normalized_bom_id: material_key} dict.
+        Normalized = project prefix stripped, lowercased (e.g. "ee-001").
+    """
+    import re as _re
+    if resolved_materials is None:
+        resolved_materials = resolve_all_materials(config)
+
+    result = {}
+    for comp_key, comp in config.get("components", {}).items():
+        if isinstance(comp, str) or comp_key.startswith("_"):
+            continue
+        bom_id = comp.get("bom_id", "")
+        mat_key = comp.get("material", comp_key)
+        if not bom_id or mat_key not in resolved_materials:
+            continue
+        # Normalize: strip project prefix (GIS-EE-001 → EE-001 → ee-001)
+        normalized = _re.sub(r'^[A-Z]+-', '', bom_id).lower()
+        result[normalized] = mat_key
+    return result
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Camera helpers
 # ═════════════════════════════════════════════════════════════════════════════

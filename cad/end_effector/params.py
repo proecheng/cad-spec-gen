@@ -3,7 +3,7 @@ end_effector Parametric Dimensions — Single Source of Truth
 
 Auto-generated from CAD_SPEC.md by codegen/gen_params.py
 Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
-Generated: 2026-04-03 20:15
+Generated: 2026-04-04 11:58
 
 All values extracted from design document (? lines).
 Units: mm, degrees, grams unless noted.

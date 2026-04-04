@@ -4,7 +4,7 @@ Build All — One-click STEP + DXF generation for 末端执行机构.
 
 Auto-generated scaffold by codegen/gen_build.py
 Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
-Generated: 2026-04-03 20:15
+Generated: 2026-04-04 11:58
 
 Usage:
     python cad/end_effector/build_all.py
