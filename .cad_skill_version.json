@@ -4,6 +4,7 @@
   "installed_at": "2026-04-03T22:57:54.198142",
   "lang": "zh",
   "files": {
+    "render_config.py": "bab2aac25c0abe3b3f634d755a6a9a06",
     "cad_pipeline.py": "c302f318d86242b7e4ed8e00713bd870",
     "cad_spec_gen.py": "d40547828e5ac8e00f51e82387707b0d",
     "cad_spec_extractors.py": "c39fbb9c002c84a1edb70882e17fa9a6",

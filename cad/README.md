@@ -27,7 +27,8 @@ cad/
 │   ├── ee_006_01.py           GIS-EE-006-01 信号调理壳体
 │   ├── ee_006_03.py           GIS-EE-006-03 信号调理安装支架
 │   ├── std_ee_*.py (×22)      外购件简化几何（电机/传感器/储罐等）
-│   ├── assembly.py            顶层装配（含方向变换，从§6.2自动生成）
+│   ├── assembly.py            顶层装配（逐零件偏移 + 工位径向变换，从§6.2自动生成）
+│   ├── render_config.py       渲染配置引擎（15材质预设 + 材料桥接）
 │   ├── build_all.py           构建调度（STD STEP + DXF）
 │   ├── drawing.py             ezdxf 2D工程图引擎
 │   └── draw_three_view.py     GB/T三视图图框（ThreeViewSheet）
@@ -75,9 +76,11 @@ python cad/end_effector/build_all.py
 ## 建模精度说明
 
 **脚手架阶段**（codegen 生成）：
-- 自制件为占位方块几何（需通过 `/mechdesign` 手动实现实际形状）
+- 自制件为近似几何（cylinder/ring/disc_arms/l_bracket/box 按 BOM 尺寸+关键词推断）
 - 标准件为简化圆柱/方盒（尺寸从 BOM 自动提取，方向从 §6.2 自动推导）
-- 装配定位正确（工位角度、安装半径、储罐水平/竖直方向）
+- 线缆/线束超出装配包络时自动截短至可视化尺寸（v2.2.3+）
+- 装配定位两层架构（v2.2.3+）：逐零件 translate() 偏移 + 工位级 _station_transform 径向定位
+- 材料桥接（v2.2.3+）：render_config.py resolve_bom_materials() 自动从 BOM 推导 PBR 材质
 - 2D 工程图仅有图框和标题栏（视图待实现几何后填充）
 
 **精细建模阶段**（mechdesign / SolidWorks）：

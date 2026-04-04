@@ -157,6 +157,11 @@ Step 2: Code generation + parametric modeling
   python cad_pipeline.py codegen --subsystem <name>
   → Generates params.py / build_all.py / station_*.py / assembly.py scaffolds
   (Note: scaffolds are incomplete — manually complete geometry logic before entering BUILD)
+  New in v2.2.3: assembly.py now generates per-part offset positioning
+  (translate() calls with Z-axis offsets derived from CAD_SPEC.md §6.2),
+  on top of station-level radial transforms (_station_transform).
+  Standard parts with unrealistic dimensions (e.g. cable length > assembly
+  envelope) are auto-capped to visualization-friendly sizes.
   Run /mechdesign <subsystem_name> to launch interactive full workflow
 
 Step 3: Full pipeline
@@ -198,6 +203,16 @@ Custom example (render_config.json):
     "flange*": {"preset": "brushed_aluminum"},
     "sensor*": {"color": [0.2, 0.3, 0.8, 1.0], "metallic": 0.5, "roughness": 0.3}
   }
+
+Material Bridging (v2.2.3+):
+  render_config.py provides resolve_bom_materials(config) — builds a
+  bom_id → component → material lookup chain so the rendering pipeline
+  can automatically derive PBR materials from design-document BOM entries.
+  Lookup: BOM part ID (e.g. GIS-EE-001-01) → components section (bom_id match)
+         → material field → materials section (preset/custom PBR params).
+  Auto-generation: render_config.py can auto-create materials + components
+  entries from BOM part-level data when they are missing, with consistency
+  validation to catch orphan references.
 ```
 
 ### 6. camera — Camera Configuration
@@ -435,8 +450,14 @@ A: 1. Check cad/<subsystem>/CAD_SPEC.md §6.2 — if it says "暂无数据",
       (spec generates §6.2 data; codegen reads it for assembly transforms)
    2. Check assembly.py — if all stations show (0.0°) with no transforms,
       §6.2 data was not consumed; re-run codegen after spec --force
-   3. Check ee_*.py files — codegen generates approximate geometry
+   3. Check assembly.py per-part offsets — each part should have a
+      translate() call before _station_transform(). Missing offsets cause
+      parts to stack at origin. Re-run codegen --force to regenerate.
+   4. Check ee_*.py files — codegen generates approximate geometry
       (cylinder/ring/disc based on BOM dimensions); refine manually if needed
+   5. Check std_*.py files — cables/harnesses with unrealistic lengths
+      (e.g. 500mm FFC in a 300mm assembly) are auto-capped to ~30mm for
+      visualization; if yours still look wrong, re-run codegen --force
 
 Q: Gemini enhanced image looks completely different from source PNG
 A: The enhance pipeline has a quality gate that skips blank/near-empty renders.
@@ -454,7 +475,7 @@ A: The enhance pipeline has a quality gate that skips blank/near-empty renders.
 cad/<subsystem>/                   ← Each subsystem has its own directory
 ├── params.py                      ← Single source of truth for parameters
 ├── *.py                           ← 3D model scripts (parts/assemblies)
-├── assembly.py                    ← Main assembly → STEP + GLB
+├── assembly.py                    ← Main assembly → STEP + GLB (per-part offsets + station transforms)
 ├── drawing.py                     ← 2D engineering drawing engine (GB/T national standard)
 ├── draw_*.py                      ← Engineering drawings per part
 ├── render_dxf.py                  ← DXF→PNG conversion

@@ -79,6 +79,11 @@
 
 **装配定位**（v2.2.1+）：`gen_assembly.py` 从 §6.2 `偏移(Z/R/θ)` 列按 GIS-XX-NNN 料号匹配各总成的定位参数（`θ=NNN°` 角度、`R=NNNmm` 半径、`Z=±NNNmm` 轴向偏移），以数值字面量写入 `assembly.py` 模板（如 `_tx = 65.0 * math.cos(_rad)`），不依赖 params.py 中的参数名。无 θ=/R= 数据的总成（如法兰总成）自动跳过径向变换。
 
+**逐零件偏移定位**（v2.2.3+）：`gen_assembly.py` 现在为每个零件生成独立的 `translate()` 调用（Z 轴偏移来自 §6.2 每行的偏移数据），置于 `_station_transform()` 之前。两层定位架构：
+1. **零件级偏移**（translate）：零件在总成局部坐标系内的轴向偏移（如 `p.translate((0, 0, -27.0))`）
+2. **工位级径向变换**（_station_transform）：总成整体的径向旋转 + 径向平移
+无偏移数据的零件保持原点对齐。
+
 **方向变换**：`gen_assembly.py` 读取 §6.2 的 `轴线方向` 列，按零件名匹配子句（如 "壳体轴沿-Z，储罐轴∥XY"），对需要旋转的零件生成 `rotate()` 代码。优先级：盘面∥XY / 环∥XY → 无旋转 > 沿-Z / 垂直 → 无旋转 > ∥XY / 水平 → 绕X轴转90°。
 
 **SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
@@ -102,6 +107,7 @@
 | tank | 圆柱 | 不锈钢储罐 |
 
 - 跳过 `fastener`（太小）和 `cable`（柔性体）
+- **线缆/线束限长**（v2.2.3+）：外购件中线缆长度超出装配包络时自动截短至可视化尺寸（如 FFC 500mm → 30mm），防止装配体被拉伸变形
 - **尺寸三级查找**: `cad_spec_defaults.py` → `lookup_std_part_dims()`:
   1. 型号匹配（如 `GP22C` → d=22, l=35）
   2. 正则提取 BOM 材质字段中的 `Φd×l` / `w×h×l` 模式（如 `Φ25×110mm` → d=25, l=110）

@@ -56,7 +56,7 @@ DESIGN_REVIEW.md (issues & recommendations, user iterates or proceeds)
     ↓ cad_spec_gen.py — extract 9 categories of structured data
 CAD_SPEC.md (single source of truth for all downstream CAD work)
     ↓ codegen/gen_*.py — Jinja2 templates → CadQuery scaffolds
-params.py + build_all.py + station_*.py + std_*.py + assembly.py
+params.py + build_all.py + station_*.py + std_*.py + assembly.py (per-part offsets + station transforms)
     ↓ CadQuery parametric modeling
 STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
     ↓ render_dxf.py — auto DXF→PNG engineering drawing previews (if script exists)
@@ -128,11 +128,12 @@ Labeled PNG — with leader lines and component names
 │  3. CODE GENERATION (Jinja2)                                      │
 │     CAD_SPEC.md → codegen/gen_*.py → params.py + build_all.py   │
 │     + station_*.py scaffolds + std_*.py (standard parts)         │
-│     + assembly.py (with standard parts integrated)               │
+│     + assembly.py (per-part offsets + station radial transforms)  │
 │     Templates: templates/*.j2 (scaffold mode, never overwrites) │
 │     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
 │     build_all.py needs valid module refs, assembly.py needs       │
 │     hand-written mate logic. Complete before Phase 4.             │
+│     v2.2.3: cable/harness lengths auto-capped for visualization  │
 │  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
@@ -151,6 +152,7 @@ Labeled PNG — with leader lines and component names
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
 │     Standard parts: simplified shapes → realistic appearance    │
+│     Material bridging: bom_id→component→material auto-lookup    │
 │     Model: configurable via pipeline_config.json (Nano Banana)  │
 │                                                                 │
 │  Output:  PNG → engineering review / machining reference        │
@@ -198,6 +200,7 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 - **15 PBR material presets**: brushed aluminum, PEEK, carbon fiber, rubber, glass, etc.
 - **Exploded views**: radial / axial / custom explosion with assembly lines
 - **Config-driven**: `render_config.json` controls materials, cameras, explosion rules
+- **Material bridging**: `resolve_bom_materials()` auto-derives PBR materials from BOM part IDs via bom_id→component→material lookup chain; auto-creates missing entries with consistency validation
 
 ### AI Enhancement (Hybrid Rendering)
 - **Geometry-locked**: Blender PNG provides exact geometry; AI only changes surface appearance

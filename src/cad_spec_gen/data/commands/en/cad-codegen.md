@@ -79,6 +79,11 @@ Template `part_module.py.j2` dispatches CadQuery code generation by `geom_type` 
 
 **Assembly positioning** (v2.2.1+): `gen_assembly.py` reads §6.2 `Offset (Z/R/theta)` column, matching each assembly's positioning parameters by GIS-XX-NNN part number (theta=NNN deg angle, R=NNNmm radius, Z=+/-NNNmm axial offset), and writes numeric literals into the `assembly.py` template (e.g. `_tx = 65.0 * math.cos(_rad)`), without depending on parameter names in params.py. Assemblies without theta=/R= data (e.g. flange assemblies) automatically skip radial transforms.
 
+**Per-part offset positioning** (v2.2.3+): `gen_assembly.py` now generates individual `translate()` calls for each part (Z-axis offsets from §6.2 per-row offset data), placed before `_station_transform()`. Two-layer positioning architecture:
+1. **Part-level offset** (translate): axial offset within the assembly local coordinate system (e.g. `p.translate((0, 0, -27.0))`)
+2. **Station-level radial transform** (_station_transform): radial rotation + radial translation of the entire assembly
+Parts without offset data remain origin-aligned.
+
 **Direction transform**: `gen_assembly.py` reads the `Axis direction` column from §6.2, matching clauses by part name (e.g. "shell axis along -Z, tank axis parallel to XY"), and generates `rotate()` code for parts that need rotation. Priority: disc parallel to XY / ring parallel to XY → no rotation > along -Z / vertical → no rotation > parallel to XY / horizontal → rotate 90 deg around X axis.
 
 **SPEC deployment** (v2.2.1+): After `cad_pipeline.py spec` succeeds, it automatically copies `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` to `cad/<subsystem>/`, ensuring codegen always reads the latest SPEC version.
@@ -102,6 +107,7 @@ Template `part_module.py.j2` dispatches CadQuery code generation by `geom_type` 
 | tank | Cylinder | Stainless tank |
 
 - Skips `fastener` (too small) and `cable` (flexible body)
+- **Cable/harness length capping** (v2.2.3+): Purchased cables with lengths exceeding the assembly envelope are auto-capped to visualization-friendly sizes (e.g. FFC 500mm → 30mm), preventing assembly distortion
 - **Three-tier dimension lookup**: `cad_spec_defaults.py` → `lookup_std_part_dims()`:
   1. Model matching (e.g. `GP22C` → d=22, l=35)
   2. Regex extraction of `Phi-d x l` / `w x h x l` patterns from BOM material field (e.g. `Phi25x110mm` → d=25, l=110)

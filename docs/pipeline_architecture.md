@@ -65,11 +65,17 @@ CAD_SPEC.md
         ├─► gen_build.py     → build_all.py    （STEP/DXF导出主脚本）
         ├─► gen_parts.py     → <part>.py ×N   （每个零件的CadQuery模板）
         ├─► gen_std_parts.py → std_<part>.py  （标准件/外购件简化几何模板）
-        └─► gen_assembly.py  → assembly.py    （装配体，含 _station_transform）
+        └─► gen_assembly.py  → assembly.py    （装配体，含 _station_transform + 逐零件偏移）
 
 模式：
   --mode scaffold  仅生成骨架（不覆盖已有文件）
   --mode force     强制覆盖
+
+v2.2.3 新增：
+  - assembly.py 两层定位：零件级 translate()（§6.2 逐行偏移）+ 工位级 _station_transform（径向旋转+平移）
+  - 标准件线缆/线束超出装配包络时自动截短至可视化尺寸
+  - render_config.py: resolve_bom_materials() 材料桥接 bom_id→component→material 查找链
+  - render_config.py: 自动从 BOM 创建缺失的 materials + components 条目，含一致性校验
 ```
 
 **CadQuery 编码模板（防止脑补的关键约束）：**
@@ -105,16 +111,18 @@ def make_<part_name>() -> cq.Workplane:
     return body
 ```
 
-`assembly.py` 的每个 local_transform 块必须包含（来自 `assembly.py.j2`）：
+`assembly.py` 的每个零件定位包含两层变换（来自 `assembly.py.j2`）：
 
 ```python
+# Layer 1: Per-part offset (from §6.2 per-row Z offset)
+<part> = make_<part>()
+<part> = <part>.translate((0, 0, -27.0))          # 零件级轴向偏移
+
+# Layer 2: Optional orientation + station-level radial transform
 # Orient: Per §N.N.N L<行号>: <零件>轴线∥<平面/方向>
 # Rule:   e.g. "tank axis radial (+Y) per §4.1.2 L176 — rotate X+90deg"
-<part> = (
-    make_<part>()
-    .rotate((0,0,0), (1,0,0), 90)   # +Z → +Y (radial outward)
-    .translate((x, y, z))           # flush to +Y wall at mid-height
-)
+<part> = <part>.rotate((0,0,0), (1,0,0), 90)      # +Z → +Y (radial outward)
+<part> = _station_transform(<part>, _a, _tx, _ty, _tz)  # 工位级径向定位
 ```
 ```
 

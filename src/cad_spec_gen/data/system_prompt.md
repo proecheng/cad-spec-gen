@@ -22,14 +22,14 @@ DESIGN_REVIEW.md (力学/装配/材质/完整性 校验报告)
     ↓ cad_spec_gen.py — generate normalized spec
 CAD_SPEC.md (single source of truth — never modify user's original doc)
     ↓ [Phase 2: CODEGEN] codegen/gen_*.py — Jinja2 templates → CadQuery scaffolds
-params.py + build_all.py + station_*.py scaffolds + assembly.py
+params.py + build_all.py + station_*.py scaffolds + assembly.py (per-part offsets + station transforms)
     ↓ [Phase 3: BUILD] build_all.py — CadQuery parametric modeling
 STEP + DXF (GB/T 2D drawings) + GLB
     ↓ [Post-Build] render_dxf.py — auto DXF→PNG (if script exists)
 DXF PNG previews (engineering drawing review)
     ↓ [Phase 4: RENDER] Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
-    ↓ [Phase 5: ENHANCE] Gemini AI enhancement (reskin only, geometry locked)
+    ↓ [Phase 5: ENHANCE] Gemini AI enhancement (reskin only, geometry locked) + material bridging (bom_id→component→material)
 Photorealistic PNG — presentation / defense / business plan ready
     ↓ [Phase 6: ANNOTATE] cad_pipeline.py annotate — PIL component labels (CN/EN)
 Labeled PNG — with leader lines and component names
