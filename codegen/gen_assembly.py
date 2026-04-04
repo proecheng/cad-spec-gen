@@ -276,6 +276,90 @@ def _extract_origin_axis(pose: dict) -> tuple:
     return origin_desc, axis_desc
 
 
+def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
+    """Match §6.2 part_text against BOM entries by name keywords.
+
+    Splits part_text into Chinese character runs and tries to match
+    each BOM entry's name_cn. Returns list of matched part_no strings.
+    """
+    keywords = re.findall(r"[\u4e00-\u9fff]{2,}", part_text)
+    if not keywords:
+        return []
+    matched = []
+    for part in bom_parts:
+        if part.get("is_assembly"):
+            continue
+        name = part.get("name_cn", "")
+        for kw in keywords:
+            if kw in name:
+                matched.append(part["part_no"])
+                break
+    return matched
+
+
+def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
+    """Extract per-part positioning from §6.2 layer stacking table.
+
+    Captures ALL positioning data including Z-only offsets.
+    For rows without a GIS-XX-NNN part number, falls back to
+    name-keyword matching against bom_parts.
+
+    Returns {part_no: {"z": float|None, "r": float|None, "theta": float|None,
+                        "axis_dir": str, "is_origin": bool}}.
+    """
+    if bom_parts is None:
+        bom_parts = []
+    result = {}
+
+    for layer in pose.get("layers", []):
+        part_text = layer.get("part", "")
+        offset_text = layer.get("offset", "")
+        axis_dir = layer.get("axis_dir", "")
+
+        # Skip rows with no useful offset
+        if not offset_text or offset_text.strip() in ("—", "-", ""):
+            m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+            if m_pno:
+                result.setdefault(m_pno.group(1), {
+                    "z": None, "r": None, "theta": None,
+                    "axis_dir": axis_dir, "is_origin": False})
+            continue
+
+        entry = {"z": None, "r": None, "theta": None,
+                 "axis_dir": axis_dir, "is_origin": False}
+
+        if "基准" in offset_text or "原点" in offset_text:
+            entry["z"] = 0.0
+            entry["is_origin"] = True
+
+        m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset_text)
+        if m_z:
+            entry["z"] = float(m_z.group(1))
+
+        if entry["z"] is None:
+            m_z0 = re.search(r"Z\s*=\s*0(?:\s*\(|$)", offset_text)
+            if m_z0:
+                entry["z"] = 0.0
+
+        m_r = re.search(r"R\s*[=≈]\s*(\d+(?:\.\d+)?)\s*mm", offset_text)
+        if m_r:
+            entry["r"] = float(m_r.group(1))
+
+        m_theta = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)\s*°?", offset_text)
+        if m_theta:
+            entry["theta"] = float(m_theta.group(1))
+
+        m_pno = re.search(r"(GIS-\w+-\d+(?:-\d+)?)", part_text)
+        if m_pno:
+            result[m_pno.group(1)] = entry
+        else:
+            matched_pnos = _match_bom_by_keywords(part_text, bom_parts)
+            for pno in matched_pnos:
+                result[pno] = dict(entry)
+
+    return result
+
+
 def generate_assembly(spec_path: str) -> str:
     """Generate assembly.py scaffold content."""
     parts = parse_bom_tree(spec_path)
