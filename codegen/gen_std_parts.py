@@ -110,11 +110,11 @@ def _gen_pump(dims: dict) -> str:
 
 def _gen_connector(dims: dict) -> str:
     d = dims.get("d", 10)
-    l = dims.get("l", 25)
+    l = min(dims.get("l", 25), 50)  # cap for assembly visualization
     if "w" in dims:
         w = dims["w"]
         h = dims.get("h", 3)
-        l = dims.get("l", 8)
+        l = min(dims.get("l", 8), 50)
         return f"""    # Simplified flat connector
     body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
     return body"""
