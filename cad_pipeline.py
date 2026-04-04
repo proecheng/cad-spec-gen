@@ -436,19 +436,33 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                 break
 
         if existing:
-            # Already exists under a different key — just ensure material link
+            # Already exists — ensure material link AND materials entry
             comp = components[existing]
-            if "material" not in comp:
-                mat_key = existing
-                if mat_key not in materials:
-                    # Try fuzzy: existing key as prefix of some material
-                    candidates = [mk for mk in materials if mk.startswith(existing)]
-                    if len(candidates) == 1:
-                        mat_key = candidates[0]
-                    elif existing in materials:
-                        mat_key = existing
-                comp.setdefault("material", mat_key)
-                changed = True
+            mat_key = comp.get("material", existing)
+            if mat_key not in materials:
+                # Try fuzzy: existing key as prefix of some material
+                candidates = [mk for mk in materials if mk.startswith(existing)]
+                if len(candidates) == 1:
+                    mat_key = candidates[0]
+                else:
+                    # Create materials entry from BOM child material field
+                    children = [p for p in parts
+                                if p["part_no"].startswith(pno + "-")
+                                and not p["is_assembly"]]
+                    preset = "brushed_aluminum"
+                    for child in children:
+                        mat_text = child.get("material", "")
+                        for keyword, p_name in _MAT_PRESET.items():
+                            if keyword in mat_text:
+                                preset = p_name
+                                break
+                        else:
+                            continue
+                        break
+                    materials[mat_key] = {"preset": preset, "label": name_cn}
+                    changed = True
+            comp["material"] = mat_key
+            changed = True
             continue
 
         # New component — create both entries with same key

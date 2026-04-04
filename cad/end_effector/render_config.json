@@ -99,6 +99,14 @@
         "roughness": 0.7
       },
       "label": "Gimbal rubber"
+    },
+    "ae_sensor": {
+      "preset": "black_rubber",
+      "label": "工位2 AE检测模块"
+    },
+    "sig_cond": {
+      "preset": "brushed_aluminum",
+      "label": "信号调理模块"
     }
   },
   "camera": {
@@ -408,7 +416,8 @@
     "ae_sensor": {
       "name_cn": "工位2 AE检测模块",
       "name_en": "S2 AE Sensor Module",
-      "bom_id": "GIS-EE-003"
+      "bom_id": "GIS-EE-003",
+      "material": "ae_sensor"
     },
     "cleaner": {
       "name_cn": "工位3卷带清洁模块",
@@ -425,7 +434,8 @@
     "sig_cond": {
       "name_cn": "信号调理模块",
       "name_en": "Signal Conditioning",
-      "bom_id": "GIS-EE-006"
+      "bom_id": "GIS-EE-006",
+      "material": "sig_cond"
     }
   },
   "standard_parts": [
