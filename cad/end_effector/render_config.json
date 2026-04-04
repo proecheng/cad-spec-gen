@@ -390,17 +390,20 @@
     "flange": {
       "name_cn": "法兰总成",
       "name_en": "Flange Assembly",
-      "bom_id": "GIS-EE-001"
+      "bom_id": "GIS-EE-001",
+      "material": "flange_al"
     },
     "peek": {
       "name_cn": "PEEK绝缘段",
       "name_en": "PEEK Insulation Ring",
-      "bom_id": "GIS-EE-001-02"
+      "bom_id": "GIS-EE-001-02",
+      "material": "peek"
     },
     "applicator": {
       "name_cn": "工位1涂抹模块",
       "name_en": "S1 Applicator Module",
-      "bom_id": "GIS-EE-002"
+      "bom_id": "GIS-EE-002",
+      "material": "applicator"
     },
     "ae_sensor": {
       "name_cn": "工位2 AE检测模块",
@@ -410,12 +413,14 @@
     "cleaner": {
       "name_cn": "工位3卷带清洁模块",
       "name_en": "S3 Tape Cleaner Module",
-      "bom_id": "GIS-EE-004"
+      "bom_id": "GIS-EE-004",
+      "material": "cleaner"
     },
     "uhf": {
       "name_cn": "工位4 UHF模块",
       "name_en": "S4 UHF Module",
-      "bom_id": "GIS-EE-005"
+      "bom_id": "GIS-EE-005",
+      "material": "uhf"
     },
     "sig_cond": {
       "name_cn": "信号调理模块",
@@ -759,45 +764,93 @@
     "V6": [
       {
         "component": "flange",
-        "anchor": [614, 300],
-        "label": [1680, 200]
+        "anchor": [
+          614,
+          300
+        ],
+        "label": [
+          1680,
+          200
+        ]
       },
       {
         "component": "peek",
-        "anchor": [614, 380],
-        "label": [1680, 380]
+        "anchor": [
+          614,
+          380
+        ],
+        "label": [
+          1680,
+          380
+        ]
       },
       {
         "component": "adapter",
-        "anchor": [614, 500],
-        "label": [1680, 500]
+        "anchor": [
+          614,
+          500
+        ],
+        "label": [
+          1680,
+          500
+        ]
       },
       {
         "component": "sig_cond",
-        "anchor": [614, 650],
-        "label": [1680, 650]
+        "anchor": [
+          614,
+          650
+        ],
+        "label": [
+          1680,
+          650
+        ]
       }
     ],
     "V7": [
       {
         "component": "flange",
-        "anchor": [614, 300],
-        "label": [80, 200]
+        "anchor": [
+          614,
+          300
+        ],
+        "label": [
+          80,
+          200
+        ]
       },
       {
         "component": "peek",
-        "anchor": [614, 380],
-        "label": [80, 380]
+        "anchor": [
+          614,
+          380
+        ],
+        "label": [
+          80,
+          380
+        ]
       },
       {
         "component": "adapter",
-        "anchor": [614, 500],
-        "label": [80, 500]
+        "anchor": [
+          614,
+          500
+        ],
+        "label": [
+          80,
+          500
+        ]
       },
       {
         "component": "sig_cond",
-        "anchor": [614, 650],
-        "label": [80, 650]
+        "anchor": [
+          614,
+          650
+        ],
+        "label": [
+          80,
+          650
+        ]
       }
     ]
   }

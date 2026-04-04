@@ -287,11 +287,13 @@ def create_pbr_material(name, params):
 
 
 def assign_materials():
-    """Match objects to materials based on name patterns.
+    """Match objects to materials based on bom_id lookup + name patterns.
 
-    Uses _CONFIG_MATERIALS from render_config.json if loaded,
-    otherwise falls back to hardcoded MATERIAL_MAP.
+    Priority 1: bom_id prefix match via components section (most reliable)
+    Priority 2: material pattern substring match (fallback)
+    Priority 3: default gray
     """
+    import re as _re
     source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else MATERIAL_MAP
 
     materials = {}
@@ -299,18 +301,46 @@ def assign_materials():
         mat = create_pbr_material(f"PBR_{pattern}", params)
         materials[pattern] = mat
 
+    # Build bom_id → PBR material mapping from components section
+    bom_mat_map = {}
+    if _CONFIG:
+        for comp_key, comp in _CONFIG.get("components", {}).items():
+            if isinstance(comp, str) or comp_key.startswith("_"):
+                continue
+            bom_id = comp.get("bom_id", "")
+            mat_key = comp.get("material", comp_key)
+            if not bom_id or mat_key not in materials:
+                continue
+            # Normalize: strip project prefix (GIS-EE-001 → EE-001)
+            normalized = _re.sub(r'^[A-Z]+-', '', bom_id).lower()
+            bom_mat_map[normalized] = materials[mat_key]
+
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":
             continue
         name_lower = obj.name.lower()
         assigned = False
-        for pattern, mat in materials.items():
-            if pattern in name_lower:
+
+        # Priority 1: bom_id prefix match (longest first)
+        for bid, mat in sorted(bom_mat_map.items(), key=lambda x: -len(x[0])):
+            if bid in name_lower:
                 obj.data.materials.clear()
                 obj.data.materials.append(mat)
-                log.debug("  Material '%s' → %s", pattern, obj.name)
+                log.debug("  Material (bom) '%s' → %s", bid, obj.name)
                 assigned = True
                 break
+
+        # Priority 2: material pattern substring match
+        if not assigned:
+            for pattern, mat in materials.items():
+                if pattern in name_lower:
+                    obj.data.materials.clear()
+                    obj.data.materials.append(mat)
+                    log.debug("  Material '%s' → %s", pattern, obj.name)
+                    assigned = True
+                    break
+
+        # Priority 3: default gray
         if not assigned:
             if "PBR_default" not in bpy.data.materials:
                 default_mat = create_pbr_material("PBR_default", {

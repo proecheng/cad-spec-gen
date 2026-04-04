@@ -338,6 +338,53 @@ def _infer_material_candidates(part_name):
     return ["铝合金", "不锈钢", "工程塑料"]
 
 
+def _enrich_render_config_materials(sub_dir):
+    """Auto-populate component.material from comp_key↔materials fuzzy match.
+
+    Called after codegen to bridge components (with bom_id) to materials
+    (with PBR presets). Writes back to render_config.json if changes made.
+    """
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if not os.path.isfile(rc_path):
+        return
+    with open(rc_path, encoding="utf-8") as f:
+        rc = json.load(f)
+
+    materials = rc.get("materials", {})
+    components = rc.get("components", {})
+    changed = False
+
+    for comp_key, comp in components.items():
+        if comp_key.startswith("_") or "material" in comp:
+            continue
+
+        # Priority 1: comp_key exactly matches a materials key
+        if comp_key in materials:
+            comp["material"] = comp_key
+            changed = True
+            continue
+
+        # Priority 2: a materials key starts with comp_key (flange → flange_al)
+        candidates = [mk for mk in materials if mk.startswith(comp_key)]
+        if len(candidates) == 1:
+            comp["material"] = candidates[0]
+            changed = True
+            continue
+
+        # Priority 3: comp_key is a substring of a materials key
+        candidates = [mk for mk in materials if comp_key in mk]
+        if len(candidates) == 1:
+            comp["material"] = candidates[0]
+            changed = True
+
+    if changed:
+        with open(rc_path, "w", encoding="utf-8") as f:
+            json.dump(rc, f, indent=2, ensure_ascii=False)
+        log.info("  Enriched render_config.json: %d component→material links",
+                 sum(1 for c in components.values()
+                     if not isinstance(c, str) and "material" in c))
+
+
 def _interactive_fill_warnings(review_json_path):
     """逐项引导用户处理所有 WARNING/CRITICAL 项（含自动补全和手动填写）。
 
@@ -742,6 +789,11 @@ def cmd_codegen(args):
     ok, _ = _run_subprocess(cmd, "codegen assembly.py", dry_run=args.dry_run)
     if not ok:
         failures += 1
+
+    # Enrich render_config.json with component→material links
+    rc_path = os.path.join(sub_dir, "render_config.json")
+    if os.path.isfile(rc_path):
+        _enrich_render_config_materials(sub_dir)
 
     return 1 if failures else 0
 
@@ -1713,7 +1765,8 @@ def cmd_init(args):
         "components": {
             "body": {
                 "name_cn": "主体",
-                "name_en": "Main Body"
+                "name_en": "Main Body",
+                "material": "body"
             }
         },
         "labels": {
