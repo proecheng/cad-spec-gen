@@ -162,6 +162,10 @@ Step 2: Code generation + parametric modeling
   on top of station-level radial transforms (_station_transform).
   Standard parts with unrealistic dimensions (e.g. cable length > assembly
   envelope) are auto-capped to visualization-friendly sizes.
+  New in v2.2.5: codegen supports generic part number prefixes (SLP-xxx,
+  ACME-xxx, not just GIS-EE-xxx). BOM parser recognizes alternative table
+  headers ("图号"/"编号") and "标准件" make_buy type. Flat BOM structures
+  (single root assembly without sub-assembly hierarchy) are handled correctly.
   Run /mechdesign <subsystem_name> to launch interactive full workflow
 
 Step 3: Full pipeline

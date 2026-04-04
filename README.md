@@ -56,7 +56,7 @@ DESIGN_REVIEW.md (issues & recommendations, user iterates or proceeds)
     ↓ cad_spec_gen.py — extract 9 categories of structured data
 CAD_SPEC.md (single source of truth for all downstream CAD work)
     ↓ codegen/gen_*.py — Jinja2 templates → CadQuery scaffolds
-params.py + build_all.py + station_*.py + std_*.py + assembly.py (per-part offsets + station transforms)
+params.py + build_all.py + station_*.py + std_*.py + assembly.py (per-part offsets + station transforms, generic part number support)
     ↓ CadQuery parametric modeling
 STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
     ↓ render_dxf.py — auto DXF→PNG engineering drawing previews (if script exists)

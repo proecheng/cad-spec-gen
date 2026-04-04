@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cad-spec-gen"
-version = "2.2.4"
+version = "2.2.5"
 description = "CAD pipeline skill: design doc → structured spec → code generation → 3D renders → photorealistic images (parametric geometry + assembly pose v2.2)"
 readme = "README.md"
 license = "MIT"
