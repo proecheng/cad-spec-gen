@@ -360,6 +360,155 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
     return result
 
 
+def _parse_dims_text(text: str):
+    """Extract (w, d, h) envelope from text with dimension specs.
+    Returns (w, d, h) tuple or None.
+    """
+    if not text:
+        return None
+    m = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        d, h = float(m.group(1)), float(m.group(2))
+        return (d, d, h)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        return (float(m.group(1)), float(m.group(2)), float(m.group(3)))
+    m = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*mm", text)
+    if m:
+        d = float(m.group(1))
+        return (d, d, max(5.0, round(d * 0.25, 1)))
+    return None
+
+
+_STACK_GAP_MM = 2.0
+
+
+def _infer_stack_direction(axis_dir: str) -> tuple:
+    """Convert axis_dir text to unit stacking vector. Default: (0,0,-1)."""
+    if not axis_dir:
+        return (0, 0, -1)
+    if any(k in axis_dir for k in ["沿+Z", "+Z", "向上"]):
+        return (0, 0, 1)
+    if any(k in axis_dir for k in ["沿-Z", "-Z", "向下", "垂直"]):
+        return (0, 0, -1)
+    if any(k in axis_dir for k in ["∥XY", "水平", "径向"]):
+        return (1, 0, 0)
+    return (0, 0, -1)
+
+
+def _match_axis_clause(axis_dir: str, part_name: str) -> str:
+    """Find axis_dir sub-clause for a specific part.
+    E.g. "壳体轴沿-Z，储罐轴∥XY" + "储罐" → "储罐轴∥XY".
+    Returns matched clause or empty string.
+    """
+    if not axis_dir or not part_name:
+        return ""
+    clauses = re.split(r"[，,]", axis_dir)
+    if len(clauses) <= 1:
+        return ""
+    for clause in clauses:
+        for n in (3, 2):
+            if len(part_name) >= n and part_name[:n] in clause:
+                return clause.strip()
+    return ""
+
+
+def _part_height_along(dims, direction: tuple) -> float:
+    """Part extent along stacking direction. Fallback 20mm."""
+    if dims is None:
+        return 20.0
+    w, d, h = dims
+    ax, ay, az = abs(direction[0]), abs(direction[1]), abs(direction[2])
+    if az >= ax and az >= ay:
+        return h
+    if ax >= ay:
+        return w
+    return d
+
+
+def _stack_sort_key(child: dict, dims_map: dict, direction: tuple) -> tuple:
+    """Sort: custom bodies first, then by extent descending."""
+    is_custom = "自制" in child.get("make_buy", "")
+    is_body = any(k in child["name_cn"] for k in ("壳体", "本体", "支架", "框架", "基座"))
+    extent = _part_height_along(dims_map.get(child["part_no"]), direction)
+    return (-int(is_custom), -int(is_body), -extent)
+
+
+def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
+    """Compute per-part local offsets. Explicit §6.2 wins; auto-stacks rest.
+
+    Per-part axis_dir sub-clause matching: if axis_dir has comma-separated
+    clauses, each child matches its own clause for stacking direction.
+
+    cursor is always a positive scalar distance along direction vector.
+    offset_vector = direction * cursor.
+
+    Returns {part_no: (dx, dy, dz)}.
+    """
+    result = {}
+    assemblies = [p for p in parts if p["is_assembly"]]
+    children_of = {}
+    for assy in assemblies:
+        prefix = assy["part_no"]
+        children_of[prefix] = [
+            p for p in parts
+            if p["part_no"].startswith(prefix + "-") and not p["is_assembly"]
+        ]
+
+    for assy in assemblies:
+        prefix = assy["part_no"]
+        children = children_of.get(prefix, [])
+        if not children:
+            continue
+
+        assy_pose = layer_poses.get(prefix, {})
+        assy_axis_dir = assy_pose.get("axis_dir", "")
+        default_direction = _infer_stack_direction(assy_axis_dir)
+
+        auto_queue = []
+        for child in children:
+            cpno = child["part_no"]
+            if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
+                z = layer_poses[cpno]["z"]
+                result[cpno] = (0, 0, z)
+            else:
+                auto_queue.append(child)
+
+        if not auto_queue:
+            continue
+
+        dims_map = {}
+        for child in auto_queue:
+            text = child.get("material", "") + " " + child.get("name_cn", "")
+            dims_map[child["part_no"]] = _parse_dims_text(text)
+
+        # Group by per-part stacking direction
+        direction_groups = {}
+        for child in auto_queue:
+            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
+            if clause:
+                child_direction = _infer_stack_direction(clause)
+            else:
+                child_direction = default_direction
+            direction_groups.setdefault(child_direction, []).append(child)
+
+        for direction, group in direction_groups.items():
+            group.sort(key=lambda c: _stack_sort_key(c, dims_map, direction))
+            cursor = 0.0  # positive scalar distance
+            for child in group:
+                cpno = child["part_no"]
+                dims = dims_map.get(cpno)
+                extent = _part_height_along(dims, direction)
+                center = cursor + extent / 2.0
+                dx = round(direction[0] * center, 1)
+                dy = round(direction[1] * center, 1)
+                dz = round(direction[2] * center, 1)
+                result[cpno] = (dx, dy, dz)
+                cursor += extent + _STACK_GAP_MM
+
+    return result
+
+
 def generate_assembly(spec_path: str) -> str:
     """Generate assembly.py scaffold content."""
     parts = parse_bom_tree(spec_path)

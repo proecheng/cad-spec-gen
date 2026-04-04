@@ -71,3 +71,118 @@ def test_extract_empty():
     from gen_assembly import _extract_all_layer_poses
     assert _extract_all_layer_poses({"layers": []}, []) == {}
     assert _extract_all_layer_poses({}, []) == {}
+
+
+# ── Task 3: Dimension parser tests ──
+
+def test_parse_dims_text_cylinder():
+    from gen_assembly import _parse_dims_text
+    w, d, h = _parse_dims_text("SUS316L不锈钢 Φ38×280mm")
+    assert (w, d, h) == (38.0, 38.0, 280.0)
+
+def test_parse_dims_text_box():
+    from gen_assembly import _parse_dims_text
+    w, d, h = _parse_dims_text("6063铝合金 140×100×55mm")
+    assert (w, d, h) == (140.0, 100.0, 55.0)
+
+def test_parse_dims_text_diameter_only():
+    from gen_assembly import _parse_dims_text
+    w, d, h = _parse_dims_text("PEEK Φ86mm")
+    assert w == 86.0
+    assert h > 0
+
+def test_parse_dims_text_no_dims():
+    from gen_assembly import _parse_dims_text
+    assert _parse_dims_text("7075-T6铝合金") is None
+    assert _parse_dims_text("") is None
+
+# ── Task 4: Offset resolution tests ──
+
+@pytest.fixture
+def sample_bom():
+    return [
+        {"part_no": "GIS-XX-002", "name_cn": "工位A", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-002-01", "name_cn": "壳体", "is_assembly": False,
+         "material": "铝合金 60×40×55mm", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-002-02", "name_cn": "储罐", "is_assembly": False,
+         "material": "不锈钢 Φ38×280mm", "make_buy": "外购", "quantity": "1"},
+        {"part_no": "GIS-XX-002-03", "name_cn": "泵", "is_assembly": False,
+         "material": "—", "make_buy": "外购", "quantity": "1"},
+    ]
+
+def test_offsets_explicit_z(sample_bom):
+    from gen_assembly import _resolve_child_offsets
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0, "axis_dir": "轴沿-Z", "is_origin": False},
+        "GIS-XX-002-01": {"z": -10.0, "r": None, "theta": None, "axis_dir": "", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(sample_bom, layer_poses)
+    assert offsets["GIS-XX-002-01"] == (0, 0, -10.0)
+
+def test_offsets_auto_stack_no_overlap(sample_bom):
+    from gen_assembly import _resolve_child_offsets
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0, "axis_dir": "轴沿-Z", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(sample_bom, layer_poses)
+    zs = [offsets[p["part_no"]][2] for p in sample_bom if not p["is_assembly"]]
+    assert len(set(zs)) == len(zs), f"Duplicate Z offsets: {zs}"
+    assert all(z <= 0 for z in zs), f"Expected all Z ≤ 0 for -Z stacking: {zs}"
+
+def test_offsets_auto_stack_order(sample_bom):
+    from gen_assembly import _resolve_child_offsets
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0, "axis_dir": "轴沿-Z", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(sample_bom, layer_poses)
+    z_body = offsets["GIS-XX-002-01"][2]
+    z_tank = offsets["GIS-XX-002-02"][2]
+    z_pump = offsets["GIS-XX-002-03"][2]
+    assert z_body >= z_tank, f"Body {z_body} should be above tank {z_tank}"
+    assert z_body >= z_pump, f"Body {z_body} should be above pump {z_pump}"
+
+def test_offsets_per_part_axis_dir():
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-002", "name_cn": "涂抹工位", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-002-01", "name_cn": "壳体", "is_assembly": False,
+         "material": "铝合金 60×40×55mm", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-002-02", "name_cn": "储罐", "is_assembly": False,
+         "material": "不锈钢 Φ38×280mm", "make_buy": "外购", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0,
+                        "axis_dir": "壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）",
+                        "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    assert offsets["GIS-XX-002-01"][0] == 0
+    assert offsets["GIS-XX-002-01"][2] <= 0
+    assert offsets["GIS-XX-002-02"][0] != 0
+    assert offsets["GIS-XX-002-02"][2] == 0
+
+def test_offsets_no_layer_data(sample_bom):
+    from gen_assembly import _resolve_child_offsets
+    offsets = _resolve_child_offsets(sample_bom, {})
+    zs = [offsets[p["part_no"]][2] for p in sample_bom if not p["is_assembly"]]
+    assert len(set(zs)) == len(zs), f"Duplicate Z offsets: {zs}"
+
+def test_offsets_non_radial():
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-001", "name_cn": "法兰总成", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-001-01", "name_cn": "法兰", "is_assembly": False,
+         "material": "铝合金", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-02", "name_cn": "PEEK环", "is_assembly": False,
+         "material": "PEEK", "make_buy": "自制", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-001-01": {"z": 0.0, "r": None, "theta": None, "axis_dir": "盘面∥XY", "is_origin": False},
+        "GIS-XX-001-02": {"z": -27.0, "r": None, "theta": None, "axis_dir": "盘面∥XY", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    assert offsets["GIS-XX-001-01"] == (0, 0, 0.0)
+    assert offsets["GIS-XX-001-02"] == (0, 0, -27.0)
