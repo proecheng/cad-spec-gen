@@ -186,3 +186,49 @@ def test_offsets_non_radial():
     offsets = _resolve_child_offsets(bom, layer_poses)
     assert offsets["GIS-XX-001-01"] == (0, 0, 0.0)
     assert offsets["GIS-XX-001-02"] == (0, 0, -27.0)
+
+
+def test_integration_end_effector():
+    """Generate assembly.py for end_effector and verify positioning correctness."""
+    spec_path = os.path.join(
+        os.path.dirname(__file__), "..", "cad", "end_effector", "CAD_SPEC.md")
+    if not os.path.exists(spec_path):
+        pytest.skip("end_effector CAD_SPEC.md not found")
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from codegen.gen_build import parse_bom_tree
+    from gen_assembly import generate_assembly, _extract_all_layer_poses
+    from gen_assembly import parse_assembly_pose, _resolve_child_offsets
+
+    content = generate_assembly(spec_path)
+    parts = parse_bom_tree(spec_path)
+    pose = parse_assembly_pose(spec_path)
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    offsets = _resolve_child_offsets(parts, layer_poses)
+
+    # 1. Zero offset should never emit a translate call
+    assert ".translate((0, 0, 0))" not in content
+    assert ".translate((0.0, 0.0, 0.0))" not in content
+
+    # 2. PEEK ring Z=-27 must be present
+    assert "-27" in content, "PEEK ring Z=-27 offset not found"
+
+    # 3. Motor Z=+73 must be present (from name-fallback)
+    assert "73" in content, "Motor Z=+73 offset not found"
+
+    # 4. Each station should have at least one translate before _station_transform
+    lines = content.splitlines()
+    stations_with_translate = 0
+    for i, line in enumerate(lines):
+        if "_station_transform" in line and "def " not in line:
+            var = line.strip().split("=")[0].strip()
+            window = "\n".join(lines[max(0, i - 8):i])
+            if ".translate(" in window and var in window:
+                stations_with_translate += 1
+    assert stations_with_translate >= 4, \
+        f"Expected ≥4 station parts with translate, got {stations_with_translate}"
+
+    # 5. Offsets dict should cover all non-assembly parts
+    non_assy = [p for p in parts if not p["is_assembly"]]
+    assert len(offsets) >= len(non_assy), \
+        f"Expected offsets for all {len(non_assy)} parts, got {len(offsets)}"
