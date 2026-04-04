@@ -455,6 +455,14 @@ def generate_assembly_description(parts, cam_loc, view_type, p):
 
     lines = []
 
+    # Scaffold precision disclaimer — prevents Gemini from adding details not in PNG
+    lines.append(
+        "NOTE: Parts in the input image use SIMPLIFIED CadQuery scaffold geometry "
+        "(basic cylinders, boxes, discs). Enhance ONLY surface materials/textures. "
+        "Do NOT add geometric details not present in the input image (no gear teeth, "
+        "no spring coils, no cable routing, no text labels on parts)."
+    )
+
     # Center hub
     lines.append(
         f"Center: cross-shaped dark gray flange disc ({_phi(flange_od)}x{_fmt(flange_thick)}) "
