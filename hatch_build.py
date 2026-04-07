@@ -33,12 +33,14 @@ _PIPELINE_TOOLS = [
 
 # Import shared tool list from cad_paths (single source of truth)
 try:
-    from cad_paths import SHARED_TOOL_FILES as _SHARED
-except ImportError:
-    # Fallback during isolated builds where cad_paths isn't on sys.path
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).parent))
     from cad_paths import SHARED_TOOL_FILES as _SHARED
+except ImportError:
+    # Hardcoded fallback for isolated build environments (pip wheel)
+    # Keep in sync with cad_paths.py SHARED_TOOL_FILES
+    _SHARED = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py",
+               "render_dxf.py", "render_config.py", "cad_spec_defaults.py"]
 
 PYTHON_TOOLS = _PIPELINE_TOOLS + list(_SHARED)
 
