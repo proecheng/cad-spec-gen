@@ -328,26 +328,32 @@ When a user asks "how to enhance?" or "which backend should I use?", walk them t
 
 **Opening**: "The enhance phase takes your Blender-rendered PNGs and produces photorealistic JPGs. You have four backends to choose from, and the pipeline can auto-detect the best one for your setup."
 
-**Help the user choose a backend** — ask about their situation:
-- "Do you have an API key for fal.ai?" → recommend **fal** (best quality, hard geometry lock via depth+canny, ~$0.20/image)
-- "Do you have a local GPU with ComfyUI?" → recommend **comfyui** (free, hard geometry lock, full offline control)
-- "Do you have a Gemini API key?" → recommend **gemini** (cheapest cloud option, ~$0.02/image, soft geometry lock via prompt)
-- "No API keys and no GPU?" → recommend **engineering** (free, Blender PBR direct to JPG, perfect geometry but no AI surface enhancement)
+**Help the user choose a backend** — recommend based on use case:
+- Engineering review / precision → recommend **engineering** (perfect geometry, PBR materials, free, 0.1s/img)
+- Presentations / demos / business plans → recommend **gemini** (good appearance, minor geometry drift, ~$0.02/image)
+- "Do you have a local GPU with ComfyUI?" → mention **comfyui** (same ControlNet principle as fal but uses SD1.5 which is better for CAD; untested in this release)
+- User asks about fal → explain: **fal** is EXPERIMENTAL — Flux model produces poor results on simplified CadQuery geometry (red/green noise, color distortion). Reserved for future use with detailed 3D models.
+- "No API keys and no GPU?" → recommend **engineering** (free, zero dependencies, perfect geometry)
 
 ```
 === AI Enhancement — 4 Backends ===
 
 Technical approach: Blender PNG (geometry accurate) → backend-specific enhancement → Photo-realistic JPG
 
-Backend comparison:
-  ┌──────────────┬─────────────┬────────────────────┬───────────┬─────────────────────┐
-  │ Backend      │ Cost        │ Geometry Lock      │ GPU Req   │ Best For            │
-  ├──────────────┼─────────────┼────────────────────┼───────────┼─────────────────────┤
-  │ gemini       │ ~$0.02/img  │ Soft (prompt)      │ No (cloud)│ Quick, cheap cloud  │
-  │ fal          │ ~$0.20/img  │ Hard (depth+canny) │ No (cloud)│ Best quality        │
-  │ comfyui      │ Free        │ Hard (ControlNet)  │ Yes (8GB+)│ Offline, free       │
-  │ engineering  │ Free        │ Perfect (no AI)    │ No        │ Zero budget         │
-  └──────────────┴─────────────┴────────────────────┴───────────┴─────────────────────┘
+Backend comparison (after real testing on simplified CadQuery geometry):
+  ┌──────────────┬─────────────┬────────────────────┬───────────┬─────────────────────┬────────────┐
+  │ Backend      │ Cost        │ Geometry Lock      │ GPU Req   │ Best For            │ Rating     │
+  ├──────────────┼─────────────┼────────────────────┼───────────┼─────────────────────┼────────────┤
+  │ engineering  │ Free 0.1s   │ Perfect (no AI)    │ No        │ Engineering review  │ ★★★★★ Rec. │
+  │ gemini       │ ~$0.02/img  │ Soft (prompt)      │ No (cloud)│ Presentations/demos │ ★★★★  Rec. │
+  │ fal          │ ~$0.20/img  │ Hard (depth+canny) │ No (cloud)│ EXPERIMENTAL        │ ★ Exp.     │
+  │ comfyui      │ Free        │ Hard (ControlNet)  │ Yes (8GB+)│ Untested this ver.  │ — Untested │
+  └──────────────┴─────────────┴────────────────────┴───────────┴─────────────────────┴────────────┘
+
+  ⚠ fal: Flux model produces red/green noise + color distortion on simplified CAD geometry.
+    ControlNet architecture works, but base model unsuitable for CAD. Reserved for future detailed 3D.
+  ⚠ comfyui: Same ControlNet principle as fal but uses SD1.5 (better for CAD). Untested in this release.
+  ✓ Default recommendation: engineering (precision) + gemini (appearance).
 
 Auto-detect priority (when no --backend specified):
   1. FAL_KEY env var exists        → fal

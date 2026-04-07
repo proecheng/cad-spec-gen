@@ -47,7 +47,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 - **View-Aware Material Emphasis**: AI prompt adjusts Fresnel/specular/diffuse emphasis per camera angle
 - **material_type → preset Fallback**: Auto-derives render preset from params.py material_type when render_config.json lacks materials
 - **Render Passes (preview)**: Optional depth/normal/diffuse pass output from Blender (schema ready, default disabled)
-- **Triple-Backend Enhance (v2.3)**: Four backends for AI enhancement — gemini (cloud, ~$0.02/img), fal (fal.ai Flux ControlNet, ~$0.20/img, hard geometry lock), comfyui (local GPU, free), engineering (Blender PBR direct, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI→comfyui, gemini→gemini, else→engineering. Fallback chain: fal→gemini→engineering. CLI: `--backend gemini|fal|comfyui|engineering`
+- **Four-Backend Enhance (v2.3)**: Four backends for AI enhancement — engineering (Blender PBR direct, free, perfect geometry, **recommended for precision**), gemini (cloud, ~$0.02/img, **recommended for appearance**), fal (fal.ai Flux ControlNet, ~$0.20/img, **experimental** — poor results on simplified CAD geometry), comfyui (local GPU, free, untested this release). CLI: `--backend gemini|fal|comfyui|engineering`
 
 ## Pipeline Architecture
 
@@ -168,12 +168,14 @@ python gemini_gen.py \
 
 After Blender renders exist, enhance all views to photorealistic JPGs. Four backends are available:
 
-| Backend | Cost | Geometry Lock | GPU Required | Best For |
-|---------|------|---------------|--------------|----------|
-| `gemini` | ~$0.02/img | Soft (prompt) | No (cloud) | Quick iteration, no GPU |
-| `fal` | ~$0.20/img | Hard (depth+canny) | No (cloud) | Best quality, geometry-critical |
-| `comfyui` | Free | Hard (ControlNet) | Yes (8GB+) | Offline, full control |
-| `engineering` | Free | Perfect (no AI) | No | Budget zero, geometry-only |
+| Backend | Cost | Geometry Lock | GPU Required | Best For | Recommended |
+|---------|------|---------------|--------------|----------|-------------|
+| `engineering` | Free, 0.1s/img | Perfect (no AI) | No | Engineering review, precision | ⭐⭐⭐⭐⭐ Yes |
+| `gemini` | ~$0.02/img | Soft (prompt) | No (cloud) | Presentations, demos | ⭐⭐⭐⭐ Yes |
+| `fal` | ~$0.20/img | Hard (depth+canny) | No (cloud) | EXPERIMENTAL — future use | ⭐ Experimental |
+| `comfyui` | Free | Hard (ControlNet) | Yes (8GB+) | Untested this release | — Untested |
+
+> **Recommendation**: Use `engineering` for precision, `gemini` for appearance. fal produces poor results on simplified CadQuery geometry (red/green noise, color distortion) — reserved for future detailed 3D models. comfyui uses SD1.5 (better for CAD than Flux) but is untested in this release.
 
 **Auto-detect priority**: FAL_KEY env var → ComfyUI running on localhost:8188 → Gemini config → engineering fallback.
 **Fallback chain**: fal → gemini → engineering (batch-locked after downgrade to ensure cross-view consistency).

@@ -41,7 +41,8 @@
    - 用户选 D / 输入 `engineering` / 输入 `工程` → 直接执行（零依赖）
    - 用户选 E 或直接回车 → 使用当前默认后端
    - 用户说"不要 AI" / "精确" / "工程图" → 推荐工程模式
-   - 用户说"最好的效果" / "高质量" → 推荐 fal.ai
+   - 用户说"最好的效果" / "高质量" → 推荐 gemini（外观最佳）或 engineering（几何最佳）
+   - 用户说"fal" → 提醒：fal 目前为实验性后端，Flux 模型对简化 CAD 几何效果不佳（红绿噪点/色彩失真），建议改用 gemini 或 engineering
 
 3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
    - 若 `--backend comfyui`：先运行 `python comfyui_env_check.py`，若环境未就绪则展示安装指引并询问是否继续
@@ -53,12 +54,16 @@
 
 ### 后端选择
 
-| 后端 | 适用场景 | 几何保真 | 成本 | 依赖 |
-|------|----------|---------|------|------|
-| `gemini` | 快速演示、商业计划书 | 中（AI 可能改几何） | ~$0.02/张 | Gemini API Key |
-| `fal` | 高质量渲染、多视角一致 | **高（ControlNet 硬锁）** | ~$0.20/张 | FAL_KEY 环境变量 |
-| `comfyui` | 本地 GPU 用户 | **高（ControlNet 硬锁）** | 免费 | GPU 8GB+，ComfyUI |
-| `engineering` | 工程审查、图纸配图 | **完美（物理渲染）** | 免费 | 无（Pillow 可选） |
+| 后端 | 适用场景 | 几何保真 | 成本 | 依赖 | 推荐度 |
+|------|----------|---------|------|------|--------|
+| `engineering` | 工程审查、图纸配图 | **完美（物理渲染）** | 免费，0.1s/张 | 无（Pillow 可选） | ⭐⭐⭐⭐⭐ 推荐 |
+| `gemini` | 快速演示、商业计划书 | 中（AI 可能微调几何） | ~$0.02/张 | Gemini API Key | ⭐⭐⭐⭐ 推荐 |
+| `fal` | 实验性 — 未来详细3D模型 | 高（ControlNet 硬锁） | ~$0.20/张 | FAL_KEY 环境变量 | ⭐ 实验性 |
+| `comfyui` | 本地 GPU 用户 | 高（ControlNet 硬锁） | 免费 | GPU 8GB+，ComfyUI | 未测试 |
+
+> **推荐组合**：精确工程图用 `engineering`，展示/答辩用 `gemini`。
+> **fal 实验性说明**：Flux 模型对简化 CadQuery 几何产生红绿噪点和色彩失真，ControlNet 架构本身可行但 Flux 基模型不适合 CAD 简化几何。保留供未来详细 3D 模型使用。
+> **comfyui 说明**：与 fal 相同的 ControlNet 原理但使用 SD1.5（更适合 CAD），本版本未实测。
 
 **故障降级**：fal → gemini → engineering（连续 2 次失败自动切换，批次内锁定）
 

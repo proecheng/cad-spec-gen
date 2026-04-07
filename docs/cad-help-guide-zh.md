@@ -47,7 +47,7 @@
 - **视角感知材质描述**：AI prompt 根据相机仰角自动调整菲涅尔/镜面/漫反射描述重点
 - **material_type → preset 自动回退**：render_config.json 无材质时从 params.py 自动推导
 - **渲染 pass 预留**：可选输出 depth/normal/diffuse pass（schema 已就绪，默认关闭）
-- **四后端增强 (v2.3)**：AI增强支持四种后端 — gemini（云端，~$0.02/张）、fal（fal.ai Flux ControlNet，~$0.20/张，深度+边缘硬锁几何）、comfyui（本地GPU，免费）、engineering（Blender PBR直出JPG，免费，完美几何）。自动检测优先级：FAL_KEY→fal、ComfyUI运行中→comfyui、gemini配置→gemini、否则→engineering。降级链：fal→gemini→engineering。CLI：`--backend gemini|fal|comfyui|engineering`
+- **四后端增强 (v2.3)**：AI增强支持四种后端 — engineering（Blender PBR直出JPG，免费，完美几何，**推荐用于精确工程图**）、gemini（云端，~$0.02/张，**推荐用于外观展示**）、fal（fal.ai Flux ControlNet，~$0.20/张，**实验性** — 对简化CAD几何效果不佳）、comfyui（本地GPU，免费，本版本未测试）。CLI：`--backend gemini|fal|comfyui|engineering`
 
 ## 管线架构
 
@@ -169,12 +169,14 @@ python gemini_gen.py \
 
 Blender渲染完成后，将所有PNG增强为照片级JPG。支持四种后端：
 
-| 后端 | 费用 | 几何锁定 | 需要GPU | 适用场景 |
-|------|------|----------|---------|----------|
-| `gemini` | ~$0.02/张 | 软锁（prompt） | 否（云端） | 快速迭代、无GPU环境 |
-| `fal` | ~$0.20/张 | 硬锁（depth+canny） | 否（云端） | 最佳质量、几何关键场景 |
-| `comfyui` | 免费 | 硬锁（ControlNet） | 是（8GB+） | 离线、完全可控 |
-| `engineering` | 免费 | 完美（无AI） | 否 | 零成本、纯几何展示 |
+| 后端 | 费用 | 几何锁定 | 需要GPU | 适用场景 | 推荐度 |
+|------|------|----------|---------|----------|--------|
+| `engineering` | 免费，0.1s/张 | 完美（无AI） | 否 | 工程审查、精确图纸 | ⭐⭐⭐⭐⭐ 推荐 |
+| `gemini` | ~$0.02/张 | 软锁（prompt） | 否（云端） | 展示/答辩/商业计划书 | ⭐⭐⭐⭐ 推荐 |
+| `fal` | ~$0.20/张 | 硬锁（depth+canny） | 否（云端） | 实验性 — 未来详细3D模型 | ⭐ 实验性 |
+| `comfyui` | 免费 | 硬锁（ControlNet） | 是（8GB+） | 本版本未测试 | — 未测试 |
+
+> **推荐组合**：精确工程图用 `engineering`，外观展示用 `gemini`。fal 的 Flux 模型对简化 CadQuery 几何产生红绿噪点和色彩失真，保留供未来详细 3D 模型使用。comfyui 使用 SD1.5（比 Flux 更适合 CAD），本版本未实测。
 
 **自动检测优先级**：FAL_KEY环境变量 → ComfyUI运行中(localhost:8188) → Gemini配置 → engineering兜底。
 **降级链**：fal → gemini → engineering（降级后锁定后端，确保批次内多视角一致性）。

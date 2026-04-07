@@ -20,7 +20,7 @@
   },
   "enhance": {
     "backend": "gemini",
-    "_backend_doc": "Options: 'gemini' (cloud, soft geometry lock) | 'fal' (cloud, ControlNet hard lock, $0.20/img) | 'comfyui' (local GPU, hard lock, free) | 'engineering' (no AI, Blender PBR direct, free). Leave empty for auto-detect.",
+    "_backend_doc": "Options: 'engineering' (★★★★★ recommended for precision, free, 0.1s/img) | 'gemini' (★★★★ recommended for appearance, ~$0.02/img) | 'fal' (★ EXPERIMENTAL — Flux produces poor results on simplified CAD geometry, reserved for future detailed 3D) | 'comfyui' (local GPU, untested this release). Leave empty for auto-detect.",
     "model": "nano_banana_pro",
     "temperature": 0.2,
     "seed_from_image": true,
@@ -48,7 +48,7 @@
       "timeout": 7200
     },
     "fal": {
-      "_doc": "fal.ai Flux ControlNet — cloud API, hard geometry lock. Requires FAL_KEY env var.",
+      "_doc": "EXPERIMENTAL: fal.ai Flux ControlNet — cloud API, hard geometry lock. Requires FAL_KEY env var. Flux model produces red/green noise + color distortion on simplified CadQuery geometry. Reserved for future use with detailed 3D models.",
       "model": "fal-ai/flux-general",
       "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
       "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
