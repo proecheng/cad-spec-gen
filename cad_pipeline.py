@@ -1258,6 +1258,62 @@ def cmd_render(args):
     return 1 if failures else 0
 
 
+def _render_depth_only(render_dir, args, pcfg):
+    """Invoke render_depth_only.py to generate depth EXR for fal.ai ControlNet.
+
+    Runs in a separate Blender session — does not interfere with main renders.
+    Returns True if at least one depth EXR was produced.
+    """
+    blender = get_blender_path()
+    if not blender:
+        log.warning("  Blender not found — cannot render depth pass")
+        return False
+
+    _sub_name = getattr(args, "subsystem", None)
+    sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
+    config_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
+    if not config_path or not os.path.isfile(config_path):
+        log.warning("  No render_config.json — cannot render depth pass")
+        return False
+
+    # Find GLB
+    glb_path = None
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            rc = json.load(f)
+        glb_name = rc.get("subsystem", {}).get("glb_file", "")
+        if glb_name:
+            for search_dir in [render_dir, DEFAULT_OUTPUT,
+                               os.environ.get("CAD_OUTPUT_DIR", "")]:
+                if not search_dir:
+                    continue
+                candidate = os.path.join(search_dir, glb_name)
+                if os.path.isfile(candidate):
+                    glb_path = candidate
+                    break
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    if not glb_path:
+        log.warning("  Cannot find GLB for depth rendering")
+        return False
+
+    depth_script = os.path.join(SKILL_ROOT, "render_depth_only.py")
+    if not os.path.isfile(depth_script):
+        log.warning("  render_depth_only.py not found at %s", SKILL_ROOT)
+        return False
+
+    cmd = [blender, "-b", "-P", depth_script, "--",
+           "--glb", glb_path,
+           "--config", config_path,
+           "--output-dir", render_dir]
+
+    ok, _ = _run_subprocess(cmd, "render depth-only pass",
+                            dry_run=getattr(args, "dry_run", False),
+                            timeout=120)
+    return ok
+
+
 def _auto_detect_backend():
     """Auto-detect best available enhance backend (zero-config first use)."""
     if os.environ.get("FAL_KEY"):
@@ -1451,6 +1507,28 @@ def cmd_enhance(args):
     if _active_backend == "fal" and len(pngs) > 0:
         _est = len(pngs) * 0.20
         log.info("  fal.ai estimated cost: $%.2f (%d images x $0.20)", _est, len(pngs))
+
+    # ── Auto-render depth pass for fal backend (if not already present) ──
+    if _active_backend == "fal" and pngs:
+        try:
+            from fal_enhancer import _find_depth_for_png
+            _sample_depth, _is_tmp = _find_depth_for_png(pngs[0])
+            if _is_tmp and _sample_depth:
+                try:
+                    os.remove(_sample_depth)
+                except OSError:
+                    pass
+            if not _sample_depth:
+                log.info("  No depth maps found — rendering depth-only pass...")
+                _depth_ok = _render_depth_only(render_dir, args, _pcfg)
+                if _depth_ok:
+                    log.info("  Depth pass complete — fal will use dual ControlNet (depth+canny)")
+                else:
+                    log.warning("  Depth render failed — fal will use canny-only mode (weaker lock)")
+            else:
+                log.info("  Depth maps found — fal will use dual ControlNet (depth+canny)")
+        except Exception as _de:
+            log.warning("  Depth check failed: %s — fal will use canny-only", _de)
 
     hero_image = None  # V1 enhanced result for multi-view anchoring
 

@@ -276,7 +276,6 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
                 "controlnets": controlnets,
             },
             with_logs=False,
-            timeout=timeout,
         )
     finally:
         # Clean up temp depth PNG
