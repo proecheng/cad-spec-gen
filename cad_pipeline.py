@@ -1088,8 +1088,11 @@ def cmd_build(args):
             _dst = os.path.join(DEFAULT_OUTPUT, os.path.basename(_glb))
             import shutil
             os.makedirs(DEFAULT_OUTPUT, exist_ok=True)
-            shutil.copy2(_glb, _dst)
-            log.info("  GLB synced: %s → %s", os.path.basename(_glb), DEFAULT_OUTPUT)
+            try:
+                shutil.copy2(_glb, _dst)
+                log.info("  GLB synced: %s → %s", os.path.basename(_glb), DEFAULT_OUTPUT)
+            except (PermissionError, OSError) as _e:
+                log.warning("  GLB sync failed (file locked?): %s — render will use CAD_OUTPUT_DIR", _e)
 
     # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
     render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
