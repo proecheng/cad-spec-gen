@@ -84,26 +84,29 @@ def setup_depth_compositor(scene, output_path):
     scene.render.filepath = output_path
 
 
-def setup_camera(scene, cam_preset, bounding_radius):
+def setup_camera(scene, cam_preset, bounding_radius, config):
     """Position camera from render_config.json camera preset.
 
     Supports both formats:
     - Cartesian: {"location": [x,y,z], "target": [x,y,z]}
     - Spherical: {"azimuth_deg": N, "elevation_deg": N, "distance_factor": N}
+
+    Auto-frame logic (matching render_3d.py):
+    Repositions camera so the object fills `frame_fill` of vertical FOV.
+    Disable per-view with "auto_frame": false in the camera preset.
     """
+    from mathutils import Vector
+
     cam_data = bpy.data.cameras.new("DepthCam")
     cam_obj = bpy.data.objects.new("DepthCam", cam_data)
     scene.collection.objects.link(cam_obj)
     scene.camera = cam_obj
 
     if "location" in cam_preset:
-        # Cartesian format
         loc = cam_preset["location"]
         target = cam_preset.get("target", [0, 0, 0])
         cam_obj.location = (loc[0], loc[1], loc[2])
-        dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(loc, target)))
     elif "azimuth_deg" in cam_preset:
-        # Spherical format
         az = math.radians(cam_preset.get("azimuth_deg", 45))
         el = math.radians(cam_preset.get("elevation_deg", 30))
         dist_factor = cam_preset.get("distance_factor", 2.5)
@@ -114,21 +117,60 @@ def setup_camera(scene, cam_preset, bounding_radius):
         z = dist * math.sin(el) + target[2]
         cam_obj.location = (x, y, z)
     else:
-        # Fallback
-        dist = bounding_radius * 2.5
         target = [0, 0, 0]
-        cam_obj.location = (dist, -dist, dist)
+        cam_obj.location = (bounding_radius * 2.5, -bounding_radius * 2.5, bounding_radius * 2.5)
+
+    target_vec = Vector(target) if isinstance(target, (list, tuple)) else target
 
     # Point camera at target
-    from mathutils import Vector
-    direction = Vector(target) - cam_obj.location
+    direction = target_vec - cam_obj.location
     rot_quat = direction.to_track_quat('-Z', 'Y')
     cam_obj.rotation_euler = rot_quat.to_euler()
 
-    # Lens
-    cam_data.lens = cam_preset.get("lens_mm", 65)
+    # Lens & camera type
+    if cam_preset.get("ortho"):
+        cam_data.type = "ORTHO"
+        cam_data.ortho_scale = cam_preset.get("ortho_scale", 200)
+    else:
+        cam_data.type = "PERSP"
+        cam_data.lens = cam_preset.get("lens_mm", 65)
+
     cam_data.clip_start = 0.1
-    cam_data.clip_end = max(dist * 5, 100)
+    cam_data.clip_end = max(bounding_radius * 20, 100)
+
+    # ── Auto-frame (must match render_3d.py exactly) ──────────────────────
+    auto_frame = cam_preset.get("auto_frame", True)
+    if auto_frame:
+        try:
+            bs_center, bs_radius = compute_bounding_sphere()
+            frame_fill = config.get("frame_fill", 0.75)
+
+            if cam_data.type == "PERSP":
+                sensor_w = cam_data.sensor_width  # Blender default 36mm
+                aspect = scene.render.resolution_x / scene.render.resolution_y
+                sensor_h = sensor_w / aspect
+                fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
+                required_dist = bs_radius / math.sin(fov_half) / frame_fill
+                view_dir = (cam_obj.location - target_vec).normalized()
+                cam_obj.location = bs_center + view_dir * required_dist
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                cam_data.clip_end = max(required_dist * 5, 100)
+                log.info("  Auto-frame [depth]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
+                         bs_center.x, bs_center.y, bs_center.z,
+                         bs_radius, required_dist, frame_fill * 100)
+
+            elif cam_data.type == "ORTHO":
+                cam_data.ortho_scale = bs_radius * 2.0 / frame_fill
+                view_dir = (cam_obj.location - target_vec).normalized()
+                cam_obj.location = bs_center + view_dir * (bs_radius * 4)
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                log.info("  Auto-frame ORTHO [depth]: ortho_scale=%.0f r=%.0f fill=%.0f%%",
+                         cam_data.ortho_scale, bs_radius, frame_fill * 100)
+
+        except Exception as _af_err:
+            log.warning("  Auto-frame skipped: %s", _af_err)
 
     return cam_obj
 
@@ -146,6 +188,22 @@ def compute_bounding_radius():
             if d > max_dist:
                 max_dist = d
     return max(max_dist * 1.1, 1.0)
+
+
+def compute_bounding_sphere():
+    """Return (center, radius) of all non-ground mesh objects — matches render_3d.py."""
+    from mathutils import Vector
+    verts = []
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and obj.name not in ("Ground",):
+            matrix = obj.matrix_world
+            for v in obj.data.vertices:
+                verts.append(matrix @ v.co)
+    if not verts:
+        return Vector((0.0, 0.0, 0.0)), compute_bounding_radius()
+    center = sum(verts, Vector()) / len(verts)
+    radius = max((v - center).length for v in verts)
+    return center, radius
 
 
 def main():
@@ -197,8 +255,8 @@ def main():
             if obj.name == "DepthCam":
                 bpy.data.objects.remove(obj, do_unlink=True)
 
-        # Setup camera
-        cam_obj = setup_camera(scene, cam_preset, bounding_r)
+        # Setup camera (pass full config for frame_fill)
+        cam_obj = setup_camera(scene, cam_preset, bounding_r, config)
 
         log.info("Rendering depth: %s", view_key)
         setup_depth_compositor(scene, output_exr)

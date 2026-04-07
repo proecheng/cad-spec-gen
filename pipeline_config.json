@@ -53,7 +53,7 @@
       "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
       "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
       "canny_strength": 0.8,
-      "depth_strength": 0.95,
+      "depth_strength": 0.2,
       "steps": 28,
       "guidance_scale": 3.5,
       "timeout": 120
@@ -65,9 +65,9 @@
       "checkpoint_url": "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors",
       "controlnet_depth_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11f1p_sd15_depth.pth",
       "controlnet_canny_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_canny.pth",
-      "canny_strength": 0.8,
-      "depth_strength": 0.95,
-      "denoise_strength": 0.45,
+      "canny_strength": 0.85,
+      "depth_strength": 0.7,
+      "denoise_strength": 0.35,
       "cfg_scale": 7.0,
       "steps": 25,
       "timeout": 300
