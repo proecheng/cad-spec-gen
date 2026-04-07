@@ -27,7 +27,7 @@
 | 6 | 相机 | "相机怎么配置？" "视角" | 球坐标 / 笛卡尔坐标 + 5 标准视角说明 |
 | 7 | 爆炸图 | "爆炸图怎么设置？" | radial / axial / custom 三种爆炸方式配置 |
 | 8 | 渲染 | "怎么渲染？" "出图" | 自动判断状态，运行 Blender 或引导补全前置步骤 |
-| 9 | AI增强 | "Gemini怎么用？" "照片级" | Gemini 图生图混合增强流程 + prompt 模板 |
+| 9 | AI增强 | "怎么增强？" "照片级" "哪个后端？" | 4种后端AI增强：gemini / fal / comfyui / engineering |
 | 10 | 排错 | "报错了" "失败/不行" | 8 类常见问题排错指南 |
 | 11 | 文件结构 | "文件都在哪？" | 渲染管线完整目录树 |
 | 12 | 状态 | "目前进度如何？" | 扫描各子系统 STEP/DXF/GLB/PNG/JPG 产物统计 |
@@ -47,6 +47,7 @@
 - **视角感知材质描述**：AI prompt 根据相机仰角自动调整菲涅尔/镜面/漫反射描述重点
 - **material_type → preset 自动回退**：render_config.json 无材质时从 params.py 自动推导
 - **渲染 pass 预留**：可选输出 depth/normal/diffuse pass（schema 已就绪，默认关闭）
+- **四后端增强 (v2.3)**：AI增强支持四种后端 — gemini（云端，~$0.02/张）、fal（fal.ai Flux ControlNet，~$0.20/张，深度+边缘硬锁几何）、comfyui（本地GPU，免费）、engineering（Blender PBR直出JPG，免费，完美几何）。自动检测优先级：FAL_KEY→fal、ComfyUI运行中→comfyui、gemini配置→gemini、否则→engineering。降级链：fal→gemini→engineering。CLI：`--backend gemini|fal|comfyui|engineering`
 
 ## 管线架构
 
@@ -65,7 +66,8 @@
 │      ↓                                                       │
 │  Blender Cycles CPU 渲染 → N 视角 PNG（几何 100% 精确，默认5个）    │
 │      ↓                                                       │
-│  Gemini AI 增强 → 照片级 JPG（仅换皮，不改几何）              │
+│  AI 增强（4种后端）→ 照片级 JPG（仅换皮，不改几何）          │
+│    gemini | fal | comfyui | engineering（自动检测）           │
 │                                                              │
 │  PNG → 审图 / 加工参考                                       │
 │  JPG → 展示 / 答辩 / 商业计划书                              │
@@ -81,7 +83,9 @@
 | ezdxf | 0.18+ | 2D 工程图 (DXF) | 是 |
 | matplotlib | 3.x | DXF → PNG 转换 | 是 |
 | Blender | 4.x LTS | Cycles CPU 渲染 | 3D 渲染需要 |
-| Gemini API | — | AI 图片增强 | AI 增强需要 |
+| Gemini API | — | AI 图片增强（gemini后端） | gemini后端需要 |
+| FAL_KEY 环境变量 | — | fal.ai Flux ControlNet（fal后端） | fal后端需要 |
+| ComfyUI | localhost:8188 | 本地 ControlNet（comfyui后端） | comfyui后端需要 |
 | 仿宋字体 | — | GB/T 国标工程图 | 2D 图纸需要 |
 
 运行 `/cad-help 运行环境检查` 可一键检测全部依赖。
@@ -163,20 +167,33 @@ python gemini_gen.py \
 
 ### AI 增强工作流（所有配置的视角）
 
-Blender渲染完成后，将所有PNG增强为照片级JPG：
+Blender渲染完成后，将所有PNG增强为照片级JPG。支持四种后端：
+
+| 后端 | 费用 | 几何锁定 | 需要GPU | 适用场景 |
+|------|------|----------|---------|----------|
+| `gemini` | ~$0.02/张 | 软锁（prompt） | 否（云端） | 快速迭代、无GPU环境 |
+| `fal` | ~$0.20/张 | 硬锁（depth+canny） | 否（云端） | 最佳质量、几何关键场景 |
+| `comfyui` | 免费 | 硬锁（ControlNet） | 是（8GB+） | 离线、完全可控 |
+| `engineering` | 免费 | 完美（无AI） | 否 | 零成本、纯几何展示 |
+
+**自动检测优先级**：FAL_KEY环境变量 → ComfyUI运行中(localhost:8188) → Gemini配置 → engineering兜底。
+**降级链**：fal → gemini → engineering（降级后锁定后端，确保批次内多视角一致性）。
 
 ```bash
-# 步骤1: 读取 render_config.json 中的材质描述
-cat cad/end_effector/render_config.json | jq '.prompt_vars'
+# 自动检测最佳后端
+python cad_pipeline.py enhance --subsystem <name>
 
-# 所有视角 → templates/prompt_enhance_unified.txt（统一模板）
-# prompt_data_builder.py 从 params.py 自动生成装配/材质数据
-python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json --view V1
+# 指定后端
+python cad_pipeline.py enhance --subsystem <name> --backend fal
+python cad_pipeline.py enhance --subsystem <name> --backend engineering
+
+# 全流程也支持 --backend
+python cad_pipeline.py full --subsystem <name> --backend gemini
 ```
 
 **核心原则：**
 - 视角锁定（v2.1）：prompt 首行 "Preserve EXACT camera angle, viewpoint, framing"；每视角写入计算方位角/仰角
-- 几何锁定：Gemini 靠 prompt 约束；ComfyUI 靠 ControlNet 硬约束
+- 几何锁定：gemini 靠 prompt 约束；fal/comfyui 靠 ControlNet depth+canny 硬约束；engineering 完美保真（无AI变换）
 - 多视角一致性：源图第一位（锁构图）+ 参考图第二位（仅风格）+ V1-anchor + 源图不压缩（≤4MB）
 - 材质描述来源于 `render_config.json` 的 `prompt_vars` 字段
 - 标准件增强描述来源于 `render_config.json` 的 `standard_parts` 数组（`{standard_parts_description}` 占位符）

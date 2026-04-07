@@ -63,8 +63,8 @@ STEP + STD-STEP (standard parts) + DXF (GB/T 2D drawings) + GLB
 DXF PNG previews (for design review)
     ↓ Blender Cycles rendering (GPU auto-detect, CPU fallback)
 N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configurable)
-    ↓ AI enhancement (reskin only, geometry locked) — Gemini or ComfyUI
-       python cad_pipeline.py enhance --subsystem <name> [--dir <dir>] [--model <key>]
+    ↓ AI enhancement (reskin only, geometry locked) — 4 backends: gemini | fal | comfyui | engineering
+       python cad_pipeline.py enhance --subsystem <name> [--dir <dir>] [--backend <backend>]
 Photorealistic PNG — presentation / defense / business plan ready
     ↓ python cad_pipeline.py annotate — PIL-based component labels (CN/EN)
 Labeled PNG — with leader lines and component names
@@ -154,9 +154,18 @@ Labeled PNG — with leader lines and component names
 │     Default views: front-iso / rear / side / exploded / ortho   │
 │     Views are config-driven: render_config.json camera section   │
 │                                                                 │
-│  6. AI ENHANCEMENT (optional)                                   │
+│  6. AI ENHANCEMENT (optional) — 4 backends                      │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
-│     Prompt: "Keep ALL geometry EXACTLY" + material description  │
+│     Backends: gemini (~$0.02/img, cloud, soft geometry lock)    │
+│               fal (fal.ai Flux ControlNet, ~$0.20/img, hard    │
+│                    depth+canny lock) [NEW in v2.3]              │
+│               comfyui (local GPU ControlNet, free, hard lock)   │
+│               engineering (Blender PBR direct→JPG, free,        │
+│                    perfect geometry, no AI) [NEW in v2.3]       │
+│     Auto-detect: FAL_KEY→fal, ComfyUI→comfyui, gemini→gemini,  │
+│                  else→engineering                                │
+│     Fallback: fal→gemini→engineering (batch-locked on downgrade)│
+│     CLI: --backend gemini|fal|comfyui|engineering               │
 │     v2.3: unified MATERIAL_PRESETS appearance (single source    │
 │     of truth for both Blender PBR + AI prompt), view-aware      │
 │     material emphasis (Fresnel/specular per camera angle),      │
@@ -212,13 +221,16 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 - **Config-driven**: `render_config.json` controls materials, cameras, explosion rules
 - **Material bridging**: `resolve_bom_materials()` auto-derives PBR materials from BOM part IDs via bom_id→component→material lookup chain; auto-creates missing entries with consistency validation
 
-### AI Enhancement (Hybrid Rendering)
+### AI Enhancement (Hybrid Rendering) — 4 Backends
+- **Four backends**: gemini (cloud AI, ~$0.02/img), fal (fal.ai Flux ControlNet, ~$0.20/img), comfyui (local GPU ControlNet, free), engineering (Blender PBR direct, free)
+- **Auto-detect**: checks FAL_KEY → ComfyUI server → Gemini config → falls back to engineering
+- **Fallback chain**: fal → gemini → engineering (batch-locked after downgrade to ensure consistency)
 - **Geometry-locked**: Blender PNG provides exact geometry; AI only changes surface appearance
 - **Standard parts**: simplified CadQuery shapes (motors, bearings, springs) enhanced to realistic appearance via `{standard_parts_description}` prompt
 - **Cross-view consistent**: all 5 views share the same 3D source
 - **Dual output**: PNG for engineering, JPG for presentation
 - **Prompt templates**: auto-generated from render config variables
-- **Model selection**: configurable via `pipeline_config.json` — Nano Banana / Nano Banana Pro / Nano Banana 2
+- **CLI**: `--backend gemini|fal|comfyui|engineering` on both `enhance` and `full` commands
 
 ## Quick Start
 
@@ -264,7 +276,7 @@ python cad_pipeline.py env-check
 ### AI Enhancement Quick Start
 
 After Blender renders your PNGs, enhance them to photorealistic images via the pipeline.
-Two backends are supported: **Gemini** (cloud, default) and **ComfyUI** (local GPU, ControlNet geometry lock).
+Four backends are supported: **gemini** (cloud AI, ~$0.02/img), **fal** (fal.ai Flux ControlNet, ~$0.20/img, hard geometry lock), **comfyui** (local GPU ControlNet, free, hard lock), and **engineering** (Blender PBR direct, free, perfect geometry, no AI).
 
 **v2.1 — Multi-view consistency (Gemini):** four-layer defense ensures each view keeps its correct camera angle after enhancement: auto-computed azimuth/elevation written into prompt, source image placed first (locks composition), V1 result used as material anchor for V2–VN, source PNG sent at full resolution (≤4 MB uncompressed).
 
@@ -276,17 +288,23 @@ python gemini_gen.py --config
 ```
 
 ```bash
-# Default: Gemini backend, auto-read render_manifest.json
+# Auto-detect best backend (FAL_KEY→fal, ComfyUI→comfyui, gemini→gemini, else→engineering)
 python cad_pipeline.py enhance --subsystem <name>
 
 # Specify custom output directory (also reads manifest from that dir)
 python cad_pipeline.py enhance --dir /path/to/renders
 
-# Override model temporarily
-python cad_pipeline.py enhance --dir /path/to/renders --model nano_banana_pro
-
-# ComfyUI backend (requires local GPU + ComfyUI running)
+# Force a specific backend
+python cad_pipeline.py enhance --subsystem <name> --backend fal
+python cad_pipeline.py enhance --subsystem <name> --backend gemini
 python cad_pipeline.py enhance --subsystem <name> --backend comfyui
+python cad_pipeline.py enhance --subsystem <name> --backend engineering
+
+# Backend also works on full pipeline
+python cad_pipeline.py full --subsystem <name> --backend fal
+
+# Override Gemini model temporarily
+python cad_pipeline.py enhance --dir /path/to/renders --model nano_banana_pro
 
 # Check ComfyUI environment manually before first use
 python comfyui_env_check.py
@@ -295,13 +313,17 @@ python comfyui_env_check.py
 The enhance step automatically:
 - Reads `render_manifest.json` from `--dir` or default renders dir to process only latest render files
 - Auto-enriches prompt data from `params.py` via `prompt_data_builder.py` (materials, assembly description, constraints)
-- **Gemini** (v2.1): geometry and viewpoint locked via prompt — auto-computed camera angle (azimuth/elevation), source image first, V1-anchor reference, full-res PNG input
-- **ComfyUI**: uses ControlNet depth+canny to hard-lock geometry; requires local GPU
+- **gemini** (v2.1): geometry and viewpoint locked via prompt — auto-computed camera angle (azimuth/elevation), source image first, V1-anchor reference, full-res PNG input
+- **fal**: fal.ai Flux ControlNet — hard depth+canny geometry lock, cloud-based, ~$0.20/image
+- **comfyui**: local GPU ControlNet depth+canny to hard-lock geometry; requires local GPU
+- **engineering**: Blender PBR rendered directly to JPG — no AI, free, perfect geometry fidelity
+- Auto-detect priority: `FAL_KEY` env var → ComfyUI server running → Gemini config → engineering fallback
+- Fallback chain: if fal fails mid-batch → downgrade to gemini → engineering (batch-locked after downgrade)
 - Skips `*_enhanced.*` files to prevent re-processing
 
 Switch backend permanently in `pipeline_config.json`:
 ```json
-"enhance": { "backend": "comfyui" }
+"enhance": { "backend": "fal" }
 ```
 
 Output: `<render_dir>/<VN>_<name>_<timestamp>_enhanced.png` per view, photorealistic studio quality.

@@ -228,7 +228,9 @@ res.check(
 
 ### Phase 5 — ENHANCE（AI 图像增强）
 
-支持两种后端，由 `pipeline_config.json` 的 `enhance.backend` 字段或 `--backend` CLI 参数控制。
+支持四种后端，由 `pipeline_config.json` 的 `enhance.backend` 字段或 `--backend` CLI 参数控制。
+自动检测优先级：`FAL_KEY` 环境变量 → ComfyUI 运行中 → Gemini 配置 → engineering 兜底。
+降级链：fal → gemini → engineering（降级后锁定后端，确保批次内一致性）。
 
 ```
 render_manifest.json
@@ -253,17 +255,33 @@ render_manifest.json
         │       4. 源图高保真 — ≤4MB 不压缩，保留完整空间细节
         │     几何锁定：依赖 prompt 文字指令（"Preserve EXACT camera angle, viewpoint"）
         │
-        └─► [backend=comfyui]
-              comfyui_enhancer.py
-              1. 生成 depth map（MiDaS）+ canny 边缘图
-              2. 提交 workflow JSON 至 localhost:8188
-              3. ControlNet depth + canny 双约束硬锁几何
-              4. 轮询结果，超时重试
-              几何锁定：由控制图像硬约束，不依赖文字指令
+        ├─► [backend=fal]  [v2.3 NEW]
+        │     fal_enhancer.py
+        │     1. 生成 depth map + canny 边缘图（与 comfyui 相同预处理）
+        │     2. 提交至 fal.ai Flux ControlNet API（需 FAL_KEY 环境变量）
+        │     3. depth + canny 双约束硬锁几何（云端执行）
+        │     4. 轮询结果，自动重试
+        │     几何锁定：由控制图像硬约束（同 comfyui），但无需本地 GPU
+        │     费用：~$0.20/张
+        │
+        ├─► [backend=comfyui]
+        │     comfyui_enhancer.py
+        │     1. 生成 depth map（MiDaS）+ canny 边缘图
+        │     2. 提交 workflow JSON 至 localhost:8188
+        │     3. ControlNet depth + canny 双约束硬锁几何
+        │     4. 轮询结果，超时重试
+        │     几何锁定：由控制图像硬约束，不依赖文字指令
+        │
+        └─► [backend=engineering]  [v2.3 NEW]
+              无 AI 处理
+              1. 读取 Blender PBR 渲染结果（已含材质贴图）
+              2. 直接转换 PNG → JPG（质量95%）
+              3. 几何完美保真，零费用
+              适用场景：无 API 密钥、零预算、或仅需几何展示
 
 输出：cad/output/renders/<VN>_<name>_<timestamp>_enhanced.jpg
 
-v2.3.0 增强（通用，两种后端均受益）：
+v2.3.0 增强（通用，四种后端均受益）：
   - MATERIAL_PRESETS 新增 appearance 字段 → 数据源归一（删除 _PRESET_APPEARANCE）
   - _build_view_material_emphasis(): 根据相机仰角自动补充材质视角描述
     低仰角 → Fresnel edge sheen; 高仰角 → diffuse + AO
@@ -274,10 +292,30 @@ v2.3.0 增强（通用，两种后端均受益）：
 
 **后端对比：**
 
-| 后端 | GPU 要求 | 一致性 | 适用场景 |
-|------|----------|--------|----------|
-| `gemini` | 无（云端） | 中 | 快速试用，无 GPU 环境 |
-| `comfyui` | 本地 8GB+ | 高 | 追求多视角一致性 |
+| 后端 | 费用 | GPU 要求 | 几何锁定 | 一致性 | 适用场景 |
+|------|------|----------|----------|--------|----------|
+| `gemini` | ~$0.02/张 | 无（云端） | 软（prompt） | 中 | 快速试用，无 GPU 环境 |
+| `fal` | ~$0.20/张 | 无（云端） | 硬（depth+canny） | 高 | 最佳质量，几何关键场景 |
+| `comfyui` | 免费 | 本地 8GB+ | 硬（ControlNet） | 高 | 离线，完全可控 |
+| `engineering` | 免费 | 无 | 完美（无AI） | 完美 | 零成本，纯几何展示 |
+
+**自动检测优先级：**
+1. `FAL_KEY` 环境变量存在 → `fal`
+2. ComfyUI 服务运行中 (localhost:8188) → `comfyui`
+3. Gemini 配置存在 (~/.claude/gemini_image_config.json) → `gemini`
+4. 以上均不满足 → `engineering`
+
+**降级链：** fal → gemini → engineering（某后端批次中失败时自动降级，降级后锁定后端防止批次内不一致）
+
+**CLI 用法：**
+```bash
+# 自动检测
+python cad_pipeline.py enhance --subsystem <name>
+# 指定后端
+python cad_pipeline.py enhance --subsystem <name> --backend fal
+# 全流程指定后端
+python cad_pipeline.py full --subsystem <name> --backend engineering
+```
 
 **环境检测（ComfyUI）：**
 ```bash

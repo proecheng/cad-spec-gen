@@ -32,9 +32,9 @@
     },
     {
       "id": "cad-enhance",
-      "name": "Gemini AI Enhancement",
+      "name": "AI Enhancement (4 backends)",
       "trigger": "/cad-enhance",
-      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via Gemini AI or ComfyUI (geometry locked, reskin only). v2.3: view-aware material emphasis (Fresnel/specular/diffuse per camera angle), unified appearance data source (MATERIAL_PRESETS only, no duplicate _PRESET_APPEARANCE), auto-derive material descriptions from material_type fallback. v2.1: multi-view consistency — viewpoint lock (auto azimuth/elevation), image role separation (source first), V1-anchor reference, source high-fidelity. Layout-aware prompt routing (radial/linear/custom)."
+      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via 4 backends — gemini (cloud AI, ~$0.02/img, soft geometry lock), fal (fal.ai Flux ControlNet, ~$0.20/img, hard depth+canny lock), comfyui (local GPU ControlNet, free, hard lock), engineering (Blender PBR direct→JPG, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade). CLI: --backend gemini|fal|comfyui|engineering. v2.3: view-aware material emphasis (Fresnel/specular/diffuse per camera angle), unified appearance data source (MATERIAL_PRESETS only, no duplicate _PRESET_APPEARANCE), auto-derive material descriptions from material_type fallback. v2.1: multi-view consistency — viewpoint lock (auto azimuth/elevation), image role separation (source first), V1-anchor reference, source high-fidelity. Layout-aware prompt routing (radial/linear/custom)."
     },
     {
       "id": "mechdesign",
@@ -62,8 +62,8 @@
     },
     {
       "name": "gemini_enhance",
-      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). gemini_gen.py is included in this repo; also discoverable via env var GEMINI_GEN_PATH or cad_paths.get_gemini_script(). Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
-      "cli": "python cad_pipeline.py enhance --dir <render_dir>"
+      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). 4 backends: gemini (cloud), fal (fal.ai ControlNet), comfyui (local GPU ControlNet), engineering (Blender PBR direct). Auto-detects best available backend. Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
+      "cli": "python cad_pipeline.py enhance --dir <render_dir> [--backend gemini|fal|comfyui|engineering]"
     },
     {
       "name": "annotate_render",
@@ -79,7 +79,7 @@
     "dify": "adapters/dify/"
   },
   "pipeline": {
-    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md (+ feature list) → Jinja2 codegen (+ hole/section gen) → CadQuery (STEP/DXF/GLB) → DXF→PNG (GB/T section views + position dims) → Blender Cycles PNG → Gemini AI JPG (view-aware materials) → Annotated JPG",
+    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md (+ feature list) → Jinja2 codegen (+ hole/section gen) → CadQuery (STEP/DXF/GLB) → DXF→PNG (GB/T section views + position dims) → Blender Cycles PNG → AI-enhanced JPG (4 backends: gemini/fal/comfyui/engineering, view-aware materials) → Annotated JPG",
     "orchestrator": "cad_pipeline.py",
     "config": "pipeline_config.json",
     "stages": [
@@ -87,7 +87,7 @@
       "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). v2.3: gen_parts.py auto-extracts part features via extract_part_features() → template generates CadQuery .hole()/.cboreHole() calls; auto-detects needs_section_view → template adds auto_section_overlay() call. assembly.py includes per-part offset positioning (translate() from §6.2). GATE-2: gen_parts.py scans TODO markers → exit(2) if unfilled.",
       "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py). v2.3 DXF: GB/T position dimensions (hole-center-to-edge), orthogonal-first dim angles, A-A section overlay with hatch (holes excluded), dynamic tech notes placement. Post-build: auto-runs render_dxf.py to convert DXF → PNG.",
       "Phase 4 RENDER: Blender Cycles N-view PNG from render_config.json camera dict (dynamic, not hardcoded). render_3d.py + render_exploded.py + render_section.py dispatched by view type. Post-render: writes render_manifest.json (session-new files only, partial flag on partial failure) and V*_labels.json sidecar (Blender world_to_camera_view projected anchor coords per component).",
-      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG (Gemini or ComfyUI backend). v2.3: MATERIAL_PRESETS appearance field is single source of truth (removed duplicate _PRESET_APPEARANCE); view-aware material emphasis per camera angle; material_type→preset auto-fallback from params.py. Auto-enriches rc from params.py via prompt_data_builder (in-memory). Material bridging: resolve_bom_materials() builds bom_id→component→material lookup chain. Reads render_manifest.json for session-new PNGs.",
+      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG via 4 backends: gemini (cloud, ~$0.02/img, soft geometry lock via prompt), fal (fal.ai Flux ControlNet, ~$0.20/img, hard depth+canny lock), comfyui (local GPU ControlNet, free, hard lock), engineering (Blender PBR direct→JPG, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade). CLI: --backend gemini|fal|comfyui|engineering on enhance and full commands. v2.3: MATERIAL_PRESETS appearance field is single source of truth (removed duplicate _PRESET_APPEARANCE); view-aware material emphasis per camera angle; material_type→preset auto-fallback from params.py. Auto-enriches rc from params.py via prompt_data_builder (in-memory). Material bridging: resolve_bom_materials() builds bom_id→component→material lookup chain. Reads render_manifest.json for session-new PNGs.",
       "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py). Reads V*_labels.json sidecar for geometrically accurate anchor coords (Blender-projected); falls back to render_config.json hardcoded coords when no sidecar present."
     ]
   }

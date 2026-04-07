@@ -27,7 +27,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 6 | Camera | "how to configure camera?" "views" | Spherical / Cartesian coords + N configurable views |
 | 7 | Exploded View | "how to set up exploded view?" | radial / axial / custom explosion configuration |
 | 8 | Render | "how to render?" "generate images" | Auto-detect state, run Blender or guide through prerequisites |
-| 9 | AI Enhancement | "how to use Gemini?" "photorealistic" | Gemini image-to-image hybrid enhancement workflow |
+| 9 | AI Enhancement | "how to enhance?" "photorealistic" "which backend?" | 4-backend AI enhancement: gemini / fal / comfyui / engineering |
 | 10 | Troubleshoot | "error" "it failed" | Troubleshooting guide for 8 common issues |
 | 11 | File Structure | "where are the files?" | Complete directory tree of the rendering pipeline |
 | 12 | Status | "current progress?" | Scan subsystem STEP/DXF/GLB/PNG/JPG artifact counts |
@@ -47,6 +47,7 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 - **View-Aware Material Emphasis**: AI prompt adjusts Fresnel/specular/diffuse emphasis per camera angle
 - **material_type → preset Fallback**: Auto-derives render preset from params.py material_type when render_config.json lacks materials
 - **Render Passes (preview)**: Optional depth/normal/diffuse pass output from Blender (schema ready, default disabled)
+- **Triple-Backend Enhance (v2.3)**: Four backends for AI enhancement — gemini (cloud, ~$0.02/img), fal (fal.ai Flux ControlNet, ~$0.20/img, hard geometry lock), comfyui (local GPU, free), engineering (Blender PBR direct, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI→comfyui, gemini→gemini, else→engineering. Fallback chain: fal→gemini→engineering. CLI: `--backend gemini|fal|comfyui|engineering`
 
 ## Pipeline Architecture
 
@@ -64,7 +65,8 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 │      ↓                                                        │
 │  Blender Cycles CPU Rendering → N-view PNG (100% accurate, default 5)  │
 │      ↓                                                        │
-│  Gemini AI Enhancement → Photorealistic JPG (reskin only)     │
+│  AI Enhancement (4 backends) → Photorealistic JPG (reskin)    │
+│    gemini | fal | comfyui | engineering (auto-detect)         │
 │                                                               │
 │  PNG → Engineering review / machining reference               │
 │  JPG → Presentations / proposals / business plans             │
@@ -80,7 +82,9 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | ezdxf | 0.18+ | 2D engineering drawings (DXF) | Yes |
 | matplotlib | 3.x | DXF → PNG conversion | Yes |
 | Blender | 4.x LTS | Cycles CPU rendering | For 3D rendering |
-| Gemini API | — | AI image enhancement | For AI enhancement |
+| Gemini API | — | AI image enhancement (gemini backend) | For gemini backend |
+| FAL_KEY env var | — | fal.ai Flux ControlNet (fal backend) | For fal backend |
+| ComfyUI | localhost:8188 | Local ControlNet (comfyui backend) | For comfyui backend |
 | FangSong font | — | GB/T standard drawings | For 2D drawings |
 
 Run `/cad-help check environment` to detect all dependencies at once.
@@ -162,20 +166,33 @@ python gemini_gen.py \
 
 ### AI Enhancement Workflow (all configured views)
 
-After Blender renders exist, enhance all views to photorealistic JPGs:
+After Blender renders exist, enhance all views to photorealistic JPGs. Four backends are available:
+
+| Backend | Cost | Geometry Lock | GPU Required | Best For |
+|---------|------|---------------|--------------|----------|
+| `gemini` | ~$0.02/img | Soft (prompt) | No (cloud) | Quick iteration, no GPU |
+| `fal` | ~$0.20/img | Hard (depth+canny) | No (cloud) | Best quality, geometry-critical |
+| `comfyui` | Free | Hard (ControlNet) | Yes (8GB+) | Offline, full control |
+| `engineering` | Free | Perfect (no AI) | No | Budget zero, geometry-only |
+
+**Auto-detect priority**: FAL_KEY env var → ComfyUI running on localhost:8188 → Gemini config → engineering fallback.
+**Fallback chain**: fal → gemini → engineering (batch-locked after downgrade to ensure cross-view consistency).
 
 ```bash
-# Step 1: Read render_config.json for material descriptions
-cat cad/end_effector/render_config.json | jq '.prompt_vars'
+# Auto-detect best backend
+python cad_pipeline.py enhance --subsystem <name>
 
-# All views → templates/prompt_enhance_unified.txt (unified)
-# prompt_data_builder.py auto-generates assembly/material data from params.py
-python tools/hybrid_render/prompt_builder.py --config cad/end_effector/render_config.json --view V1
+# Force a specific backend
+python cad_pipeline.py enhance --subsystem <name> --backend fal
+python cad_pipeline.py enhance --subsystem <name> --backend engineering
+
+# Also works on full pipeline
+python cad_pipeline.py full --subsystem <name> --backend gemini
 ```
 
 **Key principles:**
 - Viewpoint lock (v2.1): prompt opens with "Preserve EXACT camera angle, viewpoint, framing"; each view includes computed azimuth/elevation
-- Geometry lock: Gemini — prompt constraint; ComfyUI — ControlNet hard constraint
+- Geometry lock: gemini — prompt constraint; fal/comfyui — ControlNet depth+canny hard constraint; engineering — perfect (no AI transform)
 - Multi-view consistency: source image FIRST (locks composition) + reference SECOND (style only) + V1-anchor + source uncompressed (≤4MB)
 - Material descriptions come from `render_config.json` `prompt_vars`
 - Standard parts enhancement descriptions come from `render_config.json` `standard_parts` array (`{standard_parts_description}` placeholder)

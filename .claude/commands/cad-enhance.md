@@ -6,16 +6,18 @@
 
 将 Blender Cycles 渲染的 PNG 图片增强为照片级 JPG。几何形状 100% 锁定，仅更换表面材质外观。
 
-支持两种后端：**Gemini**（云端 API，无 GPU 要求）和 **ComfyUI**（本地，需 GPU，多视角一致性更强）。
+支持四种后端：**Gemini**（云端 AI）、**fal.ai**（云端 ControlNet 硬锁）、**ComfyUI**（本地 GPU）、**工程模式**（无 AI）。
 
 ### 路由规则
 
 1. **无参数** → 显示用法：
    ```
    /cad-enhance <subsystem>                           — 增强当前 manifest 的所有视角
-   /cad-enhance <subsystem> --backend gemini          — 强制使用 Gemini 后端
-   /cad-enhance <subsystem> --backend comfyui         — 强制使用 ComfyUI 后端
-   /cad-enhance --env-check                           — 检测 ComfyUI 环境是否就绪
+   /cad-enhance <subsystem> --backend gemini          — Gemini AI（云端，快速）
+   /cad-enhance <subsystem> --backend fal             — fal.ai Flux ControlNet（云端，几何硬锁）
+   /cad-enhance <subsystem> --backend comfyui         — ComfyUI ControlNet（本地 GPU）
+   /cad-enhance <subsystem> --backend engineering     — 工程模式（无 AI，Blender 直出）
+   /cad-enhance --env-check                           — 检测环境
    ```
 
 2. **有参数但未指定 `--backend`** → 先询问用户选择后端：
@@ -26,16 +28,20 @@
    当前默认后端：<backend>（来自 pipeline_config.json）
 
    请选择增强后端：
-   A. Gemini（推荐）— 云端 API，无需 GPU，开箱即用
-   B. ComfyUI       — 本地 GPU，ControlNet 几何硬锁，多视角一致性更强（需 GPU 8GB+）
-   C. 保持默认（<backend>）
+   A. Gemini      — 云端 AI，无需 GPU，~$0.02/张（外观好但几何可能微变）
+   B. fal.ai      — 云端 ControlNet，~$0.20/张（几何硬锁，多视角一致）
+   C. ComfyUI     — 本地 GPU，免费（需 GPU 8GB+，几何硬锁）
+   D. 工程模式    — 无 AI，Blender PBR 直接后处理，免费（几何 100% 准确）
+   E. 保持默认（<backend>）
    ```
 
-   - 用户选 A → 使用 `gemini` 后端执行
-   - 用户选 B → 先运行 `python comfyui_env_check.py` 检测环境，环境就绪后执行；若缺少组件，展示安装指引并询问是否继续
-   - 用户选 C 或直接回车 → 使用当前默认后端执行
-   - 用户回复中含 `gemini` / `A` → 使用 gemini
-   - 用户回复中含 `comfyui` / `B` → 使用 comfyui
+   - 用户选 A / 输入 `gemini` → 使用 gemini
+   - 用户选 B / 输入 `fal` → 检查 FAL_KEY 环境变量，就绪后执行
+   - 用户选 C / 输入 `comfyui` → 运行 `comfyui_env_check.py`，就绪后执行
+   - 用户选 D / 输入 `engineering` / 输入 `工程` → 直接执行（零依赖）
+   - 用户选 E 或直接回车 → 使用当前默认后端
+   - 用户说"不要 AI" / "精确" / "工程图" → 推荐工程模式
+   - 用户说"最好的效果" / "高质量" → 推荐 fal.ai
 
 3. **有参数且已指定 `--backend`** → 跳过询问，直接执行增强：
    - 若 `--backend comfyui`：先运行 `python comfyui_env_check.py`，若环境未就绪则展示安装指引并询问是否继续
@@ -47,16 +53,20 @@
 
 ### 后端选择
 
-| 后端 | 适用场景 | 依赖 | 一致性 |
-|------|----------|------|--------|
-| `gemini` | 无 GPU / 快速试用 | Gemini API Key | 中（AI 有时改变视角） |
-| `comfyui` | 追求多视角一致性 | 本地 GPU 8GB+，ComfyUI + ControlNet | 高（depth+canny 硬锁几何） |
+| 后端 | 适用场景 | 几何保真 | 成本 | 依赖 |
+|------|----------|---------|------|------|
+| `gemini` | 快速演示、商业计划书 | 中（AI 可能改几何） | ~$0.02/张 | Gemini API Key |
+| `fal` | 高质量渲染、多视角一致 | **高（ControlNet 硬锁）** | ~$0.20/张 | FAL_KEY 环境变量 |
+| `comfyui` | 本地 GPU 用户 | **高（ControlNet 硬锁）** | 免费 | GPU 8GB+，ComfyUI |
+| `engineering` | 工程审查、图纸配图 | **完美（物理渲染）** | 免费 | 无（Pillow 可选） |
+
+**故障降级**：fal → gemini → engineering（连续 2 次失败自动切换，批次内锁定）
 
 **切换后端（三种方式，优先级从高到低）：**
 
 ```bash
 # 1. CLI 参数（临时）
-python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
+python cad_pipeline.py enhance --subsystem end_effector --backend fal
 
 # 2. 修改 pipeline_config.json（持久）
 "enhance": { "backend": "comfyui" }
