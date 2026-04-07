@@ -368,52 +368,50 @@ def auto_annotate(solid: cq.Workplane, sheet, annotation_meta: dict = None):
         max_dims = placer.max_dims_for_view(paper_w, paper_h)
         dim_count = 0
 
-        # ── Overall dimensions ───────────────────────────────────────────────
-        # Width dimension (horizontal, below the view)
-        if dim_count < max_dims:
-            h_off = placer.next_h_offset()
-            p1 = (ox - paper_w / 2, oy - paper_h / 2 - h_off)
-            p2 = (ox + paper_w / 2, oy - paper_h / 2 - h_off)
-            dim_text = f"{bbox_w:.1f}"
+        # ── Overall dimensions (GB/T 4458.4 三视图标注规则) ────────────────
+        # 前视图: 宽度(下方水平) + 高度(右侧垂直)
+        # 俯视图: 深度(右侧垂直) — 宽度与前视图共享，不重复标
+        # 左视图: 不标外形尺寸 — 高度与前视图共享，深度与俯视图共享
 
-            # Check if any tolerance matches this dimension
-            tol_label = _match_tolerance(meta, bbox_w, ["W", "OD", "DIA", "WIDTH"])
-            if tol_label:
-                dim_text = tol_label
+        if view_name == "front":
+            # 宽度 (horizontal, below)
+            if dim_count < max_dims:
+                h_off = placer.next_h_offset()
+                p1 = (ox - paper_w / 2, oy - paper_h / 2 - h_off)
+                p2 = (ox + paper_w / 2, oy - paper_h / 2 - h_off)
+                dim_text = f"{bbox_w:.1f}"
+                tol_label = _match_tolerance(meta, bbox_w, ["W", "OD", "DIA", "WIDTH"])
+                if tol_label:
+                    dim_text = tol_label
+                add_linear_dim(msp, p1, p2, offset=0, text=dim_text, angle=0)
+                dim_count += 1
 
-            add_linear_dim(msp, p1, p2, offset=0, text=dim_text, angle=0)
-            dim_count += 1
+            # 高度 (vertical, right)
+            if dim_count < max_dims:
+                v_off = placer.next_v_offset()
+                p1 = (ox + paper_w / 2 + v_off, oy - paper_h / 2)
+                p2 = (ox + paper_w / 2 + v_off, oy + paper_h / 2)
+                dim_text = f"{bbox_h:.1f}"
+                tol_label = _match_tolerance(meta, bbox_h, ["H", "THICK", "HEIGHT"])
+                if tol_label:
+                    dim_text = tol_label
+                add_linear_dim(msp, p1, p2, offset=0, text=dim_text, angle=90)
+                dim_count += 1
 
-        # Height dimension (vertical, right of the view) — only for front view
-        if view_name == "front" and dim_count < max_dims:
-            v_off = placer.next_v_offset()
-            p1 = (ox + paper_w / 2 + v_off, oy - paper_h / 2)
-            p2 = (ox + paper_w / 2 + v_off, oy + paper_h / 2)
-            dim_text = f"{bbox_h:.1f}"
+        elif view_name == "top":
+            # 深度 (vertical, right) — 宽度与前视图共享，不标
+            if dim_count < max_dims:
+                v_off = placer.next_v_offset()
+                p1 = (ox + paper_w / 2 + v_off, oy - paper_h / 2)
+                p2 = (ox + paper_w / 2 + v_off, oy + paper_h / 2)
+                dim_text = f"{bbox_h:.1f}"
+                tol_label = _match_tolerance(meta, bbox_h, ["D", "DEPTH", "L"])
+                if tol_label:
+                    dim_text = tol_label
+                add_linear_dim(msp, p1, p2, offset=0, text=dim_text, angle=90)
+                dim_count += 1
 
-            tol_label = _match_tolerance(meta, bbox_h, ["H", "THICK", "HEIGHT"])
-            if tol_label:
-                dim_text = tol_label
-
-            add_linear_dim(msp, p1, p2, offset=0, text=dim_text, angle=90)
-            dim_count += 1
-
-        # Depth dimension (俯视图 or 左视图 — the dimension orthogonal to front)
-        if view_name == "top" and dim_count < max_dims:
-            h_off = placer.next_h_offset()
-            p1 = (ox - paper_w / 2, oy - paper_h / 2 - h_off)
-            p2 = (ox + paper_w / 2, oy - paper_h / 2 - h_off)
-            dim_text = f"{bbox_h:.1f}"
-
-            tol_label = _match_tolerance(meta, bbox_h, ["D", "DEPTH", "L"])
-            if tol_label:
-                dim_text = tol_label
-
-            add_linear_dim(msp,
-                           (ox - paper_w / 2, oy + paper_h / 2 + h_off),
-                           (ox + paper_w / 2, oy + paper_h / 2 + h_off),
-                           offset=0, text=dim_text, angle=0)
-            dim_count += 1
+        # left view: 不标外形尺寸（高度/深度已在前视图+俯视图标过）
 
         # ── Circle / hole diameters ──────────────────────────────────────────
         circles_raw = _detect_circles(solid, view_name)
