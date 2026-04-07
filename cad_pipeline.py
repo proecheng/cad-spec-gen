@@ -1283,7 +1283,9 @@ def _render_depth_only(render_dir, args, pcfg):
             rc = json.load(f)
         glb_name = rc.get("subsystem", {}).get("glb_file", "")
         if glb_name:
-            for search_dir in [render_dir, DEFAULT_OUTPUT,
+            for search_dir in [render_dir,
+                               os.path.dirname(render_dir),  # parent (e.g. GISBOT/)
+                               DEFAULT_OUTPUT,
                                os.environ.get("CAD_OUTPUT_DIR", "")]:
                 if not search_dir:
                     continue
