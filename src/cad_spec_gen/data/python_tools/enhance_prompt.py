@@ -360,8 +360,12 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
         image_roles = (
             "IMAGE ROLES (CRITICAL):\n"
             "- Image 1 (FIRST) = SOURCE — preserve its EXACT viewpoint, framing, and composition.\n"
-            "- Image 2 (SECOND) = STYLE REFERENCE ONLY — borrow ONLY its material textures and color palette.\n"
-            "  Do NOT copy the reference image's camera angle, viewpoint, or spatial layout."
+            "- Image 2 (SECOND) = MATERIAL COLOR SWATCH — a blurred color strip showing\n"
+            "  ONLY the target material colors, textures, and sheen levels.\n"
+            "  Use it to match color palette and surface finish ONLY.\n"
+            "  It contains NO spatial layout or shape information — do NOT try to\n"
+            "  reconstruct any structure from it. Your output must match the SOURCE\n"
+            "  image's geometry with the SWATCH image's colors."
         )
     else:
         image_roles = ""

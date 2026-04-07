@@ -1406,6 +1406,48 @@ def cmd_enhance(args):
         _im.save(_tmp.name, "JPEG", quality=quality)
         return _tmp.name, os.path.getsize(_tmp.name) / 1024
 
+    def _make_material_swatch(hero_path):
+        """Convert a full enhanced image into a material color swatch strip.
+
+        Extracts horizontal bands from different vertical regions of the image,
+        applies heavy Gaussian blur to destroy spatial structure, then tiles
+        them into a narrow swatch strip.  Gemini can read color/texture/sheen
+        from this but CANNOT copy the original image's composition or viewpoint.
+
+        Returns (tmp_path, size_kb) or (None, 0) on failure.
+        """
+        import tempfile as _sw_tf
+        try:
+            from PIL import Image as _SwImg, ImageFilter as _SwFlt
+
+            img = _SwImg.open(hero_path).convert("RGB")
+            w, h = img.size
+
+            # Sample 5 horizontal bands (each 1/10 of image height)
+            band_h = max(h // 10, 20)
+            bands = []
+            for y_frac in [0.15, 0.35, 0.50, 0.65, 0.85]:
+                y = int(h * y_frac)
+                band = img.crop((0, y, w, min(y + band_h, h)))
+                # Heavy blur to destroy spatial detail, keep only color/texture
+                band = band.filter(_SwFlt.GaussianBlur(radius=15))
+                bands.append(band)
+
+            # Stack bands vertically into a swatch strip
+            strip_w = min(w, 640)
+            strip_h = band_h * len(bands)
+            swatch = _SwImg.new("RGB", (strip_w, strip_h))
+            for i, band in enumerate(bands):
+                band = band.resize((strip_w, band_h), _SwImg.LANCZOS)
+                swatch.paste(band, (0, i * band_h))
+
+            tmp = _sw_tf.NamedTemporaryFile(suffix="_swatch.jpg", delete=False)
+            tmp.close()
+            swatch.save(tmp.name, "JPEG", quality=80)
+            return tmp.name, os.path.getsize(tmp.name) / 1024
+        except Exception:
+            return None, 0
+
     def _parse_gemini_output(stdout_text):
         """Extract saved image path from gemini_gen.py stdout.
 
@@ -1564,17 +1606,20 @@ def cmd_enhance(args):
 
             ref_args = []
             if _use_ref and hero_image:
-                # Compress reference image more aggressively to keep payload small
+                # Convert V1 enhanced image to material swatch (blurred color bands).
+                # This gives Gemini color/texture/sheen reference WITHOUT spatial
+                # structure, preventing it from copying V1's composition.
                 try:
-                    _rctmp, _rsz = _compress_for_api(hero_image, (1280, 720), 90)
-                    _ref_to_send = _rctmp if _rctmp else hero_image
-                    if _rctmp:
-                        _ref_compressed_tmp = _rctmp
-                    ref_args = ["--reference", _ref_to_send]
-                    log.info("  Reference: %s (%.0fKB)",
-                             os.path.basename(hero_image), _rsz)
+                    _swatch_tmp, _ssz = _make_material_swatch(hero_image)
+                    if _swatch_tmp:
+                        _ref_compressed_tmp = _swatch_tmp
+                        ref_args = ["--reference", _swatch_tmp]
+                        log.info("  Material swatch: %.0fKB (from %s)",
+                                 _ssz, os.path.basename(hero_image))
+                    else:
+                        log.warning("  Could not create material swatch, skipping reference")
                 except Exception as _re_err:
-                    log.warning("  Could not prepare reference image: %s", _re_err)
+                    log.warning("  Could not prepare material swatch: %s", _re_err)
 
             seed_args = []
             if _seed is not None:
