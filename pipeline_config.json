@@ -52,10 +52,10 @@
       "model": "fal-ai/flux-general",
       "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
       "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
-      "canny_strength": 0.8,
-      "depth_strength": 0.95,
+      "canny_strength": 0.45,
+      "depth_strength": 0.55,
       "steps": 28,
-      "guidance_scale": 3.5,
+      "guidance_scale": 7.0,
       "timeout": 120
     },
     "engineering": {

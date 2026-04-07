@@ -58,12 +58,12 @@ def import_glb(filepath):
 def setup_depth_compositor(scene, output_path):
     """Set up minimal compositor for depth-only output.
 
-    Creates: RenderLayers → File Output (EXR 32-bit depth).
-    Does NOT create a Composite node — we don't need RGB output.
+    Uses scene.render.filepath for depth EXR output (avoids File Output node
+    frame-number suffix issues). Sets output format to EXR 32-bit.
     """
     scene.use_nodes = True
     tree = scene.node_tree
-    tree.nodes.clear()  # Safe: this is an independent Blender session
+    tree.nodes.clear()
 
     # Render Layers node
     rl = tree.nodes.new("CompositorNodeRLayers")
@@ -72,42 +72,52 @@ def setup_depth_compositor(scene, output_path):
     # Enable Z pass
     scene.view_layers[0].use_pass_z = True
 
-    # File Output node for depth
-    file_out = tree.nodes.new("CompositorNodeOutputFile")
-    file_out.location = (400, 0)
-    file_out.base_path = os.path.dirname(output_path)
-    file_out.format.file_format = "OPEN_EXR"
-    file_out.format.color_depth = "32"
-    file_out.file_slots[0].path = os.path.basename(output_path).replace(".exr", "")
-
-    # Link depth
-    tree.links.new(rl.outputs["Depth"], file_out.inputs[0])
-
-    # Also need a Composite node (Blender requires it for render to work)
+    # Route DEPTH to Composite output (not Image)
+    # This way scene.render.filepath controls the output path
     comp = tree.nodes.new("CompositorNodeComposite")
-    comp.location = (400, -200)
-    tree.links.new(rl.outputs["Image"], comp.inputs["Image"])
+    comp.location = (400, 0)
+    tree.links.new(rl.outputs["Depth"], comp.inputs["Image"])
+
+    # Set output format to EXR
+    scene.render.image_settings.file_format = "OPEN_EXR"
+    scene.render.image_settings.color_depth = "32"
+    scene.render.filepath = output_path
 
 
 def setup_camera(scene, cam_preset, bounding_radius):
-    """Position camera from render_config.json camera preset."""
+    """Position camera from render_config.json camera preset.
+
+    Supports both formats:
+    - Cartesian: {"location": [x,y,z], "target": [x,y,z]}
+    - Spherical: {"azimuth_deg": N, "elevation_deg": N, "distance_factor": N}
+    """
     cam_data = bpy.data.cameras.new("DepthCam")
     cam_obj = bpy.data.objects.new("DepthCam", cam_data)
     scene.collection.objects.link(cam_obj)
     scene.camera = cam_obj
 
-    # Spherical → Cartesian
-    az = math.radians(cam_preset.get("azimuth_deg", 45))
-    el = math.radians(cam_preset.get("elevation_deg", 30))
-    dist_factor = cam_preset.get("distance_factor", 2.5)
-    dist = bounding_radius * dist_factor
-    target = cam_preset.get("target", [0, 0, bounding_radius * 0.33])
-
-    x = dist * math.cos(el) * math.cos(az) + target[0]
-    y = dist * math.cos(el) * math.sin(az) + target[1]
-    z = dist * math.sin(el) + target[2]
-
-    cam_obj.location = (x, y, z)
+    if "location" in cam_preset:
+        # Cartesian format
+        loc = cam_preset["location"]
+        target = cam_preset.get("target", [0, 0, 0])
+        cam_obj.location = (loc[0], loc[1], loc[2])
+        dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(loc, target)))
+    elif "azimuth_deg" in cam_preset:
+        # Spherical format
+        az = math.radians(cam_preset.get("azimuth_deg", 45))
+        el = math.radians(cam_preset.get("elevation_deg", 30))
+        dist_factor = cam_preset.get("distance_factor", 2.5)
+        dist = bounding_radius * dist_factor
+        target = cam_preset.get("target", [0, 0, bounding_radius * 0.33])
+        x = dist * math.cos(el) * math.cos(az) + target[0]
+        y = dist * math.cos(el) * math.sin(az) + target[1]
+        z = dist * math.sin(el) + target[2]
+        cam_obj.location = (x, y, z)
+    else:
+        # Fallback
+        dist = bounding_radius * 2.5
+        target = [0, 0, 0]
+        cam_obj.location = (dist, -dist, dist)
 
     # Point camera at target
     from mathutils import Vector
@@ -118,7 +128,7 @@ def setup_camera(scene, cam_preset, bounding_radius):
     # Lens
     cam_data.lens = cam_preset.get("lens_mm", 65)
     cam_data.clip_start = 0.1
-    cam_data.clip_end = dist * 5
+    cam_data.clip_end = max(dist * 5, 100)
 
     return cam_obj
 
@@ -175,7 +185,9 @@ def main():
             log.info("Skipping %s (type=%s)", view_key, vtype)
             continue
 
-        if "azimuth_deg" not in cam_preset:
+        # Need at least location or azimuth to position camera
+        if "location" not in cam_preset and "azimuth_deg" not in cam_preset:
+            log.info("Skipping %s (no camera position data)", view_key)
             continue
 
         output_exr = os.path.join(args.output_dir, f"{view_key}_depth.exr")
@@ -185,45 +197,32 @@ def main():
             if obj.name == "DepthCam":
                 bpy.data.objects.remove(obj, do_unlink=True)
 
-        # Setup camera + compositor
+        # Setup camera
         cam_obj = setup_camera(scene, cam_preset, bounding_r)
+
+        log.info("Rendering depth: %s", view_key)
         setup_depth_compositor(scene, output_exr)
+        bpy.ops.render.render(write_still=True)
 
-        # Set render output (for Composite node, not used but required)
-        scene.render.filepath = os.path.join(args.output_dir, f"{view_key}_depth_rgb.png")
-
-        log.info("Rendering depth: %s (az=%.0f, el=%.0f)",
-                 view_key,
-                 cam_preset.get("azimuth_deg", 0),
-                 cam_preset.get("elevation_deg", 0))
-        bpy.ops.render.render(write_still=False)  # write_still=False: only compositor outputs
-
-        # Verify output (compositor adds frame number suffix)
-        # File output node writes: {base_path}/{slot_path}0001.exr
-        expected_suffixed = output_exr.replace(".exr", "0001.exr")
-        if os.path.isfile(expected_suffixed):
-            os.rename(expected_suffixed, output_exr)
-            log.info("  Saved: %s (%.0fKB)",
-                     os.path.basename(output_exr),
-                     os.path.getsize(output_exr) / 1024)
-            rendered += 1
-        elif os.path.isfile(output_exr):
+        # Verify output
+        if os.path.isfile(output_exr):
             log.info("  Saved: %s (%.0fKB)",
                      os.path.basename(output_exr),
                      os.path.getsize(output_exr) / 1024)
             rendered += 1
         else:
-            log.warning("  Depth output not found for %s", view_key)
-
-        # Clean up unused RGB composite output
-        rgb_path = scene.render.filepath
-        for suffix in ["", ".png", "0001.png"]:
-            p = rgb_path + suffix if suffix else rgb_path
-            if os.path.isfile(p):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+            # Blender may append frame number
+            for candidate in [output_exr.replace(".exr", "0001.exr"),
+                              output_exr.replace(".exr", ".exr0001.exr")]:
+                if os.path.isfile(candidate):
+                    os.rename(candidate, output_exr)
+                    log.info("  Saved: %s (%.0fKB)",
+                             os.path.basename(output_exr),
+                             os.path.getsize(output_exr) / 1024)
+                    rendered += 1
+                    break
+            else:
+                log.warning("  Depth output not found for %s", view_key)
 
     log.info("Depth rendering complete: %d/%d views", rendered, len(cameras))
 

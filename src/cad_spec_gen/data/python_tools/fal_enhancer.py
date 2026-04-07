@@ -58,21 +58,24 @@ def convert_depth_exr_to_png(exr_path, output_path=None, rgb_png_path=None):
                 "Cannot read EXR. Install: pip install OpenEXR or pip install imageio"
             )
 
-    # Replace infinity/nan with max finite value
-    finite_mask = np.isfinite(depth)
+    # Separate foreground from background (Blender uses 1e10 for sky)
+    finite_mask = np.isfinite(depth) & (depth < 1e9)
     if finite_mask.any():
-        max_depth = depth[finite_mask].max()
-        min_depth = depth[finite_mask].min()
-        depth = np.where(finite_mask, depth, max_depth)
+        fg_values = depth[finite_mask]
+        min_depth = np.percentile(fg_values, 1)   # robust min (ignore outliers)
+        max_depth = np.percentile(fg_values, 99)   # robust max
     else:
-        max_depth = 1.0
         min_depth = 0.0
+        max_depth = 1.0
 
-    # Normalize to 0-255 (near=white, far=black)
+    # Clip to foreground range, then normalize to 0-255 (near=white, far=black)
+    clipped = np.clip(depth, min_depth, max_depth)
     if max_depth > min_depth:
-        normalized = 1.0 - (depth - min_depth) / (max_depth - min_depth)
+        normalized = 1.0 - (clipped - min_depth) / (max_depth - min_depth)
     else:
         normalized = np.zeros_like(depth)
+    # Background pixels (sky) → black (far)
+    normalized[~finite_mask] = 0.0
     depth_u8 = (normalized * 255).clip(0, 255).astype(np.uint8)
 
     img = Image.fromarray(depth_u8, mode="L")
@@ -267,7 +270,7 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
             fal_cfg.get("model", "fal-ai/flux-general"),
             arguments={
                 "prompt": flux_prompt,
-                "image_size": {"width": 1920, "height": 1080},
+                "image_size": "landscape_16_9",
                 "num_inference_steps": steps,
                 "guidance_scale": guidance,
                 "num_images": 1,
