@@ -48,12 +48,16 @@
       "timeout": 7200
     },
     "fal": {
-      "_doc": "fal.ai Flux ControlNet — cloud API, hard geometry lock. Requires FAL_KEY env var.",
+      "_doc": "fal.ai Flux img2img + ControlNet — cloud API. img2img preserves base geometry, canny locks edges, depth optional. Requires FAL_KEY env var.",
       "model": "fal-ai/flux-general",
+      "img2img": true,
+      "img2img_strength": 0.6,
       "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
       "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
-      "canny_strength": 0.8,
-      "depth_strength": 0.2,
+      "canny_strength": 0.75,
+      "canny_end_pct": 0.8,
+      "depth_strength": 0.7,
+      "depth_end_pct": 0.8,
       "steps": 28,
       "guidance_scale": 3.5,
       "timeout": 120
