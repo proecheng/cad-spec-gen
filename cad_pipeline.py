@@ -1182,7 +1182,7 @@ def cmd_render(args):
 
 
 def cmd_enhance(args):
-    """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
+    """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
     from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
     # Determine backend: CLI arg > pipeline_config.json > default gemini
@@ -1191,6 +1191,12 @@ def cmd_enhance(args):
     log.info("Enhance backend: %s", backend)
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
+
+    # ── Backend-specific init & validation ─────────────────────────────
+    # _enhance_fn / _enhance_cfg_key: set for table-driven backends
+    # (comfyui, fal, fal_comfy). gemini keeps its own subprocess path.
+    _enhance_fn = None
+    _enhance_cfg_key = None
 
     if backend == "comfyui":
         # Pre-flight env check — catches CPU-only, missing models, server down
@@ -1204,7 +1210,23 @@ def cmd_enhance(args):
             )
             log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
             return 1
-        from comfyui_enhancer import enhance_image as enhance_with_comfyui
+        from comfyui_enhancer import enhance_image as _comfyui_fn
+        _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
+    elif backend in ("fal", "fal_comfy"):
+        if not os.environ.get("FAL_KEY"):
+            log.error("FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys")
+            return 1
+        try:
+            import fal_client  # noqa — validate import early
+        except ImportError:
+            log.error("fal-client not installed. Run: pip install fal-client")
+            return 1
+        if backend == "fal":
+            from fal_enhancer import enhance_image as _fal_fn
+            _enhance_fn, _enhance_cfg_key = _fal_fn, "fal"
+        else:
+            from fal_comfy_enhancer import enhance_image as _fal_comfy_fn
+            _enhance_fn, _enhance_cfg_key = _fal_comfy_fn, "fal_comfy"
     else:
         backend = "gemini"  # normalise
         gemini_script = get_gemini_script()
@@ -1427,16 +1449,20 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
-            # ── ComfyUI backend ──────────────────────────────────────────
-            if backend == "comfyui":
-                log.info("  Running: enhance %s (%s, comfyui)",
-                         os.path.basename(png), view_key)
+            # ── Table-driven backend (comfyui / fal / fal_comfy) ────────
+            if _enhance_fn is not None:
+                log.info("  Running: enhance %s (%s, %s)",
+                         os.path.basename(png), view_key, backend)
                 t0 = time.time()
                 try:
-                    raw_path = enhance_with_comfyui(png, prompt, _pcfg.get("enhance", {}).get("comfyui", {}), view_key, rc)
-                except Exception as _ce:
-                    log.error("  ComfyUI enhance failed for %s: %s",
-                              os.path.basename(png), _ce)
+                    raw_path = _enhance_fn(
+                        png, prompt,
+                        _pcfg.get("enhance", {}).get(_enhance_cfg_key, {}),
+                        view_key, rc,
+                    )
+                except Exception as _be:
+                    log.error("  %s enhance failed for %s: %s",
+                              backend, os.path.basename(png), _be)
                     failures += 1
                     continue
                 elapsed = time.time() - t0
@@ -1457,8 +1483,8 @@ def cmd_enhance(args):
                         pass
                     log.info("  Saved: %s", new_path)
                 else:
-                    log.warning("  Could not locate ComfyUI output for %s",
-                                os.path.basename(png))
+                    log.warning("  Could not locate %s output for %s",
+                                backend, os.path.basename(png))
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────
@@ -2128,10 +2154,10 @@ def main():
     p_render.add_argument("--output-dir", help="Override output directory for rendered PNGs")
 
     # enhance
-    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
+    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "fal_comfy"],
                            help="Override enhance backend (default: from pipeline_config.json)")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
