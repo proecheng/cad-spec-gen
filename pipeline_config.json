@@ -20,7 +20,7 @@
   },
   "enhance": {
     "backend": "gemini",
-    "_backend_doc": "Options: 'gemini' (cloud API, no GPU needed) | 'comfyui' (local GPU, free)",
+    "_backend_doc": "Options: 'gemini' (cloud, soft geometry lock) | 'fal' (cloud, ControlNet hard lock, $0.20/img) | 'comfyui' (local GPU, hard lock, free) | 'engineering' (no AI, Blender PBR direct, free). Leave empty for auto-detect.",
     "model": "nano_banana_pro",
     "temperature": 0.2,
     "seed_from_image": true,
@@ -46,6 +46,23 @@
       "cfg_scale": 7.0,
       "steps": 25,
       "timeout": 7200
+    },
+    "fal": {
+      "_doc": "fal.ai Flux ControlNet — cloud API, hard geometry lock. Requires FAL_KEY env var.",
+      "model": "fal-ai/flux-general",
+      "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
+      "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
+      "canny_strength": 0.8,
+      "depth_strength": 0.95,
+      "steps": 28,
+      "guidance_scale": 3.5,
+      "timeout": 120
+    },
+    "engineering": {
+      "_doc": "No AI — Blender PBR render → light post-processing → JPG. Perfect geometry, zero cost.",
+      "sharpness": 1.3,
+      "contrast": 1.1,
+      "quality": 95
     }
   }
 }

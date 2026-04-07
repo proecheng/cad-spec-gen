@@ -27,6 +27,7 @@ _PIPELINE_TOOLS = [
     "gemini_gen.py",
     "comfyui_enhancer.py",
     "comfyui_env_check.py",
+    "fal_enhancer.py",
     "pipeline_config.json",
 ]
 

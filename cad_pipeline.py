@@ -1258,19 +1258,89 @@ def cmd_render(args):
     return 1 if failures else 0
 
 
+def _auto_detect_backend():
+    """Auto-detect best available enhance backend (zero-config first use)."""
+    if os.environ.get("FAL_KEY"):
+        try:
+            import fal_client  # noqa: F401
+            return "fal"
+        except ImportError:
+            pass
+    # Check ComfyUI reachable
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://127.0.0.1:8188/system_stats", timeout=2)
+        return "comfyui"
+    except Exception:
+        pass
+    if get_gemini_script():
+        return "gemini"
+    return "engineering"
+
+
+def _check_enhanced_quality(enhanced_path, source_path):
+    """Check if enhanced image is acceptable (not blank/corrupt)."""
+    if not os.path.isfile(enhanced_path):
+        return False, "File not found"
+    enhanced_size = os.path.getsize(enhanced_path)
+    source_size = os.path.getsize(source_path)
+    if enhanced_size < source_size * 0.05:
+        return False, f"Suspiciously small ({enhanced_size}B vs source {source_size}B)"
+    try:
+        from PIL import Image
+        import statistics
+        img = Image.open(enhanced_path).convert("L")
+        pixels = list(img.getdata())
+        if statistics.variance(pixels) < 10:
+            return False, "Appears to be solid color"
+    except (ImportError, Exception):
+        pass  # PIL not available, skip variance check
+    return True, "OK"
+
+
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
     from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
-    # Determine backend: CLI arg > pipeline_config.json > default gemini
+    # ── Backend selection: CLI > config > auto-detect ──────────────────────
     _pcfg = _load_pipeline_config()
-    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
-    log.info("Enhance backend: %s", backend)
+    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "")
+
+    # Auto-detect if no backend configured
+    if not backend:
+        backend = _auto_detect_backend()
+        log.info("Auto-detected enhance backend: %s", backend)
+    else:
+        log.info("Enhance backend: %s", backend)
+
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
 
-    if backend == "comfyui":
-        # Pre-flight env check — catches CPU-only, missing models, server down
+    # ── Fallback chain: fal→gemini→engineering ───────────────────────────
+    _FALLBACK_CHAIN = {
+        "fal": ["gemini", "engineering"],
+        "comfyui": ["gemini", "engineering"],
+        "gemini": ["engineering"],
+        "engineering": [],
+    }
+    _active_backend = backend  # may change mid-run on failure
+    _consecutive_failures = 0
+    _MAX_FAILURES_BEFORE_FALLBACK = 2
+
+    # ── Backend-specific initialization ──────────────────────────────────
+    gemini_script = None
+    if backend == "fal":
+        try:
+            import fal_client as _fal_check  # noqa: F401
+        except ImportError:
+            log.error("fal-client not installed. Run: pip install fal-client")
+            return 1
+        if not os.environ.get("FAL_KEY"):
+            log.error("FAL_KEY environment variable not set. Get key at https://fal.ai/dashboard/keys")
+            return 1
+        # Cost estimate
+        from fal_enhancer import enhance_image as enhance_with_fal
+    elif backend == "comfyui":
         _check_result = subprocess.run(
             [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py"), "--quiet"],
             capture_output=True,
@@ -1282,12 +1352,13 @@ def cmd_enhance(args):
             log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
             return 1
         from comfyui_enhancer import enhance_image as enhance_with_comfyui
+    elif backend == "engineering":
+        log.info("Engineering mode: Blender PBR renders → JPG (no AI, geometry perfect)")
     else:
-        backend = "gemini"  # normalise
+        backend = "gemini"
         gemini_script = get_gemini_script()
         if not gemini_script:
             log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
-            log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
             return 1
 
     # Load render_config.json (full dict for prompt building) — must come before PNG sorting
@@ -1369,6 +1440,18 @@ def cmd_enhance(args):
 
     failures = 0
     v1_done = False
+    # ── Clean stale enhanced files from previous runs ─────────────────────
+    for _stale in glob.glob(os.path.join(render_dir, "*_enhanced.*")):
+        try:
+            os.remove(_stale)
+        except OSError:
+            pass
+
+    # ── Cost estimate for fal.ai ─────────────────────────────────────────
+    if _active_backend == "fal" and len(pngs) > 0:
+        _est = len(pngs) * 0.20
+        log.info("  fal.ai estimated cost: $%.2f (%d images x $0.20)", _est, len(pngs))
+
     hero_image = None  # V1 enhanced result for multi-view anchoring
 
     # ── Multi-view consistency settings from pipeline_config ──
@@ -1501,15 +1584,17 @@ def cmd_enhance(args):
 
         # ── Set reference flag in rc for prompt building (A1 fix) ──
         _use_ref = (_ref_mode == "v1_anchor" and hero_image
-                    and view_key != "V1" and backend == "gemini")
+                    and view_key != "V1" and _active_backend == "gemini")
         rc["_has_reference"] = _use_ref
 
-        # Build prompt with all placeholders filled
-        try:
-            prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
-        except FileNotFoundError:
-            prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
-                      "to photo-realistic quality with proper lighting and reflections.")
+        # Build prompt (skip for engineering mode — no AI needed)
+        prompt = ""
+        if _active_backend != "engineering":
+            try:
+                prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
+            except FileNotFoundError:
+                prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
+                          "to photo-realistic quality with proper lighting and reflections.")
 
         # Compute seed (if enabled)
         _seed = _pixel_seed(png) if _seed_from_image else None
@@ -1552,8 +1637,87 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
+            # ── Engineering backend (no AI) ────────────────────────────
+            if _active_backend == "engineering":
+                t0 = time.time()
+                from datetime import datetime as _dt
+                src_stem = os.path.splitext(os.path.basename(png))[0]
+                ts = _dt.now().strftime("%Y%m%d_%H%M")
+                out_path = os.path.join(os.path.dirname(png),
+                                        f"{src_stem}_{ts}_enhanced.jpg")
+                try:
+                    from PIL import Image as _EImg, ImageEnhance as _EEnh
+                    _eng_cfg = _pcfg.get("enhance", {}).get("engineering", {})
+                    _img = _EImg.open(png).convert("RGB")
+                    _img = _EEnh.Sharpness(_img).enhance(_eng_cfg.get("sharpness", 1.3))
+                    _img = _EEnh.Contrast(_img).enhance(_eng_cfg.get("contrast", 1.1))
+                    _img.save(out_path, "JPEG", quality=_eng_cfg.get("quality", 95))
+                except ImportError:
+                    # Pillow not available — copy PNG as-is
+                    out_path = out_path.replace(".jpg", ".png")
+                    shutil.copy2(png, out_path)
+                log.info("  OK: engineering %s (%.1fs)", os.path.basename(png), time.time() - t0)
+                if view_key == "V1":
+                    v1_done = True
+                continue
+
+            # ── fal.ai backend ──────────────────────────────────────────
+            if _active_backend == "fal":
+                log.info("  Running: enhance %s (%s, fal)", os.path.basename(png), view_key)
+                t0 = time.time()
+                try:
+                    raw_path = enhance_with_fal(
+                        png, prompt,
+                        _pcfg.get("enhance", {}).get("fal", {}),
+                        view_key, rc)
+                except Exception as _fe:
+                    log.warning("  fal.ai failed for %s: %s", os.path.basename(png), _fe)
+                    _consecutive_failures += 1
+                    if _consecutive_failures >= _MAX_FAILURES_BEFORE_FALLBACK:
+                        _chain = _FALLBACK_CHAIN.get(_active_backend, [])
+                        if _chain:
+                            _active_backend = _chain[0]
+                            log.warning("  Falling back to %s for remaining views", _active_backend)
+                            # Re-init fallback backend
+                            if _active_backend == "gemini" and not gemini_script:
+                                gemini_script = get_gemini_script()
+                        _consecutive_failures = 0
+                    failures += 1
+                    continue
+                elapsed = time.time() - t0
+                log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
+                _consecutive_failures = 0
+                if view_key == "V1":
+                    v1_done = True
+                if raw_path and os.path.isfile(raw_path):
+                    # Quality gate
+                    _qok, _qmsg = _check_enhanced_quality(raw_path, png)
+                    if not _qok:
+                        log.warning("  Quality check failed: %s — skipping", _qmsg)
+                        os.remove(raw_path)
+                        failures += 1
+                        continue
+                    from datetime import datetime as _dt
+                    src_stem = os.path.splitext(os.path.basename(png))[0]
+                    ts = _dt.now().strftime("%Y%m%d_%H%M")
+                    ext = os.path.splitext(raw_path)[1]
+                    new_name = f"{src_stem}_{ts}_enhanced{ext}"
+                    new_path = os.path.join(os.path.dirname(png), new_name)
+                    shutil.copy2(raw_path, new_path)
+                    try:
+                        os.remove(raw_path)
+                    except OSError:
+                        pass
+                    log.info("  Saved: %s", new_path)
+                    if view_key == "V1" and _ref_mode == "v1_anchor":
+                        hero_image = new_path
+                        log.info("  Hero image set: %s", os.path.basename(new_path))
+                else:
+                    log.warning("  Could not locate fal output for %s", os.path.basename(png))
+                continue
+
             # ── ComfyUI backend ──────────────────────────────────────────
-            if backend == "comfyui":
+            if _active_backend == "comfyui":
                 log.info("  Running: enhance %s (%s, comfyui)",
                          os.path.basename(png), view_key)
                 t0 = time.time()
@@ -2259,8 +2423,8 @@ def main():
     p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
-                           help="Override enhance backend (default: from pipeline_config.json)")
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "engineering"],
+                           help="Override enhance backend (default: from pipeline_config.json or auto-detect)")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
     p_enhance.add_argument("--model", default=None,
@@ -2291,6 +2455,8 @@ def main():
     p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
+    p_full.add_argument("--backend", choices=["gemini", "comfyui", "fal", "engineering"],
+                        help="Override enhance backend")
     p_full.add_argument("--labeled", action="store_true",
                         help="Generate English-labeled enhanced images (gemini only)")
     p_full.add_argument("--agent-review", action="store_true",
