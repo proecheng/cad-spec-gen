@@ -158,7 +158,8 @@ def check_hf_model_urls(cfg, timeout=10):
 
 def run_check(quiet=False):
     cfg = _load_fal_comfy_config()
-    issues = []
+    issues = []    # hard failures (FAL_KEY, packages) — block execution
+    warnings = []  # soft failures (network, HF URLs) — warn but allow
     info = []
 
     # 1. FAL_KEY
@@ -173,19 +174,20 @@ def run_check(quiet=False):
     ok, msg = check_depth_deps()
     (info if ok else issues).append(msg)
 
-    # 4. fal.ai API
+    # 4. fal.ai API (warning only — transient SSL errors should not block)
     ok, msg = check_fal_api_reachable()
-    (info if ok else issues).append(msg)
+    if ok:
+        info.append(msg)
+    else:
+        warnings.append(msg)
 
-    # 5. HuggingFace model URLs
+    # 5. HuggingFace model URLs (warning only — models download at runtime)
     hf_results = check_hf_model_urls(cfg)
-    any_hf_fail = False
     for label, ok, msg in hf_results:
         if ok:
             info.append(msg)
         else:
-            issues.append(msg)
-            any_hf_fail = True
+            warnings.append(msg)
 
     # 6. First-run advisory (always shown, not an issue)
     first_run_note = (
@@ -202,6 +204,11 @@ def run_check(quiet=False):
     for line in info:
         print(f"  [OK]  {line}")
 
+    if warnings:
+        print()
+        for w in warnings:
+            print(f"  [WARN] {w}")
+
     if issues:
         print()
         print(f"  {len(issues)} issue(s) found:")
@@ -214,6 +221,8 @@ def run_check(quiet=False):
     else:
         print()
         print(f"  [NOTE] {first_run_note}")
+        if warnings:
+            print("  [NOTE] Network warnings above may be transient — proceeding is OK.")
         print()
         print("  All checks passed. fal_comfy backend is ready.")
         return 0
