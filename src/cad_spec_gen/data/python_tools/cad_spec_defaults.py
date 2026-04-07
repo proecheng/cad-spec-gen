@@ -275,6 +275,29 @@ def classify_material_type(material: str):
     return None
 
 
+# ─── material_type → render preset 映射 ──────────────────────────────────
+
+MATERIAL_TYPE_TO_DEFAULT_PRESET = {
+    "al":     "brushed_aluminum",
+    "steel":  "dark_steel",
+    "peek":   "peek_amber",
+    "nylon":  "white_nylon",
+    "rubber": "black_rubber",
+}
+
+
+def default_preset_for_material_type(material_type: str) -> str:
+    """material_type → 默认 render preset 名称。
+
+    用于 prompt_data_builder.py 运行时 fallback：当 render_config.json
+    缺少 materials 配置时，从 params.py 的 material_type 自动推导 preset。
+
+    Returns:
+        MATERIAL_PRESETS 中的 key（如 "brushed_aluminum"）
+    """
+    return MATERIAL_TYPE_TO_DEFAULT_PRESET.get(material_type, "brushed_aluminum")
+
+
 # ─── 零件编号通用前缀剥离 ────────────────────────────────────────────────
 
 def strip_part_prefix(part_no: str) -> str:

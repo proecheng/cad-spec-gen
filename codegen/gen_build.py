@@ -158,20 +158,28 @@ def generate_build_tables(parts: list) -> dict:
             # since there are no standalone sub-assembly Python modules.
             continue
         elif "自制" in p.get("make_buy", ""):
-            # Custom-made leaf part → DXF drawing
+            # Custom-made leaf part → STEP export + DXF drawing
             # Module name must match gen_parts.py: GIS-EE-001-01 → ee_001_01
             from cad_spec_defaults import strip_part_prefix
             ee_mod = strip_part_prefix(pno).lower().replace("-", "_")
             if ee_mod and ee_mod[0].isdigit():
                 ee_mod = "p" + ee_mod
             mod = ee_mod
-            func = f"draw_{ee_mod}_sheet"
             label = re.sub(r"[（(].*$", "", name).strip()
 
+            # STEP build (individual part 3D export)
+            step_builds.append({
+                "label": label,
+                "module": mod,
+                "func": f"make_{ee_mod}",
+                "filename": f"{pno}.step",
+            })
+
+            # DXF build (2D engineering drawing)
             dxf_builds.append({
                 "label": label,
                 "module": mod,
-                "func": func,
+                "func": f"draw_{ee_mod}_sheet",
             })
         elif "外购" in p.get("make_buy", "") or "标准" in p.get("make_buy", ""):
             # Purchased standard part → simplified STEP

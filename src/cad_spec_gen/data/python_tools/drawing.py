@@ -604,6 +604,61 @@ def add_auxiliary_label(msp: Modelspace, pos: Tuple[float, float],
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Section cut indicator on source view (GB/T 4458.6)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def add_section_cut_indicator(
+    msp: Modelspace,
+    label: str,
+    p1: Tuple[float, float],
+    p2: Tuple[float, float],
+    tick_len: float = 4.0,
+    text_offset: float = 6.0,
+    layer: str = "OUTLINE",
+):
+    """在视图上画剖切位置指示线 (GB/T 4458.6)。
+
+    画法：两端粗短横线（垂直于剖切线） + 中间点划线 + 两端标注字母。
+
+    Args:
+        label: 剖切标号 (e.g. "A")
+        p1, p2: 剖切线两端点（纸面坐标）
+        tick_len: 两端粗短横线半长 (mm)
+        text_offset: 字母标注距端点的距离 (mm)
+    """
+    import math as _math
+
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    length = _math.hypot(dx, dy)
+    if length < 0.1:
+        return
+
+    # 单位方向 & 法线
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux  # 逆时针 90° 法线
+
+    # 两端粗短横线（垂直于剖切线，长 2×tick_len）
+    for p in (p1, p2):
+        msp.add_line(
+            (p[0] - nx * tick_len, p[1] - ny * tick_len),
+            (p[0] + nx * tick_len, p[1] + ny * tick_len),
+            dxfattribs={"layer": layer, "lineweight": 70},
+        )
+
+    # 中间点划线
+    msp.add_line(p1, p2, dxfattribs={"layer": "CENTER"})
+
+    # 两端标注字母
+    for p in (p1, p2):
+        msp.add_text(
+            label, height=5.0,
+            dxfattribs={"layer": "TEXT", "color": 7},
+        ).set_placement((p[0] + nx * text_offset, p[1] + ny * text_offset))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Section hatch with cavities (GB/T 4457.5)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -908,9 +963,18 @@ class AnnotationPlacer:
         return max(1, int(dim_zone / DIM_CHAIN_STEP))
 
 
-def allocate_dim_angles(count: int) -> List[float]:
-    """为多个圆/孔分配不重叠的引出线角度 (degrees)。"""
-    base = [45.0, 135.0, -45.0, -135.0, 30.0, 150.0, -30.0, -150.0]
+def allocate_dim_angles(count: int, prefer_orthogonal: bool = True) -> List[float]:
+    """为多个圆/孔分配不重叠的引出线角度 (degrees)。
+
+    Args:
+        count: 需要分配的角度数量
+        prefer_orthogonal: True = GB/T 4458.4 优先水平/垂直方向（0°/180°/90°/270°）
+                           False = 原始 45° 散射角（向后兼容）
+    """
+    if prefer_orthogonal:
+        base = [0.0, 180.0, 90.0, 270.0, 45.0, 135.0, -45.0, -135.0]
+    else:
+        base = [45.0, 135.0, -45.0, -135.0, 30.0, 150.0, -30.0, -150.0]
     return [base[i % len(base)] for i in range(count)]
 
 
@@ -921,15 +985,20 @@ def allocate_dim_angles(count: int) -> List[float]:
 def add_technical_notes(msp: Modelspace,
                         notes: Optional[List[str]] = None,
                         material_type: Optional[str] = None,
-                        pos: Tuple[float, float] = (27.0, 275.0),
+                        pos: Optional[Tuple[float, float]] = None,
                         layer: str = "TEXT"):
-    """Draw technical notes block in upper-left area of drawing frame.
+    """Draw technical notes block on the drawing sheet.
+
+    GB/T 10609.1: 技术要求应放置在图纸下方空白处（视图下方、标题栏上方）。
+    若空间不足则回退到左上角。
 
     Args:
         notes: custom notes list; None = use preset for material_type
         material_type: "al" | "peek" | "steel" | "nylon" | "rubber" | None
-        pos: top-left position of the notes block
+        pos: top-left position of the notes block; None = use default fallback (27, 275)
     """
+    if pos is None:
+        pos = (27.0, 275.0)
     if notes is None:
         if material_type is None:
             import warnings

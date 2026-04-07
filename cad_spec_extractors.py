@@ -891,17 +891,59 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
             fit = m.group(3) or ""
             assembly_hints.append((part_frag, diameter, fit, f"L{i+1}"))
 
+    # ── Source 4: 从全文提取坐标 (X, Y) 并关联到附近的孔/零件名 ───────────
+    # 数据唯一来源：设计文档中的 "(±X, ±Y)" 坐标文本
+    coord_pattern = re.compile(
+        r"([\u4e00-\u9fff]{2,8})"        # part name fragment (Chinese, 2-8 chars)
+        r"[^(（\n]{0,30}?"                # gap (up to 30 chars, not crossing lines)
+        r"[\(（]"                          # opening bracket
+        r"([+\-−]?\d+(?:\.\d+)?)"         # X coordinate
+        r"\s*[,，]\s*"                     # separator
+        r"([+\-−±]?\d+(?:\.\d+)?)"        # Y coordinate
+        r"[\)）]"                          # closing bracket
+    )
+    # Map: part_name_fragment → list of (x, y) tuples
+    coord_hints = {}  # {part_frag: [(x, y), ...]}
+    for i, line in enumerate(lines):
+        for m in coord_pattern.finditer(line):
+            frag = m.group(1)
+            try:
+                x = float(m.group(2).replace("−", "-"))
+                y_str = m.group(3).replace("−", "-")
+                # Handle ±N: expand to two symmetric points
+                if "±" in y_str:
+                    y_abs = float(y_str.replace("±", ""))
+                    coords = [(x, y_abs), (x, -y_abs)]
+                else:
+                    y = float(y_str)
+                    coords = [(x, y)]
+                coord_hints.setdefault(frag, []).extend(coords)
+            except (ValueError, IndexError):
+                pass
+
     # ── Merge: associate features with BOM parts ─────────────────────────────
     def _fuzzy_match(frag: str, name: str) -> bool:
-        """模糊匹配零件名：'上板' 匹配 '上固定板'，'动板' 匹配 '动板'。"""
+        """模糊匹配零件名。
+
+        支持：
+        - 精确包含："动板" in "动板" → True
+        - 缩写："上板" → "上固定板"（首尾字序）
+        - 带后缀："上板底面" → "上固定板"（去掉方位后缀再匹配）
+        """
         if frag in name or name in frag:
             return True
-        # 缩写匹配：片段首尾字符都出现在名称中且顺序正确
+        # 缩写匹配：首尾字符都在名称中且顺序正确
         if len(frag) >= 2 and frag[0] in name and frag[-1] in name:
             i0 = name.index(frag[0])
             i1 = name.rindex(frag[-1])
             if i0 < i1:
                 return True
+        # 带方位后缀匹配："上板底面" → 去掉 "底面"/"顶面" → "上板" → 重试
+        for suffix in ("底面", "顶面", "侧面", "端面", "内孔", "外壁"):
+            if frag.endswith(suffix) and len(frag) > len(suffix):
+                stripped = frag[:-len(suffix)]
+                if _fuzzy_match(stripped, name):
+                    return True
         return False
 
     for p in bom_parts:
@@ -913,6 +955,14 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
         part_features = []
         matched_diameters = set()
 
+        # Collect coordinates that match this part name from coord_hints
+        part_coords = []
+        for cfrag, clist in coord_hints.items():
+            if _fuzzy_match(cfrag, name):
+                part_coords.extend(clist)
+        # Deduplicate coordinates
+        part_coords = list(set(part_coords))
+
         for frag, dia, fit, src in assembly_hints:
             if _fuzzy_match(frag, name):
                 if dia not in matched_diameters:
@@ -921,11 +971,15 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
                     if fit and not tol_text:
                         tol_text = fit
 
+                    # Try to associate positions from coord_hints
+                    positions = list(part_coords) if part_coords else []
+                    count = len(positions) if positions else 2
+
                     part_features.append({
                         "type": "through_hole",
                         "diameter": dia,
-                        "count": 2,
-                        "positions": [],
+                        "count": count,
+                        "positions": positions,
                         "tolerance": tol_text,
                         "source": f"§2.1 Φ{dia}{fit}, {src}",
                     })
@@ -935,12 +989,19 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
             if name and name in ff["position_text"]:
                 tap_d = ff["bolt_d"]
                 if tap_d not in matched_diameters:
+                    # Try to find positions from coord_hints for the fastener location text
+                    ff_coords = []
+                    for cfrag, clist in coord_hints.items():
+                        if cfrag in ff["position_text"] or ff["position_text"] in cfrag:
+                            ff_coords.extend(clist)
+                    ff_coords = list(set(ff_coords)) if ff_coords else []
+
                     part_features.append({
                         "type": "threaded_hole",
                         "diameter": tap_d,
                         "tap_drill_d": round(tap_d * 0.85, 1),
-                        "count": ff["count"],
-                        "positions": [],
+                        "count": len(ff_coords) if ff_coords else ff["count"],
+                        "positions": ff_coords,
                         "tolerance": "",
                         "source": ff["source"],
                     })

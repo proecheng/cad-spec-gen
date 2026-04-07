@@ -114,6 +114,11 @@ def side_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 
 
 def draw_top_plate_sheet(output_dir: str) -> str:
+    raise RuntimeError(
+        "draw_top_plate_sheet() is DEPRECATED — 孔位与 3D 模型不一致。\n"
+        "正式 2D 图由 p100.py:draw_p100_sheet() 通过 auto_three_view() 自动生成。\n"
+        "如需修改 SLP-100 的 2D 图，应修改管线工具层而非此文件。"
+    )
     sheet = ThreeViewSheet(
         part_no="SLP-100",
         name="上固定板",
@@ -129,6 +134,10 @@ def draw_top_plate_sheet(output_dir: str) -> str:
 
 
 if __name__ == "__main__":
+    raise SystemExit(
+        "ERROR: draw_top_plate.py is DEPRECATED.\n"
+        "Use: python p100.py  (or python build_all.py for full build)"
+    )
     out = os.environ.get("CAD_OUTPUT_DIR",
                         os.path.join(os.path.dirname(__file__), "../../output"))
     os.makedirs(out, exist_ok=True)

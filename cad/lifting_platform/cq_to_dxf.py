@@ -29,6 +29,33 @@ from OCP.GCPnts import GCPnts_UniformDeflection
 from OCP.GeomAbs import GeomAbs_Line, GeomAbs_Circle
 
 
+def _convex_hull(points):
+    """Compute convex hull of 2D points (Andrew's monotone chain).
+
+    Returns list of (x, y) vertices in counter-clockwise order.
+    Used by auto_section_overlay to build the actual cross-section
+    outer boundary from HLR projected edge endpoints.
+    """
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
 # ── GB/T 14692-2008 First Angle Projection View Directions ──────────────────
 # Each view is defined by (eye_direction, x_direction):
 #   eye_direction = where the camera looks FROM (normal to projection plane)
@@ -580,19 +607,11 @@ def auto_section_overlay(
     scale = layout["scale"]
     msp = sheet.msp
 
-    # ── 1. Extract section profile from 3D solid ────────────────────────────
-    # Use CadQuery .section() to get the cross-section wire at the cut plane
-    shape = solid.val()
-    bb = shape.BoundingBox()
-
+    # ── 1. Determine hatch view and compute layout ────────────────────────
     if cut_plane == "YZ":
-        # Cut at X=0, project onto YZ → left view
-        section_face = solid.workplane("XY").workplane(offset=0).section()
         hatch_view = "left"
         ind_view = "top"
     else:
-        # Cut at Y=0, project onto XZ → front view
-        section_face = solid.workplane("XZ").workplane(offset=0).section()
         hatch_view = "front"
         ind_view = "left"
 
@@ -601,27 +620,17 @@ def auto_section_overlay(
     hatch_pw = hatch_wh[0] * scale
     hatch_ph = hatch_wh[1] * scale
 
-    # ── 2. Build hatch boundaries from section wires ────────────────────────
-    # Outer boundary = rectangular cross-section of the plate
-    # Inner boundaries = circular holes that intersect the cut plane
-    half_w = hatch_pw / 2
-    half_h = hatch_ph / 2
-    outer = [
-        (hatch_ox - half_w, hatch_oy - half_h),
-        (hatch_ox + half_w, hatch_oy - half_h),
-        (hatch_ox + half_w, hatch_oy + half_h),
-        (hatch_ox - half_w, hatch_oy + half_h),
-    ]
-
-    # Detect circles in the hatch view to build inner (exclusion) boundaries
-    circles = _detect_circles(solid, hatch_view)
-    inner_boundaries = []
-
-    # Compute projection center (same logic as project_view centering)
+    # ── 2. Build hatch boundaries from actual 3D geometry ──────────────────
+    # Use HLR visible edges to extract the REAL outer profile (not bbox rectangle).
+    # This handles non-rectangular cross-sections (cylinders, L-brackets, etc.)
     shape_wrapped = solid.val().wrapped
     eye_dir, x_dir = VIEW_DIRS[hatch_view]
     visible, hidden = _hlr_project(shape_wrapped, eye_dir, x_dir)
-    all_edges = _extract_edges(visible, 0, 0, 1.0) + _extract_edges(hidden, 0, 0, 1.0)
+
+    # Collect ALL projected points for centering
+    vis_edges = _extract_edges(visible, 0, 0, 1.0)
+    hid_edges = _extract_edges(hidden, 0, 0, 1.0)
+    all_edges = vis_edges + hid_edges
     all_pts = []
     for e in all_edges:
         if e[0] == "LINE":
@@ -638,6 +647,34 @@ def auto_section_overlay(
         proj_cy = (min(ys) + max(ys)) / 2
     else:
         proj_cx = proj_cy = 0
+
+    # Build outer boundary from visible LINE edges (the actual cross-section outline).
+    # Collect line endpoints, then compute convex hull as the outer hatch boundary.
+    # This correctly handles any cross-section shape (box, cylinder, L-bracket, etc.)
+    outline_pts = []
+    for e in vis_edges:
+        if e[0] == "LINE":
+            for px, py in [(e[1], e[2]), (e[3], e[4])]:
+                paper_px = hatch_ox + (px - proj_cx) * scale
+                paper_py = hatch_oy + (-py + proj_cy) * scale
+                outline_pts.append((paper_px, paper_py))
+
+    if len(outline_pts) >= 3:
+        outer = _convex_hull(outline_pts)
+    else:
+        # Fallback: use bbox rectangle (only if HLR produced no lines)
+        half_w = hatch_pw / 2
+        half_h = hatch_ph / 2
+        outer = [
+            (hatch_ox - half_w, hatch_oy - half_h),
+            (hatch_ox + half_w, hatch_oy - half_h),
+            (hatch_ox + half_w, hatch_oy + half_h),
+            (hatch_ox - half_w, hatch_oy + half_h),
+        ]
+
+    # Detect circles in the hatch view to build inner (exclusion) boundaries
+    circles = _detect_circles(solid, hatch_view)
+    inner_boundaries = []
 
     for raw_cx, raw_cy, raw_r in circles:
         paper_cx = hatch_ox + (raw_cx - proj_cx) * scale

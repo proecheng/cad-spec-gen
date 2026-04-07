@@ -803,6 +803,10 @@ def _generate_generic_prompt_data(p, rc):
     if rc.get("materials"):
         mat_descs = derive_material_descriptions_from_rc(rc)
 
+    # Fallback: when rc has no materials, derive from params.py material_type
+    if not mat_descs:
+        mat_descs = _derive_materials_from_params(p)
+
     return {
         "assembly_description": {},
         "prompt_vars": {
@@ -837,31 +841,60 @@ def generate_prompt_data(cad_dir, rc=None):
 
 
 def derive_material_descriptions_from_rc(rc):
-    """Fallback: derive material_descriptions from rc['materials'] label+preset.
+    """Derive material_descriptions from rc['materials'] label+preset.
 
     Used when params.py-based generation yields no results (e.g. non-EE subsystems).
     Returns list of {visual_cue, material_desc} dicts.
+
+    Data source: render_config.py:MATERIAL_PRESETS["appearance"] — single source of
+    truth for both Blender PBR rendering and AI prompt material descriptions.
     """
-    _PRESET_APPEARANCE = {
-        "stainless_304": "stainless steel 304, brushed satin finish, cool silver tone",
-        "brushed_aluminum": "brushed 6061 aluminum, fine parallel grain marks, silver-gray",
-        "black_anodized": "hard anodized aluminum, matte dark charcoal, micro-porous surface",
-        "peek_amber": "PEEK engineering plastic, warm amber semi-translucent, smooth polished",
-        "black_rubber": "black rubber/elastomer, matte, Shore A ~70 hardness appearance",
-        "chrome_steel": "hardened chrome steel, mirror-polished, high specular highlight",
-        "pcb_green": "FR4 PCB, matte green soldermask, gold pads visible",
-        "copper": "copper, warm reddish-brown, oxidized traces visible",
-        "abs_black": "ABS plastic, matte black injection-molded finish",
-        "carbon_fiber": "carbon fiber composite, woven 2x2 twill pattern, gloss clearcoat",
-    }
+    from render_config import MATERIAL_PRESETS
+
     materials = rc.get("materials", {})
     result = []
     for mat_id, mat_cfg in materials.items():
         label = mat_cfg.get("label", mat_id)
-        preset = mat_cfg.get("preset", "")
-        appearance = _PRESET_APPEARANCE.get(preset, preset.replace("_", " "))
+        preset_name = mat_cfg.get("preset", "")
+        preset = MATERIAL_PRESETS.get(preset_name, {})
+        appearance = preset.get("appearance", preset_name.replace("_", " "))
         if label and appearance:
             result.append({"visual_cue": label, "material_desc": appearance})
+    return result
+
+
+def _derive_materials_from_params(p):
+    """Fallback: derive material descriptions from params.py material_type info.
+
+    Data flow: params.py material_type → cad_spec_defaults.default_preset_for_material_type()
+    → render_config.MATERIAL_PRESETS[preset]["appearance"].
+
+    Used when render_config.json has no materials section (new subsystems).
+    """
+    try:
+        from cad_spec_defaults import classify_material_type, default_preset_for_material_type
+        from render_config import MATERIAL_PRESETS
+    except ImportError:
+        return []
+
+    result = []
+    seen = set()
+
+    # Scan params dict for material-related keys
+    for key, val in p.items():
+        if not isinstance(val, str):
+            continue
+        mat_type = classify_material_type(val)
+        if mat_type and mat_type not in seen:
+            seen.add(mat_type)
+            preset_name = default_preset_for_material_type(mat_type)
+            preset = MATERIAL_PRESETS.get(preset_name, {})
+            appearance = preset.get("appearance", preset_name.replace("_", " "))
+            result.append({
+                "visual_cue": f"{mat_type} component",
+                "material_desc": appearance,
+            })
+
     return result
 
 
