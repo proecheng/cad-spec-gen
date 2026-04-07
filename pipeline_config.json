@@ -62,7 +62,7 @@
       "_doc": "fal.ai Cloud ComfyUI — serverless ComfyUI workflow execution. Requires FAL_KEY env var. Models downloaded from HuggingFace URLs (cached on fal infra after first run).",
       "endpoint": "fal-ai/comfy",
       "workflow_template": "templates/fal_comfy_workflow_template.json",
-      "checkpoint_url": "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE/resolve/main/Realistic_Vision_V6.0_B1_fp16-no-ema.safetensors",
+      "checkpoint_url": "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors",
       "controlnet_depth_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11f1p_sd15_depth.pth",
       "controlnet_canny_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_canny.pth",
       "canny_strength": 0.8,

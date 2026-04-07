@@ -81,7 +81,7 @@ def _patch_workflow(workflow, input_url, depth_url, positive, negative, cfg):
     """
     checkpoint_url = cfg.get(
         "checkpoint_url",
-        "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE/resolve/main/Realistic_Vision_V6.0_B1_fp16-no-ema.safetensors"
+        "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors"
     )
     depth_model_url = cfg.get(
         "controlnet_depth_url",

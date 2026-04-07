@@ -1213,14 +1213,28 @@ def cmd_enhance(args):
         from comfyui_enhancer import enhance_image as _comfyui_fn
         _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
     elif backend in ("fal", "fal_comfy"):
-        if not os.environ.get("FAL_KEY"):
-            log.error("FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys")
-            return 1
-        try:
-            import fal_client  # noqa — validate import early
-        except ImportError:
-            log.error("fal-client not installed. Run: pip install fal-client")
-            return 1
+        # Pre-flight env check for fal_comfy (FAL_KEY, fal-client, depth deps, API, models)
+        if backend == "fal_comfy":
+            _check_result = subprocess.run(
+                [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py"), "--quiet"],
+                capture_output=True,
+            )
+            if _check_result.returncode != 0:
+                subprocess.run(
+                    [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py")],
+                )
+                log.error("fal_comfy environment check failed. Fix the issues above, then retry.")
+                return 1
+        else:
+            # fal (Flux) backend — lightweight checks only
+            if not os.environ.get("FAL_KEY"):
+                log.error("FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys")
+                return 1
+            try:
+                import fal_client  # noqa — validate import early
+            except ImportError:
+                log.error("fal-client not installed. Run: pip install fal-client")
+                return 1
         if backend == "fal":
             from fal_enhancer import enhance_image as _fal_fn
             _enhance_fn, _enhance_cfg_key = _fal_fn, "fal"
