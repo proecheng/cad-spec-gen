@@ -8,10 +8,10 @@ Material: 不锈钢
 BOM: GIS-EE-006-03 安装支架（抱箍+L型）
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : TODO: e.g. bottom-left corner of mounting face
-│ Principal axis: TODO: e.g. extrude along +Z (axial), body height = PARAM_H
-│ Assembly orient: TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)
-│ Design doc ref : TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"
+│ Local origin : None
+│ Principal axis: None
+│ Assembly orient: None
+│ Design doc ref : None
 └──────────────────────────────────────────────────────────────────────────┘
 
 DO NOT extrude / rotate based on assumption. Every axis choice must cite
@@ -29,11 +29,11 @@ def make_ee_006_03() -> cq.Workplane:
     Envelope: 50.0 x 40.0 x 25.0 mm
     Weight: ?g
 
-    Axis: TODO — must match COORDINATE SYSTEM block above
-    Doc:  TODO — cite design doc section + line
+    Axis: None
+    Doc:  None
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: TODO
+    # Principal axis: None
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
     # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
@@ -57,11 +57,11 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
+    # Filled: signal conditioning module, mounted on flange arm
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "TODO",
+        "doc_ref": "None",
     }
 
 

@@ -36,7 +36,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | camera | camera, angle, viewpoint, view, shot, perspective | → Camera Configuration |
 | explode | explode, exploded, disassemble, take apart, exploded view | → Exploded View Configuration |
 | render | render, rendering, generate image, output image, blender, cycles, produce image | → Render Execution/Guide |
-| ai_enhance | gemini, fal, AI, enhance, prompt, photo-realistic, enhance, hybrid, backend, comfyui, engineering | → AI Enhancement Guide |
+| ai_enhance | gemini, AI, enhance, prompt, photo-realistic, enhance, hybrid | → AI Enhancement Guide |
 | troubleshoot | error, failed, not working, problem, bug, crash, fix, broken | → Troubleshooting Guide |
 | file_struct | file, directory, where is, structure, file tree, tree, layout | → File Structure |
 | status | status, progress, which subsystems, progress report | → Subsystem Status |
@@ -322,61 +322,26 @@ converting all DXF engineering drawings to PNG previews (if render_dxf.py exists
 
 ### 9. ai_enhance — AI Enhancement Guide
 
-**Search first**: Read `~/.claude/gemini_image_config.json` and check `FAL_KEY` env var before answering.
-
-When a user asks "how to enhance?" or "which backend should I use?", walk them through the options conversationally:
-
-**Opening**: "The enhance phase takes your Blender-rendered PNGs and produces photorealistic JPGs. You have four backends to choose from, and the pipeline can auto-detect the best one for your setup."
-
-**Help the user choose a backend** — recommend based on use case:
-- Engineering review / precision → recommend **engineering** (perfect geometry, PBR materials, free, 0.1s/img)
-- Presentations / demos / business plans → recommend **gemini** (good appearance, minor geometry drift, ~$0.02/image)
-- "Do you have a local GPU with ComfyUI?" → mention **comfyui** (same ControlNet principle as fal but uses SD1.5 which is better for CAD; untested in this release)
-- User asks about fal → explain: **fal** is EXPERIMENTAL — Flux model produces poor results on simplified CadQuery geometry (red/green noise, color distortion). Reserved for future use with detailed 3D models.
-- "No API keys and no GPU?" → recommend **engineering** (free, zero dependencies, perfect geometry)
+**Search first**: Read `~/.claude/gemini_image_config.json` to get actual config before answering.
 
 ```
-=== AI Enhancement — 4 Backends ===
+=== Gemini AI Hybrid Enhancement ===
 
-Technical approach: Blender PNG (geometry accurate) → backend-specific enhancement → Photo-realistic JPG
+Technical approach: Blender PNG (geometry accurate) → Gemini --image mode → Photo-realistic PNG
 
-Backend comparison (after real testing on simplified CadQuery geometry):
-  ┌──────────────┬─────────────┬────────────────────┬───────────┬─────────────────────┬────────────┐
-  │ Backend      │ Cost        │ Geometry Lock      │ GPU Req   │ Best For            │ Rating     │
-  ├──────────────┼─────────────┼────────────────────┼───────────┼─────────────────────┼────────────┤
-  │ engineering  │ Free 0.1s   │ Perfect (no AI)    │ No        │ Engineering review  │ ★★★★★ Rec. │
-  │ gemini       │ ~$0.02/img  │ Soft (prompt)      │ No (cloud)│ Presentations/demos │ ★★★★  Rec. │
-  │ fal          │ ~$0.20/img  │ Hard (depth+canny) │ No (cloud)│ EXPERIMENTAL        │ ★ Exp.     │
-  │ comfyui      │ Free        │ Hard (ControlNet)  │ Yes (8GB+)│ Untested this ver.  │ — Untested │
-  └──────────────┴─────────────┴────────────────────┴───────────┴─────────────────────┴────────────┘
+First-time setup:
+  python gemini_gen.py --config
+  # Prompts for: API Key, API Base URL (your proxy), model name, output dir
+  # Saved to: ~/.claude/gemini_image_config.json
 
-  ⚠ fal: Flux model produces red/green noise + color distortion on simplified CAD geometry.
-    ControlNet architecture works, but base model unsuitable for CAD. Reserved for future detailed 3D.
-  ⚠ comfyui: Same ControlNet principle as fal but uses SD1.5 (better for CAD). Untested in this release.
-  ✓ Default recommendation: engineering (precision) + gemini (appearance).
-
-Auto-detect priority (when no --backend specified):
-  1. FAL_KEY env var exists        → fal
-  2. ComfyUI running (port 8188)   → comfyui
-  3. Gemini config exists          → gemini
-  4. None of above                 → engineering
-
-Fallback chain (mid-batch failure):
-  fal → gemini → engineering
-  Once downgraded, backend is locked for remaining images in batch
-  (prevents mixing backends within one enhance session)
-
-First-time setup per backend:
-  gemini:      python gemini_gen.py --config
-               → Prompts for API Key, Base URL, model; saves to ~/.claude/gemini_image_config.json
-  fal:         export FAL_KEY=<your-key>  (get key from https://fal.ai)
-  comfyui:     python comfyui_env_check.py  (checks GPU, models, server)
-  engineering: No setup needed — uses existing Blender PBR renders
+Actual config (~/.claude/gemini_image_config.json):
+  API:    https://your-proxy.com/v1
+  Model:  gemini-3-pro-image-preview (or whichever your proxy supports)
+  Key:    *** (configured)
+  Timeout: 120s
 
 Core tools:
-  gemini_gen.py:     Gemini image generation (global CLI tool)
-  fal_enhancer.py:   fal.ai Flux ControlNet client
-  comfyui_enhancer.py: ComfyUI ControlNet workflow submitter
+  gemini_gen.py:     gemini_gen.py (global CLI tool)
   check_env.py:      python cad_pipeline.py env-check (environment check)
 
 Prompt templates (templates/ directory):
@@ -390,14 +355,13 @@ Template variables (filled from render_config.json prompt_vars):
 Core principles:
   1. Viewpoint lock: prompt opens with "Preserve EXACT camera angle, viewpoint, framing";
      each view includes computed azimuth/elevation; IMAGE ROLES separate source composition from reference style
-  2. Geometry lock: gemini — prompt constraint; fal/comfyui — ControlNet depth+canny hard constraint;
-     engineering — perfect (no AI transform, direct PBR output)
+  2. Geometry lock: Gemini — prompt constraint; ComfyUI — ControlNet depth+canny hard constraint
   3. Material descriptions are read from render_config.json — never fabricated
   4. Layout awareness: non-radial subsystems do not inject hardcoded part descriptions
   5. Unified template auto-switches by camera type (exploded preserves spacing, orthographic has no perspective)
 
 Multi-view consistency (v2.1):
-  Four-layer defense for gemini/fal backends:
+  Four-layer defense for Gemini backend:
   1. Viewpoint Lock — _camera_to_view_description() computes azimuth/elevation from camera vectors
   2. Image Role Separation — source image FIRST (locks composition), reference SECOND (style only)
   3. V1-anchor Reference — V1 result serves as material style reference for V2-VN
@@ -407,14 +371,11 @@ Standard workflow:
   1. Confirm Blender PNGs exist (V1~VN, from render_manifest.json)
   2. Read prompt_vars field from render_config.json
   3. Execute (choose one):
-     python cad_pipeline.py enhance --subsystem <name>                    # auto-detect backend
-     python cad_pipeline.py enhance --subsystem <name> --backend fal      # force fal
-     python cad_pipeline.py enhance --subsystem <name> --backend engineering  # force engineering
-     python cad_pipeline.py enhance --dir <dir>                           # custom dir
-     python cad_pipeline.py enhance --dir <dir> --model <key>             # override Gemini model
-     python cad_pipeline.py full --subsystem <name> --backend gemini      # full pipeline with backend
+     python cad_pipeline.py enhance --subsystem <name>
+     python cad_pipeline.py enhance --dir <dir>  # reads manifest from that dir
+     python cad_pipeline.py enhance --dir <dir> --model <key>  # override model
      (V1 processed first as style anchor, V2~VN follow)
-  4. Output: photo-realistic JPG (timestamped to prevent overwriting history)
+  4. Output: photo-realistic PNG (timestamped to prevent overwriting history)
   5. Optional: Add component labels (Chinese/English):
      python cad_pipeline.py annotate --dir <dir> --lang cn
      python cad_pipeline.py annotate --dir <dir> --lang en
@@ -423,7 +384,7 @@ Standard workflow:
 
 Dual purpose:
   PNG → Design review/manufacturing reference (100% geometry accurate)
-  JPG_enhanced → Presentations/proposals/business plans (visual appeal)
+  PNG_enhanced → Presentations/proposals/business plans (visual appeal)
   PNG_labeled → Labeled showcase images (presentations/reports/manuals)
 
 Annotation tool (annotate_render.py):

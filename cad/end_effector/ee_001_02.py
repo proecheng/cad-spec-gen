@@ -8,10 +8,10 @@ Material: PEEK
 BOM: GIS-EE-001-02 PEEK绝缘段
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : TODO: e.g. bottom-left corner of mounting face
-│ Principal axis: TODO: e.g. extrude along +Z (axial), body height = PARAM_H
-│ Assembly orient: TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)
-│ Design doc ref : TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"
+│ Local origin : Center of ring XY, bottom face at Z=0
+│ Principal axis: Ring on XY, height along +Z (5.0mm)
+│ Assembly orient: Z=-27.0mm, axis: 盘面∥XY — per §6.2
+│ Design doc ref : §6.2 PEEK绝缘段 (GIS-EE-001-02) — 盘面∥XY
 └──────────────────────────────────────────────────────────────────────────┘
 
 DO NOT extrude / rotate based on assumption. Every axis choice must cite
@@ -29,11 +29,11 @@ def make_ee_001_02() -> cq.Workplane:
     Envelope: 80.0 x 80.0 x 5.0 mm
     Weight: ?g
 
-    Axis: TODO — must match COORDINATE SYSTEM block above
-    Doc:  TODO — cite design doc section + line
+    Axis: Ring on XY, height along +Z (5.0mm)
+    Doc:  §6.2 PEEK绝缘段 (GIS-EE-001-02) — 盘面∥XY
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: TODO
+    # Principal axis: Ring on XY, height along +Z (5.0mm)
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
     # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
@@ -54,11 +54,10 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "TODO",
+        "doc_ref": "§6.2 PEEK绝缘段 (GIS-EE-001-02) — 盘面∥XY",
     }
 
 

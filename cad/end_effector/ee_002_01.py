@@ -8,10 +8,10 @@ Material: 7075-T6铝合金
 BOM: GIS-EE-002-01 涂抹模块壳体
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : TODO: e.g. bottom-left corner of mounting face
-│ Principal axis: TODO: e.g. extrude along +Z (axial), body height = PARAM_H
-│ Assembly orient: TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)
-│ Design doc ref : TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"
+│ Local origin : Center of cylinder XY, bottom face at Z=0
+│ Principal axis: Cylinder on XY, height along +Z (60.0mm)
+│ Assembly orient: Polar R=65.0mm θ=0.0°, axis: **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）** — per §6.2
+│ Design doc ref : §6.2 涂抹模块壳体 (GIS-EE-002-01) — **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）**
 └──────────────────────────────────────────────────────────────────────────┘
 
 DO NOT extrude / rotate based on assumption. Every axis choice must cite
@@ -29,11 +29,11 @@ def make_ee_002_01() -> cq.Workplane:
     Envelope: 50.0 x 50.0 x 60.0 mm
     Weight: ?g
 
-    Axis: TODO — must match COORDINATE SYSTEM block above
-    Doc:  TODO — cite design doc section + line
+    Axis: Cylinder on XY, height along +Z (60.0mm)
+    Doc:  §6.2 涂抹模块壳体 (GIS-EE-002-01) — **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）**
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: TODO
+    # Principal axis: Cylinder on XY, height along +Z (60.0mm)
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
     # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
@@ -51,11 +51,10 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "TODO",
+        "doc_ref": "§6.2 涂抹模块壳体 (GIS-EE-002-01) — **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）**",
     }
 
 

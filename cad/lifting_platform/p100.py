@@ -2,17 +2,21 @@
 上固定板 (SLP-100)
 
 Auto-generated scaffold by codegen/gen_parts.py
-Source: CAD_SPEC.md §5 BOM
-Material: 
+Source: CAD_SPEC.md §5
+Material: 6061-T6
 
 BOM: SLP-100 上固定板
 
-┌─ COORDINATE SYSTEM ───────────────────────────────────────────────────────┐
-│ Local origin : Center of plate XY, bottom face at Z=0                    │
-│ Principal axis: Flat plate on XY, thickness extruded along +Z (8mm)      │
-│ Assembly orient: Translate to Z=+272 (board bottom) in assembly.py       │
-│ Design doc ref : §2 上固定板 — 200×160×8 mm, Z=[+272, +280]              │
+┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+│ Local origin : Center of plate XY, bottom face at Z=0
+│ Principal axis: Flat plate on XY, thickness extruded along +Z (8mm)
+│ Assembly orient: Translate to Z=+272 in assembly.py
+│ Design doc ref : §2 上固定板 200×160×8
 └──────────────────────────────────────────────────────────────────────────┘
+
+DO NOT extrude / rotate based on assumption. Every axis choice must cite
+a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
+before writing geometry.
 """
 
 import cadquery as cq
@@ -20,21 +24,27 @@ from params import *
 
 
 def make_p100() -> cq.Workplane:
-    """SLP-100: 上固定板 — Top fixed plate
+    """SLP-100: 上固定板 — 6061-T6
 
-    Envelope: 200 x 160 x 8 mm (§2, §10.3 visual table)
-    Weight: ~691g (6061-T6, 2.70 g/cm³)
+    Envelope: 200 x 160 x 8 mm
+    Weight: 691g
 
-    Axis: Flat plate on XY, thickness along +Z
-    Doc:  §2 上固定板, §10.3 视觉标识表 — 200×160×8 mm
+    Axis: Flat plate on XY, thickness extruded along +Z (8mm)
+    Doc:  §2 上固定板 200×160×8
     """
-    # ── Geometry: 200(X) × 160(Y) × 8(Z) flat plate ──────────────────────────
-    # §2: 板底 Z=+272, 板顶 Z=+280 → thickness 8mm
-    # §10.3 visual table: 200×160×8 mm
-    # Local origin at plate center XY, bottom face at Z=0
+    # ── Geometry source: CAD_SPEC.md §5 ─────────────────────────────────────
+    # Principal axis: Flat plate on XY, thickness extruded along +Z (8mm)
+    # If this part needs a non-Z extrusion direction, document WHY here.
+    #
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
     body = cq.Workplane("XY").box(
-        200.0, 160.0, 8.0,
-        centered=(True, True, False))
+        200, 160, 8,
+        centered=(True, True, False))  # § refine with real geometry
+
+    # ── Auto-extracted features from §2/§3/§4/§8 ────────────────────────────
+    # §2.1 Φ10.0H7, L119 — 2×Φ10.0
+    body = body.faces(">Z").workplane().pushPoints([(-80.0, 5.0), (-80.0, -5.0)]).hole(10.0)
 
     return body
 
@@ -47,6 +57,7 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
+    # TODO: fill after geometry is implemented
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
@@ -70,7 +81,7 @@ def draw_p100_sheet(output_dir: str = None) -> str:
     sheet = ThreeViewSheet(
         part_no="SLP-100",
         name="上固定板",
-        material="",
+        material="6061-T6",
         scale="1:1",
         weight_g=0,
         date=date.today().isoformat(),
@@ -78,6 +89,12 @@ def draw_p100_sheet(output_dir: str = None) -> str:
         subsystem_name="丝杠式升降平台",
     )
     auto_three_view(solid, sheet)
+
+    # 剖视图叠加 — 零件含内部特征（通孔/沉台），叠加 A-A 剖面线到左视图
+    from cq_to_dxf import auto_section_overlay
+    auto_section_overlay(solid, sheet,
+        cut_plane="YZ", label="A",
+        hatch_on="left", indicator_on="top")
 
     # GB/T 标注 — 数据来自 CAD_SPEC.md §2，不硬编码
     auto_annotate(solid, sheet, annotation_meta={

@@ -58,47 +58,27 @@ PIPELINE_CONFIG_PATH = os.path.join(SKILL_ROOT, "pipeline_config.json")
 DEFAULT_OUTPUT = get_output_dir()
 
 
-_DEPLOY_HEADER = (
-    "# ── AUTO-DEPLOYED from project root. DO NOT EDIT THIS COPY. ──────────\n"
-    "# Authoritative source: {skill_root}/{fname}\n"
-    "# Deployed by: cad_pipeline.py _deploy_tool_modules()\n"
-    "# To modify, edit the root copy and re-run: python cad_pipeline.py codegen\n"
-    "# ─────────────────────────────────────────────────────────────────────\n"
-)
-
-
 def _deploy_tool_modules(sub_dir: str):
-    """Copy shared tool modules from SKILL_ROOT to a subsystem directory.
+    """Copy shared Python tool modules to a subsystem directory.
 
-    Uses cad_paths.SHARED_TOOL_FILES as the single source of truth for which
-    files to deploy. Only copies if source is newer or target is missing.
-    Inserts a DO-NOT-EDIT header in deployed .py copies.
+    These modules are needed at runtime by generated code (ee_*.py, build_all.py):
+      - drawing.py        — ezdxf GB/T drawing primitives
+      - draw_three_view.py — ThreeViewSheet class
+      - cq_to_dxf.py      — CadQuery→DXF HLR projection bridge
+      - render_dxf.py      — DXF→PNG batch renderer
+    Only copies if source is newer or target is missing (scaffold-safe).
     """
     import shutil
-    from cad_paths import SHARED_TOOL_FILES
-
-    for fname in SHARED_TOOL_FILES:
+    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py",
+                  "render_config.py"]
+    for fname in tool_files:
         src = os.path.join(SKILL_ROOT, fname)
         dst = os.path.join(sub_dir, fname)
         if not os.path.isfile(src):
             continue
         if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
             continue  # Target is up-to-date
-
-        if fname.endswith(".py"):
-            # Insert deployment header so developers know not to edit the copy
-            with open(src, "r", encoding="utf-8") as f:
-                content = f.read()
-            header = _DEPLOY_HEADER.format(skill_root=SKILL_ROOT, fname=fname)
-            # Only add header if not already present
-            if "AUTO-DEPLOYED" not in content:
-                with open(dst, "w", encoding="utf-8") as f:
-                    f.write(header + content)
-            else:
-                shutil.copy2(src, dst)
-        else:
-            shutil.copy2(src, dst)
-
+        shutil.copy2(src, dst)
         log.info("  Deployed: %s → %s", fname, os.path.basename(sub_dir))
 
 
@@ -184,12 +164,7 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
 
 
 def _run_subprocess(cmd, label, dry_run=False, timeout=600):
-    """Run a subprocess with error capture.
-
-    Returns (success: bool, rc_or_elapsed):
-        success=True  → rc_or_elapsed = elapsed seconds (float)
-        success=False → rc_or_elapsed = process exit code (int), or -1 for timeout/not-found
-    """
+    """Run a subprocess with error capture. Returns (success, elapsed)."""
     if dry_run:
         log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
         return True, 0.0
@@ -207,15 +182,15 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
             if result.stderr:
                 for line in result.stderr.strip().split("\n")[-10:]:
                     log.error("    %s", line)
-            return False, result.returncode
+            return False, elapsed
         log.info("  OK: %s (%.1fs)", label, elapsed)
         return True, elapsed
     except subprocess.TimeoutExpired:
         log.error("  TIMEOUT %s (>%ds)", label, timeout)
-        return False, -1
+        return False, timeout
     except FileNotFoundError as e:
         log.error("  NOT FOUND: %s", e)
-        return False, -1
+        return False, 0.0
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -427,90 +402,91 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
         rc = json.load(f)
 
     parts = parse_bom_tree(spec_path)
-    if not parts:
+    assemblies = [p for p in parts if p["is_assembly"]]
+    if not assemblies:
         return
 
     components = rc.setdefault("components", {})
     materials = rc.setdefault("materials", {})
     changed = False
 
-    # Material preset inference from BOM material text AND part name keywords
+    # Material preset inference from BOM material text
     _MAT_PRESET = {
-        # ── From BOM material field (自制件) ──
-        "7075": "black_anodized", "6063": "brushed_aluminum",
         "铝": "brushed_aluminum", "Al": "brushed_aluminum",
         "钢": "stainless_304", "SUS": "stainless_304",
         "PEEK": "peek_amber",
-        "橡胶": "black_rubber", "硅橡胶": "black_rubber", "NBR": "black_rubber",
+        "橡胶": "black_rubber", "硅橡胶": "black_rubber",
         "塑料": "white_nylon", "尼龙": "white_nylon",
         "铜": "copper",
-        # ── From BOM name_cn field (标准件, 无 material 字段) ──
-        "电机": "dark_steel", "减速": "brushed_aluminum",
-        "弹簧": "stainless_304", "碟簧": "stainless_304",
-        "轴承": "stainless_304",
-        "O型圈": "black_rubber", "密封": "black_rubber",
-        "传感器": "dark_steel", "探头": "dark_steel",
-        "齿轮泵": "brushed_aluminum", "联轴": "stainless_304",
-        "挡圈": "stainless_304", "螺栓": "stainless_304", "螺钉": "stainless_304",
-        "垫圈": "stainless_304", "PCB": "dark_steel",
-        "插座": "dark_steel", "连接器": "dark_steel",
     }
 
-    def _infer_preset(mat_text, name_cn):
-        """Infer material preset from BOM material field + part name."""
-        # Try material field first (more specific)
-        for keyword, preset in _MAT_PRESET.items():
-            if keyword in (mat_text or ""):
-                return preset
-        # Fallback: try part name keywords (for 标准件 with no material)
-        for keyword, preset in _MAT_PRESET.items():
-            if keyword in (name_cn or ""):
-                return preset
-        return "brushed_aluminum"
+    for assy in assemblies:
+        pno = assy["part_no"]
+        name_cn = assy["name_cn"]
 
-    def _part_no_to_comp_key(pno):
-        """Derive component key from part number: GIS-EE-001-01 → ee_001_01."""
-        import re as _re
-        normalized = _re.sub(r'^[A-Z]+-', '', pno)  # strip project prefix
-        return normalized.lower().replace("-", "_")
-
-    # ── Process ALL BOM parts (assembly + leaf + 标准件) ──
-    for part in parts:
-        pno = part["part_no"]
-        if not pno:
-            continue
-        name_cn = part["name_cn"]
-        mat_text = part.get("material", "")
-
-        comp_key = _part_no_to_comp_key(pno)
+        # Derive comp_key: use part_no suffix for guaranteed uniqueness
+        suffix = pno.rsplit("-", 1)[-1]
+        comp_key = f"assy_{suffix}"
 
         # Check if any existing component already has this bom_id
-        already_mapped = any(
-            isinstance(cv, dict) and cv.get("bom_id") == pno
-            for cv in components.values()
-        )
-        if already_mapped:
-            continue  # Don't overwrite hand-written entries
+        existing = None
+        for ck, cv in components.items():
+            if isinstance(cv, dict) and cv.get("bom_id") == pno:
+                existing = ck
+                break
 
-        # Skip if comp_key already exists (hand-written or from previous sync)
-        if comp_key in components:
-            # Ensure material entry exists
-            mat_key = components[comp_key].get("material", comp_key)
+        if existing:
+            # Already exists — ensure material link AND materials entry
+            comp = components[existing]
+            mat_key = comp.get("material", existing)
             if mat_key not in materials:
-                materials[mat_key] = {
-                    "preset": _infer_preset(mat_text, name_cn),
-                    "label": name_cn,
-                }
-                changed = True
+                # Try fuzzy: existing key as prefix of some material
+                candidates = [mk for mk in materials if mk.startswith(existing)]
+                if len(candidates) == 1:
+                    mat_key = candidates[0]
+                else:
+                    # Create materials entry from BOM child material field
+                    children = [p for p in parts
+                                if p["part_no"].startswith(pno + "-")
+                                and not p["is_assembly"]]
+                    preset = "brushed_aluminum"
+                    for child in children:
+                        mat_text = child.get("material", "")
+                        for keyword, p_name in _MAT_PRESET.items():
+                            if keyword in mat_text:
+                                preset = p_name
+                                break
+                        else:
+                            continue
+                        break
+                    materials[mat_key] = {"preset": preset, "label": name_cn}
+                    changed = True
+            comp["material"] = mat_key
+            changed = True
             continue
 
-        # New entry — create component + material
-        preset = _infer_preset(mat_text, name_cn)
+        # New component — create both entries with same key
         components[comp_key] = {
             "name_cn": name_cn,
+            "name_en": "",
             "bom_id": pno,
             "material": comp_key,
         }
+
+        # Infer preset from first child's material field
+        children = [p for p in parts
+                    if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
+        preset = "brushed_aluminum"
+        for child in children:
+            mat_text = child.get("material", "")
+            for keyword, p_name in _MAT_PRESET.items():
+                if keyword in mat_text:
+                    preset = p_name
+                    break
+            else:
+                continue
+            break
+
         if comp_key not in materials:
             materials[comp_key] = {
                 "preset": preset,
@@ -571,9 +547,7 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
     if changed:
         with open(rc_path, "w", encoding="utf-8") as f:
             json.dump(rc, f, indent=2, ensure_ascii=False)
-        log.info("  BOM→render_config: %d components, %d materials synced",
-                 len(components) - 1 if "_source" in components else len(components),
-                 len(materials))
+        log.info("  BOM→render_config: %d components synced", len(assemblies))
 
 
 def _validate_render_config(rc_path):
@@ -1005,15 +979,8 @@ def cmd_codegen(args):
     # 2c: part module scaffolds
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
            spec_path, "--output-dir", sub_dir, "--mode", mode]
-    ok, rc = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
+    ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
     if not ok:
-        if rc == 2:
-            # GATE-2: TODOs remain — design doc lacks §6.2 coordinate system data
-            log.warning("  GATE-2: Part scaffolds contain unfilled TODO markers.")
-            log.warning("  This means the design document lacks §6.2 assembly pose data")
-            log.warning("  (axis orientation, Z/R/θ offsets) for some parts.")
-            log.warning("  Action: fill the TODO blocks in ee_*.py files, then re-run codegen.")
-            log.warning("  Or: add §6 装配姿态与定位 section to the design document.")
         failures += 1
 
     # 2c2: standard part simplified geometry (purchased parts)
@@ -1079,22 +1046,6 @@ def cmd_build(args):
     if not ok:
         return 1
 
-    # ── Post-build: ensure GLB is also in DEFAULT_OUTPUT for render phase ────
-    # When CAD_OUTPUT_DIR is overridden, build outputs go there but render
-    # reads from DEFAULT_OUTPUT. Copy GLB to both locations for consistency.
-    _actual_output = os.environ.get("CAD_OUTPUT_DIR", DEFAULT_OUTPUT)
-    if _actual_output != DEFAULT_OUTPUT:
-        import glob as _glob
-        for _glb in _glob.glob(os.path.join(_actual_output, "*_assembly.glb")):
-            _dst = os.path.join(DEFAULT_OUTPUT, os.path.basename(_glb))
-            import shutil
-            os.makedirs(DEFAULT_OUTPUT, exist_ok=True)
-            try:
-                shutil.copy2(_glb, _dst)
-                log.info("  GLB synced: %s → %s", os.path.basename(_glb), DEFAULT_OUTPUT)
-            except (PermissionError, OSError) as _e:
-                log.warning("  GLB sync failed (file locked?): %s — render will use CAD_OUTPUT_DIR", _e)
-
     # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
     render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
     if os.path.isfile(render_dxf_script):
@@ -1139,31 +1090,6 @@ def cmd_render(args):
         log.error("No render_3d.py in %s", sub_dir)
         return 1
 
-    # ── Pre-render: resolve GLB path and verify it exists ────────────────────
-    # GLB can come from: render_config.json glb_file → DEFAULT_OUTPUT → CAD_OUTPUT_DIR
-    _glb_name = None
-    if os.path.isfile(config_path):
-        try:
-            with open(config_path, encoding="utf-8") as _f:
-                _glb_name = json.load(_f).get("subsystem", {}).get("glb_file")
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    _output_dir = os.environ.get("CAD_OUTPUT_DIR", DEFAULT_OUTPUT)
-    if _glb_name:
-        _glb_path = os.path.join(_output_dir, _glb_name)
-        if not os.path.isfile(_glb_path):
-            # Fallback: check DEFAULT_OUTPUT if CAD_OUTPUT_DIR was overridden
-            _glb_path_fallback = os.path.join(DEFAULT_OUTPUT, _glb_name)
-            if os.path.isfile(_glb_path_fallback):
-                _glb_path = _glb_path_fallback
-        if not os.path.isfile(_glb_path):
-            log.error("GLB not found: %s (checked %s and %s). "
-                      "Run 'cad_pipeline.py build' first.",
-                      _glb_name, _output_dir, DEFAULT_OUTPUT)
-            return 1
-        log.info("GLB: %s", _glb_path)
-
     failures = 0
     _custom_output_dir = getattr(args, "output_dir", None)
     _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
@@ -1175,9 +1101,6 @@ def cmd_render(args):
         render_args.append("--timestamp")
     if _custom_output_dir:
         render_args += ["--output-dir", _custom_output_dir]
-    # Pass resolved GLB path so Blender scripts don't guess wrong
-    if _glb_name and _glb_path and os.path.isfile(_glb_path):
-        render_args += ["--glb", _glb_path]
 
     section_script = os.path.join(sub_dir, "render_section.py")
 
@@ -1258,147 +1181,19 @@ def cmd_render(args):
     return 1 if failures else 0
 
 
-def _render_depth_only(render_dir, args, pcfg):
-    """Invoke render_depth_only.py to generate depth EXR for fal.ai ControlNet.
-
-    Runs in a separate Blender session — does not interfere with main renders.
-    Returns True if at least one depth EXR was produced.
-    """
-    blender = get_blender_path()
-    if not blender:
-        log.warning("  Blender not found — cannot render depth pass")
-        return False
-
-    _sub_name = getattr(args, "subsystem", None)
-    sub_dir = get_subsystem_dir(_sub_name) if _sub_name else None
-    config_path = os.path.join(sub_dir, "render_config.json") if sub_dir else None
-    if not config_path or not os.path.isfile(config_path):
-        log.warning("  No render_config.json — cannot render depth pass")
-        return False
-
-    # Find GLB
-    glb_path = None
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            rc = json.load(f)
-        glb_name = rc.get("subsystem", {}).get("glb_file", "")
-        if glb_name:
-            for search_dir in [render_dir,
-                               os.path.dirname(render_dir),  # parent (e.g. GISBOT/)
-                               DEFAULT_OUTPUT,
-                               os.environ.get("CAD_OUTPUT_DIR", "")]:
-                if not search_dir:
-                    continue
-                candidate = os.path.join(search_dir, glb_name)
-                if os.path.isfile(candidate):
-                    glb_path = candidate
-                    break
-    except (OSError, json.JSONDecodeError):
-        pass
-
-    if not glb_path:
-        log.warning("  Cannot find GLB for depth rendering")
-        return False
-
-    depth_script = os.path.join(SKILL_ROOT, "render_depth_only.py")
-    if not os.path.isfile(depth_script):
-        log.warning("  render_depth_only.py not found at %s", SKILL_ROOT)
-        return False
-
-    cmd = [blender, "-b", "-P", depth_script, "--",
-           "--glb", glb_path,
-           "--config", config_path,
-           "--output-dir", render_dir]
-
-    ok, _ = _run_subprocess(cmd, "render depth-only pass",
-                            dry_run=getattr(args, "dry_run", False),
-                            timeout=120)
-    return ok
-
-
-def _auto_detect_backend():
-    """Auto-detect best available enhance backend (zero-config first use)."""
-    if os.environ.get("FAL_KEY"):
-        try:
-            import fal_client  # noqa: F401
-            return "fal"
-        except ImportError:
-            pass
-    # Check ComfyUI reachable
-    try:
-        import urllib.request
-        urllib.request.urlopen("http://127.0.0.1:8188/system_stats", timeout=2)
-        return "comfyui"
-    except Exception:
-        pass
-    if get_gemini_script():
-        return "gemini"
-    return "engineering"
-
-
-def _check_enhanced_quality(enhanced_path, source_path):
-    """Check if enhanced image is acceptable (not blank/corrupt)."""
-    if not os.path.isfile(enhanced_path):
-        return False, "File not found"
-    enhanced_size = os.path.getsize(enhanced_path)
-    source_size = os.path.getsize(source_path)
-    if enhanced_size < source_size * 0.05:
-        return False, f"Suspiciously small ({enhanced_size}B vs source {source_size}B)"
-    try:
-        from PIL import Image
-        import statistics
-        img = Image.open(enhanced_path).convert("L")
-        pixels = list(img.getdata())
-        if statistics.variance(pixels) < 10:
-            return False, "Appears to be solid color"
-    except (ImportError, Exception):
-        pass  # PIL not available, skip variance check
-    return True, "OK"
-
-
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
     from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
-    # ── Backend selection: CLI > config > auto-detect ──────────────────────
+    # Determine backend: CLI arg > pipeline_config.json > default gemini
     _pcfg = _load_pipeline_config()
-    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "")
-
-    # Auto-detect if no backend configured
-    if not backend:
-        backend = _auto_detect_backend()
-        log.info("Auto-detected enhance backend: %s", backend)
-    else:
-        log.info("Enhance backend: %s", backend)
-
+    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
+    log.info("Enhance backend: %s", backend)
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
 
-    # ── Fallback chain: fal→gemini→engineering ───────────────────────────
-    _FALLBACK_CHAIN = {
-        "fal": ["gemini", "engineering"],
-        "comfyui": ["gemini", "engineering"],
-        "gemini": ["engineering"],
-        "engineering": [],
-    }
-    _active_backend = backend  # may change mid-run on failure
-    _consecutive_failures = 0
-    _MAX_FAILURES_BEFORE_FALLBACK = 2
-
-    # ── Backend-specific initialization ──────────────────────────────────
-    gemini_script = None
-    if backend == "fal":
-        try:
-            import fal_client as _fal_check  # noqa: F401
-        except ImportError:
-            log.error("fal-client not installed. Run: pip install fal-client")
-            return 1
-        if not os.environ.get("FAL_KEY"):
-            log.error("FAL_KEY environment variable not set. Get key at https://fal.ai/dashboard/keys")
-            return 1
-        # Cost estimate
-        from fal_enhancer import enhance_image as enhance_with_fal
-    elif backend == "comfyui":
+    if backend == "comfyui":
+        # Pre-flight env check — catches CPU-only, missing models, server down
         _check_result = subprocess.run(
             [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py"), "--quiet"],
             capture_output=True,
@@ -1410,13 +1205,12 @@ def cmd_enhance(args):
             log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
             return 1
         from comfyui_enhancer import enhance_image as enhance_with_comfyui
-    elif backend == "engineering":
-        log.info("Engineering mode: Blender PBR renders → JPG (no AI, geometry perfect)")
     else:
-        backend = "gemini"
+        backend = "gemini"  # normalise
         gemini_script = get_gemini_script()
         if not gemini_script:
             log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
+            log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
             return 1
 
     # Load render_config.json (full dict for prompt building) — must come before PNG sorting
@@ -1498,40 +1292,6 @@ def cmd_enhance(args):
 
     failures = 0
     v1_done = False
-    # ── Clean stale enhanced files from previous runs ─────────────────────
-    for _stale in glob.glob(os.path.join(render_dir, "*_enhanced.*")):
-        try:
-            os.remove(_stale)
-        except OSError:
-            pass
-
-    # ── Cost estimate for fal.ai ─────────────────────────────────────────
-    if _active_backend == "fal" and len(pngs) > 0:
-        _est = len(pngs) * 0.20
-        log.info("  fal.ai estimated cost: $%.2f (%d images x $0.20)", _est, len(pngs))
-
-    # ── Auto-render depth pass for fal backend (if not already present) ──
-    if _active_backend == "fal" and pngs:
-        try:
-            from fal_enhancer import _find_depth_for_png
-            _sample_depth, _is_tmp = _find_depth_for_png(pngs[0])
-            if _is_tmp and _sample_depth:
-                try:
-                    os.remove(_sample_depth)
-                except OSError:
-                    pass
-            if not _sample_depth:
-                log.info("  No depth maps found — rendering depth-only pass...")
-                _depth_ok = _render_depth_only(render_dir, args, _pcfg)
-                if _depth_ok:
-                    log.info("  Depth pass complete — fal will use dual ControlNet (depth+canny)")
-                else:
-                    log.warning("  Depth render failed — fal will use canny-only mode (weaker lock)")
-            else:
-                log.info("  Depth maps found — fal will use dual ControlNet (depth+canny)")
-        except Exception as _de:
-            log.warning("  Depth check failed: %s — fal will use canny-only", _de)
-
     hero_image = None  # V1 enhanced result for multi-view anchoring
 
     # ── Multi-view consistency settings from pipeline_config ──
@@ -1570,57 +1330,9 @@ def cmd_enhance(args):
         _im.save(_tmp.name, "JPEG", quality=quality)
         return _tmp.name, os.path.getsize(_tmp.name) / 1024
 
-    def _make_material_swatch(hero_path):
-        """Convert a full enhanced image into a material color swatch strip.
-
-        Extracts horizontal bands from different vertical regions of the image,
-        applies heavy Gaussian blur to destroy spatial structure, then tiles
-        them into a narrow swatch strip.  Gemini can read color/texture/sheen
-        from this but CANNOT copy the original image's composition or viewpoint.
-
-        Returns (tmp_path, size_kb) or (None, 0) on failure.
-        """
-        import tempfile as _sw_tf
-        try:
-            from PIL import Image as _SwImg, ImageFilter as _SwFlt
-
-            img = _SwImg.open(hero_path).convert("RGB")
-            w, h = img.size
-
-            # Sample 5 horizontal bands (each 1/10 of image height)
-            band_h = max(h // 10, 20)
-            bands = []
-            for y_frac in [0.15, 0.35, 0.50, 0.65, 0.85]:
-                y = int(h * y_frac)
-                band = img.crop((0, y, w, min(y + band_h, h)))
-                # Heavy blur to destroy spatial detail, keep only color/texture
-                band = band.filter(_SwFlt.GaussianBlur(radius=15))
-                bands.append(band)
-
-            # Stack bands vertically into a swatch strip
-            strip_w = min(w, 640)
-            strip_h = band_h * len(bands)
-            swatch = _SwImg.new("RGB", (strip_w, strip_h))
-            for i, band in enumerate(bands):
-                band = band.resize((strip_w, band_h), _SwImg.LANCZOS)
-                swatch.paste(band, (0, i * band_h))
-
-            tmp = _sw_tf.NamedTemporaryFile(suffix="_swatch.jpg", delete=False)
-            tmp.close()
-            swatch.save(tmp.name, "JPEG", quality=80)
-            return tmp.name, os.path.getsize(tmp.name) / 1024
-        except Exception:
-            return None, 0
-
     def _parse_gemini_output(stdout_text):
-        """Extract saved image path from gemini_gen.py stdout.
-
-        Uses ASCII marker 'SAVED_IMAGE:' first (immune to Windows GBK encoding
-        issues), then falls back to Chinese markers.
-        """
+        """Extract saved image path from gemini_gen.py stdout."""
         for line in (stdout_text or "").split("\n"):
-            if "SAVED_IMAGE:" in line:
-                return line[line.rfind("SAVED_IMAGE:") + len("SAVED_IMAGE:"):].strip()
             if "图片已保存:" in line:
                 return line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
             if "已保存:" in line:
@@ -1664,17 +1376,15 @@ def cmd_enhance(args):
 
         # ── Set reference flag in rc for prompt building (A1 fix) ──
         _use_ref = (_ref_mode == "v1_anchor" and hero_image
-                    and view_key != "V1" and _active_backend == "gemini")
+                    and view_key != "V1" and backend == "gemini")
         rc["_has_reference"] = _use_ref
 
-        # Build prompt (skip for engineering mode — no AI needed)
-        prompt = ""
-        if _active_backend != "engineering":
-            try:
-                prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
-            except FileNotFoundError:
-                prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
-                          "to photo-realistic quality with proper lighting and reflections.")
+        # Build prompt with all placeholders filled
+        try:
+            prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
+        except FileNotFoundError:
+            prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
+                      "to photo-realistic quality with proper lighting and reflections.")
 
         # Compute seed (if enabled)
         _seed = _pixel_seed(png) if _seed_from_image else None
@@ -1717,87 +1427,8 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
-            # ── Engineering backend (no AI) ────────────────────────────
-            if _active_backend == "engineering":
-                t0 = time.time()
-                from datetime import datetime as _dt
-                src_stem = os.path.splitext(os.path.basename(png))[0]
-                ts = _dt.now().strftime("%Y%m%d_%H%M")
-                out_path = os.path.join(os.path.dirname(png),
-                                        f"{src_stem}_{ts}_enhanced.jpg")
-                try:
-                    from PIL import Image as _EImg, ImageEnhance as _EEnh
-                    _eng_cfg = _pcfg.get("enhance", {}).get("engineering", {})
-                    _img = _EImg.open(png).convert("RGB")
-                    _img = _EEnh.Sharpness(_img).enhance(_eng_cfg.get("sharpness", 1.3))
-                    _img = _EEnh.Contrast(_img).enhance(_eng_cfg.get("contrast", 1.1))
-                    _img.save(out_path, "JPEG", quality=_eng_cfg.get("quality", 95))
-                except ImportError:
-                    # Pillow not available — copy PNG as-is
-                    out_path = out_path.replace(".jpg", ".png")
-                    shutil.copy2(png, out_path)
-                log.info("  OK: engineering %s (%.1fs)", os.path.basename(png), time.time() - t0)
-                if view_key == "V1":
-                    v1_done = True
-                continue
-
-            # ── fal.ai backend ──────────────────────────────────────────
-            if _active_backend == "fal":
-                log.info("  Running: enhance %s (%s, fal)", os.path.basename(png), view_key)
-                t0 = time.time()
-                try:
-                    raw_path = enhance_with_fal(
-                        png, prompt,
-                        _pcfg.get("enhance", {}).get("fal", {}),
-                        view_key, rc)
-                except Exception as _fe:
-                    log.warning("  fal.ai failed for %s: %s", os.path.basename(png), _fe)
-                    _consecutive_failures += 1
-                    if _consecutive_failures >= _MAX_FAILURES_BEFORE_FALLBACK:
-                        _chain = _FALLBACK_CHAIN.get(_active_backend, [])
-                        if _chain:
-                            _active_backend = _chain[0]
-                            log.warning("  Falling back to %s for remaining views", _active_backend)
-                            # Re-init fallback backend
-                            if _active_backend == "gemini" and not gemini_script:
-                                gemini_script = get_gemini_script()
-                        _consecutive_failures = 0
-                    failures += 1
-                    continue
-                elapsed = time.time() - t0
-                log.info("  OK: enhance %s (%.1fs)", os.path.basename(png), elapsed)
-                _consecutive_failures = 0
-                if view_key == "V1":
-                    v1_done = True
-                if raw_path and os.path.isfile(raw_path):
-                    # Quality gate
-                    _qok, _qmsg = _check_enhanced_quality(raw_path, png)
-                    if not _qok:
-                        log.warning("  Quality check failed: %s — skipping", _qmsg)
-                        os.remove(raw_path)
-                        failures += 1
-                        continue
-                    from datetime import datetime as _dt
-                    src_stem = os.path.splitext(os.path.basename(png))[0]
-                    ts = _dt.now().strftime("%Y%m%d_%H%M")
-                    ext = os.path.splitext(raw_path)[1]
-                    new_name = f"{src_stem}_{ts}_enhanced{ext}"
-                    new_path = os.path.join(os.path.dirname(png), new_name)
-                    shutil.copy2(raw_path, new_path)
-                    try:
-                        os.remove(raw_path)
-                    except OSError:
-                        pass
-                    log.info("  Saved: %s", new_path)
-                    if view_key == "V1" and _ref_mode == "v1_anchor":
-                        hero_image = new_path
-                        log.info("  Hero image set: %s", os.path.basename(new_path))
-                else:
-                    log.warning("  Could not locate fal output for %s", os.path.basename(png))
-                continue
-
             # ── ComfyUI backend ──────────────────────────────────────────
-            if _active_backend == "comfyui":
+            if backend == "comfyui":
                 log.info("  Running: enhance %s (%s, comfyui)",
                          os.path.basename(png), view_key)
                 t0 = time.time()
@@ -1851,20 +1482,17 @@ def cmd_enhance(args):
 
             ref_args = []
             if _use_ref and hero_image:
-                # Convert V1 enhanced image to material swatch (blurred color bands).
-                # This gives Gemini color/texture/sheen reference WITHOUT spatial
-                # structure, preventing it from copying V1's composition.
+                # Compress reference image more aggressively to keep payload small
                 try:
-                    _swatch_tmp, _ssz = _make_material_swatch(hero_image)
-                    if _swatch_tmp:
-                        _ref_compressed_tmp = _swatch_tmp
-                        ref_args = ["--reference", _swatch_tmp]
-                        log.info("  Material swatch: %.0fKB (from %s)",
-                                 _ssz, os.path.basename(hero_image))
-                    else:
-                        log.warning("  Could not create material swatch, skipping reference")
+                    _rctmp, _rsz = _compress_for_api(hero_image, (1280, 720), 90)
+                    _ref_to_send = _rctmp if _rctmp else hero_image
+                    if _rctmp:
+                        _ref_compressed_tmp = _rctmp
+                    ref_args = ["--reference", _ref_to_send]
+                    log.info("  Reference: %s (%.0fKB)",
+                             os.path.basename(hero_image), _rsz)
                 except Exception as _re_err:
-                    log.warning("  Could not prepare material swatch: %s", _re_err)
+                    log.warning("  Could not prepare reference image: %s", _re_err)
 
             seed_args = []
             if _seed is not None:
@@ -2503,8 +2131,8 @@ def main():
     p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "engineering"],
-                           help="Override enhance backend (default: from pipeline_config.json or auto-detect)")
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
+                           help="Override enhance backend (default: from pipeline_config.json)")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
     p_enhance.add_argument("--model", default=None,
@@ -2535,8 +2163,6 @@ def main():
     p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
-    p_full.add_argument("--backend", choices=["gemini", "comfyui", "fal", "engineering"],
-                        help="Override enhance backend")
     p_full.add_argument("--labeled", action="store_true",
                         help="Generate English-labeled enhanced images (gemini only)")
     p_full.add_argument("--agent-review", action="store_true",

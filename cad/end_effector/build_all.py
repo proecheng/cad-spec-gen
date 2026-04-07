@@ -4,7 +4,7 @@ Build All — One-click STEP + DXF generation for 末端执行机构.
 
 Auto-generated scaffold by codegen/gen_build.py
 Source: D:\Work\cad-spec-gen\cad\end_effector\CAD_SPEC.md
-Generated: 2026-04-04 11:58
+Generated: 2026-04-07 19:42
 
 Usage:
     python cad/end_effector/build_all.py
@@ -35,6 +35,17 @@ OUTPUT_DIR = os.environ.get(
 # ── Build step definitions (declarative) ─────────────────────────────────────
 
 _STEP_BUILDS = [
+    ("法兰本体", "ee_001_01", "make_ee_001_01", "GIS-EE-001-01.step"),
+    ("PEEK绝缘段", "ee_001_02", "make_ee_001_02", "GIS-EE-001-02.step"),
+    ("ISO 9409适配板", "ee_001_08", "make_ee_001_08", "GIS-EE-001-08.step"),
+    ("涂抹模块壳体", "ee_002_01", "make_ee_002_01", "GIS-EE-002-01.step"),
+    ("弹簧限力机构总成", "ee_003_03", "make_ee_003_03", "GIS-EE-003-03.step"),
+    ("柔性关节", "ee_003_04", "make_ee_003_04", "GIS-EE-003-04.step"),
+    ("清洁模块壳体", "ee_004_01", "make_ee_004_01", "GIS-EE-004-01.step"),
+    ("清洁窗口翻盖", "ee_004_12", "make_ee_004_12", "GIS-EE-004-12.step"),
+    ("UHF安装支架", "ee_005_02", "make_ee_005_02", "GIS-EE-005-02.step"),
+    ("壳体", "ee_006_01", "make_ee_006_01", "GIS-EE-006-01.step"),
+    ("安装支架", "ee_006_03", "make_ee_006_03", "GIS-EE-006-03.step"),
 ]
 
 _DXF_BUILDS = [
@@ -68,6 +79,7 @@ _STD_STEP_BUILDS = [
     ("[标准件] 微型电机", "std_ee_004_03", "make_std_ee_004_03", "GIS-EE-004-03_std.step"),
     ("[标准件] 齿轮减速组", "std_ee_004_04", "make_std_ee_004_04", "GIS-EE-004-04_std.step"),
     ("[标准件] 恒力弹簧", "std_ee_004_06", "make_std_ee_004_06", "GIS-EE-004-06_std.step"),
+    ("[标准件] 光电编码器", "std_ee_004_07", "make_std_ee_004_07", "GIS-EE-004-07_std.step"),
     ("[标准件] 溶剂储罐", "std_ee_004_08", "make_std_ee_004_08", "GIS-EE-004-08_std.step"),
     ("[标准件] 微量泵", "std_ee_004_09", "make_std_ee_004_09", "GIS-EE-004-09_std.step"),
     ("[标准件] 微型轴承", "std_ee_004_11", "make_std_ee_004_11", "GIS-EE-004-11_std.step"),

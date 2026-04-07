@@ -8,10 +8,10 @@ Material: 7075-T6铝合金
 BOM: GIS-EE-005-02 UHF安装支架
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : TODO: e.g. bottom-left corner of mounting face
-│ Principal axis: TODO: e.g. extrude along +Z (axial), body height = PARAM_H
-│ Assembly orient: TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)
-│ Design doc ref : TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"
+│ Local origin : Center of body XY, bottom face at Z=0
+│ Principal axis: Box on XY, height along +Z (25.0mm)
+│ Assembly orient: Polar R=65.0mm θ=270.0°, axis: **L支架挂载沿-Z（垂直向下）** — per §6.2
+│ Design doc ref : §6.2 UHF安装支架 (GIS-EE-005-02) — **L支架挂载沿-Z（垂直向下）**
 └──────────────────────────────────────────────────────────────────────────┘
 
 DO NOT extrude / rotate based on assumption. Every axis choice must cite
@@ -29,11 +29,11 @@ def make_ee_005_02() -> cq.Workplane:
     Envelope: 50.0 x 40.0 x 25.0 mm
     Weight: ?g
 
-    Axis: TODO — must match COORDINATE SYSTEM block above
-    Doc:  TODO — cite design doc section + line
+    Axis: Box on XY, height along +Z (25.0mm)
+    Doc:  §6.2 UHF安装支架 (GIS-EE-005-02) — **L支架挂载沿-Z（垂直向下）**
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: TODO
+    # Principal axis: Box on XY, height along +Z (25.0mm)
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
     # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
@@ -53,11 +53,10 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "TODO",
+        "doc_ref": "§6.2 UHF安装支架 (GIS-EE-005-02) — **L支架挂载沿-Z（垂直向下）**",
     }
 
 

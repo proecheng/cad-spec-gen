@@ -1,12 +1,12 @@
 {
   "critical": 0,
-  "warning": 5,
+  "warning": 7,
   "info": 1,
-  "ok": 1,
+  "ok": 0,
   "auto_fill": 3,
   "items": [
     {
-      "id": "B2",
+      "id": "B1",
       "category": "assembly",
       "check": "悬空零件 (6项)",
       "detail": "BOM中以下零件未出现在连接矩阵: 壳体（含散热鳍片）, 信号调理PCB, 安装支架（抱箍+L型）, LEMO插座, SMA穿壁连接器...",
@@ -15,7 +15,7 @@
       "auto_fill": "否"
     },
     {
-      "id": "B3",
+      "id": "B2",
       "category": "assembly",
       "check": "连接描述缺失 (1条)",
       "detail": "缺少连接方式: UHF检测工位(270°) (GIS-EE-005)↔全部",
@@ -58,6 +58,24 @@
       "verdict": "INFO",
       "suggestion": "",
       "auto_fill": "是"
+    },
+    {
+      "id": "D5",
+      "category": "completeness",
+      "check": "§2.1 尺寸公差不足 (11条 vs 11个自制件)",
+      "detail": "自制零件的关键尺寸应有明确公差，否则自动标注无法标注公差文本",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
+    },
+    {
+      "id": "D6",
+      "category": "completeness",
+      "check": "零件材质无法推断 material_type (1项)",
+      "detail": "无法分类: 弹簧限力机构总成(见§4.1.2零件表)",
+      "verdict": "WARNING",
+      "suggestion": "",
+      "auto_fill": "否"
     }
   ]
 }

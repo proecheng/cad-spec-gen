@@ -1,0 +1,94 @@
+{
+  "name": "cad-spec-gen",
+  "version": "2.4.1",
+  "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → code generation → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
+  "homepage": "https://github.com/proecheng/cad-spec-gen",
+  "license": "MIT",
+  "requires": {
+    "python": ">=3.10",
+    "jinja2": ">=3.0"
+  },
+  "skills": [
+    {
+      "id": "cad-help",
+      "name": "CAD Pipeline Assistant",
+      "trigger": "/cad-help",
+      "description": "Natural-language assistant for the CAD rendering pipeline (16 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, BOM/parts, CAD spec, codegen, design review)",
+      "knowledge_file": "skill_cad_help.md"
+    },
+    {
+      "id": "cad-spec",
+      "name": "CAD Spec Generator",
+      "trigger": "/cad-spec",
+      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.3: auto-extracts per-part feature list (holes/slots/counterbores) by cross-referencing §2/§3/§4/§8. Supports --review mode: mechanical(A1-A3)/assembly(B1-B8)/material(C1-C3)/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md",
+      "entry_point": "python cad_pipeline.py spec"
+    },
+    {
+      "id": "cad-codegen",
+      "name": "CAD Code Generator",
+      "trigger": "/cad-codegen",
+      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). v2.3: auto-generates hole/slot features from extracted feature list + auto-detects needs_section_view for parts with internal features → template generates CadQuery .hole() calls + auto_section_overlay(). Scaffold mode (default) never overwrites engineer-modified files. GATE-2: gen_parts.py auto-scans generated files for unfilled TODO: markers in coordinate system blocks — exits with code 2 if any found, listing file+line.",
+      "entry_point": "python cad_pipeline.py codegen"
+    },
+    {
+      "id": "cad-enhance",
+      "name": "AI Enhancement (4 backends)",
+      "trigger": "/cad-enhance",
+      "description": "Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via 4 backends — gemini (cloud AI, ~$0.02/img, soft geometry lock), fal (fal.ai Flux ControlNet, ~$0.20/img, hard depth+canny lock), comfyui (local GPU ControlNet, free, hard lock), engineering (Blender PBR direct→JPG, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade). CLI: --backend gemini|fal|comfyui|engineering. v2.3: view-aware material emphasis (Fresnel/specular/diffuse per camera angle), unified appearance data source (MATERIAL_PRESETS only, no duplicate _PRESET_APPEARANCE), auto-derive material descriptions from material_type fallback. v2.1: multi-view consistency — viewpoint lock (auto azimuth/elevation), image role separation (source first), V1-anchor reference, source high-fidelity. Layout-aware prompt routing (radial/linear/custom)."
+    },
+    {
+      "id": "mechdesign",
+      "name": "Parametric Mechanical Design",
+      "trigger": "/mechdesign",
+      "description": "Manual parametric mechanical subsystem workflow: params.py → CadQuery 3D → GB/T 2D drawings → Blender rendering → AI enhancement. 6 phases with sub-command routing. Use /cad-codegen for automated scaffold generation first.",
+      "knowledge_file": "skill_mech_design.md"
+    }
+  ],
+  "tools": [
+    {
+      "name": "cad_pipeline",
+      "description": "Unified 6-phase pipeline orchestrator: spec → codegen → build → render → enhance → annotate",
+      "cli": "python cad_pipeline.py {spec|codegen|build|render|enhance|annotate|full|status|env-check} [OPTIONS]"
+    },
+    {
+      "name": "cad_spec_gen",
+      "description": "Extract structured CAD spec from Markdown design documents",
+      "cli": "python cad_spec_gen.py [FILES] --config CONFIG [--output-dir DIR] [--all] [--force] [--review] [--review-only] [--auto-fill]"
+    },
+    {
+      "name": "bom_parser",
+      "description": "Parse BOM tables from design documents into tree/JSON/summary",
+      "cli": "python bom_parser.py FILE [--json] [--summary]"
+    },
+    {
+      "name": "gemini_enhance",
+      "description": "Image-to-image AI enhancement: Blender PNG → photorealistic JPG (geometry locked). 4 backends: gemini (cloud), fal (fal.ai ControlNet), comfyui (local GPU ControlNet), engineering (Blender PBR direct). Auto-detects best available backend. Use 'python cad_pipeline.py enhance' for integrated workflow with auto-rename.",
+      "cli": "python cad_pipeline.py enhance --dir <render_dir> [--backend gemini|fal|comfyui|engineering]"
+    },
+    {
+      "name": "annotate_render",
+      "description": "Add component labels (CN/EN) to rendered images via PIL. Leader lines + text on semi-transparent background.",
+      "cli": "python annotate_render.py <image.jpg> --config <render_config.json> --lang cn|en [--all --dir DIR] [--font-size 32] [--style dark|light]"
+    }
+  ],
+  "pypi": "cad-spec-gen",
+  "adapters": {
+    "claude-code": ".claude/commands/ (legacy) or ~/.claude/skills/*/SKILL.md (recommended)",
+    "openai": "adapters/openai/",
+    "langchain": "adapters/langchain/",
+    "dify": "adapters/dify/"
+  },
+  "pipeline": {
+    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md (+ feature list) → Jinja2 codegen (+ hole/section gen) → CadQuery (STEP/DXF/GLB) → DXF→PNG (GB/T section views + position dims) → Blender Cycles PNG → AI-enhanced JPG (4 backends: gemini/fal/comfyui/engineering, view-aware materials) → Annotated JPG",
+    "orchestrator": "cad_pipeline.py",
+    "config": "pipeline_config.json",
+    "stages": [
+      "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review). GATE-1: CRITICAL issues block Phase 2.",
+      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). v2.3: gen_parts.py auto-extracts part features via extract_part_features() → template generates CadQuery .hole()/.cboreHole() calls; auto-detects needs_section_view → template adds auto_section_overlay() call. assembly.py includes per-part offset positioning (translate() from §6.2). GATE-2: gen_parts.py scans TODO markers → exit(2) if unfilled.",
+      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py). v2.3 DXF: GB/T position dimensions (hole-center-to-edge), orthogonal-first dim angles, A-A section overlay with hatch (holes excluded), dynamic tech notes placement. Post-build: auto-runs render_dxf.py to convert DXF → PNG.",
+      "Phase 4 RENDER: Blender Cycles N-view PNG from render_config.json camera dict (dynamic, not hardcoded). render_3d.py + render_exploded.py + render_section.py dispatched by view type. Post-render: writes render_manifest.json (session-new files only, partial flag on partial failure) and V*_labels.json sidecar (Blender world_to_camera_view projected anchor coords per component).",
+      "Phase 5 ENHANCE: AI enhancement → photorealistic JPG via 4 backends: gemini (cloud, ~$0.02/img, soft geometry lock via prompt), fal (fal.ai Flux ControlNet, ~$0.20/img, hard depth+canny lock), comfyui (local GPU ControlNet, free, hard lock), engineering (Blender PBR direct→JPG, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade). CLI: --backend gemini|fal|comfyui|engineering on enhance and full commands. v2.3: MATERIAL_PRESETS appearance field is single source of truth (removed duplicate _PRESET_APPEARANCE); view-aware material emphasis per camera angle; material_type→preset auto-fallback from params.py. Auto-enriches rc from params.py via prompt_data_builder (in-memory). Material bridging: resolve_bom_materials() builds bom_id→component→material lookup chain. Reads render_manifest.json for session-new PNGs.",
+      "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py). Reads V*_labels.json sidecar for geometrically accurate anchor coords (Blender-projected); falls back to render_config.json hardcoded coords when no sidecar present."
+    ]
+  }
+}
