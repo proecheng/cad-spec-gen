@@ -184,7 +184,12 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
 
 
 def _run_subprocess(cmd, label, dry_run=False, timeout=600):
-    """Run a subprocess with error capture. Returns (success, elapsed)."""
+    """Run a subprocess with error capture.
+
+    Returns (success: bool, rc_or_elapsed):
+        success=True  → rc_or_elapsed = elapsed seconds (float)
+        success=False → rc_or_elapsed = process exit code (int), or -1 for timeout/not-found
+    """
     if dry_run:
         log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
         return True, 0.0
@@ -202,15 +207,15 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
             if result.stderr:
                 for line in result.stderr.strip().split("\n")[-10:]:
                     log.error("    %s", line)
-            return False, elapsed
+            return False, result.returncode
         log.info("  OK: %s (%.1fs)", label, elapsed)
         return True, elapsed
     except subprocess.TimeoutExpired:
         log.error("  TIMEOUT %s (>%ds)", label, timeout)
-        return False, timeout
+        return False, -1
     except FileNotFoundError as e:
         log.error("  NOT FOUND: %s", e)
-        return False, 0.0
+        return False, -1
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -999,8 +1004,15 @@ def cmd_codegen(args):
     # 2c: part module scaffolds
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
            spec_path, "--output-dir", sub_dir, "--mode", mode]
-    ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
+    ok, rc = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
     if not ok:
+        if rc == 2:
+            # GATE-2: TODOs remain — design doc lacks §6.2 coordinate system data
+            log.warning("  GATE-2: Part scaffolds contain unfilled TODO markers.")
+            log.warning("  This means the design document lacks §6.2 assembly pose data")
+            log.warning("  (axis orientation, Z/R/θ offsets) for some parts.")
+            log.warning("  Action: fill the TODO blocks in ee_*.py files, then re-run codegen.")
+            log.warning("  Or: add §6 装配姿态与定位 section to the design document.")
         failures += 1
 
     # 2c2: standard part simplified geometry (purchased parts)

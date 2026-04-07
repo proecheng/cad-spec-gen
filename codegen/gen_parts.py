@@ -41,6 +41,66 @@ def _safe_module_name(part_no: str, name_cn: str) -> str:
     return suffix
 
 
+def _derive_coord_system(part_no: str, name_cn: str, geom: dict,
+                         pose_data: dict) -> dict:
+    """Derive coordinate system descriptions from §6.2 assembly pose data.
+
+    Returns dict with keys: local_origin_desc, principal_axis_desc,
+    assembly_orient_desc, axis_source_ref.
+    If §6.2 data is unavailable, returns empty strings (template falls back to TODO).
+    """
+    pose = pose_data.get(part_no, {})
+
+    # If exact part_no not found, try parent assembly prefix match
+    # e.g. GIS-EE-002-01 inherits from GIS-EE-002 (assembly-level pose)
+    if not pose:
+        for prefix_len in range(len(part_no) - 1, 5, -1):
+            prefix = part_no[:prefix_len].rstrip("-")
+            if prefix in pose_data:
+                pose = pose_data[prefix]
+                break
+
+    axis_dir = pose.get("axis_dir", "")
+    z = pose.get("z")
+    r = pose.get("r")
+    theta = pose.get("theta")
+
+    if not axis_dir and z is None and r is None:
+        return {}  # No data → template will use TODO defaults
+
+    # Local origin — always center + bottom Z=0
+    gtype = geom.get("type", "box")
+    shape_word = {"cylinder": "cylinder", "ring": "ring", "disc_arms": "disc",
+                  "l_bracket": "L-bracket base"}.get(gtype, "body")
+    local_origin = f"Center of {shape_word} XY, bottom face at Z=0"
+
+    # Principal axis — from geometry type
+    h = geom.get("envelope_h", geom.get("h", "?"))
+    principal = f"{gtype.replace('_', ' ').capitalize()} on XY, height along +Z ({h}mm)"
+
+    # Assembly orientation — from §6.2 offsets
+    orient_parts = []
+    if r is not None and theta is not None:
+        orient_parts.append(f"Polar R={r}mm θ={theta}°")
+    if z is not None:
+        orient_parts.append(f"Z={z}mm")
+    if axis_dir:
+        orient_parts.append(f"axis: {axis_dir}")
+    assembly_orient = ", ".join(orient_parts) + " — per §6.2" if orient_parts else ""
+
+    # Source ref
+    source_ref = f"§6.2 {name_cn} ({part_no})"
+    if axis_dir:
+        source_ref += f" — {axis_dir}"
+
+    return {
+        "local_origin_desc": local_origin,
+        "principal_axis_desc": principal,
+        "assembly_orient_desc": assembly_orient,
+        "axis_source_ref": source_ref,
+    }
+
+
 def _guess_geometry(name_cn: str, material: str) -> dict:
     """Infer approximate geometry type and dimensions for a custom part.
 
@@ -184,6 +244,16 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
     except Exception:
         all_features = {}
 
+    # Parse §6 assembly pose for coordinate system auto-fill
+    # Reuse gen_assembly.py's existing parsing — single data source (design doc)
+    all_poses = {}  # {part_no: {axis_dir, z, r, theta, ...}}
+    try:
+        from gen_assembly import parse_assembly_pose, _extract_all_layer_poses
+        pose = parse_assembly_pose(spec_path)
+        all_poses = _extract_all_layer_poses(pose, parts)
+    except Exception:
+        pass
+
     template_dir = os.path.join(_PROJECT_ROOT, "templates")
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_dir),
@@ -237,6 +307,9 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             for f in part_features
         )
 
+        # Coordinate system — auto-fill from §6.2 if available
+        coord = _derive_coord_system(p["part_no"], p["name_cn"], geom, all_poses)
+
         content = template.render(
             part_name_cn=p["name_cn"],
             part_no=p["part_no"],
@@ -250,6 +323,11 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             weight="?",
             has_mounting_holes=False,
             has_dxf=True,
+            # Coordinate system — from §6.2 (auto-filled if data exists)
+            local_origin_desc=coord.get("local_origin_desc"),
+            principal_axis_desc=coord.get("principal_axis_desc"),
+            assembly_orient_desc=coord.get("assembly_orient_desc"),
+            axis_source_ref=coord.get("axis_source_ref"),
             # Geometry type dispatch
             **geom_vars,
             # Part features — from cross-referencing §2/§3/§4/§8
