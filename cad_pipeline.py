@@ -1407,8 +1407,14 @@ def cmd_enhance(args):
         return _tmp.name, os.path.getsize(_tmp.name) / 1024
 
     def _parse_gemini_output(stdout_text):
-        """Extract saved image path from gemini_gen.py stdout."""
+        """Extract saved image path from gemini_gen.py stdout.
+
+        Uses ASCII marker 'SAVED_IMAGE:' first (immune to Windows GBK encoding
+        issues), then falls back to Chinese markers.
+        """
         for line in (stdout_text or "").split("\n"):
+            if "SAVED_IMAGE:" in line:
+                return line[line.rfind("SAVED_IMAGE:") + len("SAVED_IMAGE:"):].strip()
             if "图片已保存:" in line:
                 return line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
             if "已保存:" in line:
