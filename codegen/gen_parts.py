@@ -176,6 +176,14 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
     except Exception:
         full_meta = {"dim_tolerances": [], "gdt": [], "surfaces": []}
 
+    # Parse part features from §2/§3/§4/§8 (once for all parts)
+    try:
+        from cad_spec_extractors import extract_part_features
+        spec_text = Path(spec_path).read_text(encoding="utf-8")
+        all_features = extract_part_features(spec_text.splitlines(), parts)
+    except Exception:
+        all_features = {}
+
     template_dir = os.path.join(_PROJECT_ROOT, "templates")
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_dir),
@@ -221,6 +229,14 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
         geom_vars = {f"geom_{k}": v for k, v in geom.items() if k != "type"}
         geom_vars["geom_type"] = geom["type"]
 
+        # Part features from cross-referencing §2/§3/§4/§8
+        part_features = all_features.get(p["part_no"], [])
+        # Determine if section view is needed (part has internal features)
+        needs_section = bool(part_features) and any(
+            f["type"] in ("through_hole", "counterbore", "pocket")
+            for f in part_features
+        )
+
         content = template.render(
             part_name_cn=p["name_cn"],
             part_no=p["part_no"],
@@ -236,6 +252,9 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             has_dxf=True,
             # Geometry type dispatch
             **geom_vars,
+            # Part features — from cross-referencing §2/§3/§4/§8
+            features=part_features,
+            needs_section_view=needs_section,
             # Annotation metadata — from CAD_SPEC.md §2 + BOM material
             material_type=mat_type,
             project_name=project_name,

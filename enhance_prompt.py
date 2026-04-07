@@ -220,6 +220,35 @@ def _build_consistency_rules(rc):
     return rules
 
 
+def _build_view_material_emphasis(rc, view_key):
+    """Supplement material descriptions with view-angle-specific appearance emphasis.
+
+    Inspired by LiTo's SH layered appearance model: the same material looks
+    different at different viewing angles due to specular, Fresnel, and
+    environment reflection effects.  This function tells the AI which
+    appearance layer to prioritize for the current camera angle.
+
+    Reads only rc["camera"][view_key] — no subsystem-specific logic.
+    """
+    cam = rc.get("camera", {}).get(view_key, {})
+    elev = abs(cam.get("elevation_deg", 30))
+
+    if elev < 15:
+        return (
+            "VIEW-ANGLE NOTE: This is a near-horizontal (grazing) angle. "
+            "Emphasize Fresnel edge sheen and elongated reflections on metallic surfaces. "
+            "Metal parts should show brighter edges and more visible environment reflections."
+        )
+    elif elev > 65:
+        return (
+            "VIEW-ANGLE NOTE: This is a steep overhead angle. "
+            "Emphasize base diffuse colors and ambient occlusion in recesses. "
+            "Specular highlights should be minimal; surface texture and machining marks should be visible."
+        )
+    # 15-65 deg: standard range, no extra emphasis needed
+    return ""
+
+
 def load_template():
     """Load the unified prompt template.
 
@@ -290,6 +319,11 @@ def fill_prompt_template(tmpl_text, view_key, rc, is_v1_done=False):
         material_desc = "\n".join(mat_lines)
     else:
         material_desc = ""
+
+    # View-aware material emphasis (LiTo-inspired: appearance varies with viewing angle)
+    view_emphasis = _build_view_material_emphasis(rc, view_key)
+    if view_emphasis and material_desc:
+        material_desc = material_desc + "\n" + view_emphasis
 
     # §5 {section_face_treatment} — only for section views
     section_face = _build_section_face_treatment(rc) if view_type == "section" else ""

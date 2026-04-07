@@ -29,61 +29,109 @@ log = logging.getLogger(__name__)
 
 MATERIAL_PRESETS = {
     # ── Metals ──
+    # appearance: LiTo-inspired layered description (base → specular → fresnel)
+    # derived from PBR params; single source of truth for both Blender and AI prompt.
     "brushed_aluminum": {
         "color": (0.82, 0.82, 0.84, 1.0),
         "metallic": 1.0,
         "roughness": 0.18,
         "anisotropic": 0.6,
+        "appearance": (
+            "brushed 6061 aluminum, cool silver-gray with fine parallel grain marks, "
+            "bright anisotropic streaks perpendicular to brush direction, "
+            "strong white edge reflection at grazing angles"
+        ),
     },
     "anodized_blue": {
         "color": (0.35, 0.55, 0.75, 1.0),
         "metallic": 0.85,
         "roughness": 0.22,
+        "appearance": (
+            "blue anodized aluminum, saturated medium-blue with subtle metallic sheen, "
+            "soft diffuse highlights, faint silver edge sheen at grazing angles"
+        ),
     },
     "anodized_green": {
         "color": (0.15, 0.50, 0.25, 1.0),
         "metallic": 0.85,
         "roughness": 0.22,
+        "appearance": (
+            "green anodized aluminum, deep forest-green with metallic undertone, "
+            "soft diffuse highlights, faint silver edge sheen at grazing angles"
+        ),
     },
     "anodized_purple": {
         "color": (0.50, 0.18, 0.65, 1.0),
         "metallic": 0.85,
         "roughness": 0.22,
+        "appearance": (
+            "purple anodized aluminum, rich violet with metallic luster, "
+            "soft diffuse highlights, faint silver edge sheen at grazing angles"
+        ),
     },
     "anodized_red": {
         "color": (0.75, 0.15, 0.15, 1.0),
         "metallic": 0.85,
         "roughness": 0.22,
+        "appearance": (
+            "red anodized aluminum, deep crimson with metallic sheen, "
+            "soft diffuse highlights, faint silver edge sheen at grazing angles"
+        ),
     },
     "black_anodized": {
         "color": (0.05, 0.05, 0.05, 1.0),
         "metallic": 0.85,
         "roughness": 0.30,
+        "appearance": (
+            "hard anodized aluminum, matte dark charcoal with micro-porous surface, "
+            "soft elongated highlights at ~30deg grazing angle, "
+            "faint silver-grey edge sheen at extreme grazing angles"
+        ),
     },
     "bronze": {
         "color": (0.70, 0.42, 0.20, 1.0),
         "metallic": 0.90,
         "roughness": 0.25,
+        "appearance": (
+            "cast bronze, warm reddish-brown with subtle patina, "
+            "medium-sharp specular highlights, warm golden edge reflection"
+        ),
     },
     "copper": {
         "color": (0.85, 0.45, 0.18, 1.0),
         "metallic": 1.0,
         "roughness": 0.15,
+        "appearance": (
+            "polished copper, warm reddish-orange with high reflectivity, "
+            "sharp bright specular highlights, strong warm edge reflection"
+        ),
     },
     "gunmetal": {
         "color": (0.18, 0.18, 0.20, 1.0),
         "metallic": 0.90,
         "roughness": 0.25,
+        "appearance": (
+            "gunmetal finish, very dark blue-grey metallic, "
+            "medium-sharp specular highlights, cool silver edge reflection"
+        ),
     },
     "dark_steel": {
         "color": (0.15, 0.15, 0.17, 1.0),
         "metallic": 0.90,
         "roughness": 0.28,
+        "appearance": (
+            "dark carbon steel, near-black with slight blue-grey tint, "
+            "soft diffuse highlights, subtle cool edge sheen"
+        ),
     },
     "stainless_304": {
         "color": (0.75, 0.75, 0.77, 1.0),
         "metallic": 1.0,
         "roughness": 0.15,
+        "appearance": (
+            "stainless steel 304, bright silver with brushed satin finish, "
+            "sharp elongated highlights along grain, strong white edge reflection"
+        ),
     },
     # ── Plastics / Rubber ──
     "peek_amber": {
@@ -94,23 +142,40 @@ MATERIAL_PRESETS = {
         "sss_color": (0.95, 0.70, 0.10),
         "ior": 1.65,
         "specular": 0.7,
+        "appearance": (
+            "PEEK engineering plastic, warm honey-amber semi-translucent, "
+            "subsurface scattering glow in thin sections, smooth polished surface, "
+            "moderate specular highlight from high IOR"
+        ),
     },
     "black_rubber": {
         "color": (0.03, 0.03, 0.03, 1.0),
         "metallic": 0.0,
         "roughness": 0.75,
         "sss": 0.05,
+        "appearance": (
+            "black rubber/elastomer, matte deep black, very diffuse with almost "
+            "no specular highlight, Shore A ~70 hardness appearance"
+        ),
     },
     "white_nylon": {
         "color": (0.92, 0.92, 0.90, 1.0),
         "metallic": 0.0,
         "roughness": 0.45,
+        "appearance": (
+            "injection-molded white nylon PA66, slightly warm off-white, "
+            "satin-matte surface, broad soft highlight, no edge reflection"
+        ),
     },
     "polycarbonate_clear": {
         "color": (0.95, 0.95, 0.97, 1.0),
         "metallic": 0.0,
         "roughness": 0.05,
         "ior": 1.58,
+        "appearance": (
+            "transparent polycarbonate, near-clear with faint blue-white tint, "
+            "sharp specular highlight from high IOR, visible refraction at edges"
+        ),
     },
 }
 
@@ -399,3 +464,82 @@ def auto_bounding_radius(scene_objects):
 
     # Add 10% margin
     return max_dist * 1.1
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Render passes (depth, normal, diffuse — for future 3DGS / ControlNet use)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def setup_render_passes(scene, output_dir, view_name, config):
+    """为 Blender 场景启用多 pass 输出 (Cycles compositor nodes)。
+
+    读取 config["render_passes"]（可选字段），设置 compositor。
+    若 config 无 render_passes 或 enabled=False，静默跳过（向后兼容）。
+
+    Per-subsystem render_3d.py 可选择在渲染前调用此函数。
+    现有 render_3d.py 不调用 = 行为不变。
+
+    Supported passes: depth, normal, diffuse_color, glossy_color
+
+    输出格式: EXR (32-bit float) → {output_dir}/{view_name}_{pass}.exr
+
+    NOTE: This function runs INSIDE Blender's Python environment.
+    Guard imports with try/except for non-Blender contexts.
+    """
+    passes_cfg = config.get("render_passes", {})
+    if not passes_cfg.get("enabled", False):
+        return  # 默认不启用，向后兼容
+
+    try:
+        import bpy
+    except ImportError:
+        return  # Not running in Blender — skip silently
+
+    requested = set(passes_cfg.get("passes", []))
+    if not requested:
+        return
+
+    scene.use_nodes = True
+    tree = scene.node_tree
+    tree.nodes.clear()
+
+    # Re-create Render Layers node
+    rl_node = tree.nodes.new("CompositorNodeRLayers")
+    rl_node.location = (0, 0)
+
+    # Standard composite output (preserves normal RGB render)
+    composite = tree.nodes.new("CompositorNodeComposite")
+    composite.location = (400, 0)
+    tree.links.new(rl_node.outputs["Image"], composite.inputs["Image"])
+
+    # Enable required view layer passes
+    vl = scene.view_layers[0]
+    pass_outputs = {}
+
+    if "depth" in requested:
+        vl.use_pass_z = True
+        pass_outputs["depth"] = "Depth"
+
+    if "normal" in requested:
+        vl.use_pass_normal = True
+        pass_outputs["normal"] = "Normal"
+
+    if "diffuse_color" in requested:
+        vl.use_pass_diffuse_color = True
+        pass_outputs["diffuse_color"] = "DiffCol"
+
+    if "glossy_color" in requested:
+        vl.use_pass_glossy_color = True
+        pass_outputs["glossy_color"] = "GlossCol"
+
+    # Create file output nodes for each requested pass
+    for pass_name, output_key in pass_outputs.items():
+        if output_key not in rl_node.outputs:
+            continue
+        file_node = tree.nodes.new("CompositorNodeOutputFile")
+        file_node.base_path = output_dir
+        file_node.format.file_format = "OPEN_EXR"
+        file_node.format.color_depth = "32"
+        file_node.file_slots[0].path = f"{view_name}_{pass_name}_"
+        tree.links.new(rl_node.outputs[output_key], file_node.inputs[0])

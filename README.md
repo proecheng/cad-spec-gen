@@ -124,6 +124,8 @@ Labeled PNG — with leader lines and component names
 │     Design doc (.md) → cad_spec_gen.py → CAD_SPEC.md            │
 │     9 sections: params, tolerances, fasteners, connections,     │
 │     BOM tree, assembly pose, visual IDs, render plan, gaps      │
+│     v2.3: auto-extracts per-part feature list (holes/slots)     │
+│     by cross-referencing §2/§3/§4/§8 (extract_part_features)   │
 │                                                                 │
 │  3. CODE GENERATION (Jinja2)                                      │
 │     CAD_SPEC.md → codegen/gen_*.py → params.py + build_all.py   │
@@ -133,6 +135,8 @@ Labeled PNG — with leader lines and component names
 │     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
 │     build_all.py needs valid module refs, assembly.py needs       │
 │     hand-written mate logic. Complete before Phase 4.             │
+│     v2.3: auto-generates hole features from extracted feature    │
+│     list + section view overlay for parts with internal features │
 │     v2.2.3: cable/harness lengths auto-capped for visualization  │
 │  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
@@ -141,6 +145,8 @@ Labeled PNG — with leader lines and component names
 │     CadQuery scripts → STEP + GLB + DXF                        │
 │     - 3D: assemblies with precise mate constraints              │
 │     - 2D: GB/T A3 drawings, 3-view + section views              │
+│     v2.3: position dims, orthogonal dim angles, A-A section     │
+│     hatch (holes excluded), dynamic tech notes placement        │
 │                                                                 │
 │  5. 3D RENDERING (Blender Cycles, GPU auto-detect)                │
 │     GLB → N-view PNG (geometry 100% accurate, default 5 views)  │
@@ -151,9 +157,11 @@ Labeled PNG — with leader lines and component names
 │  6. AI ENHANCEMENT (optional)                                   │
 │     PNG → photorealistic JPG (reskin only, geometry locked)     │
 │     Prompt: "Keep ALL geometry EXACTLY" + material description  │
-│     Standard parts: simplified shapes → realistic appearance    │
+│     v2.3: unified MATERIAL_PRESETS appearance (single source    │
+│     of truth for both Blender PBR + AI prompt), view-aware      │
+│     material emphasis (Fresnel/specular per camera angle),      │
+│     material_type→preset auto-fallback from params.py           │
 │     Material bridging: bom_id→component→material auto-lookup    │
-│     Model: configurable via pipeline_config.json (Nano Banana)  │
 │                                                                 │
 │  Output:  PNG → engineering review / machining reference        │
 │           JPG → presentations / proposals / business plans      │

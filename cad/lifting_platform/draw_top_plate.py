@@ -1,5 +1,15 @@
 """
-SLP-100 上固定板 Engineering Drawing
+[DEPRECATED] SLP-100 上固定板 Engineering Drawing — 手写旧版
+
+此文件为手写的 2D 工程图，孔位与 3D 模型不一致（手动 8 孔 vs 3D 5 孔），
+已被自动管线取代。正式 2D 图由 p100.py:draw_p100_sheet() 通过
+auto_three_view() + auto_annotate() 自动生成。
+
+请勿使用此文件。如需修改 SLP-100 的 2D 图，应修改：
+- 管线工具层: drawing.py / cq_to_dxf.py
+- 模板层: templates/part_module.py.j2
+- 3D 几何源: p100.py:make_p100()
+
 GB/T 4458.1 三视图 A3 图纸
 """
 import math

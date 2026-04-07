@@ -787,3 +787,166 @@ def extract_render_plan(lines: list) -> dict:
             })
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 零件特征提取 — 交叉引用 §2/§3/§4/§8 合并每个零件的孔/槽/沉台特征
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def extract_part_features(lines: list, bom_parts: list) -> dict:
+    """从设计文档中提取每个零件的几何特征清单。
+
+    交叉引用多个数据源：
+    - §2.1 尺寸公差表：提取 Φ 值 (孔径)
+    - §3 紧固件清单：提取螺纹孔规格和安装位置
+    - §4 连接矩阵：提取连接类型和配合关系
+    - §8 装配序列：提取装配步骤中提到的孔位信息
+
+    Args:
+        lines: 设计文档全文按行分割
+        bom_parts: BOM 零件列表 [{"part_no": "SLP-100", "name_cn": "上固定板", ...}]
+
+    Returns:
+        dict mapping part_no → list of feature dicts:
+        {
+            "SLP-100": [
+                {"type": "through_hole", "diameter": 24.0, "count": 2,
+                 "positions": [(-60, 30), (60, -30)],
+                 "tolerance": "+0.1/0", "source": "§2.1 Φ24, §4 LS1/LS2"},
+                ...
+            ]
+        }
+    """
+    text = "\n".join(lines)
+    features_by_part = {}
+
+    # Build part name lookup for fuzzy matching
+    part_lookup = {}
+    for p in bom_parts:
+        pno = p.get("part_no", "")
+        name = p.get("name_cn", "")
+        part_lookup[pno] = name
+        if name:
+            part_lookup[name] = pno
+
+    # ── Source 1: §2.1 尺寸公差 → 提取 Φ 值列表 ──────────────────────────────
+    hole_diameters = {}  # {Φ值: {tolerance, label}}
+    tol_data = extract_tolerances(lines)
+    for t in tol_data.get("dim_tols", []):
+        name = t.get("name", "")
+        m = re.match(r"[Φφ](\d+(?:\.\d+)?)", name)
+        if m:
+            d = float(m.group(1))
+            hole_diameters[d] = {
+                "tolerance": t.get("label", ""),
+                "fit_code": t.get("fit_code", ""),
+            }
+
+    # ── Source 2: §3 紧固件清单 → 螺纹孔规格 per 位置 ───────────────────────
+    fastener_tables = extract_tables(lines, column_keywords=["螺栓", "力矩"])
+    if not fastener_tables:
+        fastener_tables = extract_tables(lines, heading_pattern=r"紧固件|螺栓|Fastener")
+    fastener_features = []
+    for tbl in fastener_tables:
+        cols = [c.lower() for c in tbl["columns"]]
+        pos_i = next((i for i, c in enumerate(cols) if "位置" in c or "连接" in c), 0)
+        spec_i = next((i for i, c in enumerate(cols) if "规格" in c or "螺栓" in c), 1)
+        qty_i = next((i for i, c in enumerate(cols) if "数量" in c), 2)
+
+        for row in tbl["rows"]:
+            if len(row) <= spec_i:
+                continue
+            pos_text = row[pos_i].strip() if pos_i < len(row) else ""
+            spec_text = row[spec_i].strip() if spec_i < len(row) else ""
+            qty_text = row[qty_i].strip() if qty_i < len(row) else "1"
+
+            m_bolt = re.search(r"M(\d+)", spec_text)
+            if m_bolt:
+                bolt_d = float(m_bolt.group(1))
+                qty_m = re.search(r"(\d+)", qty_text)
+                qty = int(qty_m.group(1)) if qty_m else 1
+                fastener_features.append({
+                    "bolt_d": bolt_d,
+                    "count": qty,
+                    "position_text": pos_text,
+                    "source": f"§3 {spec_text}",
+                })
+
+    # ── Source 3: §4/§8 装配文本 → 孔位关联到零件 ────────────────────────────
+    hole_pattern = re.compile(
+        r"(?:穿入|装[至到]|旋入|压入|嵌入)"
+        r"[^，,。\n]{0,20}?"
+        r"([\u4e00-\u9fff]{2,6})"
+        r"[^，,。\n]{0,10}?"
+        r"[Φφ](\d+(?:\.\d+)?)"
+        r"([Hh]\d+)?",
+    )
+
+    assembly_hints = []
+    for i, line in enumerate(lines):
+        for m in hole_pattern.finditer(line):
+            part_frag = m.group(1)
+            diameter = float(m.group(2))
+            fit = m.group(3) or ""
+            assembly_hints.append((part_frag, diameter, fit, f"L{i+1}"))
+
+    # ── Merge: associate features with BOM parts ─────────────────────────────
+    def _fuzzy_match(frag: str, name: str) -> bool:
+        """模糊匹配零件名：'上板' 匹配 '上固定板'，'动板' 匹配 '动板'。"""
+        if frag in name or name in frag:
+            return True
+        # 缩写匹配：片段首尾字符都出现在名称中且顺序正确
+        if len(frag) >= 2 and frag[0] in name and frag[-1] in name:
+            i0 = name.index(frag[0])
+            i1 = name.rindex(frag[-1])
+            if i0 < i1:
+                return True
+        return False
+
+    for p in bom_parts:
+        pno = p.get("part_no", "")
+        name = p.get("name_cn", "")
+        if not pno:
+            continue
+
+        part_features = []
+        matched_diameters = set()
+
+        for frag, dia, fit, src in assembly_hints:
+            if _fuzzy_match(frag, name):
+                if dia not in matched_diameters:
+                    tol_info = hole_diameters.get(dia, {})
+                    tol_text = tol_info.get("tolerance", "")
+                    if fit and not tol_text:
+                        tol_text = fit
+
+                    part_features.append({
+                        "type": "through_hole",
+                        "diameter": dia,
+                        "count": 2,
+                        "positions": [],
+                        "tolerance": tol_text,
+                        "source": f"§2.1 Φ{dia}{fit}, {src}",
+                    })
+                    matched_diameters.add(dia)
+
+        for ff in fastener_features:
+            if name and name in ff["position_text"]:
+                tap_d = ff["bolt_d"]
+                if tap_d not in matched_diameters:
+                    part_features.append({
+                        "type": "threaded_hole",
+                        "diameter": tap_d,
+                        "tap_drill_d": round(tap_d * 0.85, 1),
+                        "count": ff["count"],
+                        "positions": [],
+                        "tolerance": "",
+                        "source": ff["source"],
+                    })
+                    matched_diameters.add(tap_d)
+
+        if part_features:
+            features_by_part[pno] = part_features
+
+    return features_by_part

@@ -79,6 +79,33 @@ def make_{{ func_name }}() -> cq.Workplane:
     from fasteners import cut_mounting_holes
     body = cut_mounting_holes(body, {{ mount_bolt_pcd }}, {{ mount_bolt_num }})
 {% endif %}
+{% if features %}
+
+    # ── Auto-extracted features from §2/§3/§4/§8 ────────────────────────────
+{% for feat in features %}
+{% if feat.type == "through_hole" %}
+    # {{ feat.source }} — {{ feat.count }}×Φ{{ feat.diameter }}
+{% if feat.positions %}
+    body = body.faces(">Z").workplane().pushPoints({{ feat.positions }}).hole({{ feat.diameter }})
+{% else %}
+    # TODO: fill hole positions from design doc, then uncomment:
+    # body = body.faces(">Z").workplane().pushPoints([...]).hole({{ feat.diameter }})
+{% endif %}
+{% elif feat.type == "counterbore" %}
+    # {{ feat.source }} — {{ feat.count }}×Φ{{ feat.diameter }} counterbore
+    # TODO: fill positions + cbore dims from design doc
+    # body = body.faces(">Z").workplane().pushPoints([...]).cboreHole({{ feat.diameter }}, cboreD, cboreDepth)
+{% elif feat.type == "threaded_hole" %}
+    # {{ feat.source }} — {{ feat.count }}×M{{ feat.diameter }} (tap drill Φ{{ feat.tap_drill_d }})
+{% if feat.positions %}
+    body = body.faces(">Z").workplane().pushPoints({{ feat.positions }}).hole({{ feat.tap_drill_d }})
+{% else %}
+    # TODO: fill hole positions from design doc, then uncomment:
+    # body = body.faces(">Z").workplane().pushPoints([...]).hole({{ feat.tap_drill_d }})
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
 
     return body
 
@@ -124,6 +151,14 @@ def draw_{{ func_name }}_sheet(output_dir: str = None) -> str:
         subsystem_name="{{ subsystem_name }}",
     )
     auto_three_view(solid, sheet)
+{% if needs_section_view %}
+
+    # 剖视图叠加 — 零件含内部特征（通孔/沉台），叠加 A-A 剖面线到左视图
+    from cq_to_dxf import auto_section_overlay
+    auto_section_overlay(solid, sheet,
+        cut_plane="YZ", label="A",
+        hatch_on="left", indicator_on="top")
+{% endif %}
 
     # GB/T 标注 — 数据来自 CAD_SPEC.md §2，不硬编码
     auto_annotate(solid, sheet, annotation_meta={

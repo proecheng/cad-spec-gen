@@ -155,6 +155,27 @@
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 }
       }
+    },
+    "render_passes": {
+      "type": "object",
+      "description": "Optional multi-pass output (depth, normal, diffuse). Default disabled for backward compat. Enable for ComfyUI ControlNet depth or future 3DGS fitting.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "passes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["depth", "normal", "diffuse_color", "glossy_color"]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "enhance_mode": {
+      "type": "string",
+      "enum": ["gemini", "comfyui"],
+      "default": "gemini",
+      "description": "Phase 5 enhancement backend. Future: '3dgs_rerender' when 3DGS fitting available."
     }
   },
   "additionalProperties": true

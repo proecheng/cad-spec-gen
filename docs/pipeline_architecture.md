@@ -41,8 +41,12 @@ Phase 1    Phase 2    Phase 3    Phase 4    Phase 5    Phase 6
         │         CRITICAL > 0 → 阻断管线（exit 1）
         │         Agent模式 → exit 10，等待Agent逐项审查
         │
-        └─► [1c] 生成 CAD_SPEC.md
-                  （参数表：名称 / 值 / 单位 / 公差 / 来源行号）
+        ├─► [1c] 生成 CAD_SPEC.md
+        │         （参数表：名称 / 值 / 单位 / 公差 / 来源行号）
+        │
+        └─► [1d] v2.3: extract_part_features()
+                  交叉引用 §2 公差/§3 紧固件/§4 连接/§8 装配
+                  → 每个零件的孔/槽/沉台特征清单
 
 输出文件：
   cad/<subsystem>/CAD_SPEC.md
@@ -70,6 +74,12 @@ CAD_SPEC.md
 模式：
   --mode scaffold  仅生成骨架（不覆盖已有文件）
   --mode force     强制覆盖
+
+v2.3.0 新增：
+  - gen_parts.py: extract_part_features() 交叉引用 §2/§3/§4/§8 → 零件特征清单
+  - part_module.py.j2: 特征生成块（through_hole/counterbore/threaded_hole → CadQuery .hole()）
+  - gen_parts.py: needs_section_view 自动检测 → 模板生成 auto_section_overlay() 调用
+  - 模糊匹配 _fuzzy_match()：处理"上板"→"上固定板"等中文缩写
 
 v2.2.3 新增：
   - assembly.py 两层定位：零件级 translate()（§6.2 逐行偏移）+ 工位级 _station_transform（径向旋转+平移）
@@ -144,6 +154,13 @@ def make_<part_name>() -> cq.Workplane:
         └─► 导出 <subsystem>.glb      （Blender用）
 
 输出目录：cad/output/
+
+v2.3.0 DXF 增强：
+  - allocate_dim_angles(prefer_orthogonal=True) → 引出线优先水平/垂直
+  - auto_annotate: 俯视图自动标注孔心到基准边的位置尺寸（≤4 组，对称去重）
+  - auto_section_overlay: 含内部特征的零件自动叠加 A-A 剖面线 + 剖切指示线
+  - add_section_hatch_with_holes: 剖面线排除孔区域（GB/T 4457.5）
+  - draw_three_view.py:save(): 技术要求位置动态计算（视图下方空白处）
 ```
 
 **orientation_check.py 通用扩展方式：**
@@ -245,6 +262,14 @@ render_manifest.json
               几何锁定：由控制图像硬约束，不依赖文字指令
 
 输出：cad/output/renders/<VN>_<name>_<timestamp>_enhanced.jpg
+
+v2.3.0 增强（通用，两种后端均受益）：
+  - MATERIAL_PRESETS 新增 appearance 字段 → 数据源归一（删除 _PRESET_APPEARANCE）
+  - _build_view_material_emphasis(): 根据相机仰角自动补充材质视角描述
+    低仰角 → Fresnel edge sheen; 高仰角 → diffuse + AO
+  - _derive_materials_from_params(): 当 render_config.json 无材质时,
+    从 params.py material_type → default_preset → MATERIAL_PRESETS 自动补充
+  - render_config.schema.json: 预留 render_passes + enhance_mode 字段
 ```
 
 **后端对比：**

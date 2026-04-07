@@ -36,6 +36,18 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 15 | CAD Spec | "generate spec" "extract parameters" | Run cad_spec_gen.py to produce CAD_SPEC.md |
 | 16 | Design Review | "review design" "check design" "审查" | Engineering review: mechanical/assembly/material/completeness → DESIGN_REVIEW.md |
 
+### v2.3.0 New Capabilities
+
+- **Feature Extraction**: Auto-extracts per-part hole/slot features by cross-referencing §2 tolerances, §3 fasteners, §4 connections, §8 assembly sequence
+- **Section View Overlay**: Auto-generates A-A section hatch on left view for parts with internal features (holes excluded from hatch per GB/T 4457.5)
+- **Position Dimensions**: Hole-center-to-edge distance annotations in top view (GB/T 4458.4)
+- **Orthogonal Dim Angles**: Dimension leader lines default to 0°/90°/180°/270° (was 45°/135°)
+- **Dynamic Tech Notes**: Technical notes position calculated from layout, placed below views (was hardcoded top-left)
+- **Unified Material Appearance**: `MATERIAL_PRESETS` in `render_config.py` is single source of truth for both Blender PBR and AI prompt descriptions
+- **View-Aware Material Emphasis**: AI prompt adjusts Fresnel/specular/diffuse emphasis per camera angle
+- **material_type → preset Fallback**: Auto-derives render preset from params.py material_type when render_config.json lacks materials
+- **Render Passes (preview)**: Optional depth/normal/diffuse pass output from Blender (schema ready, default disabled)
+
 ## Pipeline Architecture
 
 ```
