@@ -427,91 +427,90 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
         rc = json.load(f)
 
     parts = parse_bom_tree(spec_path)
-    assemblies = [p for p in parts if p["is_assembly"]]
-    if not assemblies:
+    if not parts:
         return
 
     components = rc.setdefault("components", {})
     materials = rc.setdefault("materials", {})
     changed = False
 
-    # Material preset inference from BOM material text
+    # Material preset inference from BOM material text AND part name keywords
     _MAT_PRESET = {
+        # ── From BOM material field (自制件) ──
+        "7075": "black_anodized", "6063": "brushed_aluminum",
         "铝": "brushed_aluminum", "Al": "brushed_aluminum",
         "钢": "stainless_304", "SUS": "stainless_304",
         "PEEK": "peek_amber",
-        "橡胶": "black_rubber", "硅橡胶": "black_rubber",
+        "橡胶": "black_rubber", "硅橡胶": "black_rubber", "NBR": "black_rubber",
         "塑料": "white_nylon", "尼龙": "white_nylon",
         "铜": "copper",
+        # ── From BOM name_cn field (标准件, 无 material 字段) ──
+        "电机": "dark_steel", "减速": "brushed_aluminum",
+        "弹簧": "stainless_304", "碟簧": "stainless_304",
+        "轴承": "stainless_304",
+        "O型圈": "black_rubber", "密封": "black_rubber",
+        "传感器": "dark_steel", "探头": "dark_steel",
+        "齿轮泵": "brushed_aluminum", "联轴": "stainless_304",
+        "挡圈": "stainless_304", "螺栓": "stainless_304", "螺钉": "stainless_304",
+        "垫圈": "stainless_304", "PCB": "dark_steel",
+        "插座": "dark_steel", "连接器": "dark_steel",
     }
 
-    for assy in assemblies:
-        pno = assy["part_no"]
-        name_cn = assy["name_cn"]
+    def _infer_preset(mat_text, name_cn):
+        """Infer material preset from BOM material field + part name."""
+        # Try material field first (more specific)
+        for keyword, preset in _MAT_PRESET.items():
+            if keyword in (mat_text or ""):
+                return preset
+        # Fallback: try part name keywords (for 标准件 with no material)
+        for keyword, preset in _MAT_PRESET.items():
+            if keyword in (name_cn or ""):
+                return preset
+        return "brushed_aluminum"
 
-        # Derive comp_key: use part_no suffix for guaranteed uniqueness
-        suffix = pno.rsplit("-", 1)[-1]
-        comp_key = f"assy_{suffix}"
+    def _part_no_to_comp_key(pno):
+        """Derive component key from part number: GIS-EE-001-01 → ee_001_01."""
+        import re as _re
+        normalized = _re.sub(r'^[A-Z]+-', '', pno)  # strip project prefix
+        return normalized.lower().replace("-", "_")
+
+    # ── Process ALL BOM parts (assembly + leaf + 标准件) ──
+    for part in parts:
+        pno = part["part_no"]
+        if not pno:
+            continue
+        name_cn = part["name_cn"]
+        mat_text = part.get("material", "")
+
+        comp_key = _part_no_to_comp_key(pno)
 
         # Check if any existing component already has this bom_id
-        existing = None
-        for ck, cv in components.items():
-            if isinstance(cv, dict) and cv.get("bom_id") == pno:
-                existing = ck
-                break
+        already_mapped = any(
+            isinstance(cv, dict) and cv.get("bom_id") == pno
+            for cv in components.values()
+        )
+        if already_mapped:
+            continue  # Don't overwrite hand-written entries
 
-        if existing:
-            # Already exists — ensure material link AND materials entry
-            comp = components[existing]
-            mat_key = comp.get("material", existing)
+        # Skip if comp_key already exists (hand-written or from previous sync)
+        if comp_key in components:
+            # Ensure material entry exists
+            mat_key = components[comp_key].get("material", comp_key)
             if mat_key not in materials:
-                # Try fuzzy: existing key as prefix of some material
-                candidates = [mk for mk in materials if mk.startswith(existing)]
-                if len(candidates) == 1:
-                    mat_key = candidates[0]
-                else:
-                    # Create materials entry from BOM child material field
-                    children = [p for p in parts
-                                if p["part_no"].startswith(pno + "-")
-                                and not p["is_assembly"]]
-                    preset = "brushed_aluminum"
-                    for child in children:
-                        mat_text = child.get("material", "")
-                        for keyword, p_name in _MAT_PRESET.items():
-                            if keyword in mat_text:
-                                preset = p_name
-                                break
-                        else:
-                            continue
-                        break
-                    materials[mat_key] = {"preset": preset, "label": name_cn}
-                    changed = True
-            comp["material"] = mat_key
-            changed = True
+                materials[mat_key] = {
+                    "preset": _infer_preset(mat_text, name_cn),
+                    "label": name_cn,
+                }
+                changed = True
             continue
 
-        # New component — create both entries with same key
+        # New entry — create component + material
+        preset = _infer_preset(mat_text, name_cn)
         components[comp_key] = {
             "name_cn": name_cn,
-            "name_en": "",
             "bom_id": pno,
             "material": comp_key,
         }
-
-        # Infer preset from first child's material field
-        children = [p for p in parts
-                    if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
-        preset = "brushed_aluminum"
-        for child in children:
-            mat_text = child.get("material", "")
-            for keyword, p_name in _MAT_PRESET.items():
-                if keyword in mat_text:
-                    preset = p_name
-                    break
-            else:
-                continue
-            break
-
         if comp_key not in materials:
             materials[comp_key] = {
                 "preset": preset,
@@ -572,7 +571,9 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
     if changed:
         with open(rc_path, "w", encoding="utf-8") as f:
             json.dump(rc, f, indent=2, ensure_ascii=False)
-        log.info("  BOM→render_config: %d components synced", len(assemblies))
+        log.info("  BOM→render_config: %d components, %d materials synced",
+                 len(components) - 1 if "_source" in components else len(components),
+                 len(materials))
 
 
 def _validate_render_config(rc_path):
