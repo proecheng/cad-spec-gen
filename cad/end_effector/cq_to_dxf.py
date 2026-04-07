@@ -29,6 +29,33 @@ from OCP.GCPnts import GCPnts_UniformDeflection
 from OCP.GeomAbs import GeomAbs_Line, GeomAbs_Circle
 
 
+def _convex_hull(points):
+    """Compute convex hull of 2D points (Andrew's monotone chain).
+
+    Returns list of (x, y) vertices in counter-clockwise order.
+    Used by auto_section_overlay to build the actual cross-section
+    outer boundary from HLR projected edge endpoints.
+    """
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
 # ── GB/T 14692-2008 First Angle Projection View Directions ──────────────────
 # Each view is defined by (eye_direction, x_direction):
 #   eye_direction = where the camera looks FROM (normal to projection plane)
@@ -453,6 +480,52 @@ def auto_annotate(solid: cq.Workplane, sheet, annotation_meta: dict = None):
                     add_centerline_cross(msp, (paper_cx, paper_cy),
                                          size=paper_r + overshoot)
 
+        # ── Position dimensions (GB/T 4458.4: 位置尺寸) ─────────────────────
+        # 标注孔心到基准边（左/底）的距离，仅在俯视图标注，限 ≤4 组
+        if view_name == "top" and circles_raw:
+            _MAX_POS_DIMS = 4
+            pos_dim_count = 0
+            # 对称去重：按 abs(cx) + abs(cy) 排序，取不同位置的孔
+            seen_positions = set()
+            pos_circles = []
+            for raw_cx, raw_cy, raw_r in unique_circles:
+                key = (round(abs(raw_cx), 0), round(abs(raw_cy), 0))
+                if key not in seen_positions:
+                    pos_circles.append((raw_cx, raw_cy, raw_r))
+                    seen_positions.add(key)
+
+            for raw_cx, raw_cy, raw_r in pos_circles:
+                if pos_dim_count >= _MAX_POS_DIMS:
+                    break
+                paper_cx = ox + (raw_cx - proj_cx) * scale
+                paper_cy = oy + (-raw_cy + proj_cy) * scale
+
+                # 水平位置尺寸：孔心到左边缘
+                dist_h = raw_cx - (-bbox_w / 2)  # raw coords: center-based
+                if dist_h > 1.0 and abs(dist_h - bbox_w) > 1.0:
+                    h_off = placer.next_h_offset()
+                    left_edge_x = ox - paper_w / 2
+                    add_linear_dim(msp,
+                                   (left_edge_x, oy - paper_h / 2 - h_off),
+                                   (paper_cx, oy - paper_h / 2 - h_off),
+                                   offset=0, text=f"{dist_h:.1f}", angle=0)
+                    pos_dim_count += 1
+
+                if pos_dim_count >= _MAX_POS_DIMS:
+                    break
+
+                # 垂直位置尺寸：孔心到底边缘
+                # HLR 中 Y 翻转，raw_cy 对应实际 Y 坐标
+                dist_v = -raw_cy - (-bbox_h / 2)
+                if dist_v > 1.0 and abs(dist_v - bbox_h) > 1.0:
+                    v_off = placer.next_v_offset()
+                    bottom_edge_y = oy - paper_h / 2
+                    add_linear_dim(msp,
+                                   (ox + paper_w / 2 + v_off, bottom_edge_y),
+                                   (ox + paper_w / 2 + v_off, paper_cy),
+                                   offset=0, text=f"{dist_v:.1f}", angle=90)
+                    pos_dim_count += 1
+
     # ── Phase 2: Spec-driven annotations (front view only) ───────────────────
 
     front_ox, front_oy = layout["front_origin"]
@@ -488,6 +561,168 @@ def auto_annotate(solid: cq.Workplane, sheet, annotation_meta: dict = None):
                 if m:
                     ra_val = float(m.group(1))
                     add_surface_symbol(msp, (surf_x, surf_y - i * 12), ra_val)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section overlay (GB/T 4458.6 — 叠加剖面线到已有视图)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def auto_section_overlay(
+    solid: cq.Workplane,
+    sheet,
+    cut_plane: str = "YZ",
+    label: str = "A",
+    hatch_on: str = "left",
+    indicator_on: str = "top",
+):
+    """在已有视图上叠加剖面线 + 在另一视图上画剖切指示线。
+
+    叠加模式：不替换 auto_three_view 注册的视图，只在其上额外绘制：
+    1. 在 hatch_on 视图上叠加剖面线（实体区域画 45° 斜线，孔区域留白）
+    2. 在 indicator_on 视图上画 A-A 剖切指示线
+    3. 在 hatch_on 视图上方标注 "A-A"
+
+    Args:
+        solid: CadQuery Workplane (same one passed to auto_three_view)
+        sheet: ThreeViewSheet (after auto_three_view registered views)
+        cut_plane: "YZ" (cuts along X, projects left view) or "XZ" (cuts along Y)
+        label: section letter (e.g. "A" → "A-A")
+        hatch_on: which view to overlay hatch on ("left" or "front")
+        indicator_on: which view to draw cut indicator on ("top" or "front")
+    """
+    from drawing import (
+        add_section_hatch_with_holes, add_section_cut_indicator,
+        add_section_view_label, calc_three_view_layout,
+    )
+
+    bboxes = getattr(sheet, "_auto_bboxes", {})
+    if not bboxes:
+        return
+
+    front_wh = bboxes.get("front", (1, 1))
+    top_wh = bboxes.get("top", (front_wh[0], 1))
+    left_wh = bboxes.get("left", (1, front_wh[1]))
+    layout = calc_three_view_layout(front_wh, top_wh, left_wh)
+    scale = layout["scale"]
+    msp = sheet.msp
+
+    # ── 1. Determine hatch view and compute layout ────────────────────────
+    if cut_plane == "YZ":
+        hatch_view = "left"
+        ind_view = "top"
+    else:
+        hatch_view = "front"
+        ind_view = "left"
+
+    hatch_ox, hatch_oy = layout[f"{hatch_view}_origin"]
+    hatch_wh = bboxes[hatch_view]
+    hatch_pw = hatch_wh[0] * scale
+    hatch_ph = hatch_wh[1] * scale
+
+    # ── 2. Build hatch boundaries from actual 3D geometry ──────────────────
+    # Use HLR visible edges to extract the REAL outer profile (not bbox rectangle).
+    # This handles non-rectangular cross-sections (cylinders, L-brackets, etc.)
+    shape_wrapped = solid.val().wrapped
+    eye_dir, x_dir = VIEW_DIRS[hatch_view]
+    visible, hidden = _hlr_project(shape_wrapped, eye_dir, x_dir)
+
+    # Collect ALL projected points for centering
+    vis_edges = _extract_edges(visible, 0, 0, 1.0)
+    hid_edges = _extract_edges(hidden, 0, 0, 1.0)
+    all_edges = vis_edges + hid_edges
+    all_pts = []
+    for e in all_edges:
+        if e[0] == "LINE":
+            all_pts.extend([(e[1], e[2]), (e[3], e[4])])
+        elif e[0] in ("CIRCLE", "ARC"):
+            all_pts.append((e[1], e[2]))
+        elif e[0] == "POLYLINE":
+            all_pts.extend(e[1])
+
+    if all_pts:
+        xs = [p[0] for p in all_pts]
+        ys = [p[1] for p in all_pts]
+        proj_cx = (min(xs) + max(xs)) / 2
+        proj_cy = (min(ys) + max(ys)) / 2
+    else:
+        proj_cx = proj_cy = 0
+
+    # Build outer boundary from visible LINE edges (the actual cross-section outline).
+    # Collect line endpoints, then compute convex hull as the outer hatch boundary.
+    # This correctly handles any cross-section shape (box, cylinder, L-bracket, etc.)
+    outline_pts = []
+    for e in vis_edges:
+        if e[0] == "LINE":
+            for px, py in [(e[1], e[2]), (e[3], e[4])]:
+                paper_px = hatch_ox + (px - proj_cx) * scale
+                paper_py = hatch_oy + (-py + proj_cy) * scale
+                outline_pts.append((paper_px, paper_py))
+
+    if len(outline_pts) >= 3:
+        outer = _convex_hull(outline_pts)
+    else:
+        # Fallback: use bbox rectangle (only if HLR produced no lines)
+        half_w = hatch_pw / 2
+        half_h = hatch_ph / 2
+        outer = [
+            (hatch_ox - half_w, hatch_oy - half_h),
+            (hatch_ox + half_w, hatch_oy - half_h),
+            (hatch_ox + half_w, hatch_oy + half_h),
+            (hatch_ox - half_w, hatch_oy + half_h),
+        ]
+
+    # Detect circles in the hatch view to build inner (exclusion) boundaries
+    circles = _detect_circles(solid, hatch_view)
+    inner_boundaries = []
+
+    for raw_cx, raw_cy, raw_r in circles:
+        paper_cx = hatch_ox + (raw_cx - proj_cx) * scale
+        paper_cy = hatch_oy + (-raw_cy + proj_cy) * scale
+        paper_r = raw_r * scale
+        if paper_r < 0.5:
+            continue
+        # Approximate circle as polygon for hatch exclusion
+        n_seg = 24
+        circle_pts = []
+        for j in range(n_seg):
+            angle = 2 * math.pi * j / n_seg
+            circle_pts.append((
+                paper_cx + paper_r * math.cos(angle),
+                paper_cy + paper_r * math.sin(angle),
+            ))
+        inner_boundaries.append(circle_pts)
+
+    # Draw hatch (GB/T 4457.5: 45° hatching for metal, holes excluded)
+    if inner_boundaries:
+        add_section_hatch_with_holes(msp, outer, inner_boundaries,
+                                     pattern="ANSI31", scale=1.0)
+    else:
+        # No holes → simple hatch
+        from drawing import add_section_hatch
+        add_section_hatch(msp, outer, pattern="ANSI31", scale=1.0)
+
+    # ── 3. Draw section cut indicator on source view ────────────────────────
+    ind_ox, ind_oy = layout[f"{ind_view}_origin"]
+    ind_wh = bboxes[ind_view]
+    ind_pw = ind_wh[0] * scale
+    ind_ph = ind_wh[1] * scale
+
+    if cut_plane == "YZ":
+        # Vertical cut line on top view (through center X=0)
+        cut_p1 = (ind_ox, ind_oy - ind_ph / 2 - 3)
+        cut_p2 = (ind_ox, ind_oy + ind_ph / 2 + 3)
+    else:
+        # Horizontal cut line on left view (through center Y=0)
+        cut_p1 = (ind_ox - ind_pw / 2 - 3, ind_oy)
+        cut_p2 = (ind_ox + ind_pw / 2 + 3, ind_oy)
+
+    add_section_cut_indicator(msp, label, cut_p1, cut_p2)
+
+    # ── 4. Label the section view ───────────────────────────────────────────
+    label_x = hatch_ox - 5
+    label_y = hatch_oy + hatch_ph / 2 + 5
+    add_section_view_label(msp, (label_x, label_y), label)
 
 
 def _match_tolerance(meta: dict, measured_value: float,

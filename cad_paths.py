@@ -20,6 +20,25 @@ PROJECT_ROOT = os.path.normpath(
 )
 
 
+# ── Shared tool files: single source of truth for deployment ─────────────
+# These files live at SKILL_ROOT (project root) and are deployed to:
+#   - cad/<subsystem>/  by _deploy_tool_modules() during codegen
+#   - src/cad_spec_gen/data/python_tools/  by hatch_build.py during wheel build
+#   - target project root  by skill_register.py during pip install
+#
+# ALL THREE mechanisms MUST use this list. NEVER maintain separate lists.
+SHARED_TOOL_FILES = [
+    # 2D drawing engine (GB/T)
+    "drawing.py",
+    "draw_three_view.py",
+    "cq_to_dxf.py",
+    "render_dxf.py",
+    # Shared config/defaults
+    "render_config.py",
+    "cad_spec_defaults.py",
+]
+
+
 def get_output_dir(override=None):
     """Resolve output directory: override > env var > PROJECT_ROOT default."""
     if override:

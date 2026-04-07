@@ -58,27 +58,47 @@ PIPELINE_CONFIG_PATH = os.path.join(SKILL_ROOT, "pipeline_config.json")
 DEFAULT_OUTPUT = get_output_dir()
 
 
-def _deploy_tool_modules(sub_dir: str):
-    """Copy shared Python tool modules to a subsystem directory.
+_DEPLOY_HEADER = (
+    "# ── AUTO-DEPLOYED from project root. DO NOT EDIT THIS COPY. ──────────\n"
+    "# Authoritative source: {skill_root}/{fname}\n"
+    "# Deployed by: cad_pipeline.py _deploy_tool_modules()\n"
+    "# To modify, edit the root copy and re-run: python cad_pipeline.py codegen\n"
+    "# ─────────────────────────────────────────────────────────────────────\n"
+)
 
-    These modules are needed at runtime by generated code (ee_*.py, build_all.py):
-      - drawing.py        — ezdxf GB/T drawing primitives
-      - draw_three_view.py — ThreeViewSheet class
-      - cq_to_dxf.py      — CadQuery→DXF HLR projection bridge
-      - render_dxf.py      — DXF→PNG batch renderer
-    Only copies if source is newer or target is missing (scaffold-safe).
+
+def _deploy_tool_modules(sub_dir: str):
+    """Copy shared tool modules from SKILL_ROOT to a subsystem directory.
+
+    Uses cad_paths.SHARED_TOOL_FILES as the single source of truth for which
+    files to deploy. Only copies if source is newer or target is missing.
+    Inserts a DO-NOT-EDIT header in deployed .py copies.
     """
     import shutil
-    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py",
-                  "render_config.py"]
-    for fname in tool_files:
+    from cad_paths import SHARED_TOOL_FILES
+
+    for fname in SHARED_TOOL_FILES:
         src = os.path.join(SKILL_ROOT, fname)
         dst = os.path.join(sub_dir, fname)
         if not os.path.isfile(src):
             continue
         if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
             continue  # Target is up-to-date
-        shutil.copy2(src, dst)
+
+        if fname.endswith(".py"):
+            # Insert deployment header so developers know not to edit the copy
+            with open(src, "r", encoding="utf-8") as f:
+                content = f.read()
+            header = _DEPLOY_HEADER.format(skill_root=SKILL_ROOT, fname=fname)
+            # Only add header if not already present
+            if "AUTO-DEPLOYED" not in content:
+                with open(dst, "w", encoding="utf-8") as f:
+                    f.write(header + content)
+            else:
+                shutil.copy2(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
         log.info("  Deployed: %s → %s", fname, os.path.basename(sub_dir))
 
 

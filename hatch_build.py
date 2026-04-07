@@ -12,21 +12,34 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
 # Files from project root → data/python_tools/
-PYTHON_TOOLS = [
+# NOTE: SHARED_TOOL_FILES (drawing.py, cq_to_dxf.py, etc.) are appended
+# from cad_paths.py to ensure a single source of truth.
+_PIPELINE_TOOLS = [
     "cad_pipeline.py",
     "cad_spec_gen.py",
     "cad_spec_extractors.py",
-    "cad_spec_defaults.py",
     "cad_spec_reviewer.py",
     "cad_paths.py",
     "bom_parser.py",
     "annotate_render.py",
     "enhance_prompt.py",
     "prompt_data_builder.py",
+    "gemini_gen.py",
+    "comfyui_enhancer.py",
+    "comfyui_env_check.py",
     "pipeline_config.json",
-    "drawing.py",
-    "draw_three_view.py",
 ]
+
+# Import shared tool list from cad_paths (single source of truth)
+try:
+    from cad_paths import SHARED_TOOL_FILES as _SHARED
+except ImportError:
+    # Fallback during isolated builds where cad_paths isn't on sys.path
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    from cad_paths import SHARED_TOOL_FILES as _SHARED
+
+PYTHON_TOOLS = _PIPELINE_TOOLS + list(_SHARED)
 
 # Directories to copy as-is
 COPY_DIRS = {

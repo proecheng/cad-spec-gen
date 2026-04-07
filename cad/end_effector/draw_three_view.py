@@ -215,8 +215,31 @@ class ThreeViewSheet:
             elif vtype == "auxiliary":
                 add_auxiliary_label(msp, (label_x, label_y), ev["label"])
 
-        # 技术要求区（左上角）
-        add_technical_notes(msp, material_type=material_type)
+        # 技术要求区 — 动态计算位置（GB/T 10609.1: 视图下方、标题栏上方）
+        title_top_y = MARGIN_STD + TITLE_BLOCK_H  # 标题栏顶边 y
+        # 找最低视图的底边 — 用 origin - bbox*scale/2
+        _view_bottoms = []
+        _view_data = [
+            ("top", self._top_bbox),
+            ("front", self._front_bbox),
+            ("left", self._left_bbox),
+        ]
+        for vkey, vbbox in _view_data:
+            origin_key = f"{vkey}_origin"
+            if origin_key in layout and vbbox[1] > 0:
+                _view_bottoms.append(
+                    layout[origin_key][1] - vbbox[1] * s / 2)
+        lowest_view_bottom = min(_view_bottoms) if _view_bottoms else A3_H * 0.5
+
+        gap_for_notes = lowest_view_bottom - title_top_y
+        if gap_for_notes >= 30:
+            # 空隙足够：技术要求放在视图下方
+            notes_y = title_top_y + min(gap_for_notes * 0.75, 45)
+        else:
+            # 空隙不足：回退到左上角
+            notes_y = A3_H - MARGIN_STD - 12
+        add_technical_notes(msp, material_type=material_type,
+                            pos=(MARGIN_STD + 2, notes_y))
 
         # 默认粗糙度符号（右上角）— 从 SURFACE_RA 查表，不硬编码
         from cad_spec_defaults import SURFACE_RA

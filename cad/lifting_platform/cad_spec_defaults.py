@@ -1,8 +1,3 @@
-# ── AUTO-DEPLOYED from project root. DO NOT EDIT THIS COPY. ──────────
-# Authoritative source: D:\Work\cad-spec-gen/cad_spec_defaults.py
-# Deployed by: cad_pipeline.py _deploy_tool_modules()
-# To modify, edit the root copy and re-run: python cad_pipeline.py codegen
-# ─────────────────────────────────────────────────────────────────────
 #!/usr/bin/env python3
 """
 CAD Spec 默认值与完整性检查

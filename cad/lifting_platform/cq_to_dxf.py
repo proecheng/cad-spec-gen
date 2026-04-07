@@ -1,3 +1,8 @@
+# ── AUTO-DEPLOYED from project root. DO NOT EDIT THIS COPY. ──────────
+# Authoritative source: D:\Work\cad-spec-gen/cq_to_dxf.py
+# Deployed by: cad_pipeline.py _deploy_tool_modules()
+# To modify, edit the root copy and re-run: python cad_pipeline.py codegen
+# ─────────────────────────────────────────────────────────────────────
 """
 cq_to_dxf.py — CadQuery 3D Solid → ezdxf 2D Three-View Projection Bridge
 

@@ -17,16 +17,32 @@ from . import ui
 USER_CONFIG_FILES = ["config/gisbot.json"]
 
 # Python tools to copy from data/python_tools/ → target root
-PYTHON_TOOLS = [
+# Pipeline-specific tools (not shared across subsystems)
+_PIPELINE_TOOLS = [
     "cad_pipeline.py", "cad_spec_gen.py", "cad_spec_extractors.py",
-    "cad_spec_defaults.py", "cad_spec_reviewer.py", "cad_paths.py",
+    "cad_spec_reviewer.py", "cad_paths.py",
     "bom_parser.py", "annotate_render.py",
     "enhance_prompt.py", "prompt_data_builder.py",
+    "gemini_gen.py",
     "comfyui_enhancer.py", "comfyui_env_check.py",
     "pipeline_config.json",
-    "drawing.py",           # 2D 工程图引擎（GB/T 母版）
-    "draw_three_view.py",   # 三视图框架（GB/T 母版）
 ]
+
+# Import shared tool list from cad_paths (single source of truth)
+try:
+    import sys as _sys
+    from pathlib import Path as _P
+    # cad_paths.py lives in the packaged data/python_tools/ directory
+    _tools_dir = _P(__file__).parent.parent / "data" / "python_tools"
+    if str(_tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(_tools_dir))
+    from cad_paths import SHARED_TOOL_FILES as _SHARED
+except ImportError:
+    # Fallback: hardcoded list (keep in sync manually if import fails)
+    _SHARED = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py",
+               "render_dxf.py", "render_config.py", "cad_spec_defaults.py"]
+
+PYTHON_TOOLS = _PIPELINE_TOOLS + list(_SHARED)
 
 # Directories to copy from data/{name}/ → target/{name}/
 COPY_DIRS = ["codegen", "config", "templates"]
