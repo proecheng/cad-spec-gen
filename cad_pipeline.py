@@ -1066,6 +1066,19 @@ def cmd_build(args):
     if not ok:
         return 1
 
+    # ── Post-build: ensure GLB is also in DEFAULT_OUTPUT for render phase ────
+    # When CAD_OUTPUT_DIR is overridden, build outputs go there but render
+    # reads from DEFAULT_OUTPUT. Copy GLB to both locations for consistency.
+    _actual_output = os.environ.get("CAD_OUTPUT_DIR", DEFAULT_OUTPUT)
+    if _actual_output != DEFAULT_OUTPUT:
+        import glob as _glob
+        for _glb in _glob.glob(os.path.join(_actual_output, "*_assembly.glb")):
+            _dst = os.path.join(DEFAULT_OUTPUT, os.path.basename(_glb))
+            import shutil
+            os.makedirs(DEFAULT_OUTPUT, exist_ok=True)
+            shutil.copy2(_glb, _dst)
+            log.info("  GLB synced: %s → %s", os.path.basename(_glb), DEFAULT_OUTPUT)
+
     # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
     render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
     if os.path.isfile(render_dxf_script):
@@ -1110,6 +1123,31 @@ def cmd_render(args):
         log.error("No render_3d.py in %s", sub_dir)
         return 1
 
+    # ── Pre-render: resolve GLB path and verify it exists ────────────────────
+    # GLB can come from: render_config.json glb_file → DEFAULT_OUTPUT → CAD_OUTPUT_DIR
+    _glb_name = None
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, encoding="utf-8") as _f:
+                _glb_name = json.load(_f).get("subsystem", {}).get("glb_file")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    _output_dir = os.environ.get("CAD_OUTPUT_DIR", DEFAULT_OUTPUT)
+    if _glb_name:
+        _glb_path = os.path.join(_output_dir, _glb_name)
+        if not os.path.isfile(_glb_path):
+            # Fallback: check DEFAULT_OUTPUT if CAD_OUTPUT_DIR was overridden
+            _glb_path_fallback = os.path.join(DEFAULT_OUTPUT, _glb_name)
+            if os.path.isfile(_glb_path_fallback):
+                _glb_path = _glb_path_fallback
+        if not os.path.isfile(_glb_path):
+            log.error("GLB not found: %s (checked %s and %s). "
+                      "Run 'cad_pipeline.py build' first.",
+                      _glb_name, _output_dir, DEFAULT_OUTPUT)
+            return 1
+        log.info("GLB: %s", _glb_path)
+
     failures = 0
     _custom_output_dir = getattr(args, "output_dir", None)
     _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
@@ -1121,6 +1159,9 @@ def cmd_render(args):
         render_args.append("--timestamp")
     if _custom_output_dir:
         render_args += ["--output-dir", _custom_output_dir]
+    # Pass resolved GLB path so Blender scripts don't guess wrong
+    if _glb_name and _glb_path and os.path.isfile(_glb_path):
+        render_args += ["--glb", _glb_path]
 
     section_script = os.path.join(sub_dir, "render_section.py")
 
