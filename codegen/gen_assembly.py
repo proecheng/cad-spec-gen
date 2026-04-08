@@ -338,6 +338,50 @@ def _parse_dims_text(text: str):
     return None
 
 
+def parse_envelopes(spec_path: str) -> dict:
+    """Parse §6.4 envelope dimensions table from CAD_SPEC.md.
+
+    Returns {part_no: (w, d, h)} where w,d,h are floats in mm.
+    For cylinders: w=d=diameter, h=length.
+    For boxes: w,d,h as given.
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    envelopes = {}
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 6.4" in line and "包络" in line:
+            in_section = True
+            continue
+        if in_section and (line.startswith("## ") or
+                          (line.startswith("### ") and "6.4" not in line)):
+            break
+        if not in_section or not line.startswith("|") or "---" in line:
+            continue
+
+        cells = [c.strip() for c in line.split("|")]
+        cells = cells[1:-1] if len(cells) >= 2 else cells
+        if len(cells) < 4 or cells[0] == "料号":
+            continue
+
+        pno = cells[0]
+        if not re.match(r"[A-Z]+-", pno):
+            continue
+
+        dims_text = cells[3] if len(cells) > 3 else ""
+        # Table cells use bare notation (e.g. "Φ90.0×25.0") without "mm" suffix;
+        # append it so _parse_dims_text() regexes match correctly.
+        parsed = _parse_dims_text(dims_text + " mm")
+        if parsed:
+            envelopes[pno] = parsed
+
+    return envelopes
+
+
 _STACK_GAP_MM = 2.0
 _MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
 _ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
@@ -736,7 +780,7 @@ def generate_assembly(spec_path: str) -> str:
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
                     "local_offset": offset_str,
-                    "assy_name": f"{prefix_short}-{c_suffix}",
+                    "assy_name": c_stripped,
                     "color_var": c_color,
                 })
                 # Each custom part gets its own import line
