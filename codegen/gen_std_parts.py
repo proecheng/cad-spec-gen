@@ -29,6 +29,7 @@ if sys.platform == "win32":
 
 from bom_parser import classify_part
 from cad_spec_defaults import lookup_std_part_dims
+from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
 
 
@@ -183,6 +184,7 @@ def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffo
     Returns (generated_files, skipped_files).
     """
     parts = parse_bom_tree(spec_path)
+    envelopes = parse_envelopes(spec_path)
     generated = []
     skipped = []
 
@@ -200,7 +202,17 @@ def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffo
         if not gen_func:
             continue
 
-        dims = lookup_std_part_dims(p["name_cn"], p["material"], category)
+        # Priority 0: §6.4 envelope dimensions (most authoritative source)
+        env = envelopes.get(p["part_no"])
+        if env:
+            w, d, h = env
+            if abs(w - d) < 0.1:  # cylindrical: w=d=diameter, h=length
+                dims = {"d": w, "l": h}
+            else:
+                dims = {"w": w, "d": d, "h": h}
+        else:
+            # Fallback: 3-tier lookup (model match → BOM regex → category default)
+            dims = lookup_std_part_dims(p["name_cn"], p["material"], category)
         if not dims:
             continue
 
