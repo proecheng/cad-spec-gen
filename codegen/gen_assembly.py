@@ -117,52 +117,55 @@ def parse_connections(spec_path: str) -> list:
 
 
 def _axis_dir_to_local_transform(axis_dir: str, var_name: str,
-                                   part_name: str = "") -> tuple:
-    """Convert §6.2 axis_dir text to CadQuery rotation code.
+                                   part_name: str = "",
+                                   axis_dir_parsed: list = None) -> tuple:
+    """Convert §6.2 axis_dir to CadQuery rotation code.
 
-    All std parts are generated with principal axis along +Z.
-    This function returns (transform_code, doc_ref) to reorient parts
-    based on their assembly axis description.
+    Prefers axis_dir_parsed (structured data from cad_spec_extractors) when
+    available; falls back to string matching on axis_dir text.
 
-    The axis_dir field may contain multiple sub-descriptions separated by
-    commas, e.g. "壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）".
-    When part_name is given, match the relevant sub-clause first.
-
-    Returns (None, None) if no rotation needed (default +Z or -Z is OK).
+    Returns (transform_code, doc_ref) or (None, None) if no rotation needed.
     """
+    # ── Priority 1: Use pre-parsed structured data if available ──
+    if axis_dir_parsed:
+        matched = None
+        if part_name:
+            for entry in axis_dir_parsed:
+                kw = entry.get("keyword", "")
+                if kw and kw in part_name:
+                    matched = entry
+                    break
+        if not matched:
+            matched = axis_dir_parsed[0] if axis_dir_parsed else None
+        if matched and matched.get("rotation"):
+            rot = matched["rotation"]
+            axis = rot["axis"]
+            angle = rot["angle"]
+            code = f"{var_name}.rotate((0,0,0), ({axis[0]},{axis[1]},{axis[2]}), {angle})"
+            return code, f"axis horizontal per §6.2: {axis_dir[:60]}"
+        return None, None
+
+    # ── Priority 2: Fall back to string matching ──
     if not axis_dir:
         return None, None
 
     text = axis_dir.strip()
 
-    # If axis_dir has multiple sub-clauses (e.g. "壳体轴沿-Z，储罐轴∥XY"),
-    # find the clause relevant to this part by matching part_name keywords.
+    # Multi-clause matching by part name keywords
     if part_name and ("，" in text or "," in text):
         clauses = re.split(r"[，,]", text)
-        matched_clause = None
         for clause in clauses:
-            keywords = []
-            if len(part_name) >= 2:
-                keywords.append(part_name[:2])
-            if len(part_name) >= 3:
-                keywords.append(part_name[:3])
+            keywords = [part_name[:n] for n in (3, 2) if len(part_name) >= n]
             if len(part_name) >= 4:
                 keywords.append(part_name[-2:])
             if any(kw in clause for kw in keywords if kw):
-                matched_clause = clause.strip()
+                text = clause.strip()
                 break
-        if matched_clause:
-            text = matched_clause
 
-    # PRIORITY 1: "盘面∥XY" / "环∥XY" / "弧形∥XY" → face parallel to XY → axis already Z → NO rotation
     if any(k in text for k in ["盘面∥XY", "环∥XY", "弧形∥XY"]):
         return None, None
-
-    # PRIORITY 2: "沿-Z" / "沿Z" / "垂直" / "⊥法兰" → already along Z → NO rotation
     if any(k in text for k in ["沿-Z", "沿Z", "垂直", "⊥法兰"]):
         return None, None
-
-    # PRIORITY 3: "轴∥XY" / "水平" / "径向外伸" → needs horizontal → rotate 90° around X
     if any(k in text for k in ["∥XY", "水平", "径向外伸"]):
         code = f"{var_name}.rotate((0,0,0), (1,0,0), 90)"
         return code, f"axis horizontal per §6.2: {text[:60]}"
