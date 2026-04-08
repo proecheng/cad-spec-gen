@@ -160,6 +160,36 @@ def parse_assembly_params(spec_path: str) -> list:
                         "remark": f"mm — 电机+减速器总长 (§6.2 {offset_col.strip()})",
                     })
 
+    if mount_r is None:
+        # Fallback 1: broader R= scan across all of §6.2 (not just offset column)
+        in_sec2 = False
+        for line in lines:
+            if re.match(r"###?\s*6\.2\s", line) or "装配层叠" in line:
+                in_sec2 = True
+                continue
+            if in_sec2 and re.match(r"##\s*[78]", line):
+                break
+            if not in_sec2:
+                continue
+            m_r2 = re.search(r"\bR\s*=\s*(\d+(?:\.\d+)?)\s*mm", line)
+            if m_r2:
+                mount_r = float(m_r2.group(1))
+                break
+
+    if mount_r is None:
+        # Fallback 2: derive from §6.4 envelope — use half of largest cylindrical diameter
+        try:
+            from codegen.gen_assembly import parse_envelopes
+            envs = parse_envelopes(spec_path)
+            if envs:
+                max_dia = max((w for w, d, h in envs.values() if abs(w - d) < 0.1), default=None)
+                if max_dia:
+                    mount_r = round(max_dia / 2.0, 1)
+                    print(f"  [gen_params] MOUNT_CENTER_R: no R= found in §6.2, "
+                          f"derived {mount_r}mm from §6.4 envelope (half of Φ{max_dia}mm)")
+        except Exception:
+            pass
+
     if mount_r is not None:
         derived.insert(0, {
             "name": "MOUNT_CENTER_R",
@@ -174,6 +204,20 @@ def parse_assembly_params(spec_path: str) -> list:
             "expr": angles_str,
             "remark": f"° — {len(station_angles)}工位角度 (§6.2)",
         })
+
+        # M5: Validate station_angles count against BOM assembly count
+        try:
+            from codegen.gen_build import parse_bom_tree
+            bom_parts = parse_bom_tree(spec_path)
+            num_assemblies = sum(1 for p in bom_parts
+                                 if p.get("is_assembly") and p.get("level", 0) == 1
+                                 and not p.get("exclude"))
+            if num_assemblies > 0 and len(station_angles) != num_assemblies:
+                print(f"  WARNING: {len(station_angles)} station angles vs "
+                      f"{num_assemblies} top-level assemblies in BOM — "
+                      f"check §6.2 θ= entries")
+        except Exception:
+            pass
 
     return derived
 

@@ -299,8 +299,24 @@ def review_assembly(data):
 
     # --- B3: 工位包络干涉 (通用：动态检测工位数) ---
     mount_r = _find_param(params, "MOUNT", "CENTER", "R") or _find_param(params, "安装面", "中心")
+    # Derive station prefixes from params (S\d+_ pattern) and BOM assembly part_nos
+    b3_station_prefixes = set()
+    for p in params:
+        pname = p.get("name", "")
+        m_sp = re.match(r"(S\d+_)", pname)
+        if m_sp:
+            b3_station_prefixes.add(m_sp.group(1))
+    bom_b3 = data.get("bom")
+    if bom_b3:
+        for assy in bom_b3.get("assemblies", []):
+            apno = assy.get("part_no", "")
+            # e.g. GIS-EE-001 → try "S1_"-style prefix from sequential index
+            m_suf = re.search(r"-(\d{3})$", apno)
+            if m_suf:
+                idx_s = int(m_suf.group(1))
+                b3_station_prefixes.add(f"S{idx_s}_")
     station_envs = []
-    for prefix in sorted(station_prefixes) if 'station_prefixes' in dir() else []:
+    for prefix in sorted(b3_station_prefixes):
         env_dia = _find_param(params, prefix + "ENVELOPE_DIA") or _find_param(params, prefix + "BODY_W")
         if env_dia:
             station_envs.append((prefix.rstrip("_"), env_dia))

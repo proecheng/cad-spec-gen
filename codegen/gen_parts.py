@@ -59,8 +59,15 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
         if is_round:
             if "法兰" in name_cn and "悬臂" in name_cn:
                 arm_l = max(20.0, round(w * 0.5 - d / 4, 1))
+                arm_count = 4  # default
+                if "十字" in name_cn or "四" in name_cn:
+                    arm_count = 4
+                elif "三叉" in name_cn or "三" in name_cn:
+                    arm_count = 3
+                elif "六" in name_cn:
+                    arm_count = 6
                 return {"type": "disc_arms", "d": w, "arm_l": arm_l,
-                        "arm_w": 12.0, "t": h, "arm_count": 4,
+                        "arm_w": 12.0, "t": h, "arm_count": arm_count,
                         "envelope_w": w + arm_l * 2, "envelope_d": d + arm_l * 2,
                         "envelope_h": h}
             if "环" in name_cn or "绝缘" in name_cn:
@@ -106,8 +113,15 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
                 "envelope_w": 50.0, "envelope_d": 50.0, "envelope_h": 60.0}
 
     if "法兰" in name_cn and "悬臂" in name_cn:
+        arm_count = 4  # default
+        if "十字" in name_cn or "四" in name_cn:
+            arm_count = 4
+        elif "三叉" in name_cn or "三" in name_cn:
+            arm_count = 3
+        elif "六" in name_cn:
+            arm_count = 6
         return {"type": "disc_arms", "d": 80.0, "arm_l": 40.0, "arm_w": 12.0,
-                "t": 20.0, "arm_count": 4,
+                "t": 20.0, "arm_count": arm_count,
                 "envelope_w": 160.0, "envelope_d": 160.0, "envelope_h": 20.0}
 
     if "法兰" in name_cn or "盘" in name_cn:
@@ -193,6 +207,9 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
     # Parse project/subsystem name from spec title
     project_name, subsystem_name = _parse_spec_title(spec_path)
+    if not subsystem_name:
+        print(f"  WARNING: Could not extract subsystem name from spec title in {os.path.basename(spec_path)} "
+              f"— expected '# CAD Spec — <name>' on first line")
 
     # Parse §2 annotation metadata (once for all parts)
     try:
