@@ -41,9 +41,10 @@ def _safe_module_name(part_no: str, name_cn: str) -> str:
     return suffix
 
 
-def _guess_geometry(name_cn: str, material: str) -> dict:
+def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict:
     """Infer approximate geometry type and dimensions for a custom part.
 
+    Priority 0: §6.4 envelope dimensions (most accurate, multi-source).
     Priority 1: Parse explicit dimensions from BOM material column
                 (e.g. "6063铝合金 140×100×55mm" → box, "Φ38×280mm" → cylinder).
     Priority 2: Keyword-based heuristics from part name (generic types only).
@@ -51,6 +52,29 @@ def _guess_geometry(name_cn: str, material: str) -> dict:
     Returns dict with "type" key and type-specific dimension keys.
     Also always includes "envelope_w/d/h" for docstring use.
     """
+    # ── Priority 0: §6.4 envelope (from parse_envelopes) ──
+    if envelope:
+        w, d, h = envelope
+        is_round = abs(w - d) < 0.1  # w ≈ d → cylindrical
+        if is_round:
+            if "法兰" in name_cn and "悬臂" in name_cn:
+                arm_l = max(20.0, round(w * 0.5 - d / 4, 1))
+                return {"type": "disc_arms", "d": w, "arm_l": arm_l,
+                        "arm_w": 12.0, "t": h, "arm_count": 4,
+                        "envelope_w": w + arm_l * 2, "envelope_d": d + arm_l * 2,
+                        "envelope_h": h}
+            if "环" in name_cn or "绝缘" in name_cn:
+                return {"type": "ring", "od": w, "id": round(w * 0.75, 1), "h": h,
+                        "envelope_w": w, "envelope_d": d, "envelope_h": h}
+            return {"type": "cylinder", "d": w, "h": h,
+                    "envelope_w": w, "envelope_d": d, "envelope_h": h}
+        else:
+            if "支架" in name_cn and ("L" in name_cn or "抱箍" in name_cn):
+                return {"type": "l_bracket", "w": w, "d": d, "h": h, "t": 3.0,
+                        "envelope_w": w, "envelope_d": d, "envelope_h": h}
+            return {"type": "box", "w": w, "d": d, "h": h,
+                    "envelope_w": w, "envelope_d": d, "envelope_h": h}
+
     # ── Priority 1: Parse explicit dimensions from material text ──
     # Cylinder: Φ38×280mm or φ38x280mm
     m_cyl = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", material)
@@ -185,6 +209,10 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
     )
     template = env.get_template("part_module.py.j2")
 
+    # Parse §6.4 envelope dimensions (most accurate source)
+    from codegen.gen_assembly import parse_envelopes
+    envelopes = parse_envelopes(spec_path)
+
     for p in parts:
         # Only generate for custom-made leaf parts
         if p["is_assembly"]:
@@ -201,7 +229,8 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
             skipped.append(out_file)
             continue
 
-        geom = _guess_geometry(p["name_cn"], p["material"])
+        envelope = envelopes.get(p["part_no"])
+        geom = _guess_geometry(p["name_cn"], p["material"], envelope=envelope)
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA

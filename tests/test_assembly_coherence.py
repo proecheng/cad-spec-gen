@@ -53,3 +53,27 @@ def test_parse_envelopes_box():
     spec = _write_fixture_spec()
     envs = parse_envelopes(spec)
     assert envs["TEST-006-01"] == (140.0, 100.0, 55.0)
+
+
+def test_guess_geometry_uses_envelope():
+    """§6.4 envelope should override BOM-based dimension guessing."""
+    from codegen.gen_parts import _guess_geometry
+    # Without envelope: 法兰+悬臂 → hardcoded d=80
+    geom_old = _guess_geometry("法兰本体（含十字悬臂）", "7075-T6铝合金")
+    assert geom_old["d"] == 80.0  # old hardcoded value
+
+    # With envelope from §6.4: Φ90×25 → d=90, t=25
+    geom_new = _guess_geometry("法兰本体（含十字悬臂）", "7075-T6铝合金",
+                               envelope=(90.0, 90.0, 25.0))
+    assert geom_new["d"] == 90.0
+    assert geom_new["envelope_h"] == 25.0
+
+
+def test_guess_geometry_box_envelope():
+    """Box envelope should produce box geometry."""
+    from codegen.gen_parts import _guess_geometry
+    geom = _guess_geometry("壳体（含散热鳍片）", "6063铝合金",
+                           envelope=(140.0, 100.0, 55.0))
+    assert geom["type"] == "box"
+    assert geom["w"] == 140.0
+    assert geom["h"] == 55.0
