@@ -50,6 +50,20 @@ CN_PARAM = {
     "阻抗": "IMPEDANCE", "增益": "GAIN", "灵敏度": "SENSITIVITY",
 }
 
+EN_PARAM = {
+    "total thickness": "TOTAL_THICK",
+    "flange od": "FLANGE_OD",
+    "flange diameter": "FLANGE_DIA",
+    "motor od": "MOTOR_OD",
+    "motor torque": "MOTOR_RATED_TORQUE",
+    "wall thickness": "WALL",
+    "bolt pcd": "FLANGE_BOLT_PCD",
+    "index angle": "INDEX",
+    "rotation range": "ROT_RANGE",
+    "switch time": "SWITCH_T",
+    "mount flatness": "MOUNT_FLAT",
+}
+
 
 def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
     """将中文参数名映射为 UPPER_CASE 英文名。
@@ -103,12 +117,23 @@ def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
             result = suffix
         else:
             result = prefix + suffix
-    elif line_no > 0:
-        result = f"{prefix}PARAM_L{line_no}" if prefix else f"PARAM_L{line_no}"
     else:
-        # Transliterate: keep alphanumeric, replace rest with _
-        clean = re.sub(r"[^\w]", "_", cn_name).strip("_").upper()
-        result = prefix + clean if clean else f"{prefix}UNNAMED"
+        # Try EN_PARAM with case-insensitive match
+        cn_lower = cn_name.lower().strip()
+        en_suffix = next(
+            (v for k, v in EN_PARAM.items() if k == cn_lower), None
+        )
+        if en_suffix:
+            if prefix and en_suffix.startswith(prefix.rstrip("_")):
+                result = en_suffix
+            else:
+                result = prefix + en_suffix
+        elif line_no > 0:
+            result = f"{prefix}PARAM_L{line_no}" if prefix else f"PARAM_L{line_no}"
+        else:
+            # Transliterate: keep alphanumeric, replace rest with _
+            clean = re.sub(r"[^\w]", "_", cn_name).strip("_").upper()
+            result = prefix + clean if clean else f"{prefix}UNNAMED"
 
     return result
 
@@ -612,6 +637,13 @@ def extract_connection_matrix(lines: list, fasteners: list,
                 "type": row[type_i].strip() if type_i >= 0 and type_i < len(row) else "",
                 "fit": "", "torque": "", "order": order,
             })
+
+    # Extract ISO fit codes from connection type text (e.g. "H7/k6", "H7/h6")
+    for conn in connections:
+        if not conn["fit"]:
+            fit_match = re.search(r'([A-Z]\d+/[a-z]\d+)', conn.get("type", ""))
+            if fit_match:
+                conn["fit"] = fit_match.group(1)
 
     return connections
 
