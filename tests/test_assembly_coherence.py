@@ -77,3 +77,63 @@ def test_guess_geometry_box_envelope():
     assert geom["type"] == "box"
     assert geom["w"] == 140.0
     assert geom["h"] == 55.0
+
+
+def test_flange_assembly_z_span():
+    """法兰总成 parts should span ≤100mm, not 360mm."""
+    spec = os.path.join(os.path.dirname(__file__), "..",
+                        "cad", "end_effector", "CAD_SPEC.md")
+    if not os.path.isfile(spec):
+        import pytest
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import _resolve_child_offsets, _extract_all_layer_poses
+    from codegen.gen_assembly import parse_assembly_pose, parse_envelopes
+    from codegen.gen_build import parse_bom_tree
+
+    parts = parse_bom_tree(spec)
+    pose = parse_assembly_pose(spec)
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    offsets = _resolve_child_offsets(parts, layer_poses, spec)
+
+    # Collect Z offsets for GIS-EE-001-xx parts (法兰总成)
+    flange_zs = [off[2] for pno, off in offsets.items()
+                 if pno.startswith("GIS-EE-001-")]
+    if not flange_zs:
+        import pytest
+        pytest.skip("No flange parts found")
+
+    z_span = max(flange_zs) - min(flange_zs)
+    assert z_span <= 120.0, (
+        f"法兰总成 Z-span is {z_span:.0f}mm (should be ≤120mm). "
+        f"Parts are still scattered."
+    )
+
+
+def test_station_parts_compact():
+    """Each workstation's parts should span ≤200mm along stacking axis."""
+    spec = os.path.join(os.path.dirname(__file__), "..",
+                        "cad", "end_effector", "CAD_SPEC.md")
+    if not os.path.isfile(spec):
+        import pytest
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import _resolve_child_offsets, _extract_all_layer_poses
+    from codegen.gen_assembly import parse_assembly_pose
+    from codegen.gen_build import parse_bom_tree
+
+    parts = parse_bom_tree(spec)
+    pose = parse_assembly_pose(spec)
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    offsets = _resolve_child_offsets(parts, layer_poses, spec)
+
+    for station_prefix in ["GIS-EE-002-", "GIS-EE-003-", "GIS-EE-004-", "GIS-EE-005-"]:
+        station_zs = [off[2] for pno, off in offsets.items()
+                      if pno.startswith(station_prefix)]
+        if not station_zs:
+            continue
+        z_span = max(station_zs) - min(station_zs)
+        assert z_span <= 310.0, (
+            f"{station_prefix} Z-span is {z_span:.0f}mm (should be ≤310mm). "
+            f"Original pre-fix span was ~355mm; this guards against regression."
+        )

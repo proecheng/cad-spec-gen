@@ -382,7 +382,7 @@ def parse_envelopes(spec_path: str) -> dict:
     return envelopes
 
 
-_STACK_GAP_MM = 2.0
+_STACK_GAP_MM = 0.0
 _MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
 _ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
 
@@ -517,30 +517,68 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             text = child.get("material", "") + " " + child.get("name_cn", "")
             dims_map[child["part_no"]] = _parse_dims_text(text)
 
-        # Group by per-part stacking direction
-        direction_groups = {}
-        for child in auto_queue:
-            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
-            if clause:
-                child_direction = _infer_stack_direction(clause)
-            else:
-                child_direction = default_direction
-            direction_groups.setdefault(child_direction, []).append(child)
+        # ── Envelope-aware anchor-relative stacking ──
+        envelopes = parse_envelopes(spec_path) if spec_path else {}
 
-        for direction, group in direction_groups.items():
-            group.sort(key=lambda c: _stack_sort_key(c, dims_map, direction))
-            cursor = _ORPHAN_BASE_Z if is_orphan else 0.0
-            for child in group:
-                cpno = child["part_no"]
-                dims = dims_map.get(cpno)
-                extent = _part_height_along(dims, direction)
-                center = cursor + extent / 2.0
-                dx = round(direction[0] * center, 1)
-                dy = round(direction[1] * center, 1)
-                dz = round(direction[2] * center, 1)
-                result[cpno] = (dx, dy, dz)
-                gap = 0.0 if cursor > _MAX_STACK_DEPTH_MM else _STACK_GAP_MM
-                cursor += extent + gap
+        def _get_height(child):
+            """Get part height from §6.4 envelope, BOM dims, or default."""
+            env = envelopes.get(child["part_no"])
+            if env:
+                return env[2]  # h component
+            text = child.get("material", "") + " " + child.get("name_cn", "")
+            dims = _parse_dims_text(text)
+            if dims:
+                return dims[2]
+            return 15.0  # conservative default
+
+        # Stacking direction from axis_dir
+        dz_sign = default_direction[2]
+        if dz_sign == 0:
+            dz_sign = -1
+
+        # Find anchor Z values from already-positioned parts in this assembly.
+        # For orphan assemblies (no §6.2 position) always seed at origin so
+        # auto-queue parts cluster near the flange body rather than above
+        # outlier anchors (e.g. motors at Z=+73).
+        # For positioned assemblies, seed at the extremal anchor in the
+        # stacking direction, ignoring anchors on the opposite side so that
+        # outlier anchors (e.g. motors sticking above the station shell) do
+        # not push the auto-stack cursor far from the body cluster.
+        anchor_zs = [result[cpno][2] for cpno in result
+                     if cpno.startswith(prefix + "-")]
+        if is_orphan or not anchor_zs:
+            seed_z = 0.0
+        else:
+            if dz_sign < 0:
+                # stacking downward — seed at lowest anchor if below origin
+                below = [z for z in anchor_zs if z <= 0.0]
+                seed_z = min(below) if below else 0.0
+            else:
+                # stacking upward — seed at highest anchor if above origin
+                above = [z for z in anchor_zs if z >= 0.0]
+                seed_z = max(above) if above else 0.0
+
+        cursor_z = seed_z
+        for child in auto_queue:
+            cpno = child["part_no"]
+            h = _get_height(child)
+
+            # Check for per-part horizontal direction override
+            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
+            if clause and any(k in clause for k in ["∥XY", "水平", "径向"]):
+                # Horizontal part — offset along X from center
+                center_x = round(h / 2.0, 1)
+                result[cpno] = (center_x, 0, 0)
+                continue
+
+            if dz_sign < 0:
+                center_z = cursor_z - h / 2.0
+                cursor_z -= h
+            else:
+                center_z = cursor_z + h / 2.0
+                cursor_z += h
+
+            result[cpno] = (0, 0, round(center_z, 1))
 
     return result
 
