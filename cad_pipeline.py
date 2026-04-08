@@ -799,8 +799,10 @@ def cmd_spec(args):
     force_flag = getattr(args, "force", False) or getattr(args, "force_spec", False)
 
     # ── Step 1: Run review-only first ──
+    _spec_output_dir = os.path.join(PROJECT_ROOT, "output")
     cmd_review = [sys.executable, spec_gen, design_doc,
                   "--config", CONFIG_PATH,
+                  "--output-dir", _spec_output_dir,
                   "--review-only"]
     if force_flag:
         cmd_review.append("--force")
@@ -883,6 +885,7 @@ def cmd_spec(args):
     # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
                "--config", CONFIG_PATH,
+               "--output-dir", _spec_output_dir,
                "--review"]
     if choice == "auto_fill" or guided_auto_fill:
         cmd_gen.append("--auto-fill")
@@ -1060,6 +1063,21 @@ def cmd_build(args):
         log.info("No render_dxf.py in %s — skipping DXF → PNG", sub_dir)
     # ─────────────────────────────────────────────────────────────────────────
 
+    # ── Post-build: Assembly validation (GATE-3.5) ──────────────────────────
+    validator_script = os.path.join(SKILL_ROOT, "assembly_validator.py")
+    spec_in_sub = os.path.join(sub_dir, "CAD_SPEC.md")
+    if os.path.isfile(validator_script) and os.path.isfile(spec_in_sub):
+        log.info("[Phase 3 GATE-3.5] Running assembly validation ...")
+        ok_val, _ = _run_subprocess(
+            [sys.executable, validator_script, sub_dir,
+             "--spec", spec_in_sub,
+             "--output-dir", DEFAULT_OUTPUT],
+            "assembly_validator.py", dry_run=args.dry_run, timeout=120
+        )
+        if not ok_val:
+            log.warning("Assembly validation failed (non-fatal)")
+    # ─────────────────────────────────────────────────────────────────────────
+
     return 0
 
 
@@ -1074,6 +1092,26 @@ def cmd_render(args):
     if not sub_dir:
         log.error("Subsystem '%s' not found. Use --subsystem.", args.subsystem or '(none)')
         return 1
+
+    # Deploy Blender render scripts if missing (look in SKILL_ROOT, then reference impl)
+    _render_scripts = ["render_3d.py", "render_exploded.py", "render_section.py",
+                       "render_label_utils.py", "render_depth_only.py",
+                       "render_config.json"]
+    for _rs in _render_scripts:
+        dst = os.path.join(sub_dir, _rs)
+        if os.path.isfile(dst):
+            continue
+        # Try SKILL_ROOT first, then any existing subsystem as reference
+        src = os.path.join(SKILL_ROOT, _rs)
+        if not os.path.isfile(src):
+            for _d in glob.glob(os.path.join(SKILL_ROOT, "cad", "*")):
+                _c = os.path.join(_d, _rs)
+                if os.path.isfile(_c):
+                    src = _c
+                    break
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+            log.info("  Deployed render script: %s → %s", _rs, os.path.basename(sub_dir))
 
     render_script = os.path.join(sub_dir, "render_3d.py")
     exploded_script = os.path.join(sub_dir, "render_exploded.py")
