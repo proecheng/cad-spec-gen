@@ -371,6 +371,21 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
             [[l["part"], l.get("exclude_reason", "（未说明）")] for l in excludes]
         ))
 
+    # §9.2 Assembly constraints (auto-derived)
+    constraints = data.get("assembly_constraints", [])
+    if constraints:
+        if "## 9." not in "\n".join(sections):
+            sections.append("## 9. 装配约束")
+            sections.append("")
+        sections.append("### 9.2 约束声明（自动生成草稿）")
+        sections.append("")
+        sections.append(_md_table(
+            ["约束ID", "类型", "零件A", "零件B", "参数", "来源", "置信度"],
+            [[c["id"], c["type"], c["part_a"], c["part_b"],
+              c["params"], c["source"], c["confidence"]]
+             for c in constraints]
+        ))
+
     # §10 缺失数据报告
     sections.append("## 10. 缺失数据报告")
     sections.append("")
@@ -419,6 +434,127 @@ def _flatten_review_items(review_data):
                 "auto_fill": it.get("auto_fill", "否"),
             })
     return items
+
+
+# ─── Assembly constraint extraction ──────────────────────────────────────
+
+def _flatten_bom(assemblies: list) -> list:
+    """Flatten BOM assemblies+parts tree into a single list of part dicts."""
+    result = []
+    for assy in assemblies:
+        result.append(assy)
+        for part in assy.get("parts", []):
+            result.append(part)
+    return result
+
+
+def extract_assembly_constraints(fasteners: list, assembly: dict, bom: dict,
+                                  visual_ids: list, part_envelopes: dict) -> list:
+    """Derive machine-readable assembly constraints from §3/§6/§7 data.
+
+    Returns list of constraint dicts:
+        {"id": "C01", "type": "contact", "part_a": "...", "part_b": "...",
+         "params": "...", "source": "§3 ...", "confidence": "high"}
+    """
+    constraints = []
+    cid = 1
+
+    # --- Source 1: §3 Fastener table → contact constraints ---
+    # Each fastener row has "location" field like "法兰→RM65-B" or "PEEK段→法兰本体"
+    # The → indicates a physical contact (bolted joint)
+    for f in fasteners:
+        conn = f.get("location", "")
+        if "→" not in conn:
+            continue
+        parts = conn.split("→")
+        if len(parts) != 2:
+            continue
+        part_a = parts[0].strip()
+        part_b = parts[1].strip()
+        constraints.append({
+            "id": f"C{cid:02d}",
+            "type": "contact",
+            "part_a": part_a,
+            "part_b": part_b,
+            "params": f"gap=0, bolt={f.get('spec', '')}",
+            "source": f"§3 紧固件 {f.get('spec', '')}",
+            "confidence": "high",
+        })
+        cid += 1
+
+    # --- Source 2: §6.2 layer stacking → stack_on constraints ---
+    layers = assembly.get("layers", [])
+    for i in range(len(layers) - 1):
+        curr = layers[i]
+        nxt = layers[i + 1]
+        curr_part = curr.get("part", "")
+        nxt_part = nxt.get("part", "")
+        nxt_offset = nxt.get("offset", "")
+        # Skip station-level rows (they have R/θ)
+        if "R=" in nxt_offset and "θ=" in nxt_offset:
+            continue
+        if curr_part and nxt_part and "exclude" not in str(nxt.get("exclude", "")):
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "stack_on",
+                "part_a": nxt_part,
+                "part_b": curr_part,
+                "params": "",
+                "source": f"§6.2 L{curr.get('level', '?')}→L{nxt.get('level', '?')}",
+                "confidence": "medium",
+            })
+            cid += 1
+
+    # --- Source 3: §5 BOM category → exclude_stack for cables/connectors ---
+    if bom:
+        from bom_parser import classify_part
+        all_parts = _flatten_bom(bom.get("assemblies", []))
+        for p in all_parts:
+            if p.get("make_buy", "") == "总成":
+                continue
+            cat = classify_part(p.get("name", ""), p.get("material", ""))
+            if cat in ("cable", "connector"):
+                constraints.append({
+                    "id": f"C{cid:02d}",
+                    "type": "exclude_stack",
+                    "part_a": p.get("part_no", ""),
+                    "part_b": "",
+                    "params": f"type={cat}",
+                    "source": f"§5 BOM category={cat}",
+                    "confidence": "high",
+                })
+                cid += 1
+
+    # --- Source 4: §7 visual IDs → horizontal/coaxial constraints ---
+    for v in visual_ids:
+        direction = v.get("direction", "")
+        part_name = v.get("part", "")
+        if not direction or not part_name:
+            continue
+        if any(k in direction for k in ["∥XY", "水平", "径向外伸"]):
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "horizontal",
+                "part_a": part_name,
+                "part_b": "",
+                "params": "axis=radial",
+                "source": f"§7 方向约束: {direction[:40]}",
+                "confidence": "high",
+            })
+            cid += 1
+        if "同轴" in direction or "coaxial" in direction.lower():
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "coaxial",
+                "part_a": part_name,
+                "part_b": "",
+                "params": "axis=Z",
+                "source": f"§7: {direction[:40]}",
+                "confidence": "medium",
+            })
+            cid += 1
+
+    return constraints
 
 
 # ─── Main processing ─────────────────────────────────────────────────────
@@ -532,6 +668,12 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
 
     data["placements"] = placements
     data["assembly"]["part_offsets"] = part_offsets
+
+    # Assembly constraints (auto-derived from §3/§6/§7)
+    assembly_constraints = extract_assembly_constraints(
+        fasteners, assembly, bom, visual_ids, part_envelopes)
+    data["assembly_constraints"] = assembly_constraints
+    print(f"  §9.2 Constraints: {len(assembly_constraints)} auto-derived")
 
     # Derived calculations
     derived = compute_derived(data)
