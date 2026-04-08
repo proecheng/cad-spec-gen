@@ -459,9 +459,36 @@ def extract_assembly_constraints(fasteners: list, assembly: dict, bom: dict,
     constraints = []
     cid = 1
 
+    # Build name→part_no resolver from BOM
+    _bom_names = {}  # name_cn → part_no
+    if bom:
+        for assy in bom.get("assemblies", []):
+            _bom_names[assy.get("name", "")] = assy.get("part_no", "")
+            for part in assy.get("parts", []):
+                _bom_names[part.get("name", "")] = part.get("part_no", "")
+
+    def _resolve_to_pno(name_text: str) -> str:
+        """Resolve a constraint part name to BOM part_no. Returns part_no or original text."""
+        # Direct part_no embedded in text: "法兰本体 Φ90mm (GIS-EE-001-01)"
+        m = re.search(r"([A-Z]+-[A-Z]+-\d+(?:-\d+)?)", name_text)
+        if m:
+            return m.group(1)
+        # Exact match
+        if name_text in _bom_names:
+            return _bom_names[name_text]
+        # Substring match: "PEEK段" matches "PEEK绝缘段", "法兰" matches "法兰本体（含十字悬臂）"
+        for bname, bpno in _bom_names.items():
+            if name_text in bname or bname in name_text:
+                return bpno
+        # Prefix match (2+ chars)
+        for n in (4, 3, 2):
+            if len(name_text) >= n:
+                for bname, bpno in _bom_names.items():
+                    if bname.startswith(name_text[:n]):
+                        return bpno
+        return name_text  # unresolved — keep original
+
     # --- Source 1: §3 Fastener table → contact constraints ---
-    # Each fastener row has "location" field like "法兰→RM65-B" or "PEEK段→法兰本体"
-    # The → indicates a physical contact (bolted joint)
     for f in fasteners:
         conn = f.get("location", "")
         if "→" not in conn:
@@ -469,8 +496,8 @@ def extract_assembly_constraints(fasteners: list, assembly: dict, bom: dict,
         parts = conn.split("→")
         if len(parts) != 2:
             continue
-        part_a = parts[0].strip()
-        part_b = parts[1].strip()
+        part_a = _resolve_to_pno(parts[0].strip())
+        part_b = _resolve_to_pno(parts[1].strip())
         constraints.append({
             "id": f"C{cid:02d}",
             "type": "contact",
@@ -487,8 +514,8 @@ def extract_assembly_constraints(fasteners: list, assembly: dict, bom: dict,
     for i in range(len(layers) - 1):
         curr = layers[i]
         nxt = layers[i + 1]
-        curr_part = curr.get("part", "")
-        nxt_part = nxt.get("part", "")
+        curr_part = _resolve_to_pno(curr.get("part", ""))
+        nxt_part = _resolve_to_pno(nxt.get("part", ""))
         nxt_offset = nxt.get("offset", "")
         # Skip station-level rows (they have R/θ)
         if "R=" in nxt_offset and "θ=" in nxt_offset:

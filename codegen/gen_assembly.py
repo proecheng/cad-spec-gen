@@ -573,19 +573,76 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
 
         # Load constraints once per assembly (P0: §9.2 constraint-based positioning)
         constraints = parse_constraints(spec_path) if spec_path else []
+        _envelopes_for_constraint = parse_envelopes(spec_path) if spec_path else {}
+
+        # Build name→part_no resolver for constraint matching
+        _name_to_pno = {}
+        for p in parts:
+            _name_to_pno[p["name_cn"]] = p["part_no"]
+            # Also index by short name prefixes (2-4 chars)
+            for n in (4, 3, 2):
+                if len(p["name_cn"]) >= n:
+                    _name_to_pno.setdefault(p["name_cn"][:n], p["part_no"])
+
+        def _resolve_constraint_ref(name_text: str) -> str:
+            """Resolve constraint part_a/part_b text to a part_no."""
+            # Direct part_no match
+            if re.match(r"[A-Z]+-", name_text):
+                return name_text
+            # Exact name match
+            if name_text in _name_to_pno:
+                return _name_to_pno[name_text]
+            # Substring match (e.g. "PEEK段" matches "PEEK绝缘段")
+            for pname, ppno in _name_to_pno.items():
+                if name_text in pname or pname in name_text:
+                    return ppno
+            return ""
 
         auto_queue = []
         for child in children:
             cpno = child["part_no"]
 
-            # P0: §9.2 constraint-based positioning — exclude_stack
-            # Match by exact part_no only (not name_cn to avoid substring false positives)
+            # P0a: §9.2 exclude_stack
             excluded = any(
                 c["type"] == "exclude_stack" and cpno == c["part_a"]
                 for c in constraints
             )
             if excluded:
                 result[cpno] = (0, 0, 0)
+                continue
+
+            # P0b: §9.2 contact/stack_on — place relative to reference part
+            contact_placed = False
+            for c in constraints:
+                if c["type"] not in ("contact", "stack_on"):
+                    continue
+                # Check if this child matches part_a of the constraint
+                ref_a = _resolve_constraint_ref(c["part_a"])
+                ref_b = _resolve_constraint_ref(c["part_b"])
+                if ref_a != cpno and ref_b != cpno:
+                    continue
+                # Find the OTHER part's position
+                other_pno = ref_b if ref_a == cpno else ref_a
+                if other_pno not in result:
+                    continue
+                other_z = result[other_pno][2]
+                other_h = _envelopes_for_constraint.get(other_pno, (0, 0, 15))[2]
+                my_h = _envelopes_for_constraint.get(cpno, (0, 0, 15))[2]
+                # Place this part adjacent to the other
+                if c["type"] == "stack_on":
+                    # A stacks on top of B: Z_A = Z_B + height_B
+                    z = other_z + other_h
+                else:
+                    # contact: A below B (default) or above, pick based on stacking direction
+                    _dz = default_direction[2] if default_direction[2] != 0 else -1
+                    if _dz < 0:
+                        z = other_z - my_h
+                    else:
+                        z = other_z + other_h
+                result[cpno] = (0, 0, round(z, 1))
+                contact_placed = True
+                break
+            if contact_placed:
                 continue
 
             # §6.3 lookup (highest priority, with outlier guard)

@@ -152,26 +152,29 @@ def check_f2_size_mismatch(bboxes: dict, envelopes: dict) -> list:
     Flag if any axis ratio < 0.5 or > 2.0 (scaffold precision band).
     """
     issues = []
-    # Build reverse lookup: try assembly name → envelope key by suffix matching
-    # This avoids hardcoding any prefix like "GIS-"
+    # Build reverse lookup: assembly name → envelope key by suffix matching.
+    # Requires at least 2 segments to avoid cross-assembly false matches
+    # (e.g. suffix "04" matching both 001-04 and 003-04).
     envelope_by_suffix = {}
     for epno in envelopes:
-        # Strip known prefixes progressively: GIS-EE-001-01 → EE-001-01 → 001-01
-        parts = epno.split("-")
-        for start in range(len(parts)):
-            suffix = "-".join(parts[start:])
-            envelope_by_suffix.setdefault(suffix, epno)
+        parts_e = epno.split("-")
+        for start in range(len(parts_e)):
+            suffix = "-".join(parts_e[start:])
+            if suffix.count("-") >= 1:  # require at least 2 segments (e.g. "001-04")
+                envelope_by_suffix.setdefault(suffix, epno)
+        # Also store the full key
+        envelope_by_suffix.setdefault(epno, epno)
 
     for name, bbox in bboxes.items():
         # Match assembly part name to envelope key by longest suffix match
-        # Handles: "EE-001-01" → "GIS-EE-001-01", "STD-GIS-EE-001-03" → "GIS-EE-001-03"
         clean = re.sub(r"^STD-", "", name)
         pno = envelope_by_suffix.get(clean)
         if not pno:
-            # Try progressively shorter suffixes
-            parts = clean.split("-")
-            for start in range(len(parts)):
-                suffix = "-".join(parts[start:])
+            parts_n = clean.split("-")
+            for start in range(len(parts_n)):
+                suffix = "-".join(parts_n[start:])
+                if suffix.count("-") < 1:
+                    break  # stop before single-segment suffixes
                 pno = envelope_by_suffix.get(suffix)
                 if pno:
                     break
