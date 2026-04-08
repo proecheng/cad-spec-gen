@@ -152,20 +152,30 @@ def check_f2_size_mismatch(bboxes: dict, envelopes: dict) -> list:
     Flag if any axis ratio < 0.5 or > 2.0 (scaffold precision band).
     """
     issues = []
-    for name, bbox in bboxes.items():
-        # Extract part_no from assembly name (e.g. "EE-001-01" or "STD-GIS-EE-001-03")
-        pno_match = re.search(r"(GIS-[A-Z]+-\d+-\d+)", name)
-        if not pno_match:
-            # Try format "EE-001-01" → "GIS-EE-001-01"
-            m2 = re.match(r"([A-Z]+-\d+-\d+)", name)
-            if m2:
-                pno = "GIS-" + m2.group(1)
-            else:
-                continue
-        else:
-            pno = pno_match.group(1)
+    # Build reverse lookup: try assembly name → envelope key by suffix matching
+    # This avoids hardcoding any prefix like "GIS-"
+    envelope_by_suffix = {}
+    for epno in envelopes:
+        # Strip known prefixes progressively: GIS-EE-001-01 → EE-001-01 → 001-01
+        parts = epno.split("-")
+        for start in range(len(parts)):
+            suffix = "-".join(parts[start:])
+            envelope_by_suffix.setdefault(suffix, epno)
 
-        if pno not in envelopes:
+    for name, bbox in bboxes.items():
+        # Match assembly part name to envelope key by longest suffix match
+        # Handles: "EE-001-01" → "GIS-EE-001-01", "STD-GIS-EE-001-03" → "GIS-EE-001-03"
+        clean = re.sub(r"^STD-", "", name)
+        pno = envelope_by_suffix.get(clean)
+        if not pno:
+            # Try progressively shorter suffixes
+            parts = clean.split("-")
+            for start in range(len(parts)):
+                suffix = "-".join(parts[start:])
+                pno = envelope_by_suffix.get(suffix)
+                if pno:
+                    break
+        if not pno or pno not in envelopes:
             continue
 
         expected = envelopes[pno]
