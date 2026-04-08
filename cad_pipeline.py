@@ -97,7 +97,22 @@ def _resolve_camera_coords(rc):
     cartesian, no subsystem-specific logic.
     """
     import math as _m
-    br = rc.get("subsystem", {}).get("bounding_radius_mm", 300)
+    br = rc.get("subsystem", {}).get("bounding_radius_mm", 0)
+    if not br:
+        # Auto-derive from §6.4 envelopes if available
+        spec_path = os.path.join(
+            get_subsystem_dir(rc.get("subsystem", {}).get("name", "")) or "",
+            "CAD_SPEC.md")
+        if os.path.isfile(spec_path):
+            try:
+                from codegen.gen_assembly import parse_envelopes
+                envs = parse_envelopes(spec_path)
+                if envs:
+                    br = max(max(e) for e in envs.values()) * 1.5
+            except Exception:
+                pass
+        if not br:
+            br = 300  # ultimate fallback
     for cam in rc.get("camera", {}).values():
         if "azimuth_deg" in cam and "location" not in cam:
             az = _m.radians(cam["azimuth_deg"])
