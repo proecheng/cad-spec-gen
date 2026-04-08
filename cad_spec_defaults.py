@@ -222,6 +222,11 @@ def _parse_dims_from_text(text: str) -> dict:
       20芯×500mm → {"l": 500}  (cable length)
     """
     import re
+    # Pattern 0: Φ_OD_×Φ_ID_×W (bearing: OD × ID × width, e.g. Φ10×Φ5×4mm)
+    m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
+    if m:
+        return {"od": float(m.group(1)), "id": float(m.group(2)), "w": float(m.group(3))}
+
     # Pattern 1: Φd×l (cylinder: diameter × length)
     m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
     if m:

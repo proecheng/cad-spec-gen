@@ -1155,6 +1155,34 @@ def extract_part_envelopes(lines: list, bom_data=None,
                 if pno:
                     result[pno] = _dims_to_envelope(dims, "P1:part_table")
 
+    # --- Post-pass: fix disc-typed motors/reducers by searching body text ---
+    # When BOM only has "Φ16mm" (no length), _dims_to_envelope produces type="disc"
+    # with h = d*0.25. For motors/reducers, search body text for "Φd×Lmm" full dims.
+    text = "\n".join(lines)
+    motor_keywords = ("电机", "减速", "motor", "reducer")
+    for pno, env in list(result.items()):
+        if env.get("type") != "disc":
+            continue
+        # Check if this part is a motor/reducer
+        part_name = ""
+        if bom_data:
+            for assy in bom_data.get("assemblies", []):
+                for part in assy.get("parts", []):
+                    if part.get("part_no") == pno:
+                        part_name = part.get("name", "") + part.get("material", "")
+                        break
+        if not any(kw in part_name for kw in motor_keywords):
+            continue
+        # Search body text for full Φd×Lmm near the part name
+        d = env["d"]
+        pattern = rf'[Φφ]\s*{int(d)}(?:\.\d+)?\s*[×x×]\s*(\d+(?:\.\d+)?)\s*mm'
+        m = re.search(pattern, text)
+        if m:
+            full_length = float(m.group(1))
+            if full_length > env["h"]:  # only if body text gives a larger dimension
+                result[pno] = {"type": "cylinder", "d": d, "h": full_length,
+                               "source": env["source"] + "+body_text"}
+
     return result
 
 
