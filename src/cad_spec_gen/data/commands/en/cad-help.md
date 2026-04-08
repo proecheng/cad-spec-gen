@@ -95,6 +95,9 @@ Read the skill document `skill_cad_help.md` (project root), then execute based o
 - Validate config (validate): Read and check render_config.json completeness
 - Build: `cad_pipeline.py build` runs build_all.py then **auto-executes render_dxf.py** to convert DXF to PNG engineering drawing preview (if script exists)
 - Render: **Whether running the full pipeline or a standalone render, always run `build` first to regenerate the GLB, then execute the Blender render** (GLB is Blender's input and must be consistent with the current design)
+- **CAD Spec intent** (`/cad-spec`): Outputs CAD_SPEC.md; v2.5.0+ includes §6.3 per-part positioning, §6.4 part envelope dimensions, §9 assembly constraints; v2.7.0+ adds §9.2 constraint declarations (contact/stack_on/fit codes, auto-derived from connection matrix)
+- **Design Review intent** (`/cad-spec --review-only`): v2.5.0+ review items B10 (positioning mode consistency), B11 (envelope coverage), B12 (exclusion legality)
+- **GATE-3.5 Assembly Validation** (v2.7.0+): After Phase 3 BUILD, auto-runs `assembly_validator.py` with 5 formula-driven checks (F1 overlap/F2 disconnect/F3 compactness/F4 size ratio/F5 exclusion compliance) → ASSEMBLY_REPORT.json. Four-gate system: GATE-1(review) → GATE-2(TODO scan) → GATE-3(orientation) → GATE-3.5(assembly validation)
 - Troubleshoot: Ask user for specific error message first, then diagnose using troubleshooting guide
 - Status: Scan cad/ and cad/output/ directories, count artifacts
 - All action outputs should be concise and clear, using ✅/❌/⚠️ status markers

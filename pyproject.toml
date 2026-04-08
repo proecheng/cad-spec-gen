@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cad-spec-gen"
-version = "2.5.0"
-description = "CAD pipeline skill: design doc → structured spec → feature extraction → code generation → 2D drawings (GB/T section views) → 3D renders → photorealistic images (4 backends v2.5)"
+version = "2.7.0"
+description = "CAD pipeline skill: design doc → structured spec → feature extraction → code generation → assembly validation → 2D drawings (GB/T section views) → 3D renders → photorealistic images (4 backends v2.7)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

@@ -77,6 +77,29 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 - 推断时优先使用设计文档中的 BOM、连接矩阵、参数表数据
 - 跳过的项目不写入 supplements
 
+**Phase 1 新增提取步骤**（v2.5.0+）：
+
+除基础参数/BOM/公差提取外，Phase 1 现在还运行：
+- `extract_part_placements()` — 串联链与非轴向模式提取，生成零件级定位数据
+- `extract_part_envelopes()` — 多源零件尺寸采集（BOM 材质列 + 参数表 + 连接矩阵）
+- `_apply_exclude_markers()` — 负约束交叉引用，标记装配排除项
+- `compute_serial_offsets()` — 从串联链计算 Z 轴偏移量
+
+生成的 CAD_SPEC.md 因此新增三个章节：
+- **§6.3 零件级定位**：每个零件的定位模式（serial/radial/fixed）与置信度
+- **§6.4 零件包络尺寸**：汇总各零件的多源包络尺寸（长×宽×高 或 Φd×l）
+- **§9 装配约束**：来自负约束表的装配排除清单（非本地总成）
+
+**Phase 1 约束声明系统**（v2.7.0+）：
+
+`extract_assembly_constraints()` 从连接矩阵自动推导 §9.2 约束声明：
+- **contact 约束**：从「接触面」列提取零件间面接触关系（如 `端面接触` → `contact(A, B, face="end")`）
+- **stack_on 约束**：从串联链推导堆叠顺序（如 `stack_on(B, A)` 表示 B 堆叠于 A 之上）
+- **配合代号提取**：从连接类型列提取标准配合代号（如 `过渡配合 H7/m6` → `fit="H7/m6"`）
+- **EN_PARAM 英文别名**：参数名自动生成英文别名（如 `法兰外径` → `FLANGE_OD`）
+
+生成的 CAD_SPEC.md §9.2 包含约束声明表，供 Phase 2 codegen 消费用于精确装配定位。
+
 **Step 3 — 生成 CAD_SPEC.md**（所有项处理完后）：
 
 ```bash

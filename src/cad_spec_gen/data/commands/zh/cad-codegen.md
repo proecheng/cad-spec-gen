@@ -51,7 +51,7 @@
 # └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 三道门控：门控1（DESIGN_REVIEW CRITICAL）→ 门控2（TODO扫描）→ 门控3（orientation_check.py）
+> 四道门控：门控1（DESIGN_REVIEW CRITICAL）→ 门控2（TODO扫描）→ 门控3（orientation_check.py）→ 门控3.5（assembly_validator.py 装配校验，v2.7.0+）
 
 代码生成分 5 步，使用 `codegen/` 目录下的生成器 + `templates/` 下的 Jinja2 模板：
 
@@ -85,6 +85,33 @@
 无偏移数据的零件保持原点对齐。
 
 **方向变换**：`gen_assembly.py` 读取 §6.2 的 `轴线方向` 列，按零件名匹配子句（如 "壳体轴沿-Z，储罐轴∥XY"），对需要旋转的零件生成 `rotate()` 代码。优先级：盘面∥XY / 环∥XY → 无旋转 > 沿-Z / 垂直 → 无旋转 > ∥XY / 水平 → 绕X轴转90°。
+
+**装配定位增强**（v2.5.0+）：Phase 2 codegen 现在消费 CAD_SPEC.md 中三个新章节的数据：
+- **§6.3 零件级定位**（via `_parse_part_positions()` in `gen_assembly.py`）：对已有定位数据的零件，直接使用 mode/confidence 驱动坐标放置，替代原有启发式堆叠逻辑
+- **§6.4 零件包络尺寸**（via 更新后的尺寸查找逻辑）：为无显式 BOM 尺寸的零件提供来自多源采集的精确包络尺寸
+- **§9.1 装配排除**（via `_parse_excluded_assemblies()` in `gen_assembly.py`）：自动跳过标记为非本地的总成，避免生成无效引用
+
+**§6.4 包络尺寸消费**（v2.7.0+）：
+- `gen_parts.py`：读取 §6.4 包络尺寸作为 **Priority 0** 几何源（优先于 BOM 材质列解析和关键词推断），确保自制件近似几何尺寸与多源采集结果一致
+- `gen_std_parts.py`：读取 §6.4 包络尺寸为外购件提供精确尺寸（优先于 `cad_spec_defaults.py` 的分类 fallback）
+
+**§9.2 约束消费**（v2.7.0+）：`gen_assembly.py` 的 `parse_constraints()` 读取 §9.2 约束声明表：
+- **contact 约束**：两零件面接触 → 自动对齐接触面（消除间隙）
+- **stack_on 约束**：堆叠关系 → 锚点相对定位（B 的底面对齐 A 的顶面）
+- **exclude_stack**：排除约束 → 跳过非本地总成的约束消费
+- **配合代号**：fit 字段（如 H7/m6）写入生成代码注释，供工程师参考
+
+**GATE-3.5 装配校验**（v2.7.0+）：`assembly_validator.py` 在 Phase 3 BUILD 后自动执行，包含 5 项公式驱动的几何检查：
+
+| 检查 | 公式 | 阈值 |
+|------|------|------|
+| F1 重叠 | AABB 重叠体积 > 0 | 允许微小重叠（公差范围内） |
+| F2 断连 | AABB 间距 > 3×RSS(tolerances) + 0.3mm | 零件间不应有过大间隙 |
+| F3 紧凑度 | Z 跨度 ≤ Σ(零件高度) × packing_factor(2.0) | 装配体不应过于松散 |
+| F4 尺寸比 | 0.5 ≤ 实际尺寸/预期尺寸 ≤ 2.0 | 零件尺寸应与 SPEC 一致 |
+| F5 排除合规 | 非本地总成不应出现在装配体中 | 与 §9.1 排除清单交叉验证 |
+
+输出 `ASSEMBLY_REPORT.json`（PASS/WARN/FAIL per check）。FAIL 项阻止后续 Phase 4 RENDER。
 
 **SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
 

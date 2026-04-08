@@ -6,7 +6,7 @@
 
 将 Blender Cycles 渲染的 PNG 图片增强为照片级 JPG。几何形状 100% 锁定，仅更换表面材质外观。
 
-支持两种后端：**Gemini**（云端 API，无 GPU 要求）和 **ComfyUI**（本地，需 GPU，多视角一致性更强）。
+支持四种后端：**Gemini**（云端 API，无 GPU 要求）、**fal**（fal.ai Flux ControlNet，硬几何锁定）、**ComfyUI**（本地 GPU ControlNet）和 **engineering**（Blender PBR 直出，完美几何）。自动检测优先级：FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering。降级链：fal→gemini→engineering（批次锁定后不回升）。
 
 ### 路由规则
 
@@ -47,21 +47,27 @@
 
 ### 后端选择
 
-| 后端 | 适用场景 | 依赖 | 一致性 |
-|------|----------|------|--------|
-| `gemini` | 无 GPU / 快速试用 | Gemini API Key | 中（AI 有时改变视角） |
-| `comfyui` | 追求多视角一致性 | 本地 GPU 8GB+，ComfyUI + ControlNet | 高（depth+canny 硬锁几何） |
+| 后端 | 适用场景 | 依赖 | 几何锁定 | 成本 |
+|------|----------|------|---------|------|
+| `fal` | 最高质量 + 硬锁几何 | FAL_KEY 环境变量 | 硬（depth+canny ControlNet） | ~$0.20/img |
+| `gemini` | 无 GPU / 快速试用 | Gemini API Key | 软（prompt 约束） | ~$0.02/img |
+| `comfyui` | 本地 GPU + 硬锁几何 | 本地 GPU 8GB+，ComfyUI + ControlNet | 硬（depth+canny） | 免费 |
+| `engineering` | 完美几何保真 | Blender | 完美（PBR 直出） | 免费 |
+
+**自动检测优先级**：`FAL_KEY` → fal, ComfyUI running → comfyui, gemini config → gemini, else → engineering
+
+**降级链**：fal → gemini → engineering（单批次内锁定，降级后不回升）
 
 **切换后端（三种方式，优先级从高到低）：**
 
 ```bash
 # 1. CLI 参数（临时）
-python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
+python cad_pipeline.py enhance --subsystem end_effector --backend fal
 
 # 2. 修改 pipeline_config.json（持久）
-"enhance": { "backend": "comfyui" }
+"enhance": { "backend": "fal" }
 
-# 3. 默认为 gemini，无需修改
+# 3. 自动检测（默认，按优先级选择可用后端）
 ```
 
 ### ComfyUI 环境检测

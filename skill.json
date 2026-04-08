@@ -1,7 +1,7 @@
 {
   "name": "cad-spec-gen",
-  "version": "2.5.0",
-  "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → code generation → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
+  "version": "2.7.0",
+  "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → constraint declaration → code generation → assembly validation (GATE-3.5) → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
   "requires": {
@@ -20,14 +20,14 @@
       "id": "cad-spec",
       "name": "CAD Spec Generator",
       "trigger": "/cad-spec",
-      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.3: auto-extracts per-part feature list (holes/slots/counterbores) by cross-referencing §2/§3/§4/§8. Supports --review mode: mechanical(A1-A3)/assembly(B1-B8)/material(C1-C3)/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md",
+      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.5: §6.3 per-part positioning, §6.4 envelope dimensions, §9.1 assembly exclusions. v2.7: §9.2 constraint declarations auto-derived from connection matrix (contact/stack_on/fit codes H7/m6). Supports --review mode: mechanical(A1-A3)/assembly(B1-B12)/material(C1-C3)/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md",
       "entry_point": "python cad_pipeline.py spec"
     },
     {
       "id": "cad-codegen",
       "name": "CAD Code Generator",
       "trigger": "/cad-codegen",
-      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). v2.3: auto-generates hole/slot features from extracted feature list + auto-detects needs_section_view for parts with internal features → template generates CadQuery .hole() calls + auto_section_overlay(). Scaffold mode (default) never overwrites engineer-modified files. GATE-2: gen_parts.py auto-scans generated files for unfilled TODO: markers in coordinate system blocks — exits with code 2 if any found, listing file+line.",
+      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). v2.5: consumes §6.3 part positions, §6.4 envelopes, §9.1 assembly exclusions. v2.7: consumes §9.2 constraints (contact/stack_on positioning, fit codes), gen_parts reads §6.4 as Priority 0 geometry source, gen_std_parts reads §6.4 for accurate purchased part sizing. GATE-3.5: assembly_validator.py post-build geometry sanity checks (5 formulas F1-F5). 4-gate pipeline: GATE-1(review)→GATE-2(TODO scan)→GATE-3(orientation)→GATE-3.5(assembly validation).",
       "entry_point": "python cad_pipeline.py codegen"
     },
     {
@@ -79,13 +79,13 @@
     "dify": "adapters/dify/"
   },
   "pipeline": {
-    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md (+ feature list) → Jinja2 codegen (+ hole/section gen) → CadQuery (STEP/DXF/GLB) → DXF→PNG (GB/T section views + position dims) → Blender Cycles PNG → AI-enhanced JPG (4 backends: gemini/fal/comfyui/engineering, view-aware materials) → Annotated JPG",
+    "overview": "Design Doc (.md) → DESIGN_REVIEW.md → CAD_SPEC.md (+ feature list + §9.2 constraints) → Jinja2 codegen (+ hole/section gen + constraint positioning) → CadQuery (STEP/DXF/GLB) → GATE-3.5 assembly validation → DXF→PNG (GB/T section views + position dims) → Blender Cycles PNG → AI-enhanced JPG (4 backends: gemini/fal/comfyui/engineering, view-aware materials) → Annotated JPG",
     "orchestrator": "cad_pipeline.py",
     "config": "pipeline_config.json",
     "stages": [
-      "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review). GATE-1: CRITICAL issues block Phase 2.",
-      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). v2.3: gen_parts.py auto-extracts part features via extract_part_features() → template generates CadQuery .hole()/.cboreHole() calls; auto-detects needs_section_view → template adds auto_section_overlay() call. assembly.py includes per-part offset positioning (translate() from §6.2). GATE-2: gen_parts.py scans TODO markers → exit(2) if unfilled.",
-      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py). v2.3 DXF: GB/T position dimensions (hole-center-to-edge), orthogonal-first dim angles, A-A section overlay with hatch (holes excluded), dynamic tech notes placement. Post-build: auto-runs render_dxf.py to convert DXF → PNG.",
+      "Phase 1 SPEC: Design review + spec extraction (cad_spec_gen.py --review). v2.7: extract_assembly_constraints() auto-derives §9.2 constraint declarations (contact/stack_on/fit codes) from connection matrix. GATE-1: CRITICAL issues block Phase 2.",
+      "Phase 2 CODEGEN: 5 Jinja2 generators → CadQuery scaffolds + std parts (codegen/gen_*.py). v2.5: gen_assembly.py consumes §6.3/§6.4/§9.1. v2.7: gen_assembly.py consumes §9.2 constraints (contact/stack_on positioning, exclude_stack exclusion); gen_parts.py reads §6.4 envelopes as Priority 0 geometry source; gen_std_parts.py reads §6.4 for accurate purchased part sizing. GATE-2: gen_parts.py scans TODO markers → exit(2) if unfilled.",
+      "Phase 3 BUILD: GATE-3: orientation_check.py asserts bounding-box principal axes vs design-doc → blocks build on FAIL. Then: parametric modeling → STEP + DXF + GLB (build_all.py). GATE-3.5 (v2.7): assembly_validator.py post-build geometry sanity checks — 5 formulas (F1 overlap, F2 disconnect, F3 compactness, F4 size ratio, F5 exclusion compliance) with spec-derived thresholds → ASSEMBLY_REPORT.json (PASS/WARN/FAIL per check). Post-build: auto-runs render_dxf.py to convert DXF → PNG.",
       "Phase 4 RENDER: Blender Cycles N-view PNG from render_config.json camera dict (dynamic, not hardcoded). render_3d.py + render_exploded.py + render_section.py dispatched by view type. Post-render: writes render_manifest.json (session-new files only, partial flag on partial failure) and V*_labels.json sidecar (Blender world_to_camera_view projected anchor coords per component).",
       "Phase 5 ENHANCE: AI enhancement → photorealistic JPG via 4 backends: gemini (cloud, ~$0.02/img, soft geometry lock via prompt), fal (fal.ai Flux ControlNet, ~$0.20/img, hard depth+canny lock), comfyui (local GPU ControlNet, free, hard lock), engineering (Blender PBR direct→JPG, free, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade). CLI: --backend gemini|fal|comfyui|engineering on enhance and full commands. v2.3: MATERIAL_PRESETS appearance field is single source of truth (removed duplicate _PRESET_APPEARANCE); view-aware material emphasis per camera angle; material_type→preset auto-fallback from params.py. Auto-enriches rc from params.py via prompt_data_builder (in-memory). Material bridging: resolve_bom_materials() builds bom_id→component→material lookup chain. Reads render_manifest.json for session-new PNGs.",
       "Phase 6 ANNOTATE: Component labels CN/EN (annotate_render.py). Reads V*_labels.json sidecar for geometrically accurate anchor coords (Blender-projected); falls back to render_config.json hardcoded coords when no sidecar present."

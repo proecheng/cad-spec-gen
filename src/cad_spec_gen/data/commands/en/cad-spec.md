@@ -74,6 +74,29 @@ After reading `DESIGN_REVIEW.json`, the agent processes all WARNING/CRITICAL and
 - When inferring, prioritize BOM, connection matrix, and parameter table data from the design document
 - Skipped items are not written to supplements
 
+**Phase 1 New Extraction Steps** (v2.5.0+):
+
+In addition to basic parameter/BOM/tolerance extraction, Phase 1 now also runs:
+- `extract_part_placements()` — serial chain and non-axial mode extraction, generating per-part positioning data
+- `extract_part_envelopes()` — multi-source part dimension collection (BOM material column + parameter table + connection matrix)
+- `_apply_exclude_markers()` — negative constraint cross-referencing, marking assembly exclusion items
+- `compute_serial_offsets()` — computing Z-axis offsets from serial chains
+
+The generated CAD_SPEC.md therefore gains three new sections:
+- **§6.3 Per-Part Positioning**: positioning mode (serial/radial/fixed) and confidence for each part
+- **§6.4 Part Envelope Dimensions**: aggregated multi-source envelope dimensions per part (L×W×H or Φd×l)
+- **§9 Assembly Constraints**: assembly exclusion list from negative constraint table (non-local assemblies)
+
+**Phase 1 Constraint Declaration System** (v2.7.0+):
+
+`extract_assembly_constraints()` auto-derives §9.2 constraint declarations from the connection matrix:
+- **contact constraints**: extracts face contact relationships between parts (e.g. `end face contact` → `contact(A, B, face="end")`)
+- **stack_on constraints**: derives stacking order from serial chains (e.g. `stack_on(B, A)` means B stacks on top of A)
+- **Fit code extraction**: extracts standard fit codes from connection type column (e.g. `transition fit H7/m6` → `fit="H7/m6"`)
+- **EN_PARAM English aliases**: auto-generates English parameter name aliases (e.g. `法兰外径` → `FLANGE_OD`)
+
+The generated CAD_SPEC.md §9.2 contains a constraint declaration table consumed by Phase 2 codegen for precise assembly positioning.
+
 **Step 3 — Generate CAD_SPEC.md** (after all items are processed):
 
 ```bash

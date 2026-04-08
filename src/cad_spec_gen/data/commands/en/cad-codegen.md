@@ -51,7 +51,7 @@ Each generated `<part>.py` file header contains a mandatory coordinate system de
 # └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-> Three gates: Gate 1 (DESIGN_REVIEW CRITICAL) → Gate 2 (TODO scan) → Gate 3 (orientation_check.py)
+> Four gates: Gate 1 (DESIGN_REVIEW CRITICAL) → Gate 2 (TODO scan) → Gate 3 (orientation_check.py) → Gate 3.5 (assembly_validator.py assembly validation, v2.7.0+)
 
 Code generation runs in 5 steps using generators in `codegen/` and Jinja2 templates in `templates/`:
 
@@ -85,6 +85,33 @@ Template `part_module.py.j2` dispatches CadQuery code generation by `geom_type` 
 Parts without offset data remain origin-aligned.
 
 **Direction transform**: `gen_assembly.py` reads the `Axis direction` column from §6.2, matching clauses by part name (e.g. "shell axis along -Z, tank axis parallel to XY"), and generates `rotate()` code for parts that need rotation. Priority: disc parallel to XY / ring parallel to XY → no rotation > along -Z / vertical → no rotation > parallel to XY / horizontal → rotate 90 deg around X axis.
+
+**Assembly positioning enhancement** (v2.5.0+): Phase 2 codegen now consumes data from three new sections in CAD_SPEC.md:
+- **§6.3 Per-Part Positioning** (via `_parse_part_positions()` in `gen_assembly.py`): for parts with positioning data, directly uses mode/confidence to drive coordinate placement, replacing prior heuristic stacking logic
+- **§6.4 Part Envelope Dimensions** (via updated dimension lookup logic): provides multi-source precise envelope dimensions for parts without explicit BOM dimensions
+- **§9.1 Assembly Exclusions** (via `_parse_excluded_assemblies()` in `gen_assembly.py`): auto-skips assemblies marked as non-local, avoiding invalid references
+
+**§6.4 Envelope Dimension Consumption** (v2.7.0+):
+- `gen_parts.py`: reads §6.4 envelope dimensions as **Priority 0** geometry source (takes precedence over BOM material column parsing and keyword inference), ensuring fabricated part approximate geometry dimensions match multi-source collection results
+- `gen_std_parts.py`: reads §6.4 envelope dimensions to provide accurate sizing for purchased parts (takes precedence over `cad_spec_defaults.py` category fallbacks)
+
+**§9.2 Constraint Consumption** (v2.7.0+): `gen_assembly.py`'s `parse_constraints()` reads the §9.2 constraint declaration table:
+- **contact constraints**: face contact between two parts → auto-align contact faces (eliminate gaps)
+- **stack_on constraints**: stacking relationship → anchor-relative positioning (B's bottom face aligns to A's top face)
+- **exclude_stack**: exclusion constraints → skip constraint consumption for non-local assemblies
+- **Fit codes**: fit field (e.g. H7/m6) written into generated code comments for engineer reference
+
+**GATE-3.5 Assembly Validation** (v2.7.0+): `assembly_validator.py` runs automatically after Phase 3 BUILD, containing 5 formula-driven geometry checks:
+
+| Check | Formula | Threshold |
+|-------|---------|-----------|
+| F1 Overlap | AABB overlap volume > 0 | Allow minor overlap (within tolerance) |
+| F2 Disconnect | AABB distance > 3×RSS(tolerances) + 0.3mm | Parts should not have excessive gaps |
+| F3 Compactness | Z span ≤ Σ(part heights) × packing_factor (2.0) | Assembly should not be overly loose |
+| F4 Size Ratio | 0.5 ≤ actual_size/expected_size ≤ 2.0 | Part dimensions should match SPEC |
+| F5 Exclusion Compliance | Non-local assemblies must not appear in assembly | Cross-verify with §9.1 exclusion list |
+
+Outputs `ASSEMBLY_REPORT.json` (PASS/WARN/FAIL per check). FAIL items block subsequent Phase 4 RENDER.
 
 **SPEC deployment** (v2.2.1+): After `cad_pipeline.py spec` succeeds, it automatically copies `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` to `cad/<subsystem>/`, ensuring codegen always reads the latest SPEC version.
 

@@ -6,7 +6,7 @@ User input: $ARGUMENTS
 
 Enhance Blender Cycles rendered PNG images into photorealistic JPG. Geometry is 100% locked — only surface material appearance is changed.
 
-Supports two backends: **Gemini** (cloud API, no GPU required) and **ComfyUI** (local, requires GPU, stronger multi-view consistency).
+Supports four backends: **Gemini** (cloud API, no GPU required), **fal** (fal.ai Flux ControlNet, hard geometry lock), **ComfyUI** (local GPU ControlNet), and **engineering** (Blender PBR direct output, perfect geometry). Auto-detect priority: FAL_KEY→fal, ComfyUI running→comfyui, gemini config→gemini, else→engineering. Fallback chain: fal→gemini→engineering (batch-locked after downgrade).
 
 ### Routing Rules
 
@@ -47,21 +47,27 @@ Supports two backends: **Gemini** (cloud API, no GPU required) and **ComfyUI** (
 
 ### Backend Selection
 
-| Backend | Use Case | Dependencies | Consistency |
-|---------|----------|-------------|-------------|
-| `gemini` | No GPU / quick trial | Gemini API Key | Medium (AI may occasionally shift viewpoint) |
-| `comfyui` | Multi-view consistency | Local 8GB+ GPU, ComfyUI + ControlNet | High (depth+canny geometry hard-lock) |
+| Backend | Use Case | Dependencies | Geometry Lock | Cost |
+|---------|----------|-------------|---------------|------|
+| `fal` | Highest quality + hard lock | FAL_KEY env var | Hard (depth+canny ControlNet) | ~$0.20/img |
+| `gemini` | No GPU / quick trial | Gemini API Key | Soft (prompt constraint) | ~$0.02/img |
+| `comfyui` | Local GPU + hard lock | Local 8GB+ GPU, ComfyUI + ControlNet | Hard (depth+canny) | Free |
+| `engineering` | Perfect geometry fidelity | Blender | Perfect (PBR direct) | Free |
+
+**Auto-detect priority**: `FAL_KEY` → fal, ComfyUI running → comfyui, gemini config → gemini, else → engineering
+
+**Fallback chain**: fal → gemini → engineering (locked within a single batch, no upgrade after downgrade)
 
 **Switch backend (three methods, priority high to low):**
 
 ```bash
 # 1. CLI argument (temporary)
-python cad_pipeline.py enhance --subsystem end_effector --backend comfyui
+python cad_pipeline.py enhance --subsystem end_effector --backend fal
 
 # 2. Edit pipeline_config.json (persistent)
-"enhance": { "backend": "comfyui" }
+"enhance": { "backend": "fal" }
 
-# 3. Default is gemini, no change needed
+# 3. Auto-detect (default, selects best available backend by priority)
 ```
 
 ### ComfyUI Environment Check
