@@ -95,6 +95,8 @@
 - 验证配置（validate）：读取并检查 render_config.json 的完整性
 - 构建（build）：`cad_pipeline.py build` 运行 build_all.py 后**自动执行 render_dxf.py** 将 DXF 转为 PNG 工程图预览（如脚本存在）
 - 渲染（render）：**无论全管线还是单独渲染，均须先运行 build 重新生成 GLB，再执行 Blender 渲染**（GLB 是 Blender 的输入，必须与当前设计保持一致）
+- **CAD Spec 意图**（`/cad-spec`）：输出 CAD_SPEC.md，v2.5.0+ 起包含 §6.3 零件级定位、§6.4 零件包络尺寸、§9 装配约束三个新章节
+- **Design Review 意图**（`/cad-spec --review-only`）：v2.5.0+ 新增审查项 B10（定位模式一致性）、B11（包络尺寸覆盖率）、B12（装配排除合法性）
 - 排错（troubleshoot）：先问用户具体报错信息，再对照排错指南定位
 - 状态（status）：扫描 cad/ 和 cad/output/ 目录，统计产物数量
 - 所有动作输出简洁明了，用 ✅/❌/⚠️ 标记状态

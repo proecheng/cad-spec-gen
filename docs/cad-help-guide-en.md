@@ -49,6 +49,14 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 - **Render Passes (preview)**: Optional depth/normal/diffuse pass output from Blender (schema ready, default disabled)
 - **Four-Backend Enhance (v2.3)**: Four backends for AI enhancement — engineering (Blender PBR direct, free, perfect geometry, **recommended for precision**), gemini (cloud, ~$0.02/img, **recommended for appearance**), fal (fal.ai Flux ControlNet, ~$0.20/img, **experimental** — poor results on simplified CAD geometry), comfyui (local GPU, free, untested this release). CLI: `--backend gemini|fal|comfyui|engineering`
 
+### v2.5.0 New Capabilities — Assembly Positioning Enhancement
+
+- **Part-Level Positioning (§6.3)**: Extracts serial stacking chains from → syntax in design documents, computes per-part Z offsets with direction-aware algorithm. Supports axial_stack, radial_extend, side_mount, coaxial, lateral_array modes.
+- **Part Envelope Extraction (§6.4)**: Collects part dimensions from 5 sources (part parameter tables, narrative text, BOM material column, visual ID table, global parameters) with priority merging.
+- **Assembly Constraints (§9)**: Classifies negative constraints from design document into assembly exclusions (parts not in this assembly body) and orientation locks (direction constraints).
+- **Enhanced Reviewer**: New checks B10 (orphan assemblies), B11 (missing envelopes), B12 (positioning coverage < 50%).
+- **Exclude Marking**: Assemblies referenced in negative constraints as "not on this body" are automatically excluded from code generation.
+
 ## Pipeline Architecture
 
 ```

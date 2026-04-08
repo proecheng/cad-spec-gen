@@ -30,11 +30,11 @@ if _SCRIPT_DIR not in sys.path:
 from cad_spec_extractors import (
     extract_params, extract_tolerances, extract_fasteners, extract_bom,
     extract_connection_matrix, extract_assembly_pose, extract_visual_ids,
-    extract_render_plan,
+    extract_render_plan, extract_part_envelopes, extract_part_placements,
 )
 from cad_spec_defaults import (
     fill_fastener_defaults, fill_surface_defaults,
-    compute_derived, check_completeness,
+    compute_derived, check_completeness, compute_serial_offsets,
 )
 
 # ─── Configuration loading ───────────────────────────────────────────────
@@ -84,6 +84,68 @@ def _md_table(columns: list, rows: list) -> str:
         padded = list(row) + [""] * (len(columns) - len(row))
         lines.append(f"| {' | '.join(str(c) for c in padded[:len(columns)])} |")
     return "\n".join(lines) + "\n"
+
+
+def _apply_exclude_markers(data: dict):
+    """Cross-reference negative constraints to mark excluded assemblies."""
+    constraints = data.get("render_plan", {}).get("constraints", [])
+    layers = data.get("assembly", {}).get("layers", [])
+
+    exclude_keywords = ["不在", "不画", "排除", "不属于", "exclude"]
+
+    for constraint in constraints:
+        desc = constraint.get("description", "")
+        if not any(kw in desc.lower() for kw in exclude_keywords):
+            continue
+        # Extract part numbers from constraint description
+        pnos = re.findall(r"[A-Z]+-[A-Z]+-\d+", desc)
+        for pno in pnos:
+            # Try to mark existing layer
+            found_in_layer = False
+            for layer in layers:
+                if pno in layer.get("part", ""):
+                    layer["exclude"] = True
+                    layer["exclude_reason"] = desc[:100]
+                    found_in_layer = True
+            # If not in any layer, add a synthetic excluded entry
+            # (assembly exists in BOM but not in 装配层叠表)
+            if not found_in_layer:
+                bom = data.get("bom")
+                name = _lookup_part_name(pno, bom) if bom else pno
+                layers.append({
+                    "level": "", "part": f"{name} ({pno})",
+                    "fixed_moving": "", "connection": "",
+                    "offset": "", "axis_dir": "",
+                    "offset_parsed": {"z": None, "r": None, "theta": None, "is_origin": False},
+                    "axis_dir_parsed": [],
+                    "exclude": True,
+                    "exclude_reason": desc[:100],
+                })
+
+
+def _lookup_part_name(pno: str, bom) -> str:
+    """Look up part name from BOM by part_no."""
+    if not bom:
+        return ""
+    for assy in bom.get("assemblies", []):
+        if assy.get("part_no") == pno:
+            return assy.get("name", "")
+        for part in assy.get("parts", []):
+            if part.get("part_no") == pno:
+                return part.get("name", "")
+    return ""
+
+
+def _format_envelope(env: dict) -> str:
+    """Format envelope dict as human-readable dimension string."""
+    t = env.get("type", "")
+    if t in ("cylinder", "disc"):
+        return f"\u03a6{env.get('d', '')}\u00d7{env.get('h', '')}"
+    elif t == "box":
+        return f"{env.get('w', '')}\u00d7{env.get('d', '')}\u00d7{env.get('h', '')}"
+    elif t == "ring":
+        return f"\u03a6{env.get('d', '')}\u00d7{env.get('h', '')}"
+    return str(env)
 
 
 def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
@@ -207,11 +269,56 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     sections.append("### 6.2 装配层叠")
     sections.append("")
     sections.append(_md_table(
-        ["层级", "零件/模块", "固定/运动", "连接方式", "偏移(Z/R/θ)", "轴线方向"],
+        ["层级", "零件/模块", "固定/运动", "连接方式", "偏移(Z/R/θ)", "轴线方向", "排除"],
         [[l["level"], l["part"], l["fixed_moving"], l["connection"],
-          l["offset"], l["axis_dir"]]
+          l["offset"], l["axis_dir"],
+          "exclude" if l.get("exclude") else ""]
          for l in assembly.get("layers", [])]
     ))
+
+    # §6.3 零件级定位
+    part_offsets = assembly.get("part_offsets", {})
+    if part_offsets:
+        sections.append("### 6.3 零件级定位")
+        sections.append("")
+        # Group by assembly prefix (GIS-EE-001 → GIS-EE-001)
+        assy_groups = {}
+        for pno, off in part_offsets.items():
+            prefix = "-".join(pno.split("-")[:3])  # GIS-EE-001-01 → GIS-EE-001
+            assy_groups.setdefault(prefix, []).append((pno, off))
+
+        for prefix, items_list in sorted(assy_groups.items()):
+            bom_obj = data.get("bom")
+            assy_name = _lookup_part_name(prefix, bom_obj) if bom_obj else prefix
+            sections.append(f"#### {prefix} {assy_name}")
+            sections.append("")
+            sections.append(_md_table(
+                ["料号", "零件名", "模式", "高度(mm)", "底面Z(mm)", "来源", "置信度"],
+                [[pno,
+                  _lookup_part_name(pno, bom_obj),
+                  off.get("mode", "axial_stack"),
+                  str(off.get("h", "")),
+                  str(off.get("z", "")),
+                  off.get("source", ""),
+                  off.get("confidence", "")]
+                 for pno, off in sorted(items_list)]
+            ))
+
+    # §6.4 零件包络尺寸
+    envelopes = data.get("part_envelopes", {})
+    if envelopes:
+        sections.append("### 6.4 零件包络尺寸")
+        sections.append("")
+        bom_obj = data.get("bom")
+        sections.append(_md_table(
+            ["料号", "零件名", "类型", "尺寸(mm)", "来源"],
+            [[pno,
+              _lookup_part_name(pno, bom_obj),
+              env.get("type", ""),
+              _format_envelope(env),
+              env.get("source", "")]
+             for pno, env in sorted(envelopes.items())]
+        ))
 
     # §7 视觉标识
     sections.append("## 7. 视觉标识")
@@ -252,8 +359,20 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
          for c in render.get("constraints", [])]
     ))
 
-    # §9 缺失数据报告
-    sections.append("## 9. 缺失数据报告")
+    # §9 装配约束
+    excludes = [l for l in assembly.get("layers", []) if l.get("exclude")]
+    if excludes:
+        sections.append("## 9. 装配约束")
+        sections.append("")
+        sections.append("### 9.1 装配排除")
+        sections.append("")
+        sections.append(_md_table(
+            ["零件/模块", "原因"],
+            [[l["part"], l.get("exclude_reason", "（未说明）")] for l in excludes]
+        ))
+
+    # §10 缺失数据报告
+    sections.append("## 10. 缺失数据报告")
     sections.append("")
     issues = data.get("issues", [])
     if issues:
@@ -369,30 +488,50 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     visual_ids = extract_visual_ids(lines, bom)
     print(f"  §7 Visual: {len(visual_ids)} parts")
 
+    # Part envelopes (multi-source, priority-merged)
+    part_envelopes = extract_part_envelopes(lines, bom, visual_ids, params)
+    print(f"  §6.4 Envelopes: {len(part_envelopes)} parts")
+
     render_plan = extract_render_plan(lines)
     g_count = len(render_plan["groups"])
     v_count = len(render_plan["views"])
     c_count = len(render_plan["constraints"])
     print(f"  §8 Render: {g_count} groups + {v_count} views + {c_count} constraints")
 
-    # Connections (synthesized from fasteners + layers)
-    connections = extract_connection_matrix(lines, fasteners, assembly.get("layers", []))
-    print(f"  §4 Connections: {len(connections)} items")
-
     # Fill surface defaults
     tolerances["surfaces"] = fill_surface_defaults(tolerances["surfaces"])
 
-    # Aggregate all data
+    # Aggregate all data (connections synthesized after exclude marking)
     data = {
         "params": params,
         "tolerances": tolerances,
         "fasteners": fasteners,
         "bom": bom,
-        "connections": connections,
+        "connections": [],  # placeholder — filled after exclude marking
         "assembly": assembly,
         "visual_ids": visual_ids,
+        "part_envelopes": part_envelopes,
         "render_plan": render_plan,
     }
+
+    # Mark excluded layers via negative constraints from §8.3
+    _apply_exclude_markers(data)
+
+    # Connections (synthesized from fasteners + layers, AFTER exclude marking)
+    connections = extract_connection_matrix(lines, fasteners, assembly.get("layers", []))
+    data["connections"] = connections
+    print(f"  §4 Connections: {len(connections)} items")
+
+    # Part placements (serial chains + non-axial modes)
+    placements = extract_part_placements(lines, bom, assembly.get("layers", []))
+    print(f"  §6.3 Placements: {len(placements)} chains/modes")
+
+    # Compute serial offsets from chains (with real connections for axial_gap)
+    part_offsets = compute_serial_offsets(placements, part_envelopes, connections)
+    print(f"  §6.3 Offsets: {len(part_offsets)} parts positioned")
+
+    data["placements"] = placements
+    data["assembly"]["part_offsets"] = part_offsets
 
     # Derived calculations
     derived = compute_derived(data)
@@ -426,7 +565,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         from cad_spec_reviewer import run_review, render_review, apply_auto_fill
         print(f"\n[Design Review] Running engineering review...")
         review_data = run_review(data)
-        review_md = render_review(review_data, info, str(path), md5)
+        review_md = render_review(review_data, info, str(path), md5, data)
         review_path = cad_dir / "DESIGN_REVIEW.md"
         review_path.write_text(review_md, encoding="utf-8")
         # Write machine-readable JSON sidecar for pipeline checkpoint

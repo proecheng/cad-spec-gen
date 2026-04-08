@@ -394,8 +394,9 @@ def _stack_sort_key(child: dict, dims_map: dict, direction: tuple) -> tuple:
     return (-int(is_custom), -int(is_body), -extent)
 
 
-def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
-    """Compute per-part local offsets. Explicit §6.2 wins; auto-stacks rest.
+def _resolve_child_offsets(parts: list, layer_poses: dict,
+                           spec_path: str = "") -> dict:
+    """Compute per-part local offsets. §6.3 data wins over auto-stacking.
 
     Per-part axis_dir sub-clause matching: if axis_dir has comma-separated
     clauses, each child matches its own clause for stacking direction.
@@ -406,6 +407,10 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
     Returns {part_no: (dx, dy, dz)}.
     """
     result = {}
+
+    # --- NEW: Try §6.3 part-level positions first ---
+    part_positions = _parse_part_positions(spec_path) if spec_path else {}
+
     assemblies = [p for p in parts if p["is_assembly"]]
     children_of = {}
 
@@ -447,6 +452,13 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
         auto_queue = []
         for child in children:
             cpno = child["part_no"]
+            # §6.3 lookup (highest priority)
+            if cpno in part_positions:
+                pos = part_positions[cpno]
+                if pos.get("z") is not None:
+                    result[cpno] = (0, 0, pos["z"])
+                    continue
+            # Existing: explicit §6.2 layer pose
             if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
                 z = layer_poses[cpno]["z"]
                 result[cpno] = (0, 0, z)
@@ -487,6 +499,83 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
                 cursor += extent + gap
 
     return result
+
+
+def _parse_excluded_assemblies(spec_path: str) -> set:
+    """Parse all excluded assembly part_nos from CAD_SPEC.md §6.2 (reads file once)."""
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return set()
+    excluded = set()
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if any("exclude" in c.lower() for c in cells):
+            # Extract part numbers from this row
+            for cell in cells:
+                for m in re.findall(r"[A-Z]+-[A-Z]+-\d+", cell):
+                    excluded.add(m)
+    return excluded
+
+
+def _parse_part_positions(spec_path: str) -> dict:
+    """Parse §6.3 part-level positioning table from CAD_SPEC.md.
+
+    Returns {part_no: {"z": float, "h": float, "mode": str, "confidence": str}}.
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    positions = {}
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 6.3" in line and "零件级定位" in line:
+            in_section = True
+            continue
+        if in_section and line.startswith("### ") and "6.3" not in line:
+            break
+        if in_section and line.startswith("## "):
+            break
+        if not in_section:
+            continue
+        if not line.startswith("|") or "---" in line:
+            continue
+
+        # Preserve empty cells to maintain column alignment
+        # ("|a||b|" → ["", "a", "", "b", ""] → strip leading/trailing → ["a", "", "b"])
+        raw_cells = [c.strip() for c in line.split("|")]
+        cells = raw_cells[1:-1] if len(raw_cells) >= 2 else raw_cells  # strip outer empties
+        if len(cells) < 5:
+            continue
+        # Skip header rows
+        if cells[0] == "料号":
+            continue
+
+        pno = cells[0]
+        if not re.match(r"[A-Z]+-", pno):
+            continue
+
+        mode = cells[2] if len(cells) > 2 else "axial_stack"
+        try:
+            h = float(cells[3]) if len(cells) > 3 and cells[3] not in ("", "—") else None
+        except ValueError:
+            h = None
+        try:
+            z = float(cells[4]) if len(cells) > 4 and cells[4] not in ("", "—") else None
+        except ValueError:
+            z = None
+        confidence = cells[6] if len(cells) > 6 else ""
+
+        positions[pno] = {
+            "z": z, "h": h, "mode": mode, "confidence": confidence,
+        }
+
+    return positions
 
 
 def generate_assembly(spec_path: str) -> str:
@@ -538,14 +627,21 @@ def generate_assembly(spec_path: str) -> str:
 
     # C1: Extract per-assembly pose from §6.2 (keyed by part number)
     layer_poses = _extract_all_layer_poses(pose, parts)
-    part_offsets = _resolve_child_offsets(parts, layer_poses)
+    part_offsets = _resolve_child_offsets(parts, layer_poses, spec_path)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
 
+    # Parse excluded assemblies once (not per-iteration)
+    excluded_assemblies = _parse_excluded_assemblies(spec_path)
+
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
         name = assy["name_cn"]
+
+        # Skip assemblies marked as excluded in §6.2
+        if pno in excluded_assemblies:
+            continue
 
         if is_flat_bom:
             # Flat BOM: suffix is the prefix itself (e.g. "SLP")

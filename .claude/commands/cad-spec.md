@@ -77,6 +77,19 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 - 推断时优先使用设计文档中的 BOM、连接矩阵、参数表数据
 - 跳过的项目不写入 supplements
 
+**Phase 1 新增提取步骤**（v2.5.0+）：
+
+除基础参数/BOM/公差提取外，Phase 1 现在还运行：
+- `extract_part_placements()` — 串联链与非轴向模式提取，生成零件级定位数据
+- `extract_part_envelopes()` — 多源零件尺寸采集（BOM 材质列 + 参数表 + 连接矩阵）
+- `_apply_exclude_markers()` — 负约束交叉引用，标记装配排除项
+- `compute_serial_offsets()` — 从串联链计算 Z 轴偏移量
+
+生成的 CAD_SPEC.md 因此新增三个章节：
+- **§6.3 零件级定位**：每个零件的定位模式（serial/radial/fixed）与置信度
+- **§6.4 零件包络尺寸**：汇总各零件的多源包络尺寸（长×宽×高 或 Φd×l）
+- **§9 装配约束**：来自负约束表的装配排除清单（非本地总成）
+
 **Step 3 — 生成 CAD_SPEC.md**（所有项处理完后）：
 
 ```bash

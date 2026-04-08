@@ -86,6 +86,11 @@
 
 **方向变换**：`gen_assembly.py` 读取 §6.2 的 `轴线方向` 列，按零件名匹配子句（如 "壳体轴沿-Z，储罐轴∥XY"），对需要旋转的零件生成 `rotate()` 代码。优先级：盘面∥XY / 环∥XY → 无旋转 > 沿-Z / 垂直 → 无旋转 > ∥XY / 水平 → 绕X轴转90°。
 
+**装配定位增强**（v2.5.0+）：Phase 2 codegen 现在消费 CAD_SPEC.md 中三个新章节的数据：
+- **§6.3 零件级定位**（via `_parse_part_positions()` in `gen_assembly.py`）：对已有定位数据的零件，直接使用 mode/confidence 驱动坐标放置，替代原有启发式堆叠逻辑
+- **§6.4 零件包络尺寸**（via 更新后的尺寸查找逻辑）：为无显式 BOM 尺寸的零件提供来自多源采集的精确包络尺寸
+- **§9.1 装配排除**（via `_parse_excluded_assemblies()` in `gen_assembly.py`）：自动跳过标记为非本地的总成，避免生成无效引用
+
 **SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
 
 **增强质量门控**（v2.2.1+）：`cad_pipeline.py enhance` 在发送 PNG 到 Gemini 前检查文件大小和灰度方差，跳过空白/近空白渲染图并报 WARNING。阈值可通过 `render_config.json` 的 `enhance_quality_gate` 覆盖。

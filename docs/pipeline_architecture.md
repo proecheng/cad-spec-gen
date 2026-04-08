@@ -44,15 +44,40 @@ Phase 1    Phase 2    Phase 3    Phase 4    Phase 5    Phase 6
         ├─► [1c] 生成 CAD_SPEC.md
         │         （参数表：名称 / 值 / 单位 / 公差 / 来源行号）
         │
-        └─► [1d] v2.3: extract_part_features()
-                  交叉引用 §2 公差/§3 紧固件/§4 连接/§8 装配
-                  → 每个零件的孔/槽/沉台特征清单
+        ├─► [1d] v2.3: extract_part_features()
+        │         交叉引用 §2 公差/§3 紧固件/§4 连接/§8 装配
+        │         → 每个零件的孔/槽/沉台特征清单
+        │
+        ├─► [1e] v2.5: extract_part_placements()
+        │         从叙述文字提取串行堆叠链（→ 语法，含围栏代码块）
+        │         识别非轴向放置模式：
+        │           radial_extend / side_mount / coaxial / lateral_array / extremity
+        │         → §6.3 零件级定位（Z 偏移 + mode + confidence + source）
+        │
+        ├─► [1f] v2.5: extract_part_envelopes()
+        │         从 5 个来源收集零件包络尺寸（优先级降序）：
+        │           P1 零件级参数表 > P2 叙述文字包络 > P3 BOM材质列
+        │             > P4 视觉标识表 > P5 全局参数
+        │         → §6.4 零件包络尺寸（type / size / source）
+        │
+        └─► [1g] v2.5: _apply_exclude_markers()
+                  交叉引用 §8.3 否定约束表
+                  → 标记不属于当前装配体的装配（exclude 列）
+                  → §9 装配约束（exclusions + constraints）
 
 输出文件：
-  cad/<subsystem>/CAD_SPEC.md
+  cad/<subsystem>/CAD_SPEC.md          （新增 §6.3 / §6.4 / §9，见下）
   cad/<subsystem>/DESIGN_REVIEW.md
   cad/<subsystem>/DESIGN_REVIEW.json
 ```
+
+**v2.5.0 新增 CAD_SPEC.md 章节：**
+
+| 章节 | 标题 | 内容 |
+|------|------|------|
+| §6.3 | 零件级定位 | 每个零件的 Z 偏移，含 mode / confidence / source 列 |
+| §6.4 | 零件包络尺寸 | 每个零件的包络，含 type / size / source 列 |
+| §9   | 装配约束 | 来自否定约束表（§8.3）的装配排除项与约束说明 |
 
 **通用性保证：**
 - `cad_spec_gen.py` 从任意设计文档提取参数，不硬编码子系统名
@@ -80,6 +105,14 @@ v2.3.0 新增：
   - part_module.py.j2: 特征生成块（through_hole/counterbore/threaded_hole → CadQuery .hole()）
   - gen_parts.py: needs_section_view 自动检测 → 模板生成 auto_section_overlay() 调用
   - 模糊匹配 _fuzzy_match()：处理"上板"→"上固定板"等中文缩写
+
+v2.5.0 新增：
+  - gen_assembly.py 消费 §6.3 / §6.4 / §9：
+    • _parse_part_positions()：读取 §6.3，精确定位每个零件（取代启发式堆叠）
+    • _parse_excluded_assemblies()：读取 §6.2 exclude 列，跳过非本地装配体
+  - 坐标约定（底面 Z 惯例）：
+    • §6.3 值 = translate() 参数 = 零件底面的 Z 位置
+    • §6.3 使用局部坐标（相对于工位安装面），全局变换由 _station_transform() 处理
 
 v2.2.3 新增：
   - assembly.py 两层定位：零件级 translate()（§6.2 逐行偏移）+ 工位级 _station_transform（径向旋转+平移）
@@ -427,6 +460,14 @@ enhanced.jpg × N
 - 门控1：编码前，拦截设计文档歧义
 - 门控2：编码中，强制填写方向来源（TODO不填不能进构建）
 - 门控3：构建前，验证几何结果与设计文档一致
+
+**v2.5.0 新增审查检查项（DESIGN_REVIEW.json）：**
+
+| 编号 | 检查项 | 触发条件 |
+|------|--------|----------|
+| B10  | 孤立装配体 (orphan assemblies) | §9 中存在未被任何工位引用的装配体 |
+| B11  | 缺失包络 (missing envelopes) | §6.4 中有零件未提取到包络尺寸 |
+| B12  | 定位覆盖率不足 (low positioning coverage) | §6.3 中已定位零件数 / 总零件数 < 阈值 |
 
 ---
 

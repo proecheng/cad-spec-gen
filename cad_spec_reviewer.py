@@ -527,6 +527,72 @@ def review_assembly(data):
                             "suggestion": "对向工位包络可能交叉，建议3D校验",
                         })
 
+    # --- B10: 孤儿总成 (BOM assembly not in layers and not excluded) ---
+    layers = data.get("assembly", {}).get("layers", [])
+    layer_pnos = set()
+    excluded_pnos = set()
+    for l in layers:
+        m_pno = re.search(r"([A-Z]+-[A-Z]+-\d+)", l.get("part", ""))
+        if m_pno:
+            if l.get("exclude"):
+                excluded_pnos.add(m_pno.group(1))
+            else:
+                layer_pnos.add(m_pno.group(1))
+
+    bom = data.get("bom")
+    if bom:
+        orphans = []
+        for assy in bom.get("assemblies", []):
+            apno = assy.get("part_no", "")
+            if apno and apno not in layer_pnos and apno not in excluded_pnos:
+                orphans.append(apno)
+        if orphans:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": f"孤儿总成 ({len(orphans)}项)",
+                "detail": f"BOM总成在§6.2中无定位且未标记排除: {', '.join(orphans)}",
+                "verdict": "CRITICAL",
+                "suggestion": "在源文档装配层叠表中添加定位，或在否定约束表中标记排除",
+            })
+
+    # --- B11: 零件缺少包络尺寸 ---
+    envelopes = data.get("part_envelopes", {})
+    if bom:
+        missing_env = []
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                if "自制" in part.get("make_buy", "") and part["part_no"] not in envelopes:
+                    missing_env.append(part["part_no"])
+        if missing_env:
+            idx += 1
+            items.append({
+                "id": f"B{idx}", "item": f"自制件缺少包络尺寸 ({len(missing_env)}项)",
+                "detail": f"缺少包络: {', '.join(missing_env[:5])}{'...' if len(missing_env) > 5 else ''}",
+                "verdict": "WARNING",
+                "suggestion": "在源文档中补充零件尺寸表或BOM材质列中的尺寸",
+            })
+
+    # --- B12: 总成缺少零件级定位 ---
+    part_offsets = data.get("assembly", {}).get("part_offsets", {})
+    if bom:
+        for assy in bom.get("assemblies", []):
+            apno = assy.get("part_no", "")
+            if apno in excluded_pnos:
+                continue
+            children = assy.get("parts", [])
+            if not children:
+                continue
+            positioned = sum(1 for p in children if p["part_no"] in part_offsets)
+            total = len(children)
+            if total > 0 and positioned / total < 0.5:
+                idx += 1
+                items.append({
+                    "id": f"B{idx}", "item": f"总成 {apno} 零件级定位不足",
+                    "detail": f"{positioned}/{total} 零件有定位 ({positioned/total*100:.0f}%)",
+                    "verdict": "WARNING",
+                    "suggestion": "在源文档中添加串联堆叠链（→语法）描述装配顺序",
+                })
+
     return items
 
 
@@ -905,7 +971,7 @@ def _md_table(columns, rows):
     return "\n".join(lines) + "\n"
 
 
-def render_review(review_data, info, filepath, md5):
+def render_review(review_data, info, filepath, md5, data=None):
     """将审查结果渲染为 DESIGN_REVIEW.md Markdown 文档。
 
     Args:
@@ -913,6 +979,7 @@ def render_review(review_data, info, filepath, md5):
         info: {"name": "子系统名", "prefix": "GIS-XX"}
         filepath: 源设计文档路径
         md5: 源文档 MD5 (12位)
+        data: 原始提取数据字典（用于 §E 装配定位统计）
 
     Returns:
         str: Markdown 文本
@@ -962,6 +1029,24 @@ def render_review(review_data, info, filepath, md5):
         [[c["id"], c["item"], c["severity"], c["auto_fill"],
           c["default_value"], c["note"]] for c in comp]
     ))
+
+    # Section E: 装配定位审查
+    if data:
+        sections.append("")
+        sections.append("## E. 装配定位审查")
+        sections.append("")
+        part_offsets = data.get("assembly", {}).get("part_offsets", {})
+        envelopes = data.get("part_envelopes", {})
+        bom_e = data.get("bom")
+        total_parts = 0
+        if bom_e:
+            total_parts = sum(len(a.get("parts", [])) for a in bom_e.get("assemblies", []))
+        positioned = len(part_offsets)
+        envelope_count = len(envelopes)
+        sections.append(f"- 零件总数: {total_parts}")
+        sections.append(f"- 有定位数据: {positioned} ({positioned*100//max(total_parts,1)}%)")
+        sections.append(f"- 有包络尺寸: {envelope_count} ({envelope_count*100//max(total_parts,1)}%)")
+        sections.append("")
 
     # Summary
     sections.append("## 审查结论")
