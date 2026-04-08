@@ -576,9 +576,9 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             cpno = child["part_no"]
 
             # P0: §9.2 constraint-based positioning — exclude_stack
+            # Match by exact part_no only (not name_cn to avoid substring false positives)
             excluded = any(
-                c["type"] == "exclude_stack" and
-                (cpno in c["part_a"] or child["name_cn"] in c["part_a"])
+                c["type"] == "exclude_stack" and cpno == c["part_a"]
                 for c in constraints
             )
             if excluded:
@@ -689,18 +689,29 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
 
 
 def _parse_excluded_assemblies(spec_path: str) -> set:
-    """Parse all excluded assembly part_nos from CAD_SPEC.md §6.2 (reads file once)."""
+    """Parse excluded assembly part_nos from CAD_SPEC.md §6.2 only.
+
+    Scoped to §6.2 section to avoid false matches from §9.2 exclude_stack
+    constraints (which exclude individual parts, not whole assemblies).
+    """
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
     except Exception:
         return set()
     excluded = set()
+    in_s62 = False
     for line in text.splitlines():
-        if not line.startswith("|"):
+        if "### 6.2" in line or "装配层叠" in line:
+            in_s62 = True
+            continue
+        if in_s62 and line.startswith("### "):
+            break
+        if in_s62 and line.startswith("## "):
+            break
+        if not in_s62 or not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.split("|")]
         if any("exclude" in c.lower() for c in cells):
-            # Extract part numbers from this row
             for cell in cells:
                 for m in re.findall(r"[A-Z]+-[A-Z]+-\d+", cell):
                     excluded.add(m)
