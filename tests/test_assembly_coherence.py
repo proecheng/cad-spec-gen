@@ -137,3 +137,29 @@ def test_station_parts_compact():
             f"{station_prefix} Z-span is {z_span:.0f}mm (should be ≤310mm). "
             f"Original pre-fix span was ~355mm; this guards against regression."
         )
+
+
+def test_parse_constraints():
+    """§9.2 constraint table should parse correctly."""
+    import tempfile
+    from codegen.gen_assembly import parse_constraints
+
+    content = """# CAD Spec — Test
+
+### 9.2 约束声明（自动生成草稿）
+
+| 约束ID | 类型 | 零件A | 零件B | 参数 | 来源 | 置信度 |
+| --- | --- | --- | --- | --- | --- | --- |
+| C01 | contact | 法兰本体 | PEEK绝缘段 | gap=0 | §3 | high |
+| C02 | exclude_stack | GIS-EE-001-09 |  | type=cable | §5 BOM | high |
+"""
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+    f.write(content)
+    f.close()
+
+    constraints = parse_constraints(f.name)
+    assert len(constraints) == 2
+    assert constraints[0]["type"] == "contact"
+    assert constraints[0]["confidence"] == "high"
+    assert constraints[1]["type"] == "exclude_stack"
+    assert "cable" in constraints[1]["params"]

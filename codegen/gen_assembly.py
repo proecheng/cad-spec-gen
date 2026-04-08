@@ -234,11 +234,16 @@ def _extract_origin_axis(pose: dict) -> tuple:
     return origin_desc, axis_desc
 
 
-def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
+def _match_bom_by_keywords(part_text: str, bom_parts: list,
+                           scope_prefix: str = "") -> list:
     """Match §6.2 part_text against BOM entries by name keywords.
 
     Splits part_text into Chinese character runs and tries to match
     each BOM entry's name_cn. Returns list of matched part_no strings.
+
+    scope_prefix: if set (e.g. "GIS-EE-001"), only match parts whose
+    part_no starts with this prefix. Prevents cross-assembly leaking
+    (e.g. "减速器" in L2 matching both GIS-EE-001-06 and GIS-EE-004-04).
     """
     keywords = re.findall(r"[\u4e00-\u9fff]{2,}", part_text)
     if not keywords:
@@ -246,6 +251,8 @@ def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
     matched = []
     for part in bom_parts:
         if part.get("is_assembly"):
+            continue
+        if scope_prefix and not part["part_no"].startswith(scope_prefix + "-"):
             continue
         name = part.get("name_cn", "")
         for kw in keywords:
@@ -269,10 +276,20 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         bom_parts = []
     result = {}
 
+    # Track current assembly context for scoped keyword matching.
+    # §6.2 rows are ordered by layer level; assembly-level rows (L5a, L5b...)
+    # establish context, and sub-part rows inherit it.
+    current_assy_prefix = ""
+
     for layer in pose.get("layers", []):
         part_text = layer.get("part", "")
         offset_text = layer.get("offset", "")
         axis_dir = layer.get("axis_dir", "")
+
+        # Detect assembly-level rows to set scoping context
+        m_assy = re.search(r"\(([A-Z]+-[A-Z]+-\d+)\)", part_text)
+        if m_assy:
+            current_assy_prefix = m_assy.group(1)
 
         # Skip rows with no useful offset
         if not offset_text or offset_text.strip() in ("—", "-", ""):
@@ -293,6 +310,9 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset_text)
         if m_z:
             entry["z"] = float(m_z.group(1))
+            # R5: "Z=+73mm(向上)" means top-of-part, not bottom
+            if "向上" in offset_text:
+                entry["z_is_top"] = True
 
         if entry["z"] is None:
             m_z0 = re.search(r"Z\s*=\s*0(?:\s*\(|$)", offset_text)
@@ -311,7 +331,11 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         if m_pno:
             result[m_pno.group(1)] = entry
         else:
-            matched_pnos = _match_bom_by_keywords(part_text, bom_parts)
+            # R2: Scope keyword matching to current assembly to prevent
+            # cross-assembly leaking (e.g. "减速器" matching parts in
+            # both GIS-EE-001 and GIS-EE-004)
+            matched_pnos = _match_bom_by_keywords(
+                part_text, bom_parts, scope_prefix=current_assy_prefix)
             for pno in matched_pnos:
                 result[pno] = dict(entry)
 
@@ -380,6 +404,49 @@ def parse_envelopes(spec_path: str) -> dict:
             envelopes[pno] = parsed
 
     return envelopes
+
+
+def parse_constraints(spec_path: str) -> list:
+    """Parse §9.2 assembly constraint declarations from CAD_SPEC.md.
+
+    Returns list of dicts:
+        {"id": "C01", "type": "contact", "part_a": "...", "part_b": "...",
+         "params": "gap=0", "source": "...", "confidence": "high"}
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return []
+
+    constraints = []
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 9.2" in line and "约束" in line:
+            in_section = True
+            continue
+        if in_section and (line.startswith("## ") or
+                          (line.startswith("### ") and "9.2" not in line)):
+            break
+        if not in_section or not line.startswith("|") or "---" in line:
+            continue
+
+        cells = [c.strip() for c in line.split("|")]
+        cells = cells[1:-1] if len(cells) >= 2 else cells
+        if len(cells) < 5 or cells[0] == "约束ID":
+            continue
+
+        constraints.append({
+            "id": cells[0],
+            "type": cells[1],
+            "part_a": cells[2] if len(cells) > 2 else "",
+            "part_b": cells[3] if len(cells) > 3 else "",
+            "params": cells[4] if len(cells) > 4 else "",
+            "source": cells[5] if len(cells) > 5 else "",
+            "confidence": cells[6] if len(cells) > 6 else "",
+        })
+
+    return constraints
 
 
 _STACK_GAP_MM = 0.0
@@ -493,20 +560,55 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
         if is_orphan:
             default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
 
+        # R1: Compute reasonable Z-range for outlier detection.
+        # Sum of all known envelope heights × 1.5 = max plausible span.
+        _envelopes_cache = parse_envelopes(spec_path) if spec_path else {}
+        _child_pnos = {c["part_no"] for c in children}
+        _total_h = sum(e[2] for pno, e in _envelopes_cache.items()
+                       if pno in _child_pnos)
+        _max_span = max(_total_h * 1.5, 150.0)  # at least 150mm
+
+        # Load constraints once per assembly (P0: §9.2 constraint-based positioning)
+        constraints = parse_constraints(spec_path) if spec_path else []
+
         auto_queue = []
         for child in children:
             cpno = child["part_no"]
-            # §6.3 lookup (highest priority)
+
+            # P0: §9.2 constraint-based positioning — exclude_stack
+            excluded = any(
+                c["type"] == "exclude_stack" and
+                (cpno in c["part_a"] or child["name_cn"] in c["part_a"])
+                for c in constraints
+            )
+            if excluded:
+                result[cpno] = (0, 0, 0)
+                continue
+
+            # §6.3 lookup (highest priority, with outlier guard)
             if cpno in part_positions:
                 pos = part_positions[cpno]
                 if pos.get("z") is not None:
-                    result[cpno] = (0, 0, pos["z"])
-                    continue
+                    # R1: Guard against outlier §6.3 values
+                    if abs(pos["z"]) <= _max_span:
+                        result[cpno] = (0, 0, pos["z"])
+                        continue
+                    # else: outlier — fall through to auto-stack
             # Existing: explicit §6.2 layer pose
             if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
                 z = layer_poses[cpno]["z"]
+                # R5: If z_is_top, convert top-of-part Z to bottom-of-part Z
+                if layer_poses[cpno].get("z_is_top"):
+                    env = (parse_envelopes(spec_path) if spec_path else {}).get(cpno)
+                    if env:
+                        z = z - env[2]  # top minus height = bottom
                 result[cpno] = (0, 0, z)
             else:
+                # R4: Skip cable/connector — place at assembly origin
+                cat = classify_part(child["name_cn"], child.get("material", ""))
+                if cat in ("cable", "connector"):
+                    result[cpno] = (0, 0, 0)
+                    continue
                 auto_queue.append(child)
 
         if not auto_queue:
@@ -566,8 +668,11 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             # Check for per-part horizontal direction override
             clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
             if clause and any(k in clause for k in ["∥XY", "水平", "径向"]):
-                # Horizontal part — offset along X from center
-                center_x = round(h / 2.0, 1)
+                # R3: Horizontal part — offset from host body edge, not h/2.
+                # Use part diameter (not length) as clearance from center.
+                env = envelopes.get(cpno)
+                part_d = env[0] if env else 20.0  # diameter or width
+                center_x = round(part_d, 1)  # just outside host body
                 result[cpno] = (center_x, 0, 0)
                 continue
 
