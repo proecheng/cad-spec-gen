@@ -916,6 +916,11 @@ def cmd_spec(args):
     # Deploy spec artifacts from output/ to cad/ so codegen can read them
     _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
     _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+    if not _cad_sub and args.subsystem:
+        # Directory doesn't exist yet — create it so deploy can proceed
+        _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+        os.makedirs(_cad_sub, exist_ok=True)
+        log.info("  Created: %s", _cad_sub)
     if _cad_sub and os.path.isdir(_output_sub):
         for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
             _src = os.path.join(_output_sub, _fname)

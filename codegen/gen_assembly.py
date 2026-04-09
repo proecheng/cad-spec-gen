@@ -32,9 +32,10 @@ if sys.platform == "win32":
 from codegen.gen_build import parse_bom_tree
 from bom_parser import classify_part
 
-# Categories that get simplified CadQuery geometry
+# Categories that get simplified CadQuery geometry. Must stay in sync with
+# _GENERATORS in codegen/gen_std_parts.py.
 _STD_PART_CATEGORIES = {"motor", "reducer", "spring", "bearing", "sensor",
-                        "pump", "connector", "seal", "tank"}
+                        "pump", "connector", "seal", "tank", "other"}
 
 
 def parse_assembly_pose(spec_path: str) -> dict:
@@ -56,6 +57,12 @@ def parse_assembly_pose(spec_path: str) -> dict:
             in_layers = True
             in_coord = False
             continue
+        # Terminate §6.2 layer parsing when any new (sub)section starts.
+        # Without this, §6.3 零件级定位 and §6.4 包络尺寸 tables are
+        # incorrectly parsed as layer rows, which corrupts layer_poses.
+        if line.startswith("### ") and "装配层叠" not in line and "坐标系定义" not in line:
+            in_layers = False
+            in_coord = False
         if re.match(r"##\s*7", line):
             break
 
@@ -215,6 +222,7 @@ _STD_COLOR_MAP = {
     "connector": ("C_STD_CONN",    0.25, 0.25, 0.25),  # dark grey
     "seal":      ("C_STD_SEAL",    0.08, 0.08, 0.08),  # black rubber
     "tank":      ("C_STD_TANK",    0.82, 0.82, 0.85),  # bright steel
+    "other":     ("C_STD_OTHER",   0.45, 0.45, 0.50),  # neutral grey
 }
 
 
@@ -289,10 +297,16 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         offset_text = layer.get("offset", "")
         axis_dir = layer.get("axis_dir", "")
 
-        # Detect assembly-level rows to set scoping context
-        m_assy = re.search(r"\(([A-Z]+-[A-Z]+-\d+)\)", part_text)
+        # Detect assembly-level rows to set scoping context.
+        # Accept both 3-segment and 4-segment part_nos:
+        # "(GIS-EE-001-08)" → use parent prefix "GIS-EE-001"
+        # "(GIS-EE-002)" → use as-is
+        m_assy = re.search(r"\(([A-Z]+-[A-Z]+-\d+(?:-\d+)?)\)", part_text)
         if m_assy:
-            current_assy_prefix = m_assy.group(1)
+            full_pno = m_assy.group(1)
+            # Strip the leaf segment (e.g. -08) to get the assembly prefix
+            parent_match = re.match(r"([A-Z]+-[A-Z]+-\d+)", full_pno)
+            current_assy_prefix = parent_match.group(1) if parent_match else full_pno
 
         # Skip rows with no useful offset
         if not offset_text or offset_text.strip() in ("—", "-", ""):
@@ -573,9 +587,13 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
 
         # R1: Compute reasonable Z-range for outlier detection.
+        # Include 20mm default for parts without §6.4 envelopes so the
+        # threshold scales with assembly size, not with envelope coverage.
         _child_pnos = {c["part_no"] for c in children}
-        _total_h = sum(e[2] for pno, e in _envelopes_cache.items()
-                       if pno in _child_pnos)
+        _total_h = sum(
+            _envelopes_cache[pno][2] if pno in _envelopes_cache else 20.0
+            for pno in _child_pnos
+        )
         _max_span = max(_total_h * 1.5, 150.0)  # at least 150mm
 
         # Build name→part_no resolver for constraint matching
@@ -615,50 +633,23 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
                 result[cpno] = (0, 0, 0)
                 continue
 
-            # P0b: §9.2 contact/stack_on — place relative to reference part
-            contact_placed = False
-            for c in constraints:
-                if c["type"] not in ("contact", "stack_on"):
-                    continue
-                # Check if this child matches part_a of the constraint
-                ref_a = _resolve_constraint_ref(c["part_a"])
-                ref_b = _resolve_constraint_ref(c["part_b"])
-                if ref_a != cpno and ref_b != cpno:
-                    continue
-                # Find the OTHER part's position
-                other_pno = ref_b if ref_a == cpno else ref_a
-                if other_pno not in result:
-                    continue
-                other_z = result[other_pno][2]
-                other_h = _envelopes_cache.get(other_pno, (0, 0, 15))[2]
-                my_h = _envelopes_cache.get(cpno, (0, 0, 15))[2]
-                # Place this part adjacent to the other
-                if c["type"] == "stack_on":
-                    # A stacks on top of B: Z_A = Z_B + height_B
-                    z = other_z + other_h
-                else:
-                    # contact: A below B (default) or above, pick based on stacking direction
-                    _dz = default_direction[2] if default_direction[2] != 0 else -1
-                    if _dz < 0:
-                        z = other_z - my_h
-                    else:
-                        z = other_z + other_h
-                result[cpno] = (0, 0, round(z, 1))
-                contact_placed = True
-                break
-            if contact_placed:
-                continue
-
-            # §6.3 lookup (highest priority, with outlier guard)
+            # §6.3 lookup (highest priority, with outlier guard).
+            # Explicit positions from design doc serial chains win over
+            # auto-generated constraints (C2 contact, stack_on, etc).
             if cpno in part_positions:
                 pos = part_positions[cpno]
                 if pos.get("z") is not None:
-                    # R1: Guard against outlier §6.3 values
-                    if abs(pos["z"]) <= _max_span:
+                    # R1: Guard against outlier §6.3 values, but trust
+                    # high-confidence serial_chain entries even if they
+                    # exceed _max_span (sparse envelope coverage can make
+                    # the threshold artificially tight).
+                    if (pos.get("confidence") == "high"
+                            or abs(pos["z"]) <= _max_span):
                         result[cpno] = (0, 0, pos["z"])
                         continue
                     # else: outlier — fall through to auto-stack
-            # Existing: explicit §6.2 layer pose
+            # Existing: explicit §6.2 layer pose (overrides §9.2 constraints
+            # because §6.2 contains designer-specified absolute offsets)
             if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
                 z = layer_poses[cpno]["z"]
                 if layer_poses[cpno].get("z_is_top"):
@@ -667,11 +658,74 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
                 else:
                     result[cpno] = (0, 0, z)
             else:
+                # §9.2 contact/stack_on — place relative to an already-
+                # positioned reference part. Only consulted when neither
+                # §6.3 nor §6.2 provided an explicit Z for this child.
+                contact_placed = False
+                for c in constraints:
+                    if c["type"] not in ("contact", "stack_on"):
+                        continue
+                    ref_a = _resolve_constraint_ref(c["part_a"])
+                    ref_b = _resolve_constraint_ref(c["part_b"])
+                    if ref_a != cpno and ref_b != cpno:
+                        continue
+                    other_pno = ref_b if ref_a == cpno else ref_a
+                    if other_pno not in result:
+                        continue
+                    other_z = result[other_pno][2]
+                    other_h = _envelopes_cache.get(
+                        other_pno, (0, 0, 15))[2]
+                    my_h = _envelopes_cache.get(cpno, (0, 0, 15))[2]
+                    if c["type"] == "stack_on":
+                        z = other_z + other_h
+                    else:
+                        _dz = (default_direction[2]
+                               if default_direction[2] != 0 else -1)
+                        if _dz < 0:
+                            z = other_z - my_h
+                        else:
+                            z = other_z + other_h
+                    result[cpno] = (0, 0, round(z, 1))
+                    contact_placed = True
+                    break
+                if contact_placed:
+                    continue
+
                 # R4: Skip cable/connector — place at assembly origin
                 cat = classify_part(child["name_cn"], child.get("material", ""))
                 if cat in ("cable", "connector"):
                     result[cpno] = (0, 0, 0)
                     continue
+
+                # R5: Fastener accessories (washers, lock rings) are tiny
+                # parts paired with bolts. Without explicit positioning they
+                # auto-stack into nonsense locations. Snap them to the same Z
+                # as the part they accessorize (matched by name) or to the
+                # assembly's reference origin.
+                _name = child["name_cn"]
+                _is_accessory = (
+                    cat == "spring"
+                    and any(kw in _name for kw in
+                            ("垫圈", "垫片", "锁圈", "卡圈", "washer"))
+                )
+                if _is_accessory:
+                    # Find the part this accessorizes: nearest already-placed
+                    # custom part in the same assembly (e.g. PEEK ring for
+                    # the disc spring washer that pairs with PEEK→flange M3
+                    # bolts).
+                    snap_z = 0.0
+                    for other_pno, other_off in result.items():
+                        if not other_pno.startswith(prefix + "-"):
+                            continue
+                        if other_pno == cpno:
+                            continue
+                        # Prefer parts with non-trivial Z (not at origin)
+                        if abs(other_off[2]) > 0.5:
+                            snap_z = other_off[2]
+                            break
+                    result[cpno] = (0, 0, round(snap_z, 1))
+                    continue
+
                 auto_queue.append(child)
 
         # ── Resolve deferred z_is_top groups ──
@@ -755,6 +809,42 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
                     return z_bottom + (env[2] if env else 15.0)
                 seed_z = max(_top_z(cpno, z) for cpno, z in placed_in_assy)
 
+        # Container constraint: find the largest envelope among ALL parts
+        # in this assembly (including auto_queue). Auto-stacked parts will
+        # be clamped to stay within this part's Z extent. This prevents
+        # cumulative stacking from overflowing the housing.
+        # Sort auto_queue so the LARGEST part stacks first, establishing
+        # the container Z range; subsequent parts are clamped inside it.
+        def _ph(child):
+            env = _envelopes_cache.get(child["part_no"])
+            return env[2] if env else 15.0
+
+        # Find the dominant container: maximum envelope height across all
+        # children of this assembly (already-placed + auto_queue).
+        max_h = 0.0
+        for cpno, _ in placed_in_assy:
+            env = _envelopes_cache.get(cpno)
+            if env and env[2] > max_h:
+                max_h = env[2]
+        for child in auto_queue:
+            env = _envelopes_cache.get(child["part_no"])
+            if env and env[2] > max_h:
+                max_h = env[2]
+
+        # Stack the largest part first so it establishes the container.
+        auto_queue = sorted(auto_queue, key=_ph, reverse=True)
+
+        container_top = None
+        container_bot = None
+        # Initialize container from already-placed parts (e.g. constraints)
+        for cpno, z_bot in placed_in_assy:
+            env = _envelopes_cache.get(cpno)
+            if not env or env[2] < max_h * 0.9:
+                continue
+            container_bot = z_bot
+            container_top = z_bot + env[2]
+            break
+
         cursor_z = seed_z
         for child in auto_queue:
             cpno = child["part_no"]
@@ -779,6 +869,35 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             else:
                 offset_z = cursor_z
                 cursor_z += h
+
+            # Container clamp: keep auto-stacked parts within the container
+            # bbox if any. If the cursor would push a part beyond the
+            # container bottom (downward) or top (upward), wrap the cursor
+            # back to the opposite face and continue stacking from there.
+            # This prevents pathological cases like 13 parts auto-stacked
+            # 200mm below a 60mm housing.
+            if container_top is not None and container_bot is not None:
+                if dz_sign < 0:
+                    # offset_z is the bottom face; check if it's below container
+                    if offset_z < container_bot - 1.0:
+                        # wrap: restart cursor at container top, stack down
+                        cursor_z = container_top - h
+                        offset_z = cursor_z
+                else:
+                    # offset_z is the bottom face; top = offset_z + h
+                    if offset_z + h > container_top + 1.0:
+                        cursor_z = container_bot
+                        offset_z = cursor_z
+                        cursor_z += h
+
+            # If this part is the largest envelope (the container itself)
+            # and no container is set yet, register its bbox now so smaller
+            # parts that follow can be clamped to it.
+            if container_top is None:
+                env = _envelopes_cache.get(cpno)
+                if env and abs(env[2] - max_h) < 0.1:
+                    container_bot = offset_z
+                    container_top = offset_z + env[2]
 
             result[cpno] = (0, 0, round(offset_z, 1))
 

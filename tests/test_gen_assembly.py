@@ -169,6 +169,100 @@ def test_offsets_no_layer_data(sample_bom):
     zs = [offsets[p["part_no"]][2] for p in sample_bom if not p["is_assembly"]]
     assert len(set(zs)) == len(zs), f"Duplicate Z offsets: {zs}"
 
+def test_serial_chain_skips_connection_nodes():
+    """Connection-only nodes (e.g. '[4×M3螺栓]') must not advance cursor.
+
+    Regression for Bug A: Each bracket item in a serial chain was adding
+    20mm of phantom height, inflating §6.3 Z values by ~3x for chains
+    with many fastener annotations.
+    """
+    # Import via explicit file path to bypass sys.path pollution from
+    # other test files (e.g. test_render_config.py inserts cad/end_effector/
+    # which contains a stale cad_spec_defaults.py without this function).
+    import importlib.util
+    _csd_path = os.path.join(
+        os.path.dirname(__file__), "..", "cad_spec_defaults.py")
+    _spec = importlib.util.spec_from_file_location(
+        "_csd_canonical", _csd_path)
+    _csd = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_csd)
+    compute_serial_offsets = _csd.compute_serial_offsets
+    placements = [{
+        "mode": "axial_stack",
+        "direction": (0, 0, -1),
+        "chain": [
+            {"part_name": "传感器A", "part_no": "TEST-01",
+             "dims": {"type": "cylinder", "d": 20, "h": 10},
+             "connection": None, "sub_assembly": None},
+            # Connection-only node — no name, no dims, no part_no
+            {"part_name": "", "part_no": None, "dims": None,
+             "connection": "4×M3螺栓", "sub_assembly": None},
+            {"part_name": "传感器B", "part_no": "TEST-02",
+             "dims": {"type": "cylinder", "d": 20, "h": 15},
+             "connection": None, "sub_assembly": None},
+        ],
+    }]
+    result = compute_serial_offsets(placements, {})
+    # Sensor A: cursor 0 → bottom -10
+    assert result["TEST-01"]["z"] == -10.0
+    # Connection node skipped; cursor stays at -10
+    # Sensor B: cursor -10 → bottom -25 (not -45 as before the fix)
+    assert result["TEST-02"]["z"] == -25.0
+
+
+def test_high_confidence_bypasses_outlier_guard():
+    """High-confidence §6.3 entries should bypass _max_span guard.
+
+    Regression for Bug B: When §6.4 envelope coverage is sparse, _max_span
+    is artificially tight and may reject legitimate serial-chain Z values.
+    """
+    import tempfile
+    import textwrap
+    from gen_assembly import _resolve_child_offsets
+
+    spec_md = textwrap.dedent("""\
+        # Test Spec
+
+        ### 6.3 零件级定位
+
+        #### GIS-XX-002 测试总成
+
+        | 料号 | 零件名 | 模式 | 高度(mm) | 底面Z(mm) | 来源 | 置信度 |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | GIS-XX-002-01 | 远端零件 | axial_stack | 20.0 | -250.0 | serial_chain | high |
+
+        ### 6.4 零件包络尺寸
+
+        | 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 |
+        | --- | --- | --- | --- | --- |
+        | GIS-XX-002-01 | 远端零件 | cylinder | Φ20×20 | chain |
+    """)
+    with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write(spec_md)
+        spec_path = f.name
+    try:
+        bom = [
+            {"part_no": "GIS-XX-002", "name_cn": "测试总成",
+             "is_assembly": True, "material": "—",
+             "make_buy": "总成", "quantity": "1"},
+            {"part_no": "GIS-XX-002-01", "name_cn": "远端零件",
+             "is_assembly": False, "material": "铝合金",
+             "make_buy": "自制", "quantity": "1"},
+        ]
+        layer_poses = {
+            "GIS-XX-002": {"z": None, "r": 65, "theta": 0,
+                           "axis_dir": "轴沿-Z", "is_origin": False},
+        }
+        offsets = _resolve_child_offsets(bom, layer_poses, spec_path=spec_path)
+        # Z=-250 would normally be rejected (abs=250 > _max_span ~150),
+        # but confidence="high" must bypass the guard.
+        assert offsets["GIS-XX-002-01"] == (0, 0, -250.0), (
+            f"High-confidence §6.3 value should be trusted: {offsets}")
+    finally:
+        os.unlink(spec_path)
+
+
 def test_offsets_non_radial():
     from gen_assembly import _resolve_child_offsets
     bom = [

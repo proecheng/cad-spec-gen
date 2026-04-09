@@ -54,12 +54,42 @@ def make_{{ func_name }}() -> cq.Workplane:
             .faces(">Z").workplane()
             .circle({{ geom_id }} / 2).cutThruAll())
 {% elif geom_type == "disc_arms" %}
-    _disc = cq.Workplane("XY").circle({{ geom_d }} / 2).extrude({{ geom_t }})
-    _arm = cq.Workplane("XY").box({{ geom_arm_l }}, {{ geom_arm_w }}, {{ geom_t }},
-                                  centered=(False, True, False))
+    # Disc body Φ{{ geom_d }} × {{ geom_t }}mm thick — central rotating hub.
+    _disc_r = {{ geom_d }} / 2
+    _disc = cq.Workplane("XY").circle(_disc_r).extrude({{ geom_t }})
+
+    # Central bore for the reducer output shaft (Φ22mm step + Φ8mm shaft).
+    # Cited in §4.1.1: "FLANGE_BODY_ID Φ22 H7 与减速器壳体定位配合".
+    _bore_d = 22.0
+    _disc = (_disc.faces(">Z").workplane()
+             .circle(_bore_d / 2).cutThruAll())
+
+    # Each cross arm starts at the disc edge and extends OUTWARD by
+    # arm_l={{ geom_arm_l }}mm. Cross-section is {{ geom_arm_w }}mm (Y) ×
+    # {{ geom_arm_t | default(geom_t) }}mm (Z), positioned flush with the
+    # disc top face. Each arm tip terminates in a 40×40mm mounting
+    # platform for workstation modules (cited in §4.1.1, §4.x: "悬臂安装面
+    # 40×40mm"). The platform is the visible attachment site.
+    _arm_t = {{ geom_arm_t | default(geom_t) }}
+    _arm_x_mid = _disc_r + {{ geom_arm_l }} / 2
+    _plat_size = 40.0
+    _plat_x = _disc_r + {{ geom_arm_l }} - _plat_size / 2
+
+    _arm = (cq.Workplane("XY")
+            .center(_arm_x_mid, 0)
+            .workplane(offset={{ geom_t }} - _arm_t)
+            .box({{ geom_arm_l }}, {{ geom_arm_w }}, _arm_t,
+                 centered=(True, True, False)))
+    _platform = (cq.Workplane("XY")
+                 .center(_plat_x, 0)
+                 .workplane(offset={{ geom_t }} - _arm_t)
+                 .box(_plat_size, _plat_size, _arm_t,
+                      centered=(True, True, False)))
+
     body = _disc
     for _angle in range(0, 360, {{ (360 // geom_arm_count) | int }}):
         body = body.union(_arm.rotate((0, 0, 0), (0, 0, 1), _angle))
+        body = body.union(_platform.rotate((0, 0, 0), (0, 0, 1), _angle))
 {% elif geom_type == "l_bracket" %}
     _base = cq.Workplane("XY").box({{ geom_w }}, {{ geom_d }}, {{ geom_t }},
                                    centered=(True, True, False))

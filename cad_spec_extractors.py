@@ -1233,17 +1233,39 @@ def _dims_to_envelope(dims: dict, source: str) -> dict:
     return {"type": "box", "w": 20, "d": 20, "h": 20, "source": source + "(fallback)"}
 
 
-def _match_name_to_bom(name: str, bom_data) -> Optional[str]:
-    """Match a Chinese part name to BOM part_no by keyword prefix matching."""
+def _match_name_to_bom(name: str, bom_data,
+                        assembly_pno: Optional[str] = None) -> Optional[str]:
+    """Match a Chinese part name to BOM part_no by keyword prefix matching.
+
+    If assembly_pno is given, the search is scoped to that assembly's parts.
+    This prevents cross-assembly false matches (e.g. GIS-EE-003 chain node
+    "弹簧限力上端板" falsely matching GIS-EE-001-04 "碟形弹簧垫圈" via the
+    2-char prefix "弹簧"). We also reject the 2-char fallback match unless
+    it is an assembly-scoped exact or longer substring match, because 2-char
+    prefixes are too loose to be reliable.
+    """
     if not bom_data or not name:
         return None
-    keywords = [name[:n] for n in (4, 3, 2) if len(name) >= n]
+
+    # Build candidate parts: scoped to assembly if given, else all
+    candidates = []
     for assy in bom_data.get("assemblies", []):
+        if assembly_pno and assy.get("part_no") != assembly_pno:
+            continue
         for part in assy.get("parts", []):
+            candidates.append(part)
+
+    # Prefer longest-prefix match (4 → 3 → skip 2 unless scoped)
+    # Skip 2-char prefix when unscoped: it's too permissive and causes
+    # cross-assembly false matches. Within a single assembly 2-char
+    # matches are acceptable because the scope already narrows candidates.
+    min_kw_len = 2 if assembly_pno else 3
+    keywords = [name[:n] for n in (4, 3, 2) if len(name) >= n and n >= min_kw_len]
+    for kw in keywords:
+        for part in candidates:
             pname = part.get("name", "")
-            for kw in keywords:
-                if kw in pname:
-                    return part.get("part_no")
+            if kw in pname:
+                return part.get("part_no")
     return None
 
 
@@ -1282,8 +1304,10 @@ def extract_part_placements(lines: list, bom_data=None,
         if len(chain_lines) < 2:
             continue
 
-        # Detect assembly context from text before the code block
-        ctx_start = max(0, block_match.start() - 500)
+        # Detect assembly context from text before the code block.
+        # Use a larger window (2000 chars) so chains nested inside long
+        # subsection bodies can still resolve their parent assembly.
+        ctx_start = max(0, block_match.start() - 2000)
         context = text[ctx_start:block_match.start()]
         assembly_pno = _detect_assembly_context(context, bom_data)
 
@@ -1294,13 +1318,15 @@ def extract_part_placements(lines: list, bom_data=None,
         if parts:
             anchor = parts[0].strip()
 
-        # Parse nodes (everything after first →)
+        # Parse nodes (everything after first →) — scope BOM matching
+        # to the detected assembly to prevent cross-assembly false matches
         nodes = []
         for item_text in parts[1:]:
             item_text = item_text.strip()
             if not item_text:
                 continue
-            node = _parse_chain_node(item_text, bom_data)
+            node = _parse_chain_node(item_text, bom_data,
+                                     assembly_pno=assembly_pno)
             nodes.append(node)
 
         if not nodes:
@@ -1330,8 +1356,13 @@ def extract_part_placements(lines: list, bom_data=None,
     return placements
 
 
-def _parse_chain_node(text: str, bom_data) -> dict:
-    """Parse a single chain node like '[4×M3螺栓] → 力传感器KWR42(Φ42×20mm, 70g)'."""
+def _parse_chain_node(text: str, bom_data,
+                       assembly_pno: Optional[str] = None) -> dict:
+    """Parse a single chain node like '[4×M3螺栓] → 力传感器KWR42(Φ42×20mm, 70g)'.
+
+    When assembly_pno is given, BOM matching is scoped to that assembly,
+    preventing cross-assembly false matches.
+    """
     from cad_spec_defaults import _parse_dims_from_text
     node = {"part_name": "", "part_no": None, "dims": None,
             "connection": None, "sub_assembly": None}
@@ -1355,26 +1386,58 @@ def _parse_chain_node(text: str, bom_data) -> dict:
 
     node["part_name"] = name
 
-    # Match to BOM
+    # Match to BOM (scoped to assembly if given)
     if bom_data and name:
-        node["part_no"] = _match_name_to_bom(name, bom_data)
+        node["part_no"] = _match_name_to_bom(name, bom_data, assembly_pno)
 
     return node
 
 
 def _detect_assembly_context(context: str, bom_data) -> Optional[str]:
-    """Detect which assembly a chain belongs to from surrounding text."""
+    """Detect which assembly a chain belongs to from surrounding text.
+
+    Strategy (in order):
+    1. Look for explicit assembly part_no like 'GIS-EE-003' in context
+    2. Match assembly name (≥4 chars) found in context
+    3. Match station-by-angle hints (e.g. "工位2", "AE检测", "(90°)")
+       to assembly names containing the same hint
+    """
     if not bom_data:
         return None
-    # Look for assembly-level part numbers (3-segment: GIS-EE-003)
-    pnos = re.findall(r"([A-Z]+-[A-Z]+-\d{3})", context)
+    # Strategy 1: Look for assembly-level part numbers (3-segment: GIS-EE-003)
+    pnos = re.findall(r"([A-Z]+-[A-Z]+-\d{3})\b", context)
     if pnos:
         return pnos[-1]
-    # Fallback: match assembly name keywords
+
+    # Strategy 2: Match assembly name keywords (longer prefixes first)
+    # Use the LAST match in context (closest to the chain)
+    best_match = None
+    best_pos = -1
     for assy in bom_data.get("assemblies", []):
         name = assy.get("name", "")
-        if name and len(name) >= 4 and name[:4] in context:
-            return assy.get("part_no")
+        if not name:
+            continue
+        for prefix_len in (8, 6, 4):
+            if len(name) < prefix_len:
+                continue
+            kw = name[:prefix_len]
+            pos = context.rfind(kw)
+            if pos > best_pos:
+                best_pos = pos
+                best_match = assy.get("part_no")
+                break
+    if best_match:
+        return best_match
+
+    # Strategy 3: Substring keyword matching against assembly names
+    # e.g. context contains "AE检测" → match assembly with "AE检测" in name
+    keyword_hints = re.findall(r"[A-Z]{2,4}检测|工位\d+|涂抹模块|AE模块|UHF模块|清洁模块",
+                                context)
+    for hint in reversed(keyword_hints):  # nearest hint first
+        for assy in bom_data.get("assemblies", []):
+            name = assy.get("name", "")
+            if hint in name:
+                return assy.get("part_no")
     return None
 
 

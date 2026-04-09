@@ -113,6 +113,12 @@
 
 输出 `ASSEMBLY_REPORT.json`（PASS/WARN/FAIL per check）。FAIL 项阻止后续 Phase 4 RENDER。
 
+**装配定位修复**（v2.7.1）：`gen_assembly.py:_resolve_child_offsets()` 4项bug fix：
+- Fix A: 子零件有显式§6.2定位时，父总成不再被误判为orphan（修正堆叠方向）
+- Fix B: `z_is_top` 共享Z值的零件组改为从顶部向下顺序堆叠（消除完全重叠）
+- Fix C: auto-stack 公式改为 `offset_z = cursor`（匹配 `centered=(T,T,False)` 几何原点）
+- Fix D: 向上堆叠种子改为 `max(bottom_z + envelope_h)`（从最高零件顶面开始）
+
 **SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
 
 **增强质量门控**（v2.2.1+）：`cad_pipeline.py enhance` 在发送 PNG 到 Gemini 前检查文件大小和灰度方差，跳过空白/近空白渲染图并报 WARNING。阈值可通过 `render_config.json` 的 `enhance_quality_gate` 覆盖。

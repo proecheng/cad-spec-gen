@@ -58,7 +58,16 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
         is_round = abs(w - d) < 0.1  # w ≈ d → cylindrical
         if is_round:
             if "法兰" in name_cn and "悬臂" in name_cn:
-                arm_l = max(20.0, round(w * 0.5 - d / 4, 1))
+                # Arms extend OUTWARD from the disc edge by arm_l. Each arm
+                # ends in a 40×40mm mounting platform whose center sits at
+                # the workstation mount radius R=65mm (per §4.1.1 and the
+                # assembly's R=65mm constraint in §6.2). With disc Φ90 →
+                # disc_r=45, arm_l = (R - disc_r) + plat_size/2 = 20 + 20
+                # = 40mm. Platform extends ±20mm in Y (40×40 cross section)
+                # while the arm itself is 12mm × 8mm (W × thickness).
+                arm_l = max(20.0, round(w * 0.45, 1))
+                arm_w = 12.0   # arm cross-section width (Y direction)
+                arm_t = 8.0    # arm cross-section thickness (Z direction)
                 arm_count = 4  # default
                 if "十字" in name_cn or "四" in name_cn:
                     arm_count = 4
@@ -67,8 +76,10 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
                 elif "六" in name_cn:
                     arm_count = 6
                 return {"type": "disc_arms", "d": w, "arm_l": arm_l,
-                        "arm_w": 12.0, "t": h, "arm_count": arm_count,
-                        "envelope_w": w + arm_l * 2, "envelope_d": d + arm_l * 2,
+                        "arm_w": arm_w, "arm_t": arm_t, "t": h,
+                        "arm_count": arm_count,
+                        "envelope_w": w + arm_l * 2,
+                        "envelope_d": d + arm_l * 2,
                         "envelope_h": h}
             if "环" in name_cn or "绝缘" in name_cn:
                 return {"type": "ring", "od": w, "id": round(w * 0.75, 1), "h": h,
@@ -121,7 +132,7 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
         elif "六" in name_cn:
             arm_count = 6
         return {"type": "disc_arms", "d": 80.0, "arm_l": 40.0, "arm_w": 12.0,
-                "t": 20.0, "arm_count": arm_count,
+                "arm_t": 8.0, "t": 20.0, "arm_count": arm_count,
                 "envelope_w": 160.0, "envelope_d": 160.0, "envelope_h": 20.0}
 
     if "法兰" in name_cn or "盘" in name_cn:

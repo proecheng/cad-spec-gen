@@ -299,6 +299,13 @@ def compute_serial_offsets(placements: list, envelopes: dict,
         if not chain:
             continue
 
+        # Defense-in-depth: even if BOM matching produced a cross-assembly
+        # part_no (e.g. chain in GIS-EE-003 matched GIS-EE-001-04), we only
+        # accept result writes for parts whose part_no is prefixed by the
+        # chain's own assembly_pno. This guarantees chain-local Z values
+        # never pollute another assembly's positioning table.
+        chain_assy = placement.get("assembly", "")
+
         d = placement.get("direction", (0, 0, -1))
         # Determine primary axis sign
         if abs(d[2]) >= abs(d[0]) and abs(d[2]) >= abs(d[1]):
@@ -311,9 +318,25 @@ def compute_serial_offsets(placements: list, envelopes: dict,
         # Merge consecutive sub_assembly nodes
         merged = _merge_sub_assemblies(chain, envelopes)
 
+        # Track per-part top/bottom across this chain. A single BOM part
+        # may correspond to multiple chain nodes (e.g. 弹簧限力机构 has
+        # 上端板 + 弹簧 + 下端板 sub-nodes that all match the same BOM
+        # entry). The visible envelope is the union of all sub-spans:
+        #   top    = max(node_top)     (least negative for downward stack)
+        #   bottom = min(node_bottom)  (most negative)
+        # We accumulate top/bottom and emit a single span at the end.
+        chain_spans = {}  # pno → {"top": float, "bottom": float}
+
         cursor = 0.0
         for i, node in enumerate(merged):
             pno = node.get("part_no")
+
+            # Skip connection-only nodes — they describe fastener specs
+            # between physical parts, not stack layers (e.g. "[4×M3螺栓]").
+            # Also skip reference surfaces that failed BOM matching.
+            if not pno and not node.get("dims"):
+                continue
+
             h = _get_node_height(node, envelopes)
 
             # axial_gap from connections
@@ -336,25 +359,36 @@ def compute_serial_offsets(placements: list, envelopes: dict,
 
             if sign < 0:
                 cursor -= abs(gap)
+                top = cursor
                 bottom = cursor - h
             else:
                 cursor += abs(gap)
                 bottom = cursor
+                top = cursor + h
 
-            if pno:
-                result[pno] = {
-                    "z": round(bottom, 1),
-                    "h": round(h, 1),
-                    "mode": "axial_stack",
-                    "source": "serial_chain",
-                    "confidence": "high",
-                }
+            # Accumulate sub-chain span for this part (only within this
+            # chain's assembly to prevent cross-assembly pollution).
+            if pno and (not chain_assy or pno.startswith(chain_assy)):
+                span = chain_spans.setdefault(
+                    pno, {"top": top, "bottom": bottom})
+                span["top"] = max(span["top"], top)
+                span["bottom"] = min(span["bottom"], bottom)
 
             # Advance cursor
             if sign < 0:
                 cursor = bottom
             else:
                 cursor += h
+
+        # Emit one result entry per part with span-based height
+        for pno, span in chain_spans.items():
+            result[pno] = {
+                "z": round(span["bottom"], 1),
+                "h": round(span["top"] - span["bottom"], 1),
+                "mode": "axial_stack",
+                "source": "serial_chain",
+                "confidence": "high",
+            }
 
     return result
 
