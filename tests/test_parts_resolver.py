@@ -293,6 +293,16 @@ class TestProbeDims:
 
 
 class TestLoadRegistry:
+    @pytest.fixture(autouse=True)
+    def _isolate_env(self, monkeypatch):
+        """Clear inherited parts-library env vars so the regression CI job
+        (which sets CAD_PARTS_LIBRARY_DISABLE=1 globally) doesn't poison
+        these tests. Individual tests that *want* a particular env state
+        can re-set it via monkeypatch and override this autouse fixture.
+        """
+        monkeypatch.delenv("CAD_PARTS_LIBRARY_DISABLE", raising=False)
+        monkeypatch.delenv("CAD_PARTS_LIBRARY", raising=False)
+
     def test_empty_when_no_file(self, tmp_path):
         reg = load_registry(project_root=str(tmp_path))
         # Empty or populated only by parts_library.default.yaml (skill-shipped)
@@ -340,6 +350,14 @@ class TestExtendsDefault:
     """Tests for the `extends: default` inheritance mechanism added in
     v2.8.1. Project YAML can be sparse and inherit category-driven rules
     from parts_library.default.yaml without copy-paste."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_env(self, monkeypatch):
+        """Same isolation rationale as TestLoadRegistry: regression CI sets
+        CAD_PARTS_LIBRARY_DISABLE=1 globally, which would short-circuit
+        load_registry() to {} before any extends merging can occur."""
+        monkeypatch.delenv("CAD_PARTS_LIBRARY_DISABLE", raising=False)
+        monkeypatch.delenv("CAD_PARTS_LIBRARY", raising=False)
 
     def test_project_mappings_prepended_to_default(self, tmp_path):
         """Project mappings come BEFORE default mappings in dispatch order."""
