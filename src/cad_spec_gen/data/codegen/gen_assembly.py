@@ -117,52 +117,55 @@ def parse_connections(spec_path: str) -> list:
 
 
 def _axis_dir_to_local_transform(axis_dir: str, var_name: str,
-                                   part_name: str = "") -> tuple:
-    """Convert §6.2 axis_dir text to CadQuery rotation code.
+                                   part_name: str = "",
+                                   axis_dir_parsed: list = None) -> tuple:
+    """Convert §6.2 axis_dir to CadQuery rotation code.
 
-    All std parts are generated with principal axis along +Z.
-    This function returns (transform_code, doc_ref) to reorient parts
-    based on their assembly axis description.
+    Prefers axis_dir_parsed (structured data from cad_spec_extractors) when
+    available; falls back to string matching on axis_dir text.
 
-    The axis_dir field may contain multiple sub-descriptions separated by
-    commas, e.g. "壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）".
-    When part_name is given, match the relevant sub-clause first.
-
-    Returns (None, None) if no rotation needed (default +Z or -Z is OK).
+    Returns (transform_code, doc_ref) or (None, None) if no rotation needed.
     """
+    # ── Priority 1: Use pre-parsed structured data if available ──
+    if axis_dir_parsed:
+        matched = None
+        if part_name:
+            for entry in axis_dir_parsed:
+                kw = entry.get("keyword", "")
+                if kw and kw in part_name:
+                    matched = entry
+                    break
+        if not matched:
+            matched = axis_dir_parsed[0] if axis_dir_parsed else None
+        if matched and matched.get("rotation"):
+            rot = matched["rotation"]
+            axis = rot["axis"]
+            angle = rot["angle"]
+            code = f"{var_name}.rotate((0,0,0), ({axis[0]},{axis[1]},{axis[2]}), {angle})"
+            return code, f"axis horizontal per §6.2: {axis_dir[:60]}"
+        return None, None
+
+    # ── Priority 2: Fall back to string matching ──
     if not axis_dir:
         return None, None
 
     text = axis_dir.strip()
 
-    # If axis_dir has multiple sub-clauses (e.g. "壳体轴沿-Z，储罐轴∥XY"),
-    # find the clause relevant to this part by matching part_name keywords.
+    # Multi-clause matching by part name keywords
     if part_name and ("，" in text or "," in text):
         clauses = re.split(r"[，,]", text)
-        matched_clause = None
         for clause in clauses:
-            keywords = []
-            if len(part_name) >= 2:
-                keywords.append(part_name[:2])
-            if len(part_name) >= 3:
-                keywords.append(part_name[:3])
+            keywords = [part_name[:n] for n in (3, 2) if len(part_name) >= n]
             if len(part_name) >= 4:
                 keywords.append(part_name[-2:])
             if any(kw in clause for kw in keywords if kw):
-                matched_clause = clause.strip()
+                text = clause.strip()
                 break
-        if matched_clause:
-            text = matched_clause
 
-    # PRIORITY 1: "盘面∥XY" / "环∥XY" / "弧形∥XY" → face parallel to XY → axis already Z → NO rotation
     if any(k in text for k in ["盘面∥XY", "环∥XY", "弧形∥XY"]):
         return None, None
-
-    # PRIORITY 2: "沿-Z" / "沿Z" / "垂直" / "⊥法兰" → already along Z → NO rotation
     if any(k in text for k in ["沿-Z", "沿Z", "垂直", "⊥法兰"]):
         return None, None
-
-    # PRIORITY 3: "轴∥XY" / "水平" / "径向外伸" → needs horizontal → rotate 90° around X
     if any(k in text for k in ["∥XY", "水平", "径向外伸"]):
         code = f"{var_name}.rotate((0,0,0), (1,0,0), 90)"
         return code, f"axis horizontal per §6.2: {text[:60]}"
@@ -234,11 +237,16 @@ def _extract_origin_axis(pose: dict) -> tuple:
     return origin_desc, axis_desc
 
 
-def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
+def _match_bom_by_keywords(part_text: str, bom_parts: list,
+                           scope_prefix: str = "") -> list:
     """Match §6.2 part_text against BOM entries by name keywords.
 
     Splits part_text into Chinese character runs and tries to match
     each BOM entry's name_cn. Returns list of matched part_no strings.
+
+    scope_prefix: if set (e.g. "GIS-EE-001"), only match parts whose
+    part_no starts with this prefix. Prevents cross-assembly leaking
+    (e.g. "减速器" in L2 matching both GIS-EE-001-06 and GIS-EE-004-04).
     """
     keywords = re.findall(r"[\u4e00-\u9fff]{2,}", part_text)
     if not keywords:
@@ -246,6 +254,8 @@ def _match_bom_by_keywords(part_text: str, bom_parts: list) -> list:
     matched = []
     for part in bom_parts:
         if part.get("is_assembly"):
+            continue
+        if scope_prefix and not part["part_no"].startswith(scope_prefix + "-"):
             continue
         name = part.get("name_cn", "")
         for kw in keywords:
@@ -269,10 +279,20 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         bom_parts = []
     result = {}
 
+    # Track current assembly context for scoped keyword matching.
+    # §6.2 rows are ordered by layer level; assembly-level rows (L5a, L5b...)
+    # establish context, and sub-part rows inherit it.
+    current_assy_prefix = ""
+
     for layer in pose.get("layers", []):
         part_text = layer.get("part", "")
         offset_text = layer.get("offset", "")
         axis_dir = layer.get("axis_dir", "")
+
+        # Detect assembly-level rows to set scoping context
+        m_assy = re.search(r"\(([A-Z]+-[A-Z]+-\d+)\)", part_text)
+        if m_assy:
+            current_assy_prefix = m_assy.group(1)
 
         # Skip rows with no useful offset
         if not offset_text or offset_text.strip() in ("—", "-", ""):
@@ -293,6 +313,9 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         m_z = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)\s*mm", offset_text)
         if m_z:
             entry["z"] = float(m_z.group(1))
+            # R5: "Z=+73mm(向上)" means top-of-part, not bottom
+            if "向上" in offset_text:
+                entry["z_is_top"] = True
 
         if entry["z"] is None:
             m_z0 = re.search(r"Z\s*=\s*0(?:\s*\(|$)", offset_text)
@@ -311,7 +334,11 @@ def _extract_all_layer_poses(pose: dict, bom_parts: list = None) -> dict:
         if m_pno:
             result[m_pno.group(1)] = entry
         else:
-            matched_pnos = _match_bom_by_keywords(part_text, bom_parts)
+            # R2: Scope keyword matching to current assembly to prevent
+            # cross-assembly leaking (e.g. "减速器" matching parts in
+            # both GIS-EE-001 and GIS-EE-004)
+            matched_pnos = _match_bom_by_keywords(
+                part_text, bom_parts, scope_prefix=current_assy_prefix)
             for pno in matched_pnos:
                 result[pno] = dict(entry)
 
@@ -338,9 +365,93 @@ def _parse_dims_text(text: str):
     return None
 
 
-_STACK_GAP_MM = 2.0
-_MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
-_ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
+def parse_envelopes(spec_path: str) -> dict:
+    """Parse §6.4 envelope dimensions table from CAD_SPEC.md.
+
+    Returns {part_no: (w, d, h)} where w,d,h are floats in mm.
+    For cylinders: w=d=diameter, h=length.
+    For boxes: w,d,h as given.
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    envelopes = {}
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 6.4" in line and "包络" in line:
+            in_section = True
+            continue
+        if in_section and (line.startswith("## ") or
+                          (line.startswith("### ") and "6.4" not in line)):
+            break
+        if not in_section or not line.startswith("|") or "---" in line:
+            continue
+
+        cells = [c.strip() for c in line.split("|")]
+        cells = cells[1:-1] if len(cells) >= 2 else cells
+        if len(cells) < 4 or cells[0] == "料号":
+            continue
+
+        pno = cells[0]
+        if not re.match(r"[A-Z]+-", pno):
+            continue
+
+        dims_text = cells[3] if len(cells) > 3 else ""
+        # Table cells use bare notation (e.g. "Φ90.0×25.0") without "mm" suffix;
+        # append it so _parse_dims_text() regexes match correctly.
+        parsed = _parse_dims_text(dims_text + " mm")
+        if parsed:
+            envelopes[pno] = parsed
+
+    return envelopes
+
+
+def parse_constraints(spec_path: str) -> list:
+    """Parse §9.2 assembly constraint declarations from CAD_SPEC.md.
+
+    Returns list of dicts:
+        {"id": "C01", "type": "contact", "part_a": "...", "part_b": "...",
+         "params": "gap=0", "source": "...", "confidence": "high"}
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return []
+
+    constraints = []
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 9.2" in line and "约束" in line:
+            in_section = True
+            continue
+        if in_section and (line.startswith("## ") or
+                          (line.startswith("### ") and "9.2" not in line)):
+            break
+        if not in_section or not line.startswith("|") or "---" in line:
+            continue
+
+        cells = [c.strip() for c in line.split("|")]
+        cells = cells[1:-1] if len(cells) >= 2 else cells
+        if len(cells) < 5 or cells[0] == "约束ID":
+            continue
+
+        constraints.append({
+            "id": cells[0],
+            "type": cells[1],
+            "part_a": cells[2] if len(cells) > 2 else "",
+            "part_b": cells[3] if len(cells) > 3 else "",
+            "params": cells[4] if len(cells) > 4 else "",
+            "source": cells[5] if len(cells) > 5 else "",
+            "confidence": cells[6] if len(cells) > 6 else "",
+        })
+
+    return constraints
+
+
 
 
 def _infer_stack_direction(axis_dir: str) -> tuple:
@@ -394,8 +505,9 @@ def _stack_sort_key(child: dict, dims_map: dict, direction: tuple) -> tuple:
     return (-int(is_custom), -int(is_body), -extent)
 
 
-def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
-    """Compute per-part local offsets. Explicit §6.2 wins; auto-stacks rest.
+def _resolve_child_offsets(parts: list, layer_poses: dict,
+                           spec_path: str = "") -> dict:
+    """Compute per-part local offsets. §6.3 data wins over auto-stacking.
 
     Per-part axis_dir sub-clause matching: if axis_dir has comma-separated
     clauses, each child matches its own clause for stacking direction.
@@ -406,6 +518,14 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
     Returns {part_no: (dx, dy, dz)}.
     """
     result = {}
+
+    # --- NEW: Try §6.3 part-level positions first ---
+    part_positions = _parse_part_positions(spec_path) if spec_path else {}
+
+    # Hoist file-based lookups before the assembly loop (parse once, reuse).
+    _envelopes_cache = parse_envelopes(spec_path) if spec_path else {}
+    constraints = parse_constraints(spec_path) if spec_path else []
+
     assemblies = [p for p in parts if p["is_assembly"]]
     children_of = {}
 
@@ -435,8 +555,16 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
         assy_axis_dir = assy_pose.get("axis_dir", "")
         default_direction = _infer_stack_direction(assy_axis_dir)
 
-        # Detect orphan assembly (no §6.2 positioning at all)
-        is_orphan = (assy_pose.get("r") is None and
+        # Detect orphan assembly (no §6.2 positioning at all).
+        # An assembly whose *children* have explicit §6.2 positions is NOT
+        # orphan, even if the assembly-level row is missing from §6.2.
+        has_positioned_children = any(
+            layer_poses.get(c["part_no"], {}).get("z") is not None
+            or layer_poses.get(c["part_no"], {}).get("is_origin")
+            for c in children
+        )
+        is_orphan = (not has_positioned_children and
+                     assy_pose.get("r") is None and
                      assy_pose.get("theta") is None and
                      assy_pose.get("z") is None and
                      not assy_pose.get("is_origin", False))
@@ -444,14 +572,143 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
         if is_orphan:
             default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
 
+        # R1: Compute reasonable Z-range for outlier detection.
+        _child_pnos = {c["part_no"] for c in children}
+        _total_h = sum(e[2] for pno, e in _envelopes_cache.items()
+                       if pno in _child_pnos)
+        _max_span = max(_total_h * 1.5, 150.0)  # at least 150mm
+
+        # Build name→part_no resolver for constraint matching
+        _name_to_pno = {}
+        for p in parts:
+            _name_to_pno[p["name_cn"]] = p["part_no"]
+            # Also index by short name prefixes (2-4 chars)
+            for n in (4, 3, 2):
+                if len(p["name_cn"]) >= n:
+                    _name_to_pno.setdefault(p["name_cn"][:n], p["part_no"])
+
+        def _resolve_constraint_ref(name_text: str) -> str:
+            """Resolve constraint part_a/part_b text to a part_no."""
+            # Direct part_no match
+            if re.match(r"[A-Z]+-", name_text):
+                return name_text
+            # Exact name match
+            if name_text in _name_to_pno:
+                return _name_to_pno[name_text]
+            # Substring match (e.g. "PEEK段" matches "PEEK绝缘段")
+            for pname, ppno in _name_to_pno.items():
+                if name_text in pname or pname in name_text:
+                    return ppno
+            return ""
+
         auto_queue = []
+        _z_top_deferred = []  # (cpno, child, z_top) for z_is_top group stacking
         for child in children:
             cpno = child["part_no"]
+
+            # P0a: §9.2 exclude_stack
+            excluded = any(
+                c["type"] == "exclude_stack" and cpno == c["part_a"]
+                for c in constraints
+            )
+            if excluded:
+                result[cpno] = (0, 0, 0)
+                continue
+
+            # P0b: §9.2 contact/stack_on — place relative to reference part
+            contact_placed = False
+            for c in constraints:
+                if c["type"] not in ("contact", "stack_on"):
+                    continue
+                # Check if this child matches part_a of the constraint
+                ref_a = _resolve_constraint_ref(c["part_a"])
+                ref_b = _resolve_constraint_ref(c["part_b"])
+                if ref_a != cpno and ref_b != cpno:
+                    continue
+                # Find the OTHER part's position
+                other_pno = ref_b if ref_a == cpno else ref_a
+                if other_pno not in result:
+                    continue
+                other_z = result[other_pno][2]
+                other_h = _envelopes_cache.get(other_pno, (0, 0, 15))[2]
+                my_h = _envelopes_cache.get(cpno, (0, 0, 15))[2]
+                # Place this part adjacent to the other
+                if c["type"] == "stack_on":
+                    # A stacks on top of B: Z_A = Z_B + height_B
+                    z = other_z + other_h
+                else:
+                    # contact: A below B (default) or above, pick based on stacking direction
+                    _dz = default_direction[2] if default_direction[2] != 0 else -1
+                    if _dz < 0:
+                        z = other_z - my_h
+                    else:
+                        z = other_z + other_h
+                result[cpno] = (0, 0, round(z, 1))
+                contact_placed = True
+                break
+            if contact_placed:
+                continue
+
+            # §6.3 lookup (highest priority, with outlier guard)
+            if cpno in part_positions:
+                pos = part_positions[cpno]
+                if pos.get("z") is not None:
+                    # R1: Guard against outlier §6.3 values
+                    if abs(pos["z"]) <= _max_span:
+                        result[cpno] = (0, 0, pos["z"])
+                        continue
+                    # else: outlier — fall through to auto-stack
+            # Existing: explicit §6.2 layer pose
             if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
                 z = layer_poses[cpno]["z"]
-                result[cpno] = (0, 0, z)
+                if layer_poses[cpno].get("z_is_top"):
+                    # Defer z_is_top parts — resolve as group after main loop
+                    _z_top_deferred.append((cpno, child, z))
+                else:
+                    result[cpno] = (0, 0, z)
             else:
+                # R4: Skip cable/connector — place at assembly origin
+                cat = classify_part(child["name_cn"], child.get("material", ""))
+                if cat in ("cable", "connector"):
+                    result[cpno] = (0, 0, 0)
+                    continue
                 auto_queue.append(child)
+
+        # ── Resolve deferred z_is_top groups ──
+        # Parts sharing the same z_is_top value come from a combined §6.2 row
+        # (e.g. "电机+减速器 Z=+73mm(向上)").  They must stack sequentially
+        # from z_top downward so their combined top = z_top and the bottom
+        # part sits on the reference surface.
+        if _z_top_deferred:
+            _z_top_groups = {}
+            for cpno, child, z_top in _z_top_deferred:
+                _z_top_groups.setdefault(z_top, []).append((cpno, child))
+
+            for z_top, group in _z_top_groups.items():
+                # Compute per-part height: envelope → BOM text → even split
+                heights = {}
+                for cpno, child in group:
+                    env = _envelopes_cache.get(cpno)
+                    if env:
+                        heights[cpno] = env[2]
+                    else:
+                        dims = _parse_dims_text(
+                            child.get("material", "") + " "
+                            + child.get("name_cn", ""))
+                        if dims:
+                            heights[cpno] = dims[2]
+                        elif len(group) > 1:
+                            heights[cpno] = abs(z_top) / len(group)
+                        else:
+                            heights[cpno] = abs(z_top) if z_top != 0 else 15.0
+
+                # Stack from z_top downward; sort larger parts to bottom
+                cursor = z_top
+                for cpno, child in sorted(
+                        group, key=lambda g: -heights.get(g[0], 15.0)):
+                    h = heights[cpno]
+                    cursor -= h
+                    result[cpno] = (0, 0, round(cursor, 1))
 
         if not auto_queue:
             continue
@@ -461,32 +718,159 @@ def _resolve_child_offsets(parts: list, layer_poses: dict) -> dict:
             text = child.get("material", "") + " " + child.get("name_cn", "")
             dims_map[child["part_no"]] = _parse_dims_text(text)
 
-        # Group by per-part stacking direction
-        direction_groups = {}
-        for child in auto_queue:
-            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
-            if clause:
-                child_direction = _infer_stack_direction(clause)
-            else:
-                child_direction = default_direction
-            direction_groups.setdefault(child_direction, []).append(child)
+        # ── Envelope-aware anchor-relative stacking ──
 
-        for direction, group in direction_groups.items():
-            group.sort(key=lambda c: _stack_sort_key(c, dims_map, direction))
-            cursor = _ORPHAN_BASE_Z if is_orphan else 0.0
-            for child in group:
-                cpno = child["part_no"]
-                dims = dims_map.get(cpno)
-                extent = _part_height_along(dims, direction)
-                center = cursor + extent / 2.0
-                dx = round(direction[0] * center, 1)
-                dy = round(direction[1] * center, 1)
-                dz = round(direction[2] * center, 1)
-                result[cpno] = (dx, dy, dz)
-                gap = 0.0 if cursor > _MAX_STACK_DEPTH_MM else _STACK_GAP_MM
-                cursor += extent + gap
+        def _get_height(child):
+            """Get part height from §6.4 envelope, BOM dims, or default."""
+            env = _envelopes_cache.get(child["part_no"])
+            if env:
+                return env[2]  # h component
+            text = child.get("material", "") + " " + child.get("name_cn", "")
+            dims = _parse_dims_text(text)
+            if dims:
+                return dims[2]
+            return 15.0  # conservative default
+
+        # Stacking direction from axis_dir
+        dz_sign = default_direction[2]
+        if dz_sign == 0:
+            dz_sign = -1
+
+        # Seed auto-stacking from the occupied-extent boundary of already-
+        # positioned parts so that auto-stacked parts touch (not overlap)
+        # the explicit cluster.
+        #   - Stacking downward → seed at min(bottom face)
+        #   - Stacking upward  → seed at max(top face)
+        # Top face = bottom_z + envelope_height.
+        placed_in_assy = [(cpno, result[cpno][2]) for cpno in result
+                          if cpno.startswith(prefix + "-")]
+        if is_orphan or not placed_in_assy:
+            seed_z = 0.0
+        else:
+            if dz_sign < 0:
+                seed_z = min(z for _, z in placed_in_assy)
+            else:
+                def _top_z(cpno, z_bottom):
+                    env = _envelopes_cache.get(cpno)
+                    return z_bottom + (env[2] if env else 15.0)
+                seed_z = max(_top_z(cpno, z) for cpno, z in placed_in_assy)
+
+        cursor_z = seed_z
+        for child in auto_queue:
+            cpno = child["part_no"]
+            h = _get_height(child)
+
+            # Check for per-part horizontal direction override
+            clause = _match_axis_clause(assy_axis_dir, child["name_cn"])
+            if clause and any(k in clause for k in ["∥XY", "水平", "径向"]):
+                # R3: Horizontal part — offset from host body edge, not h/2.
+                # Use part diameter (not length) as clearance from center.
+                env = _envelopes_cache.get(cpno)
+                part_d = env[0] if env else 20.0  # diameter or width
+                center_x = round(part_d, 1)  # just outside host body
+                result[cpno] = (center_x, 0, 0)
+                continue
+
+            # Parts have bottom at Z=0 (centered=(True,True,False)).
+            # offset_z positions the bottom face, not the center.
+            if dz_sign < 0:
+                cursor_z -= h
+                offset_z = cursor_z
+            else:
+                offset_z = cursor_z
+                cursor_z += h
+
+            result[cpno] = (0, 0, round(offset_z, 1))
 
     return result
+
+
+def _parse_excluded_assemblies(spec_path: str) -> set:
+    """Parse excluded assembly part_nos from CAD_SPEC.md §6.2 only.
+
+    Scoped to §6.2 section to avoid false matches from §9.2 exclude_stack
+    constraints (which exclude individual parts, not whole assemblies).
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return set()
+    excluded = set()
+    in_s62 = False
+    for line in text.splitlines():
+        if "### 6.2" in line or "装配层叠" in line:
+            in_s62 = True
+            continue
+        if in_s62 and line.startswith("### "):
+            break
+        if in_s62 and line.startswith("## "):
+            break
+        if not in_s62 or not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if any("exclude" in c.lower() for c in cells):
+            for cell in cells:
+                for m in re.findall(r"[A-Z]+-[A-Z]+-\d+", cell):
+                    excluded.add(m)
+    return excluded
+
+
+def _parse_part_positions(spec_path: str) -> dict:
+    """Parse §6.3 part-level positioning table from CAD_SPEC.md.
+
+    Returns {part_no: {"z": float, "h": float, "mode": str, "confidence": str}}.
+    """
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except Exception:
+        return {}
+
+    positions = {}
+    in_section = False
+
+    for line in text.splitlines():
+        if "### 6.3" in line and "零件级定位" in line:
+            in_section = True
+            continue
+        if in_section and line.startswith("### ") and "6.3" not in line:
+            break
+        if in_section and line.startswith("## "):
+            break
+        if not in_section:
+            continue
+        if not line.startswith("|") or "---" in line:
+            continue
+
+        # Preserve empty cells to maintain column alignment
+        # ("|a||b|" → ["", "a", "", "b", ""] → strip leading/trailing → ["a", "", "b"])
+        raw_cells = [c.strip() for c in line.split("|")]
+        cells = raw_cells[1:-1] if len(raw_cells) >= 2 else raw_cells  # strip outer empties
+        if len(cells) < 5:
+            continue
+        # Skip header rows
+        if cells[0] == "料号":
+            continue
+
+        pno = cells[0]
+        if not re.match(r"[A-Z]+-", pno):
+            continue
+
+        mode = cells[2] if len(cells) > 2 else "axial_stack"
+        try:
+            h = float(cells[3]) if len(cells) > 3 and cells[3] not in ("", "—") else None
+        except ValueError:
+            h = None
+        try:
+            z = float(cells[4]) if len(cells) > 4 and cells[4] not in ("", "—") else None
+        except ValueError:
+            z = None
+        confidence = cells[6] if len(cells) > 6 else ""
+
+        positions[pno] = {
+            "z": z, "h": h, "mode": mode, "confidence": confidence,
+        }
+
+    return positions
 
 
 def generate_assembly(spec_path: str) -> str:
@@ -538,14 +922,21 @@ def generate_assembly(spec_path: str) -> str:
 
     # C1: Extract per-assembly pose from §6.2 (keyed by part number)
     layer_poses = _extract_all_layer_poses(pose, parts)
-    part_offsets = _resolve_child_offsets(parts, layer_poses)
+    part_offsets = _resolve_child_offsets(parts, layer_poses, spec_path)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
 
+    # Parse excluded assemblies once (not per-iteration)
+    excluded_assemblies = _parse_excluded_assemblies(spec_path)
+
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
         name = assy["name_cn"]
+
+        # Skip assemblies marked as excluded in §6.2
+        if pno in excluded_assemblies:
+            continue
 
         if is_flat_bom:
             # Flat BOM: suffix is the prefix itself (e.g. "SLP")
@@ -640,7 +1031,7 @@ def generate_assembly(spec_path: str) -> str:
                     "orient_doc_ref": orient_ref or "",
                     "orient_rule": "",
                     "local_offset": offset_str,
-                    "assy_name": f"{prefix_short}-{c_suffix}",
+                    "assy_name": c_stripped,
                     "color_var": c_color,
                 })
                 # Each custom part gets its own import line

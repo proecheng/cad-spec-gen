@@ -213,8 +213,16 @@ def test_integration_end_effector():
     # 2. PEEK ring Z=-27 must be present
     assert "-27" in content, "PEEK ring Z=-27 offset not found"
 
-    # 3. Motor Z=+73 must be present (from name-fallback)
-    assert "73" in content, "Motor Z=+73 offset not found"
+    # 3. Motor+reducer z_is_top=73: should be split into two non-overlapping
+    #    offsets that stack sequentially with combined top at Z=73.
+    motor_pnos = [p["part_no"] for p in parts
+                  if "电机" in p.get("name_cn", "") and "GIS-EE-001" in p["part_no"]]
+    reducer_pnos = [p["part_no"] for p in parts
+                    if "减速器" in p.get("name_cn", "") and "GIS-EE-001" in p["part_no"]]
+    if motor_pnos and reducer_pnos:
+        mz = offsets[motor_pnos[0]][2]
+        rz = offsets[reducer_pnos[0]][2]
+        assert mz != rz, f"Motor and reducer overlap at Z={mz}"
 
     # 4. Each station should have at least one translate before _station_transform
     lines = content.splitlines()
@@ -232,3 +240,193 @@ def test_integration_end_effector():
     non_assy = [p for p in parts if not p["is_assembly"]]
     assert len(offsets) >= len(non_assy), \
         f"Expected offsets for all {len(non_assy)} parts, got {len(offsets)}"
+
+
+# ── Fix A: is_orphan detection with positioned children ──
+
+def test_orphan_false_when_children_positioned():
+    """Assembly with positioned children should NOT be orphan."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-001", "name_cn": "法兰总成", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-001-01", "name_cn": "法兰本体", "is_assembly": False,
+         "material": "铝合金", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-02", "name_cn": "PEEK环", "is_assembly": False,
+         "material": "PEEK", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-03", "name_cn": "碟簧", "is_assembly": False,
+         "material": "钢", "make_buy": "外购", "quantity": "4"},
+    ]
+    # GIS-XX-001 has no direct entry; children 01/02 have explicit Z.
+    layer_poses = {
+        "GIS-XX-001-01": {"z": 0.0, "r": None, "theta": None,
+                          "axis_dir": "盘面∥XY", "is_origin": True},
+        "GIS-XX-001-02": {"z": -27.0, "r": None, "theta": None,
+                          "axis_dir": "盘面∥XY", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    # 碟簧 auto-stacked: should be BELOW the lowest anchor (Z=-27) since
+    # default_direction for empty axis_dir is (0,0,-1) and NOT orphan.
+    assert offsets["GIS-XX-001-03"][2] < -27.0, \
+        f"Disc spring should be below PEEK(-27), got Z={offsets['GIS-XX-001-03'][2]}"
+
+
+# ── Fix B: z_is_top group sequential stacking ──
+
+def test_z_is_top_group_no_overlap():
+    """Two parts sharing z_is_top should stack sequentially, not overlap."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-001", "name_cn": "法兰总成", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-001-08", "name_cn": "适配板", "is_assembly": False,
+         "material": "铝合金", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-05", "name_cn": "伺服电机", "is_assembly": False,
+         "material": "Maxon ECX", "make_buy": "外购", "quantity": "1"},
+        {"part_no": "GIS-XX-001-06", "name_cn": "行星减速器", "is_assembly": False,
+         "material": "Maxon GP22C", "make_buy": "外购", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-001-08": {"z": 0.0, "r": None, "theta": None,
+                          "axis_dir": "盘面∥XY", "is_origin": True},
+        "GIS-XX-001-05": {"z": 73.0, "r": None, "theta": None,
+                          "axis_dir": "轴沿Z", "is_origin": False,
+                          "z_is_top": True},
+        "GIS-XX-001-06": {"z": 73.0, "r": None, "theta": None,
+                          "axis_dir": "轴沿Z", "is_origin": False,
+                          "z_is_top": True},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    mz = offsets["GIS-XX-001-05"][2]
+    rz = offsets["GIS-XX-001-06"][2]
+    # Must not overlap
+    assert mz != rz, f"Motor and reducer at same Z={mz}"
+    # Combined stack top must equal z_is_top value (73)
+    h_each = 73.0 / 2  # no envelopes → even split
+    top = max(mz, rz) + h_each
+    assert abs(top - 73.0) < 0.1, f"Combined top should be 73, got {top}"
+    # Bottom of stack should be at 0 (touching adapter plate)
+    assert abs(min(mz, rz)) < 0.1, f"Stack bottom should be ~0, got {min(mz, rz)}"
+
+
+def test_z_is_top_single_part():
+    """Single z_is_top part: bottom = z_top - height."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-002", "name_cn": "工位", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-002-01", "name_cn": "电机", "is_assembly": False,
+         "material": "Maxon Φ22×40mm", "make_buy": "外购", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0,
+                       "axis_dir": "轴沿-Z", "is_origin": False},
+        "GIS-XX-002-01": {"z": 50.0, "r": None, "theta": None,
+                          "axis_dir": "轴沿Z", "is_origin": False,
+                          "z_is_top": True},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    # BOM text "Maxon Φ22×40mm" → height 40; bottom = 50 - 40 = 10
+    assert offsets["GIS-XX-002-01"][2] == 10.0, \
+        f"Expected Z=10.0, got {offsets['GIS-XX-002-01'][2]}"
+
+
+def test_z_is_top_negative():
+    """Negative z_top (e.g. hanging downward) must still produce positive heights."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-003", "name_cn": "工位", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-003-01", "name_cn": "传感器A", "is_assembly": False,
+         "material": "—", "make_buy": "外购", "quantity": "1"},
+        {"part_no": "GIS-XX-003-02", "name_cn": "传感器B", "is_assembly": False,
+         "material": "—", "make_buy": "外购", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-003": {"z": None, "r": 65, "theta": 90,
+                       "axis_dir": "轴沿-Z", "is_origin": False},
+        "GIS-XX-003-01": {"z": -60.0, "r": None, "theta": None,
+                          "axis_dir": "", "is_origin": False, "z_is_top": True},
+        "GIS-XX-003-02": {"z": -60.0, "r": None, "theta": None,
+                          "axis_dir": "", "is_origin": False, "z_is_top": True},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    za = offsets["GIS-XX-003-01"][2]
+    zb = offsets["GIS-XX-003-02"][2]
+    # Both must be at or below z_top (-60), stacking downward from -60
+    assert za <= -60.0, f"Sensor A Z={za} should be <= -60"
+    assert zb <= -60.0, f"Sensor B Z={zb} should be <= -60"
+    assert za != zb, f"Sensors overlap at Z={za}"
+
+
+# ── Fix C: auto-stacking formula bottom-at-Z=0 ──
+
+def test_auto_stack_adjacent_contact():
+    """Auto-stacked parts of different heights must be adjacent (no gap)."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-002", "name_cn": "工位", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-002-01", "name_cn": "壳体", "is_assembly": False,
+         "material": "铝合金 60×40×55mm", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-002-02", "name_cn": "泵", "is_assembly": False,
+         "material": "不锈钢 Φ20×30mm", "make_buy": "外购", "quantity": "1"},
+        {"part_no": "GIS-XX-002-03", "name_cn": "阀", "is_assembly": False,
+         "material": "铜 Φ10×10mm", "make_buy": "外购", "quantity": "1"},
+    ]
+    layer_poses = {
+        "GIS-XX-002": {"z": None, "r": 65, "theta": 0,
+                       "axis_dir": "轴沿-Z", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    # Get all Z offsets + heights for adjacency check
+    items = []
+    for p in bom:
+        if p["is_assembly"]:
+            continue
+        z = offsets[p["part_no"]][2]
+        # Parse height from material text
+        from gen_assembly import _parse_dims_text
+        dims = _parse_dims_text(p["material"])
+        h = dims[2] if dims else 15.0
+        items.append((p["part_no"], z, h))
+
+    # Sort by Z descending (stacking downward from 0)
+    items.sort(key=lambda x: -x[1])
+    for i in range(len(items) - 1):
+        _, z_above, h_above = items[i]
+        _, z_below, _ = items[i + 1]
+        bottom_of_above = z_above  # part bottom face is at z offset
+        top_of_below = z_below + items[i + 1][2]
+        gap = bottom_of_above - top_of_below
+        assert abs(gap) < 0.1, \
+            f"Gap={gap:.1f}mm between {items[i][0]}(bottom={z_above}) " \
+            f"and {items[i+1][0]}(top={top_of_below})"
+
+
+# ── Fix D: seed from occupied extent boundary ──
+
+def test_seed_does_not_overlap_explicit_parts():
+    """Auto-stacked parts should not overlap explicitly-placed parts."""
+    from gen_assembly import _resolve_child_offsets
+    bom = [
+        {"part_no": "GIS-XX-001", "name_cn": "法兰总成", "is_assembly": True,
+         "material": "—", "make_buy": "总成", "quantity": "1"},
+        {"part_no": "GIS-XX-001-01", "name_cn": "法兰本体", "is_assembly": False,
+         "material": "铝合金 Φ90×25mm", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-02", "name_cn": "PEEK环", "is_assembly": False,
+         "material": "PEEK Φ86×5mm", "make_buy": "自制", "quantity": "1"},
+        {"part_no": "GIS-XX-001-03", "name_cn": "碟簧", "is_assembly": False,
+         "material": "钢 Φ10×3mm", "make_buy": "外购", "quantity": "4"},
+    ]
+    layer_poses = {
+        "GIS-XX-001-01": {"z": 0.0, "r": None, "theta": None,
+                          "axis_dir": "", "is_origin": True},
+        "GIS-XX-001-02": {"z": -27.0, "r": None, "theta": None,
+                          "axis_dir": "", "is_origin": False},
+    }
+    offsets = _resolve_child_offsets(bom, layer_poses)
+    z_spring = offsets["GIS-XX-001-03"][2]
+    # Must be below PEEK bottom (-27) to avoid overlap
+    assert z_spring <= -27.0, \
+        f"Disc spring Z={z_spring} overlaps with PEEK at Z=-27"

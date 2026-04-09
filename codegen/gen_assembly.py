@@ -452,9 +452,6 @@ def parse_constraints(spec_path: str) -> list:
     return constraints
 
 
-_STACK_GAP_MM = 0.0
-_MAX_STACK_DEPTH_MM = 200.0  # compress spacing when stack exceeds this
-_ORPHAN_BASE_Z = 120.0       # orphan assemblies start stacking from this Z offset
 
 
 def _infer_stack_direction(axis_dir: str) -> tuple:
@@ -525,6 +522,10 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
     # --- NEW: Try §6.3 part-level positions first ---
     part_positions = _parse_part_positions(spec_path) if spec_path else {}
 
+    # Hoist file-based lookups before the assembly loop (parse once, reuse).
+    _envelopes_cache = parse_envelopes(spec_path) if spec_path else {}
+    constraints = parse_constraints(spec_path) if spec_path else []
+
     assemblies = [p for p in parts if p["is_assembly"]]
     children_of = {}
 
@@ -554,8 +555,16 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
         assy_axis_dir = assy_pose.get("axis_dir", "")
         default_direction = _infer_stack_direction(assy_axis_dir)
 
-        # Detect orphan assembly (no §6.2 positioning at all)
-        is_orphan = (assy_pose.get("r") is None and
+        # Detect orphan assembly (no §6.2 positioning at all).
+        # An assembly whose *children* have explicit §6.2 positions is NOT
+        # orphan, even if the assembly-level row is missing from §6.2.
+        has_positioned_children = any(
+            layer_poses.get(c["part_no"], {}).get("z") is not None
+            or layer_poses.get(c["part_no"], {}).get("is_origin")
+            for c in children
+        )
+        is_orphan = (not has_positioned_children and
+                     assy_pose.get("r") is None and
                      assy_pose.get("theta") is None and
                      assy_pose.get("z") is None and
                      not assy_pose.get("is_origin", False))
@@ -564,16 +573,10 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             default_direction = (0, 0, 1)  # orphans go upward to avoid overlap
 
         # R1: Compute reasonable Z-range for outlier detection.
-        # Sum of all known envelope heights × 1.5 = max plausible span.
-        _envelopes_cache = parse_envelopes(spec_path) if spec_path else {}
         _child_pnos = {c["part_no"] for c in children}
         _total_h = sum(e[2] for pno, e in _envelopes_cache.items()
                        if pno in _child_pnos)
         _max_span = max(_total_h * 1.5, 150.0)  # at least 150mm
-
-        # Load constraints once per assembly (P0: §9.2 constraint-based positioning)
-        constraints = parse_constraints(spec_path) if spec_path else []
-        _envelopes_for_constraint = parse_envelopes(spec_path) if spec_path else {}
 
         # Build name→part_no resolver for constraint matching
         _name_to_pno = {}
@@ -599,6 +602,7 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             return ""
 
         auto_queue = []
+        _z_top_deferred = []  # (cpno, child, z_top) for z_is_top group stacking
         for child in children:
             cpno = child["part_no"]
 
@@ -626,8 +630,8 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
                 if other_pno not in result:
                     continue
                 other_z = result[other_pno][2]
-                other_h = _envelopes_for_constraint.get(other_pno, (0, 0, 15))[2]
-                my_h = _envelopes_for_constraint.get(cpno, (0, 0, 15))[2]
+                other_h = _envelopes_cache.get(other_pno, (0, 0, 15))[2]
+                my_h = _envelopes_cache.get(cpno, (0, 0, 15))[2]
                 # Place this part adjacent to the other
                 if c["type"] == "stack_on":
                     # A stacks on top of B: Z_A = Z_B + height_B
@@ -657,12 +661,11 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             # Existing: explicit §6.2 layer pose
             if cpno in layer_poses and layer_poses[cpno].get("z") is not None:
                 z = layer_poses[cpno]["z"]
-                # R5: If z_is_top, convert top-of-part Z to bottom-of-part Z
                 if layer_poses[cpno].get("z_is_top"):
-                    env = (parse_envelopes(spec_path) if spec_path else {}).get(cpno)
-                    if env:
-                        z = z - env[2]  # top minus height = bottom
-                result[cpno] = (0, 0, z)
+                    # Defer z_is_top parts — resolve as group after main loop
+                    _z_top_deferred.append((cpno, child, z))
+                else:
+                    result[cpno] = (0, 0, z)
             else:
                 # R4: Skip cable/connector — place at assembly origin
                 cat = classify_part(child["name_cn"], child.get("material", ""))
@@ -670,6 +673,42 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
                     result[cpno] = (0, 0, 0)
                     continue
                 auto_queue.append(child)
+
+        # ── Resolve deferred z_is_top groups ──
+        # Parts sharing the same z_is_top value come from a combined §6.2 row
+        # (e.g. "电机+减速器 Z=+73mm(向上)").  They must stack sequentially
+        # from z_top downward so their combined top = z_top and the bottom
+        # part sits on the reference surface.
+        if _z_top_deferred:
+            _z_top_groups = {}
+            for cpno, child, z_top in _z_top_deferred:
+                _z_top_groups.setdefault(z_top, []).append((cpno, child))
+
+            for z_top, group in _z_top_groups.items():
+                # Compute per-part height: envelope → BOM text → even split
+                heights = {}
+                for cpno, child in group:
+                    env = _envelopes_cache.get(cpno)
+                    if env:
+                        heights[cpno] = env[2]
+                    else:
+                        dims = _parse_dims_text(
+                            child.get("material", "") + " "
+                            + child.get("name_cn", ""))
+                        if dims:
+                            heights[cpno] = dims[2]
+                        elif len(group) > 1:
+                            heights[cpno] = abs(z_top) / len(group)
+                        else:
+                            heights[cpno] = abs(z_top) if z_top != 0 else 15.0
+
+                # Stack from z_top downward; sort larger parts to bottom
+                cursor = z_top
+                for cpno, child in sorted(
+                        group, key=lambda g: -heights.get(g[0], 15.0)):
+                    h = heights[cpno]
+                    cursor -= h
+                    result[cpno] = (0, 0, round(cursor, 1))
 
         if not auto_queue:
             continue
@@ -680,11 +719,10 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             dims_map[child["part_no"]] = _parse_dims_text(text)
 
         # ── Envelope-aware anchor-relative stacking ──
-        envelopes = parse_envelopes(spec_path) if spec_path else {}
 
         def _get_height(child):
             """Get part height from §6.4 envelope, BOM dims, or default."""
-            env = envelopes.get(child["part_no"])
+            env = _envelopes_cache.get(child["part_no"])
             if env:
                 return env[2]  # h component
             text = child.get("material", "") + " " + child.get("name_cn", "")
@@ -698,27 +736,24 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
         if dz_sign == 0:
             dz_sign = -1
 
-        # Find anchor Z values from already-positioned parts in this assembly.
-        # For orphan assemblies (no §6.2 position) always seed at origin so
-        # auto-queue parts cluster near the flange body rather than above
-        # outlier anchors (e.g. motors at Z=+73).
-        # For positioned assemblies, seed at the extremal anchor in the
-        # stacking direction, ignoring anchors on the opposite side so that
-        # outlier anchors (e.g. motors sticking above the station shell) do
-        # not push the auto-stack cursor far from the body cluster.
-        anchor_zs = [result[cpno][2] for cpno in result
-                     if cpno.startswith(prefix + "-")]
-        if is_orphan or not anchor_zs:
+        # Seed auto-stacking from the occupied-extent boundary of already-
+        # positioned parts so that auto-stacked parts touch (not overlap)
+        # the explicit cluster.
+        #   - Stacking downward → seed at min(bottom face)
+        #   - Stacking upward  → seed at max(top face)
+        # Top face = bottom_z + envelope_height.
+        placed_in_assy = [(cpno, result[cpno][2]) for cpno in result
+                          if cpno.startswith(prefix + "-")]
+        if is_orphan or not placed_in_assy:
             seed_z = 0.0
         else:
             if dz_sign < 0:
-                # stacking downward — seed at lowest anchor if below origin
-                below = [z for z in anchor_zs if z <= 0.0]
-                seed_z = min(below) if below else 0.0
+                seed_z = min(z for _, z in placed_in_assy)
             else:
-                # stacking upward — seed at highest anchor if above origin
-                above = [z for z in anchor_zs if z >= 0.0]
-                seed_z = max(above) if above else 0.0
+                def _top_z(cpno, z_bottom):
+                    env = _envelopes_cache.get(cpno)
+                    return z_bottom + (env[2] if env else 15.0)
+                seed_z = max(_top_z(cpno, z) for cpno, z in placed_in_assy)
 
         cursor_z = seed_z
         for child in auto_queue:
@@ -730,20 +765,22 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
             if clause and any(k in clause for k in ["∥XY", "水平", "径向"]):
                 # R3: Horizontal part — offset from host body edge, not h/2.
                 # Use part diameter (not length) as clearance from center.
-                env = envelopes.get(cpno)
+                env = _envelopes_cache.get(cpno)
                 part_d = env[0] if env else 20.0  # diameter or width
                 center_x = round(part_d, 1)  # just outside host body
                 result[cpno] = (center_x, 0, 0)
                 continue
 
+            # Parts have bottom at Z=0 (centered=(True,True,False)).
+            # offset_z positions the bottom face, not the center.
             if dz_sign < 0:
-                center_z = cursor_z - h / 2.0
                 cursor_z -= h
+                offset_z = cursor_z
             else:
-                center_z = cursor_z + h / 2.0
+                offset_z = cursor_z
                 cursor_z += h
 
-            result[cpno] = (0, 0, round(center_z, 1))
+            result[cpno] = (0, 0, round(offset_z, 1))
 
     return result
 
