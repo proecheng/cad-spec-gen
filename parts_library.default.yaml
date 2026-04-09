@@ -30,26 +30,100 @@ partcad:
   enabled: false
 
 mappings:
-  # ─── Standard bearings (ISO 15 designations) ────────────────────────
-  # Matches "608ZZ", "6000-2RS", "6200Z" etc. in BOM name or material.
-  # BdWarehouseAdapter auto-extracts the designation via the regex in
-  # catalogs/bd_warehouse_catalog.yaml::size_patterns.iso_bearing.
+  # ─── Specialized bearing classes (tried before generic) ─────────────
+  # Rules are ordered most-specific to least-specific. The bd_warehouse
+  # adapter itself picks the right class from catalogs/bd_warehouse_catalog.yaml
+  # based on name_keywords when spec.class is omitted, but specifying the
+  # class explicitly when possible is faster and more predictable.
+
   - match:
       category: bearing
-      name_contains: ["608", "6000", "6200", "6202", "6204", "619", "深沟"]
+      name_contains: ["NU", "NJ", "NUP", "cylindrical roller", "圆柱滚子"]
+    adapter: bd_warehouse
+    spec:
+      class: SingleRowCylindricalRollerBearing
+
+  - match:
+      category: bearing
+      name_contains: ["30", "32", "tapered", "tapered roller", "圆锥滚子"]
+    adapter: bd_warehouse
+    spec:
+      class: SingleRowTaperedRollerBearing
+
+  - match:
+      category: bearing
+      name_contains: ["7200", "7201", "7202", "7203", "7204", "7205",
+                      "7300", "7301", "7302", "7303", "7304",
+                      "angular contact", "角接触"]
+    adapter: bd_warehouse
+    spec:
+      class: SingleRowAngularContactBallBearing
+
+  - match:
+      category: bearing
+      name_contains: ["ZZ", "2RS", "2Z", "2RZ", "sealed", "shielded",
+                      "密封", "防尘"]
+    adapter: bd_warehouse
+    spec:
+      class: SingleRowCappedDeepGrooveBallBearing
+
+  # ─── Generic deep-groove fallback (matches any "open" bearing) ──────
+  # This catches all the 6xx/6xxx/619/618 series with or without a
+  # specific designation keyword. The adapter auto-extracts the size
+  # via catalogs/bd_warehouse_catalog.yaml::size_patterns.iso_bearing.
+  - match: {category: bearing}
     adapter: bd_warehouse
     spec:
       class: SingleRowDeepGrooveBallBearing
 
-  # ─── Standard fasteners (metric hex head / socket cap) ─────────────
-  # Most projects that write "M3×10 内六角" or similar get a bd_warehouse
-  # SocketHeadCapScrew. The adapter extracts size via the metric_screw regex.
+  # ─── Fasteners (by head type) ───────────────────────────────────────
+  - match:
+      category: fastener
+      name_contains: ["内六角", "socket head", "cap screw", "allen"]
+    adapter: bd_warehouse
+    spec:
+      class: SocketHeadCapScrew
   - match:
       category: fastener
       material_contains: ["内六角", "socket", "ISO4762", "DIN912"]
     adapter: bd_warehouse
     spec:
       class: SocketHeadCapScrew
+
+  - match:
+      category: fastener
+      name_contains: ["沉头", "埋头", "countersunk", "flat head"]
+    adapter: bd_warehouse
+    spec:
+      class: CounterSunkScrew
+
+  - match:
+      category: fastener
+      name_contains: ["圆头", "button head", "dome"]
+    adapter: bd_warehouse
+    spec:
+      class: ButtonHeadScrew
+
+  - match:
+      category: fastener
+      name_contains: ["紧定", "set screw", "grub"]
+    adapter: bd_warehouse
+    spec:
+      class: SetScrew
+
+  - match:
+      category: fastener
+      name_contains: ["螺母", "nut"]
+    adapter: bd_warehouse
+    spec:
+      class: HexNut
+
+  - match:
+      category: fastener
+      name_contains: ["平垫圈", "washer", "垫圈"]
+    adapter: bd_warehouse
+    spec:
+      class: PlainWasher
 
   - match:
       category: fastener

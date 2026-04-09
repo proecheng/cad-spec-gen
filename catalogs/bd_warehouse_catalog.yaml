@@ -6,81 +6,394 @@
 # It also tells probe_dims() how to compute (w, d, h) from a size string
 # without instantiating a full bd_warehouse.Part.
 #
-# Version pinning: bd_warehouse changes shape-parameter names between releases,
-# so catalog entries pin a known-good version. On mismatch the adapter warns.
+# Version pinning: bd_warehouse changes shape-parameter names between
+# releases, so catalog entries pin a known-good version. On mismatch the
+# adapter warns.
 #
-# To regenerate from an installed bd_warehouse: run tools/build_bd_catalog.py
-# (not yet implemented — manual entries are fine for Phase A).
+# Catalog extracted from bd_warehouse 0.2.0 via
+# `tools/check_bd_warehouse_upstream.py`-style CSV dump. See the
+# iso_designation_map blocks for every ISO 15 designation the library
+# currently supports.
 
-version: 1
-bd_warehouse_pinned_version: ">=0.9"
+version: 2
+bd_warehouse_pinned_version: ">=0.2.0,<0.4.0"
 
 # ─── Bearings ────────────────────────────────────────────────────────────
 # Source: bd_warehouse/bearing.py — 5 classes, sizes driven by CSV files
 # in bd_warehouse/data/*_parameters.csv
 
 bearings:
+  # ═══ Deep Groove Ball Bearings (ISO 15) ════════════════════════════
   - module: bd_warehouse.bearing
     class:  SingleRowDeepGrooveBallBearing
-    # The CSV key format is "M{d}-{D}-{B}" where d/D/B are in mm.
-    # ISO 15 designations like 608, 6000, 6200 map to specific rows.
-    # When the BOM says "608ZZ", we need to look up the actual d/D/B.
+    # Covers the full 618/619/62xx/63xx/60xx series shipped with
+    # bd_warehouse 0.2.0. Auto-extracted — do not hand-edit without
+    # re-running the dump.
     iso_designation_map:
-      "623":  {d: 3, D: 10, B: 4, csv_key: "M3-10-4"}
-      "618/4": {d: 4, D: 9, B: 2.5, csv_key: "M4-9-2.5"}
-      "619/4": {d: 4, D: 11, B: 4, csv_key: "M4-11-4"}
-      "604":  {d: 4, D: 12, B: 4, csv_key: "M4-12-4"}
-      "605":  {d: 5, D: 14, B: 5, csv_key: "M5-14-5"}
-      "608":  {d: 8, D: 22, B: 7, csv_key: "M8-22-7"}
-      "6000": {d: 10, D: 26, B: 8, csv_key: "M10-26-8"}
-      "6200": {d: 10, D: 30, B: 9, csv_key: "M10-30-9"}
-      "6202": {d: 15, D: 35, B: 11, csv_key: "M15-35-11"}
-      "6204": {d: 20, D: 47, B: 14, csv_key: "M20-47-14"}
-      "6205": {d: 25, D: 52, B: 15, csv_key: "M25-52-15"}
-    # Name keywords that indicate "this BOM row wants a deep-groove bearing"
-    name_keywords: [深沟, deep, groove, ball bearing, 608, 6000, 6200]
-    # Default bearing_type argument to pass to the class constructor
+      "623":   {d: 3,  D: 10, B: 4,   csv_key: "M3-10-4"}
+      "618/4": {d: 4,  D: 9,  B: 2.5, csv_key: "M4-9-2.5"}
+      "619/4": {d: 4,  D: 11, B: 4,   csv_key: "M4-11-4"}
+      "604":   {d: 4,  D: 12, B: 4,   csv_key: "M4-12-4"}
+      "624":   {d: 4,  D: 13, B: 5,   csv_key: "M4-13-5"}
+      "634":   {d: 4,  D: 16, B: 5,   csv_key: "M4-16-5"}
+      "618/5": {d: 5,  D: 11, B: 3,   csv_key: "M5-11-3"}
+      "619/5": {d: 5,  D: 13, B: 4,   csv_key: "M5-13-4"}
+      "625":   {d: 5,  D: 16, B: 5,   csv_key: "M5-16-5"}
+      "635":   {d: 5,  D: 19, B: 6,   csv_key: "M5-19-6"}
+      "618/6": {d: 6,  D: 13, B: 3.5, csv_key: "M6-13-3.5"}
+      "619/6": {d: 6,  D: 15, B: 5,   csv_key: "M6-15-5"}
+      "626":   {d: 6,  D: 19, B: 6,   csv_key: "M6-19-6"}
+      "618/7": {d: 7,  D: 14, B: 3.5, csv_key: "M7-14-3.5"}
+      "619/7": {d: 7,  D: 17, B: 5,   csv_key: "M7-17-5"}
+      "607":   {d: 7,  D: 19, B: 6,   csv_key: "M7-19-6"}
+      "627":   {d: 7,  D: 22, B: 7,   csv_key: "M7-22-7"}
+      "618/8": {d: 8,  D: 16, B: 4,   csv_key: "M8-16-4"}
+      "619/8": {d: 8,  D: 19, B: 6,   csv_key: "M8-19-6"}
+      "608":   {d: 8,  D: 22, B: 7,   csv_key: "M8-22-7"}
+      "628":   {d: 8,  D: 24, B: 8,   csv_key: "M8-24-8"}
+      "618/9": {d: 9,  D: 17, B: 4,   csv_key: "M9-17-4"}
+      "619/9": {d: 9,  D: 20, B: 6,   csv_key: "M9-20-6"}
+      "609":   {d: 9,  D: 24, B: 7,   csv_key: "M9-24-7"}
+      "629":   {d: 9,  D: 26, B: 8,   csv_key: "M9-26-8"}
+      "61800": {d: 10, D: 19, B: 5,   csv_key: "M10-19-5"}
+      "61900": {d: 10, D: 22, B: 6,   csv_key: "M10-22-6"}
+      "6000":  {d: 10, D: 26, B: 8,   csv_key: "M10-26-8"}
+      "16100": {d: 10, D: 28, B: 8,   csv_key: "M10-28-8"}
+      "6200":  {d: 10, D: 30, B: 9,   csv_key: "M10-30-9"}
+      "6300":  {d: 10, D: 35, B: 11,  csv_key: "M10-35-11"}
+    name_keywords:
+      - 深沟
+      - deep groove
+      - ball bearing
+      - 开放轴承
+      # Common designation keywords users might write
+      - "608"
+      - "604"
+      - "624"
+      - "625"
+      - "626"
+      - "627"
+      - "6000"
+      - "6001"
+      - "6200"
+      - "6300"
+      - "61800"
+      - "61900"
     default_bearing_type: "SKT"
 
-    # Sizes that bd_warehouse DOES NOT support (document for fallback)
+    # Miniature metric sizes bd_warehouse does NOT support (document
+    # for fallback). Users with these parts should drop STEP files into
+    # std_parts/ instead.
     unsupported:
-      - MR105ZZ  # miniature metric, not in ISO 15
+      - MR52ZZ
+      - MR63ZZ
+      - MR74ZZ
+      - MR83ZZ
+      - MR84ZZ
       - MR85ZZ
+      - MR104ZZ
+      - MR105ZZ
       - MR106ZZ
+      - MR115ZZ
+      - MR117ZZ
+      - MR126ZZ
+      - MR128ZZ
+      - MR137ZZ
+      - MR148ZZ
 
+  # ═══ Capped Deep Groove Ball Bearings (ZZ / 2RS variants) ══════════
+  - module: bd_warehouse.bearing
+    class:  SingleRowCappedDeepGrooveBallBearing
+    iso_designation_map:
+      "623-2Z":     {d: 3, D: 10, B: 4,   csv_key: "M3-10-4"}
+      "628/4-2Z":   {d: 4, D: 9,  B: 3.5, csv_key: "M4-9-3.5"}
+      "638/4-2Z":   {d: 4, D: 9,  B: 4,   csv_key: "M4-9-4"}
+      "619/4-2Z":   {d: 4, D: 11, B: 4,   csv_key: "M4-11-4"}
+      "604-2Z":     {d: 4, D: 12, B: 4,   csv_key: "M4-12-4"}
+      "624-2Z":     {d: 4, D: 13, B: 5,   csv_key: "M4-13-5"}
+      "634-2Z":     {d: 4, D: 16, B: 5,   csv_key: "M4-16-5"}
+      "628/5-2Z":   {d: 5, D: 11, B: 4,   csv_key: "M5-11-4"}
+      "638/5-2Z":   {d: 5, D: 11, B: 5,   csv_key: "M5-11-5"}
+      "619/5-2Z":   {d: 5, D: 13, B: 4,   csv_key: "M5-13-4"}
+      "628/6-2Z":   {d: 6, D: 13, B: 5,   csv_key: "M6-13-5"}
+      "619/6-2Z":   {d: 6, D: 15, B: 5,   csv_key: "M6-15-5"}
+      "628/7-2Z":   {d: 7, D: 14, B: 5,   csv_key: "M7-14-5"}
+      "619/7-2Z":   {d: 7, D: 17, B: 5,   csv_key: "M7-17-5"}
+      "628/8-2Z":   {d: 8, D: 16, B: 5,   csv_key: "M8-16-5"}
+      "638/8-2Z":   {d: 8, D: 16, B: 6,   csv_key: "M8-16-6"}
+      "619/8-2Z":   {d: 8, D: 19, B: 6,   csv_key: "M8-19-6"}
+      "630/8-2RS1": {d: 8, D: 22, B: 11,  csv_key: "M8-22-11"}
+      "638-2RZ":    {d: 8, D: 28, B: 6,   csv_key: "M8-28-6"}
+    name_keywords:
+      - 密封
+      - 防尘
+      - sealed
+      - shielded
+      - "ZZ"
+      - "2RS"
+      - "2Z"
+      - "-2Z"
+    default_bearing_type: "SKT"
+
+  # ═══ Angular Contact Ball Bearings (ISO 15, 7xxx series) ═══════════
   - module: bd_warehouse.bearing
     class:  SingleRowAngularContactBallBearing
-    name_keywords: [angular contact, 角接触, 7000, 7200]
+    iso_designation_map:
+      "7200B":  {d: 10, D: 30, B: 9,  csv_key: "M10-30-9"}
+      "7301B":  {d: 12, D: 32, B: 10, csv_key: "M12-32-10"}
+      "7301":   {d: 12, D: 37, B: 12, csv_key: "M12-37-12"}
+      "7202B":  {d: 15, D: 35, B: 11, csv_key: "M15-35-11"}
+      "7302B":  {d: 15, D: 42, B: 13, csv_key: "M15-42-13"}
+      "7203B":  {d: 17, D: 40, B: 12, csv_key: "M17-40-12"}
+      "7303B":  {d: 17, D: 47, B: 14, csv_key: "M17-47-14"}
+      "7204B":  {d: 20, D: 52, B: 15, csv_key: "M20-52-15"}
+      "7305B":  {d: 25, D: 62, B: 17, csv_key: "M25-62-17"}
+    name_keywords:
+      - 角接触
+      - angular contact
+      - "7200"
+      - "7201"
+      - "7202"
+      - "7203"
+      - "7204"
+      - "7205"
+      - "7300"
+      - "7301"
+      - "7302"
     default_bearing_type: "SKT"
 
-# ─── Fasteners (hex head + socket cap) ──────────────────────────────────
-# Source: bd_warehouse/fastener.py
+  # ═══ Cylindrical Roller Bearings (N / NU / NJ series) ═══════════════
+  - module: bd_warehouse.bearing
+    class:  SingleRowCylindricalRollerBearing
+    iso_designation_map:
+      "NU202":  {d: 15, D: 35, B: 11, csv_key: "M15-35-11"}
+      "NU203":  {d: 17, D: 40, B: 12, csv_key: "M17-40-12"}
+      "NU2203": {d: 17, D: 40, B: 16, csv_key: "M17-40-16"}
+      "NU303":  {d: 17, D: 47, B: 14, csv_key: "M17-47-14"}
+      "NU204":  {d: 20, D: 47, B: 14, csv_key: "M20-47-14"}
+      "NU2204": {d: 20, D: 47, B: 18, csv_key: "M20-47-18"}
+      "NU304":  {d: 20, D: 52, B: 15, csv_key: "M20-52-15"}
+      "NU2304": {d: 20, D: 52, B: 21, csv_key: "M20-52-21"}
+      "NU205":  {d: 25, D: 52, B: 15, csv_key: "M25-52-15"}
+    name_keywords:
+      - 圆柱滚子
+      - cylindrical roller
+      - "NU2"
+      - "NU3"
+      - "NJ2"
+      - "NJ3"
+    default_bearing_type: "SKT"
+
+  # ═══ Tapered Roller Bearings (3xxxx series) ═════════════════════════
+  - module: bd_warehouse.bearing
+    class:  SingleRowTaperedRollerBearing
+    iso_designation_map:
+      "30202": {d: 15, D: 42, B: 14.25, csv_key: "M15-42-14.25"}
+      "30203": {d: 17, D: 40, B: 13.25, csv_key: "M17-40-13.25"}
+      "30303": {d: 17, D: 47, B: 15.25, csv_key: "M17-47-15.25"}
+      "32303": {d: 17, D: 47, B: 20.25, csv_key: "M17-47-20.25"}
+      "30204": {d: 20, D: 47, B: 15.25, csv_key: "M20-47-15.25"}
+      "30304": {d: 20, D: 52, B: 16.25, csv_key: "M20-52-16.25"}
+      "32304": {d: 20, D: 52, B: 22.25, csv_key: "M20-52-22.25"}
+      "32005": {d: 25, D: 47, B: 15,    csv_key: "M25-47-15"}
+    name_keywords:
+      - 圆锥滚子
+      - tapered roller
+      - "30200"
+      - "30300"
+      - "32200"
+      - "32300"
+    default_bearing_type: "SKT"
+
+# ─── Fasteners ────────────────────────────────────────────────────────
+# Source: bd_warehouse/fastener.py — 10+ fastener classes
+#
+# Size format: "M{d}-{pitch}" for metric screws. The size_patterns below
+# extract this from common BOM notation like "M3×10" or "M5-0.8 × 12".
 
 fasteners:
+  # ═══ Hex Head Screws (DIN 931 / ISO 4014 / ISO 4017) ═══════════════
   - module: bd_warehouse.fastener
     class:  HexHeadScrew
-    # Sizes in the form "M{d}-{pitch}" plus length suffix
-    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-", "M12-"]
-    material_keywords: [hex head, 六角头, DIN931, ISO4014, ISO4017]
+    size_keywords:
+      - "M1.6-"
+      - "M2-"
+      - "M2.5-"
+      - "M3-"
+      - "M3.5-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+      - "M10-"
+      - "M12-"
+      - "M14-"
+      - "M16-"
+      - "M18-"
+      - "M20-"
+      - "M24-"
+      - "M30-"
+      - "M36-"
+    name_keywords:
+      - 六角头
+      - hex head
+      - hex bolt
+    material_keywords:
+      - 六角头
+      - hex head
+      - DIN931
+      - DIN933
+      - ISO4014
+      - ISO4017
     default_fastener_type: "iso4014"
 
+  # ═══ Socket Head Cap Screws (ISO 4762 / DIN 912) ═══════════════════
   - module: bd_warehouse.fastener
     class:  SocketHeadCapScrew
-    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-"]
-    material_keywords: [内六角, socket, cap, ISO4762, DIN912]
+    size_keywords:
+      - "M1.6-"
+      - "M2-"
+      - "M2.5-"
+      - "M3-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+      - "M10-"
+      - "M12-"
+      - "M16-"
+      - "M20-"
+      - "M24-"
+      - "M30-"
+    name_keywords:
+      - 内六角
+      - 圆柱头
+      - socket head
+      - cap screw
+      - allen
+    material_keywords:
+      - 内六角
+      - socket
+      - ISO4762
+      - DIN912
     default_fastener_type: "iso4762"
 
+  # ═══ Hex Nuts (ISO 4032 / DIN 934) ══════════════════════════════════
   - module: bd_warehouse.fastener
     class:  HexNut
-    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-"]
-    material_keywords: [螺母, nut, DIN934, ISO4032]
+    size_keywords:
+      - "M1.6-"
+      - "M2-"
+      - "M2.5-"
+      - "M3-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+      - "M10-"
+      - "M12-"
+      - "M16-"
+      - "M20-"
+    name_keywords:
+      - 六角螺母
+      - hex nut
+      - nut
+    material_keywords:
+      - 螺母
+      - nut
+      - ISO4032
+      - DIN934
     default_fastener_type: "iso4032"
 
+  # ═══ Plain Washers (ISO 7089 / DIN 125) ═════════════════════════════
   - module: bd_warehouse.fastener
     class:  PlainWasher
-    size_keywords: [M3, M4, M5, M6, M8]
-    material_keywords: [平垫圈, washer, DIN125]
+    size_keywords:
+      - "M2"
+      - "M2.5"
+      - "M3"
+      - "M4"
+      - "M5"
+      - "M6"
+      - "M8"
+      - "M10"
+      - "M12"
+    name_keywords:
+      - 平垫圈
+      - plain washer
+      - flat washer
+    material_keywords:
+      - 平垫圈
+      - washer
+      - DIN125
+      - ISO7089
     default_fastener_type: "iso7089"
+
+  # ═══ Countersunk Head Screws (ISO 10642 / DIN 7991) ═════════════════
+  - module: bd_warehouse.fastener
+    class:  CounterSunkScrew
+    size_keywords:
+      - "M2-"
+      - "M2.5-"
+      - "M3-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+      - "M10-"
+    name_keywords:
+      - 沉头
+      - 埋头
+      - countersunk
+      - flat head
+    material_keywords:
+      - 沉头
+      - countersunk
+      - ISO10642
+      - DIN7991
+    default_fastener_type: "iso10642"
+
+  # ═══ Button Head Screws (ISO 7380) ══════════════════════════════════
+  - module: bd_warehouse.fastener
+    class:  ButtonHeadScrew
+    size_keywords:
+      - "M3-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+      - "M10-"
+    name_keywords:
+      - 圆头
+      - button head
+      - dome head
+    material_keywords:
+      - 圆头
+      - button
+      - ISO7380
+    default_fastener_type: "iso7380"
+
+  # ═══ Set Screws (ISO 4029 / DIN 916) ════════════════════════════════
+  - module: bd_warehouse.fastener
+    class:  SetScrew
+    size_keywords:
+      - "M2-"
+      - "M2.5-"
+      - "M3-"
+      - "M4-"
+      - "M5-"
+      - "M6-"
+      - "M8-"
+    name_keywords:
+      - 紧定螺钉
+      - set screw
+      - grub screw
+    material_keywords:
+      - 紧定
+      - set screw
+      - DIN916
+      - ISO4029
+    default_fastener_type: "iso4029"
 
 # ─── Size pattern extraction helpers ─────────────────────────────────────
 # Regex patterns BdWarehouseAdapter uses to extract size/designation from
@@ -90,6 +403,6 @@ size_patterns:
   # Matches "M3×10" or "M3-0.5 × 10" → extract metric size + length
   metric_screw: '[Mm](\d+(?:\.\d+)?)[×x\-](\d+(?:\.\d+)?)'
   # Matches "608ZZ", "6000-2RS", etc. → bearing designation
-  iso_bearing: '\b(\d{3}[/\-]?\d*)(?:ZZ|-2RS|-2Z)?\b'
+  iso_bearing: '\b(\d{3,5}[/\-]?\d*)(?:ZZ|-2RS|-2Z|-2RZ|RZ)?\b'
   # Matches "MR105", "MR85" → miniature metric (not supported, falls through)
   miniature_bearing: '\bMR\d{2,4}(?:ZZ|-2RS)?\b'

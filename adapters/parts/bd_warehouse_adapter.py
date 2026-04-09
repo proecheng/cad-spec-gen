@@ -251,12 +251,31 @@ class BdWarehouseAdapter(PartsAdapter):
         return None
 
     def _auto_extract_size_from_text(self, text: str, class_info: dict) -> Optional[str]:
-        """Match catalog size_patterns against free text."""
+        """Match catalog size_patterns against free text.
+
+        Strategy for bearings:
+          1. Direct longest-key substring match against iso_designation_map.
+             This catches designations like 'NU2204', '7202B', '623-2Z'
+             where the suffix/prefix letters distinguish bearing classes.
+          2. Fall back to the iso_bearing regex (digit-only pattern) for
+             cases where the BOM uses just the numeric core like '608'.
+
+        Strategy for fasteners:
+          1. metric_screw regex: 'M3×10' → ('M3-0.5')
+          2. metric_diameter regex: 'M6 平垫圈' → ('M6-1') for washers/nuts
+        """
         patterns = self._catalog.get("size_patterns", {})
 
-        # Bearings: try iso_bearing pattern, look up in iso_designation_map
+        # ── Bearings ──
         iso_map = class_info.get("iso_designation_map", {})
         if iso_map:
+            # Pass 1: longest-key substring match (handles letter suffixes)
+            # Sort keys by length DESC so 'NU2204' beats 'NU220' on overlap
+            for designation in sorted(iso_map.keys(), key=len, reverse=True):
+                if designation in text:
+                    return iso_map[designation]["csv_key"]
+
+            # Pass 2: digit-only iso_bearing regex (legacy path)
             rx = patterns.get("iso_bearing", "")
             if rx:
                 for m in re.finditer(rx, text):
@@ -264,18 +283,33 @@ class BdWarehouseAdapter(PartsAdapter):
                     if designation in iso_map:
                         return iso_map[designation]["csv_key"]
 
-        # Fasteners: metric_screw pattern
+        # ── Fasteners ──
+        # First try the M{d}×{length} pattern (screws with explicit length)
         rx = patterns.get("metric_screw", "")
         if rx:
             m = re.search(rx, text)
             if m:
                 d = float(m.group(1))
                 l = float(m.group(2))
-                # bd_warehouse uses "M{d}-{pitch}" format; assume coarse pitch
-                pitch_map = {2: 0.4, 2.5: 0.45, 3: 0.5, 4: 0.7, 5: 0.8,
-                             6: 1.0, 8: 1.25, 10: 1.5, 12: 1.75}
-                pitch = pitch_map.get(int(d), 0.5)
+                pitch_map = {1.6: 0.35, 2: 0.4, 2.5: 0.45, 3: 0.5,
+                             4: 0.7, 5: 0.8, 6: 1.0, 8: 1.25,
+                             10: 1.5, 12: 1.75, 14: 2.0, 16: 2.0,
+                             20: 2.5, 24: 3.0, 30: 3.5, 36: 4.0}
+                pitch = pitch_map.get(d, pitch_map.get(int(d), 0.5))
                 return f"M{int(d) if d == int(d) else d}-{pitch}"
+
+        # Fall back to M{d} alone (washers, nuts, parts without length)
+        m = re.search(r'\bM(\d+(?:\.\d+)?)\b', text)
+        if m:
+            d = float(m.group(1))
+            pitch_map = {1.6: 0.35, 2: 0.4, 2.5: 0.45, 3: 0.5,
+                         4: 0.7, 5: 0.8, 6: 1.0, 8: 1.25,
+                         10: 1.5, 12: 1.75, 14: 2.0, 16: 2.0,
+                         20: 2.5, 24: 3.0, 30: 3.5, 36: 4.0}
+            pitch = pitch_map.get(d, pitch_map.get(int(d), 0.5))
+            # Some bd_warehouse classes (washers) use bare "M{d}" not "M{d}-{p}"
+            # so try both forms downstream — return the dashed form first.
+            return f"M{int(d) if d == int(d) else d}-{pitch}"
 
         return None
 
