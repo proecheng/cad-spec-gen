@@ -286,11 +286,14 @@ def generate_std_part_files(
         Path(out_file).write_text(content, encoding="utf-8")
         generated.append(out_file)
 
-    # Print resolver summary for debugging
-    summary = resolver.summary()
-    if summary:
-        summary_str = ", ".join(f"{k}={v}" for k, v in sorted(summary.items()))
-        print(f"[gen_std_parts] resolver decisions: {summary_str}")
+    # Print the resolver coverage report. The report tells the user, per
+    # adapter, which specific parts were handled and gives an explicit
+    # hint when many parts fell through to the simplified jinja fallback.
+    # See PartsResolver.coverage_report() for the format.
+    report = resolver.coverage_report()
+    if report:
+        for line in report.splitlines():
+            print(f"[gen_std_parts] {line}")
 
     return generated, skipped
 

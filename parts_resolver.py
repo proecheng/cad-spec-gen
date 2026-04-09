@@ -221,6 +221,97 @@ class PartsResolver:
             counts[adapter] = counts.get(adapter, 0) + 1
         return counts
 
+    def decisions_by_adapter(self) -> dict:
+        """Return adapter → list of (part_no, source_tag) tuples.
+
+        Used by the coverage report to print which specific parts each
+        adapter handled. Iteration order matches resolve() order.
+        """
+        result: dict = {}
+        for part_no, adapter, source_tag in self._decision_log:
+            result.setdefault(adapter, []).append((part_no, source_tag))
+        return result
+
+    def coverage_report(self, max_examples_per_adapter: int = 5) -> str:
+        """Render a multi-line coverage report for end-of-build display.
+
+        Format::
+
+            resolver coverage:
+              step_pool        2  GIS-EE-001-05, GIS-EE-001-06
+              bd_warehouse     1  GIS-EE-002-11
+              jinja_primitive 31  GIS-EE-001-03, GIS-EE-001-04 ... (and 27 more)
+              ─────────────────────────────────────
+              Total: 34 parts | Library hits: 3 (8.8%) | Fallback: 31 (91.2%)
+
+              31 parts use simplified geometry. To upgrade them: add a STEP
+              file under std_parts/, write a parts_library.yaml rule, or set
+              `extends: default` to inherit category-driven routing.
+              See docs/PARTS_LIBRARY.md for the mapping vocabulary.
+
+        The report is intentionally plain ASCII (no Unicode tables) so it
+        renders correctly on every CI runner including Windows GBK consoles.
+        Returns an empty string if no decisions have been recorded yet.
+        """
+        decisions = self.decisions_by_adapter()
+        if not decisions:
+            return ""
+
+        total = sum(len(v) for v in decisions.values())
+        fallback_count = len(decisions.get("jinja_primitive", []))
+        library_count = total - fallback_count
+
+        # Order adapters: library backends first, jinja_primitive last
+        ordered = sorted(
+            decisions.keys(),
+            key=lambda a: (a == "jinja_primitive", a),
+        )
+
+        lines = ["resolver coverage:"]
+        name_width = max(len(a) for a in ordered)
+        for adapter in ordered:
+            parts = decisions[adapter]
+            count = len(parts)
+            shown = [p for p, _ in parts[:max_examples_per_adapter]]
+            extra = count - len(shown)
+            examples = ", ".join(shown)
+            if extra > 0:
+                examples += f" ... (and {extra} more)"
+            lines.append(
+                f"  {adapter:<{name_width}}  {count:>3}  {examples}"
+            )
+
+        # Aggregate row
+        lines.append("  " + "─" * (name_width + 50))
+        if total > 0:
+            lib_pct = 100.0 * library_count / total
+            fb_pct = 100.0 * fallback_count / total
+        else:
+            lib_pct = fb_pct = 0.0
+        lines.append(
+            f"  Total: {total} parts | Library hits: {library_count} "
+            f"({lib_pct:.1f}%) | Fallback: {fallback_count} ({fb_pct:.1f}%)"
+        )
+
+        # Hint footer (only when fallback is non-trivial)
+        if fallback_count > 0:
+            lines.append("")
+            lines.append(
+                f"  {fallback_count} parts use simplified geometry. To upgrade "
+                f"them: add a STEP file"
+            )
+            lines.append(
+                "  under std_parts/, write a parts_library.yaml rule, or set"
+            )
+            lines.append(
+                "  `extends: default` to inherit category-driven routing."
+            )
+            lines.append(
+                "  See docs/PARTS_LIBRARY.md for the mapping vocabulary."
+            )
+
+        return "\n".join(lines)
+
     def _find_adapter(self, name: str):
         for a in self.adapters:
             if a.name == name:
@@ -294,12 +385,26 @@ def load_registry(
 ) -> dict:
     """Load parts_library.yaml from the standard search path.
 
-    Search order (first hit wins):
+    Search order for the **project** registry (first hit wins):
       1. `explicit_path` argument (from --parts-library CLI flag)
       2. $CAD_PARTS_LIBRARY environment variable
       3. <project_root>/parts_library.yaml
-      4. <skill_root>/parts_library.default.yaml
+      4. <skill_root>/parts_library.default.yaml (no project file → use default directly)
       5. empty dict (resolver becomes no-op)
+
+    **Inheritance via `extends: default`** (since v2.8.1):
+    A project registry that sets `extends: default` at the top level inherits
+    the skill-shipped `parts_library.default.yaml`. The merge semantics are:
+
+      - Project `mappings:` is **prepended** to default `mappings:` so project
+        rules win first-hit-wins, with default rules acting as a fallback for
+        anything the project doesn't explicitly cover.
+      - Project top-level keys (`step_pool`, `bd_warehouse`, `partcad`,
+        `version`) **override** default top-level keys shallowly.
+
+    This is the recommended pattern: project YAML stays sparse, listing only
+    the project-specific overrides, and inherits the default category-driven
+    routing for everything else.
 
     Returns the parsed YAML dict, or {} if no file is found or YAML cannot
     be imported. Never raises on missing file.
@@ -318,31 +423,102 @@ def load_registry(
         log("  [resolver] PyYAML not installed → empty registry")
         return {}
 
-    candidates = []
-    if explicit_path:
-        candidates.append(explicit_path)
-    env_path = os.environ.get("CAD_PARTS_LIBRARY", "")
-    if env_path:
-        candidates.append(env_path)
-    if project_root:
-        candidates.append(os.path.join(project_root, "parts_library.yaml"))
     skill_root = str(Path(__file__).parent)
-    candidates.append(os.path.join(skill_root, "parts_library.default.yaml"))
+    default_path = os.path.join(skill_root, "parts_library.default.yaml")
 
-    for path in candidates:
-        if not path or not os.path.isfile(path):
-            continue
+    # Find the project registry (steps 1–3 above). Default is loaded
+    # separately as the inheritance base.
+    project_path = None
+    if explicit_path and os.path.isfile(explicit_path):
+        project_path = explicit_path
+    elif os.environ.get("CAD_PARTS_LIBRARY"):
+        env_path = os.environ["CAD_PARTS_LIBRARY"]
+        if os.path.isfile(env_path):
+            project_path = env_path
+    elif project_root:
+        candidate = os.path.join(project_root, "parts_library.yaml")
+        if os.path.isfile(candidate):
+            project_path = candidate
+
+    def _load_yaml(path: str) -> Optional[dict]:
         try:
             with open(path, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            log(f"  [resolver] loaded registry from {path}")
-            return data
+                return yaml.safe_load(f) or {}
         except Exception as e:
             log(f"  [resolver] failed to parse {path}: {e}")
-            continue
+            return None
 
-    log("  [resolver] no parts_library.yaml found → empty registry")
-    return {}
+    # No project registry → fall back to default registry directly
+    if project_path is None:
+        if os.path.isfile(default_path):
+            data = _load_yaml(default_path)
+            if data is not None:
+                log(f"  [resolver] loaded default registry from {default_path}")
+                return data
+        log("  [resolver] no parts_library.yaml found → empty registry")
+        return {}
+
+    project_data = _load_yaml(project_path)
+    if project_data is None:
+        return {}
+
+    # Resolve `extends: default` inheritance
+    extends = project_data.get("extends")
+    if extends == "default":
+        if not os.path.isfile(default_path):
+            log(f"  [resolver] {project_path} extends default, but "
+                f"{default_path} is missing — using project only")
+            log(f"  [resolver] loaded registry from {project_path}")
+            return project_data
+
+        default_data = _load_yaml(default_path)
+        if default_data is None:
+            log(f"  [resolver] failed to load default registry; using project only")
+            log(f"  [resolver] loaded registry from {project_path}")
+            return project_data
+
+        merged = _merge_registry(default_data, project_data)
+        log(f"  [resolver] loaded registry from {project_path} (extends default)")
+        return merged
+
+    if extends is not None:
+        log(f"  [resolver] unknown extends value {extends!r} in {project_path} "
+            f"— ignoring (valid values: 'default')")
+
+    log(f"  [resolver] loaded registry from {project_path}")
+    return project_data
+
+
+def _merge_registry(base: dict, overlay: dict) -> dict:
+    """Merge an `extends: default` overlay onto its base registry.
+
+    Semantics:
+      - Top-level keys in `overlay` override `base` shallowly (e.g.
+        `step_pool`, `bd_warehouse`, `partcad`, `version` are replaced).
+      - `mappings` is special: overlay's mappings are **prepended** to base's
+        mappings so overlay rules win first-hit-wins, with base rules acting
+        as a fallback for anything overlay doesn't cover.
+      - The synthetic `extends` key itself is dropped from the result so the
+        merged registry is a normal flat dict.
+
+    Note: this is intentionally NOT a deep merge. Deep-merging YAML configs
+    is a footgun (silent surprises with list-vs-dict semantics); shallow
+    override + mapping prepend is the model that maps cleanly to user intent.
+    """
+    merged = dict(base)  # shallow copy of base
+
+    # Top-level keys: overlay wins
+    for key, value in overlay.items():
+        if key in ("extends", "mappings"):
+            continue
+        merged[key] = value
+
+    # mappings: overlay first, then base
+    overlay_mappings = list(overlay.get("mappings", []) or [])
+    base_mappings = list(base.get("mappings", []) or [])
+    merged["mappings"] = overlay_mappings + base_mappings
+
+    return merged
 
 
 # ─── Default factory ──────────────────────────────────────────────────────

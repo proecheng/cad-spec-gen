@@ -6,6 +6,38 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.8.1] — 2026-04-09
+
+**Theme:** Registry inheritance + coverage report — close the parts library "user can't tell what's happening" loop.
+
+### Added
+- **`extends: default`** in `parts_library.yaml`. Project YAML can now inherit from the skill-shipped `parts_library.default.yaml` instead of completely replacing it. Project mappings are **prepended** to default mappings (project rules win first-hit-wins, default rules act as fallback for parts the project doesn't explicitly cover). Project top-level keys (`step_pool`, `bd_warehouse`, `partcad`, `version`) override default top-level keys shallowly. Unknown `extends:` values are logged as warnings and the project YAML is loaded standalone.
+- **Resolver coverage report** in `gen_std_parts.py`. Replaces the previous one-line summary with a per-adapter table showing which specific parts each adapter handled, plus an aggregate row and a hint footer pointing at `docs/PARTS_LIBRARY.md` for upgrading fallback parts. Format is plain ASCII (one box-drawing dash) so it renders correctly on every CI runner including Windows GBK consoles.
+- New `PartsResolver.coverage_report()` and `PartsResolver.decisions_by_adapter()` methods.
+- 13 new tests in `tests/test_parts_resolver.py`: 6 for `extends: default` merge semantics (prepend ordering, top-level override, drops `extends` key from result, unknown value graceful fallback, kill switch, no-extends backwards compat) + 7 for coverage report (empty state, grouping, jinja-last ordering, truncation of long lists, conditional hint footer, ASCII-only output, decisions_by_adapter shape).
+
+### Changed
+- `parts_resolver.load_registry()` rewritten to handle the inheritance step. The legacy "first-file-wins" search path is preserved exactly when `extends:` is absent — projects without `extends:` continue to behave like v2.8.0.
+- `codegen/gen_std_parts.py` end-of-run output: replaces `[gen_std_parts] resolver decisions: a=N, b=M` with the multi-line coverage report.
+- `D:/Work/cad-tests/GISBOT/parts_library.yaml` migrated to `extends: default`. The previous hardcoded MR105ZZ → bd_warehouse `M4-9-2.5` (Φ4×Φ9×2.5) override has been removed — it was wrong (MR105ZZ is Φ5×Φ10×4 and bd_warehouse 0.2.0 has no exact equivalent). The bearing now correctly falls through to `jinja_primitive` with the right Φ10×4 dimensions, and the file documents why with an inline comment.
+- `docs/PARTS_LIBRARY.md` documents the new inheritance pattern, the coverage report format, and a troubleshooting section explaining the three common reasons parts end up in `jinja_primitive` (bd_warehouse category not covered, miniature/non-ISO size, name keywords don't match).
+
+### Fixed
+- **GISBOT MR105ZZ misclassification**: the previous v2.8.0 GISBOT yaml hardcoded the bearing to `SingleRowDeepGrooveBallBearing(M4-9-2.5)` which is bd_warehouse's 618/4 (Φ4×Φ9×2.5) — wrong inner, outer, and width. The bearing now uses `jinja_primitive` with correct Φ10 OD × 4 mm width from the BOM material column.
+- **Sparse-yaml trap**: a project that wrote a 3-rule `parts_library.yaml` previously **completely replaced** the default registry, silently disabling the category-driven `bearing → bd_warehouse` / `fastener → bd_warehouse` rules. With `extends: default` projects can keep their YAML sparse without losing default coverage. The trap is documented in `docs/PARTS_LIBRARY.md`.
+
+### Compatibility
+- **Backwards compatible.** Projects without `extends:` in their `parts_library.yaml` continue to use the legacy first-file-wins behavior. The `CAD_PARTS_LIBRARY_DISABLE=1` kill switch still short-circuits before any YAML is parsed.
+- **No new pipeline intermediate files.** Coverage report is stdout-only.
+- **Test suite**: 160 passed, 0 skipped (was 145 in v2.8.0; +13 new + 2 previously-skipped optional `bd_warehouse` tests now passing under `PYTHONUTF8=1`).
+
+### Validation
+- Full `tests/` suite: 160 passed
+- GISBOT end_effector pipeline (Phase 1 spec → Phase 2 codegen → Phase 3 build): all phases pass, ASSEMBLY_REPORT identical to v2.8.0 (1 WARNING for the pre-existing 002-04 5 mm gap edge case, F4 max_extent=402 mm, F5=86.7 % completeness)
+- Resolver coverage report on GISBOT correctly shows `step_pool=1, jinja_primitive=33` with the hint footer
+
+---
+
 ## [2.8.0] — 2026-04-09
 
 **Theme:** Parts library system + assembly coherence consolidation.

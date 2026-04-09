@@ -70,35 +70,63 @@ pip install partcad
 
 ### Step 2: Create a `parts_library.yaml` at your project root
 
+The recommended pattern (since v2.8.1) is to inherit from the
+skill-shipped default registry via `extends: default` and only list the
+project-specific overrides. The default ships with category-driven rules
+for bearings + fasteners → `bd_warehouse`, and a terminal fallback to
+`jinja_primitive`.
+
 ```yaml
-version: 1
+extends: default
 
 step_pool:
   root: std_parts/
   cache: ~/.cad-spec-gen/step_cache/
 
-bd_warehouse:
-  enabled: true
-
-partcad:
-  enabled: false  # opt-in only
-
 mappings:
-  # Exact part_no override — project-specific branded part
+  # Project-specific overrides — these are PREPENDED to default mappings
+  # and tried first (first-hit-wins).
+
+  # Exact part_no override — point at a vendor STEP file
   - match: {part_no: "MYPROJ-001-05"}
     adapter: step_pool
     spec: {file: "maxon/ecx_22l_68mm.step"}
 
-  # Category + keyword rule — generic, reusable
+  # Anything not matched here flows into the default rules:
+  #   bearing → bd_warehouse (specific class first, generic last)
+  #   fastener → bd_warehouse (head-type first, hex/washer/nut last)
+  #   everything else → jinja_primitive
+```
+
+If you do **not** use `extends: default`, your mappings completely
+replace the default registry — including the terminal fallback. In that
+case you must include your own `{any: true → jinja_primitive}` rule:
+
+```yaml
+# Legacy / pre-v2.8.1 style: complete replacement
+version: 1
+mappings:
+  - match: {part_no: "MYPROJ-001-05"}
+    adapter: step_pool
+    spec: {file: "maxon/ecx_22l_68mm.step"}
   - match: {category: bearing, name_contains: ["608", "6200"]}
     adapter: bd_warehouse
-    spec:
-      class: SingleRowDeepGrooveBallBearing
-
-  # Fallback
+    spec: {class: SingleRowDeepGrooveBallBearing}
   - match: {any: true}
     adapter: jinja_primitive
 ```
+
+#### `extends: default` merge semantics
+
+| What | How it merges |
+|------|---------------|
+| `mappings:` (list) | Project mappings are **prepended** to default mappings. Project rules win first-hit-wins; default rules act as a fallback for parts the project does not explicitly cover. |
+| `step_pool`, `bd_warehouse`, `partcad`, `version` (top-level keys) | Project values **override** default values shallowly. |
+| Unknown `extends:` value (e.g. `extends: foo`) | Logged as warning; project YAML is loaded standalone (no inheritance). |
+
+The merge is intentionally NOT a deep merge. List-vs-dict semantics in
+deep-merging YAML configs are a footgun; shallow override + mapping
+prepend gives you what you actually want without surprises.
 
 ### Step 3: Drop STEP files into `std_parts/`
 
@@ -137,6 +165,44 @@ And `cad/end_effector/CAD_SPEC.md` §6.4 will contain:
 
 The generated `std_myproj_001_05.py` will use `cq.importers.importStep()`
 to load the real STEP file.
+
+## Coverage report
+
+Since v2.8.1, `gen_std_parts.py` prints a per-adapter coverage report at
+the end of code generation, telling you exactly which parts went where:
+
+```
+[gen_std_parts] resolver coverage:
+[gen_std_parts]   step_pool          1  GIS-EE-001-05
+[gen_std_parts]   bd_warehouse       2  GIS-EE-002-11, GIS-EE-002-12
+[gen_std_parts]   jinja_primitive   31  GIS-EE-001-03, GIS-EE-001-04 ... (and 28 more)
+[gen_std_parts]   ─────────────────────────────────────────────────────────────────
+[gen_std_parts]   Total: 34 parts | Library hits: 3 (8.8%) | Fallback: 31 (91.2%)
+[gen_std_parts]
+[gen_std_parts]   31 parts use simplified geometry. To upgrade them: add a STEP file
+[gen_std_parts]   under std_parts/, write a parts_library.yaml rule, or set
+[gen_std_parts]   `extends: default` to inherit category-driven routing.
+```
+
+The hint footer is suppressed when there are no `jinja_primitive`
+fallbacks (i.e. every part has a real library backing). Library backends
+are listed before `jinja_primitive` so the most informative rows are
+visually prominent.
+
+If you see most of your BOM in the `jinja_primitive` row and your YAML
+already has `extends: default`, the explanation is usually one of:
+
+1. **`bd_warehouse` does not cover that category.** It only ships ISO 15
+   bearings + ISO 4014/4762 fasteners. Motors, sensors, connectors,
+   pumps, seals, etc. are out of scope. Solution: drop a vendor STEP
+   file under `std_parts/` and add a `step_pool` rule.
+2. **The bearing/fastener size is not in `bd_warehouse`'s catalog.**
+   Miniature bearings (e.g. MR105ZZ Φ5×Φ10×4) are a Japanese standard
+   that ISO 15 does not include. Solution: same — drop a STEP file.
+3. **`name_contains` keywords don't match.** Open
+   `parts_library.default.yaml` and check the keyword lists; if your
+   BOM uses different terminology, add a project-specific rule that
+   prepends the right keywords.
 
 ## Mapping rule vocabulary
 

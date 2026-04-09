@@ -331,3 +331,237 @@ class TestLoadRegistry:
         reg = load_registry(project_root=str(tmp_path))
         # Malformed file should NOT crash; returns empty or default
         assert isinstance(reg, dict)
+
+
+# ─── extends: default merge tests ──────────────────────────────────────
+
+
+class TestExtendsDefault:
+    """Tests for the `extends: default` inheritance mechanism added in
+    v2.8.1. Project YAML can be sparse and inherit category-driven rules
+    from parts_library.default.yaml without copy-paste."""
+
+    def test_project_mappings_prepended_to_default(self, tmp_path):
+        """Project mappings come BEFORE default mappings in dispatch order."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text(
+            "extends: default\n"
+            "mappings:\n"
+            "  - match: {part_no: \"X-001\"}\n"
+            "    adapter: bd_warehouse\n"
+            "    spec: {class: SingleRowDeepGrooveBallBearing}\n"
+        )
+        reg = load_registry(project_root=str(tmp_path))
+        if not reg:
+            pytest.skip("default registry not on disk")
+        mappings = reg.get("mappings", [])
+        # Project's X-001 rule must be the first one
+        assert mappings[0]["match"]["part_no"] == "X-001"
+        # Default rules should still be present after the project rule
+        assert len(mappings) > 1
+        # The terminal {any: true} fallback from default must still be last
+        assert mappings[-1]["match"].get("any") is True
+
+    def test_extends_drops_extends_key_from_result(self, tmp_path):
+        """The synthetic `extends` key should not appear in the merged dict."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text("extends: default\nmappings: []\n")
+        reg = load_registry(project_root=str(tmp_path))
+        if not reg:
+            pytest.skip("default registry not on disk")
+        assert "extends" not in reg
+
+    def test_extends_top_level_keys_override_default(self, tmp_path):
+        """Project top-level keys (e.g. step_pool, version) override default."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text(
+            "extends: default\n"
+            "version: 99\n"
+            "step_pool:\n"
+            "  root: my_custom_pool/\n"
+            "mappings: []\n"
+        )
+        reg = load_registry(project_root=str(tmp_path))
+        if not reg:
+            pytest.skip("default registry not on disk")
+        assert reg.get("version") == 99
+        assert reg.get("step_pool", {}).get("root") == "my_custom_pool/"
+
+    def test_extends_unknown_value_falls_back_to_project_only(self, tmp_path):
+        """`extends: foo` (unknown value) is logged and ignored gracefully."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text(
+            "extends: nonexistent_keyword\n"
+            "version: 7\n"
+            "mappings:\n"
+            "  - match: {any: true}\n"
+            "    adapter: jinja_primitive\n"
+        )
+        logs = []
+        reg = load_registry(project_root=str(tmp_path), logger=logs.append)
+        # Project data should still be loaded
+        assert reg.get("version") == 7
+        # And a log should mention the unknown extends value
+        assert any("unknown extends" in m for m in logs)
+
+    def test_no_extends_behaves_like_pre_v2_8_1(self, tmp_path):
+        """Without `extends:`, project YAML completely replaces default
+        (legacy behavior preserved for backwards compat)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text(
+            "version: 1\n"
+            "mappings:\n"
+            "  - match: {any: true}\n"
+            "    adapter: jinja_primitive\n"
+        )
+        reg = load_registry(project_root=str(tmp_path))
+        if not reg:
+            pytest.skip("PyYAML not installed")
+        # Only the project's single rule should be present
+        assert len(reg.get("mappings", [])) == 1
+        assert reg.get("version") == 1
+
+    def test_kill_switch_overrides_extends(self, monkeypatch, tmp_path):
+        """CAD_PARTS_LIBRARY_DISABLE=1 must short-circuit before reading any
+        YAML, including projects with extends: default."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        p = tmp_path / "parts_library.yaml"
+        p.write_text("extends: default\nmappings: []\n")
+        monkeypatch.setenv("CAD_PARTS_LIBRARY_DISABLE", "1")
+        reg = load_registry(project_root=str(tmp_path))
+        assert reg == {}
+
+
+# ─── Coverage report tests ──────────────────────────────────────────────
+
+
+class TestCoverageReport:
+    """Tests for PartsResolver.coverage_report() — the human-readable
+    end-of-build summary that tells users which parts went where."""
+
+    def _make_resolver_with_decisions(self, decisions: list) -> PartsResolver:
+        """Build a resolver and synthesize a decision log without actually
+        running adapters. Each entry is (part_no, adapter_name, source_tag)."""
+        resolver = PartsResolver(registry={}, adapters=[])
+        resolver._decision_log = list(decisions)
+        return resolver
+
+    def test_empty_when_no_decisions(self):
+        resolver = PartsResolver(registry={}, adapters=[])
+        assert resolver.coverage_report() == ""
+
+    def test_groups_by_adapter_with_counts(self):
+        resolver = self._make_resolver_with_decisions([
+            ("P-001", "step_pool", "STEP:foo.step"),
+            ("P-002", "bd_warehouse", "BW:608"),
+            ("P-003", "jinja_primitive", "jinja:tank"),
+            ("P-004", "jinja_primitive", "jinja:tank"),
+        ])
+        report = resolver.coverage_report()
+        assert "resolver coverage:" in report
+        assert "step_pool" in report
+        assert "bd_warehouse" in report
+        assert "jinja_primitive" in report
+        # Counts visible: 1, 1, 2
+        assert "P-001" in report
+        assert "P-002" in report
+        # Aggregate row
+        assert "Total: 4 parts" in report
+        assert "Library hits: 2" in report
+        assert "Fallback: 2" in report
+
+    def test_jinja_primitive_listed_last(self):
+        """Library backends should appear above the simplified-geometry
+        fallback so the most informative rows are visually prominent."""
+        resolver = self._make_resolver_with_decisions([
+            ("P-001", "jinja_primitive", "jinja"),
+            ("P-002", "step_pool", "STEP"),
+        ])
+        report = resolver.coverage_report()
+        step_pos = report.index("step_pool")
+        jinja_pos = report.index("jinja_primitive")
+        assert step_pos < jinja_pos
+
+    def test_truncates_long_example_lists(self):
+        """Adapters handling many parts get a `... (and N more)` suffix."""
+        decisions = [
+            (f"P-{i:03d}", "jinja_primitive", "jinja")
+            for i in range(20)
+        ]
+        resolver = self._make_resolver_with_decisions(decisions)
+        report = resolver.coverage_report(max_examples_per_adapter=5)
+        assert "and 15 more" in report
+
+    def test_hint_appears_only_when_fallback_present(self):
+        """Hint footer is only shown when the user can act on it
+        (i.e. when there are jinja-fallback parts to upgrade)."""
+        # No fallback → no hint
+        resolver = self._make_resolver_with_decisions([
+            ("P-001", "step_pool", "STEP"),
+            ("P-002", "bd_warehouse", "BW"),
+        ])
+        assert "simplified geometry" not in resolver.coverage_report()
+        assert "extends: default" not in resolver.coverage_report()
+
+        # Some fallback → hint appears
+        resolver2 = self._make_resolver_with_decisions([
+            ("P-003", "jinja_primitive", "jinja"),
+        ])
+        report2 = resolver2.coverage_report()
+        assert "simplified geometry" in report2
+        assert "extends: default" in report2
+        assert "PARTS_LIBRARY.md" in report2
+
+    def test_decisions_by_adapter_returns_part_lists(self):
+        """The lower-level decisions_by_adapter() returns adapter → list."""
+        resolver = self._make_resolver_with_decisions([
+            ("P-001", "step_pool", "STEP:a"),
+            ("P-002", "step_pool", "STEP:b"),
+            ("P-003", "jinja_primitive", "jinja"),
+        ])
+        d = resolver.decisions_by_adapter()
+        assert d["step_pool"] == [("P-001", "STEP:a"), ("P-002", "STEP:b")]
+        assert d["jinja_primitive"] == [("P-003", "jinja")]
+
+    def test_report_is_pure_ascii(self):
+        """The report must use only ASCII (the box-drawing dash is intentional)
+        — no emoji, no high-Unicode characters that break Windows GBK consoles."""
+        decisions = [
+            ("P-001", "step_pool", "STEP"),
+            ("P-002", "jinja_primitive", "jinja"),
+        ]
+        resolver = self._make_resolver_with_decisions(decisions)
+        report = resolver.coverage_report()
+        # ─ (U+2500) is the only non-ASCII char we use, intentionally for the
+        # separator line. Everything else must encode under cp1252/cp936.
+        non_ascii = [c for c in report if ord(c) > 127 and c != "─"]
+        assert non_ascii == [], f"unexpected non-ASCII: {non_ascii!r}"
