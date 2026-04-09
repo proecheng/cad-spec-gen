@@ -88,7 +88,12 @@ def make_assembly() -> cq.Assembly:
 
 
 def export_assembly(output_dir: str, glb: bool = True) -> str:
-    """Build and export the full assembly STEP (and optionally GLB)."""
+    """Build and export the full assembly STEP (and optionally GLB).
+
+    The GLB is post-processed by `cad_pipeline.py build` to collapse
+    CadQuery's per-face mesh split into per-part meshes — see
+    `codegen/consolidate_glb.py`.
+    """
     assy = make_assembly()
     path = os.path.join(output_dir, "{{ assembly_part_no }}_assembly.step")
     assy.save(path, "STEP")

@@ -1069,6 +1069,24 @@ def cmd_build(args):
     if not ok:
         return 1
 
+    # ── Post-build: GLB consolidation ────────────────────────────────────────
+    # CadQuery's exportGLTF emits one mesh node per OCCT face — a 100-face
+    # part becomes 100 sibling Mesh nodes in the GLB. The consolidator
+    # collapses sibling components by `_<digit>` suffix so each part is a
+    # single mesh under its canonical name. Without this, downstream
+    # tools that read per-component bbox (3D viewers, label projectors)
+    # see only the bbox of the first face. Gracefully no-ops when
+    # trimesh isn't installed.
+    if not args.dry_run:
+        try:
+            from codegen.consolidate_glb import consolidate_glb_file
+            import glob
+            glb_files = glob.glob(os.path.join(DEFAULT_OUTPUT, "*_assembly.glb"))
+            for glb_file in glb_files:
+                consolidate_glb_file(glb_file, logger=lambda m: log.info(m))
+        except ImportError:
+            pass  # consolidator module missing — non-fatal
+
     # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
     render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
     if os.path.isfile(render_dxf_script):

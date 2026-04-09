@@ -70,17 +70,22 @@ def make_{{ func_name }}() -> cq.Workplane:
     # The previous "platforms perched on the disc top face" design hid the
     # cross structure when viewed from below or from a low-angle iso shot.
     #
-    # Each arm starts at the disc edge and extends OUTWARD by
-    # arm_l={{ geom_arm_l }}mm; cross-section is {{ geom_arm_w }}mm (Y) ×
-    # _disc_h (Z). Each arm tip terminates in a 40×40mm mounting platform
-    # for workstation modules (cited in §4.1.1, §4.x: "悬臂安装面 40×40mm").
-    _arm_x_mid = _disc_r + {{ geom_arm_l }} / 2
+    # Each arm starts INSIDE the disc by _arm_overlap mm and extends OUTWARD
+    # to the same visible tip as before. The overlap is critical: without
+    # it, the arm box would be tangent to the disc cylinder (touching only
+    # at a single line, not overlapping in volume), and OCCT's union would
+    # produce a Compound of disjoint Solids instead of a single fused
+    # Solid. That breaks any downstream code (and any GLB component bbox
+    # calculation) that assumes one cq.Solid per make_*() call.
+    _arm_overlap = 2.0  # mm of arm root buried inside the disc
+    _arm_l_eff = {{ geom_arm_l }} + _arm_overlap
+    _arm_x_mid = (_disc_r - _arm_overlap) + _arm_l_eff / 2
     _plat_size = 40.0
     _plat_x = _disc_r + {{ geom_arm_l }} - _plat_size / 2
 
     _arm = (cq.Workplane("XY")
             .center(_arm_x_mid, 0)
-            .box({{ geom_arm_l }}, {{ geom_arm_w }}, _disc_h,
+            .box(_arm_l_eff, {{ geom_arm_w }}, _disc_h,
                  centered=(True, True, False)))
     _platform = (cq.Workplane("XY")
                  .center(_plat_x, 0)
