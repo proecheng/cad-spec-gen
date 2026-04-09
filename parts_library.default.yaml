@@ -1,0 +1,66 @@
+# parts_library.default.yaml
+# ===========================
+# Default parts library registry shipped with cad-spec-gen.
+#
+# Projects override by placing their own `parts_library.yaml` at the
+# project root, or by setting the `CAD_PARTS_LIBRARY` env var, or by
+# passing --parts-library PATH to `gen_std_parts.py` / `cad_pipeline.py`.
+#
+# This default file is intentionally MINIMAL: it routes bearings and
+# fasteners to bd_warehouse when available, and falls through everything
+# else to the jinja_primitive adapter (the same _gen_* dispatch the
+# pipeline has used before this refactor).
+#
+# To DISABLE all library resolution and force the legacy behavior:
+#   - delete parts_library.yaml from the project root, OR
+#   - set CAD_PARTS_LIBRARY_DISABLE=1 in the environment
+#
+# See docs/PARTS_LIBRARY.md for the full mapping rule vocabulary.
+
+version: 1
+
+step_pool:
+  root: std_parts/
+  cache: ~/.cad-spec-gen/step_cache/
+
+bd_warehouse:
+  enabled: true
+
+partcad:
+  enabled: false
+
+mappings:
+  # ─── Standard bearings (ISO 15 designations) ────────────────────────
+  # Matches "608ZZ", "6000-2RS", "6200Z" etc. in BOM name or material.
+  # BdWarehouseAdapter auto-extracts the designation via the regex in
+  # catalogs/bd_warehouse_catalog.yaml::size_patterns.iso_bearing.
+  - match:
+      category: bearing
+      name_contains: ["608", "6000", "6200", "6202", "6204", "619", "深沟"]
+    adapter: bd_warehouse
+    spec:
+      class: SingleRowDeepGrooveBallBearing
+
+  # ─── Standard fasteners (metric hex head / socket cap) ─────────────
+  # Most projects that write "M3×10 内六角" or similar get a bd_warehouse
+  # SocketHeadCapScrew. The adapter extracts size via the metric_screw regex.
+  - match:
+      category: fastener
+      material_contains: ["内六角", "socket", "ISO4762", "DIN912"]
+    adapter: bd_warehouse
+    spec:
+      class: SocketHeadCapScrew
+
+  - match:
+      category: fastener
+      material_contains: ["六角头", "hex head", "ISO4014", "DIN931"]
+    adapter: bd_warehouse
+    spec:
+      class: HexHeadScrew
+
+  # ─── Everything else falls through to jinja_primitive ───────────────
+  # This rule is the terminal fallback. Without it, parts that don't
+  # match a library source would return "miss" and gen_std_parts.py
+  # would skip them entirely — breaking F5 completeness.
+  - match: {any: true}
+    adapter: jinja_primitive

@@ -30,7 +30,19 @@ dependencies = [
 [project.optional-dependencies]
 cad = ["cadquery>=2.0", "ezdxf>=0.18"]
 render = ["matplotlib>=3.5", "Pillow>=9.0"]
-all = ["cadquery>=2.0", "ezdxf>=0.18", "matplotlib>=3.5", "Pillow>=9.0"]
+# Parts library system (v2.8.0+): YAML registry for std-parts resolution.
+# The base feature only needs PyYAML. bd_warehouse / partcad are separate
+# extras that users opt in to.
+parts_library = ["PyYAML>=6.0"]
+parts_library_bd = ["PyYAML>=6.0", "bd_warehouse>=0.2.0"]
+parts_library_pc = ["PyYAML>=6.0", "partcad>=0.7.0"]
+all = [
+    "cadquery>=2.0",
+    "ezdxf>=0.18",
+    "matplotlib>=3.5",
+    "Pillow>=9.0",
+    "PyYAML>=6.0",
+]
 
 [project.scripts]
 cad-skill-setup = "cad_spec_gen.cli:main_setup"

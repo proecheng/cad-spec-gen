@@ -12,6 +12,7 @@ import argparse
 import glob
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -692,6 +693,185 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     # Compute serial offsets from chains (with real connections for axial_gap)
     part_offsets = compute_serial_offsets(placements, part_envelopes, connections)
     print(f"  §6.3 Offsets: {len(part_offsets)} parts positioned")
+
+    # Backfill §6.4 envelopes from §6.3 chain spans for parts without
+    # an existing envelope. The chain extractor already computed accurate
+    # heights from sub-chain analysis (e.g. 弹簧限力机构总成 = 16mm spanning
+    # 上端板+弹簧+下端板). Without this, gen_parts.py would use a tiny
+    # default height and the assembly validator would report large gaps.
+    for pno, off in part_offsets.items():
+        if pno in part_envelopes:
+            continue
+        h = off.get("h", 0)
+        if h <= 0:
+            continue
+        part_envelopes[pno] = {
+            "type": "cylinder",
+            "d": 20.0,  # conservative default diameter
+            "h": h,
+            "source": "P5:chain_span",
+        }
+
+    # Backfill §6.4 envelopes from gen_parts._guess_geometry() for ALL custom
+    # parts that still have no envelope. Without this, gen_parts.py creates a
+    # part with one set of dims (e.g. 50×60 housing) while gen_assembly.py
+    # uses a 15mm default height for stacking, causing a height mismatch and
+    # parts to overlap or float.
+    _guess_geometry = None
+    try:
+        import importlib.util as _ilu
+        _gp_path = os.path.join(os.path.dirname(__file__),
+                                 "codegen", "gen_parts.py")
+        _spec = _ilu.spec_from_file_location("_gp_for_backfill", _gp_path)
+        _gp = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_gp)
+        _guess_geometry = _gp._guess_geometry
+    except Exception as _e:
+        print(f"  WARNING: Could not load _guess_geometry: {_e}")
+
+    _backfilled_count = 0
+    if _guess_geometry is not None:
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pno = part.get("part_no", "")
+                if not pno or pno in part_envelopes:
+                    continue
+                # Only backfill custom parts (gen_parts.py outputs); std parts
+                # are handled by gen_std_parts.py from category fallbacks.
+                make_buy = part.get("make_buy", "")
+                if "自制" not in make_buy:
+                    continue
+                _backfilled_count += 1
+                geom = _guess_geometry(part.get("name", ""),
+                                       part.get("material", ""))
+                if not geom:
+                    continue
+                w = geom.get("envelope_w", geom.get("d", geom.get("w", 20)))
+                d = geom.get("envelope_d", geom.get("d", geom.get("w", 20)))
+                h = geom.get("envelope_h", geom.get("h", geom.get("t", 15)))
+                if h <= 0:
+                    continue
+                part_envelopes[pno] = {
+                    "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                    "d": w,
+                    "w": w,
+                    "h": h,
+                    "source": "P6:guess_geometry",
+                }
+
+    print(f"  §6.4 Backfilled: {_backfilled_count} envelopes from guess_geometry")
+
+    # ── P7: parts_library envelope probing (for 外购 parts) ───────────────
+    #
+    # Ask the parts_resolver to probe dimensions for every purchased BOM row.
+    # Library-derived dimensions (bd_warehouse / STEP pool / PartCAD) are more
+    # authoritative than either the keyword-based P6 guesses or the chain-
+    # span P5 approximations, so P7 OVERRIDES those tiers. It never overrides
+    # P1..P4 (author-provided design-doc values).
+    #
+    # If no `parts_library.yaml` is present, the resolver reduces to
+    # JinjaPrimitiveAdapter and probe_dims returns the same values the
+    # jinja fallback would draw — effectively a no-op.
+    _p7_filled = 0
+    _p7_overridden = 0
+    try:
+        sys.path.insert(0, os.path.dirname(__file__))
+        from parts_resolver import PartQuery, default_resolver
+        from bom_parser import classify_part
+        from cad_paths import PROJECT_ROOT as _CAD_PROJECT_ROOT
+
+        # Use the user's project root (where parts_library.yaml lives), not
+        # the design doc's parent. Design docs can live outside the project
+        # (e.g. D:/Work/cad-tests/04-*.md references
+        # D:/Work/cad-tests/GISBOT/parts_library.yaml).
+        _p7_resolver = default_resolver(project_root=_CAD_PROJECT_ROOT)
+
+        # Only tiers we allow P7 to override
+        _OVERRIDABLE_TIERS = ("P5:", "P6:")
+        # Tiers that P7 must never override (author-provided)
+        _PROTECTED_TIERS = ("P1:", "P2:", "P3:", "P4:")
+
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pno = part.get("part_no", "")
+                if not pno:
+                    continue
+                make_buy = part.get("make_buy", "")
+                if "外购" not in make_buy and "标准" not in make_buy:
+                    continue  # Custom parts handled by P6
+
+                category = classify_part(
+                    part.get("name", ""), part.get("material", ""))
+
+                query = PartQuery(
+                    part_no=pno,
+                    name_cn=part.get("name", ""),
+                    material=part.get("material", ""),
+                    category=category,
+                    make_buy=make_buy,
+                    # Don't prime spec_envelope — we want to see what the
+                    # library says independently, then compare.
+                    spec_envelope=None,
+                    project_root=_CAD_PROJECT_ROOT,
+                )
+
+                # Use full resolve() so we know WHICH adapter produced the
+                # dims (library vs jinja fallback). P7 only writes the
+                # envelope when the result came from a non-fallback adapter
+                # (step_pool / bd_warehouse / partcad); jinja_primitive
+                # results are effectively equivalent to P6 guesses and would
+                # just recompute the same values, so skip them.
+                result = _p7_resolver.resolve(query)
+                if result.status == "miss" or result.kind == "miss":
+                    continue
+                if result.adapter == "jinja_primitive":
+                    continue  # Not a library win — skip to keep §6.4 stable
+                if result.real_dims is None:
+                    continue
+                w, d, h = result.real_dims
+                if h <= 0:
+                    continue
+
+                existing = part_envelopes.get(pno)
+                # Abbreviate the adapter name for the source tag
+                _adapter_abbr = {
+                    "step_pool": "STEP",
+                    "bd_warehouse": "BW",
+                    "partcad": "PC",
+                }.get(result.adapter, result.adapter)
+
+                if existing:
+                    source = existing.get("source", "")
+                    if source.startswith(_PROTECTED_TIERS):
+                        continue  # Author-provided, never override
+                    if not source.startswith(_OVERRIDABLE_TIERS):
+                        continue  # Unknown source, stay safe
+                    # Override P5/P6 with library value
+                    prior_tier = source.split(":")[0] if ":" in source else ""
+                    _p7_overridden += 1
+                    part_envelopes[pno] = {
+                        "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                        "d": w,
+                        "w": w,
+                        "h": h,
+                        "source": (f"P7:{_adapter_abbr}"
+                                   f"(override_{prior_tier})"),
+                    }
+                else:
+                    _p7_filled += 1
+                    part_envelopes[pno] = {
+                        "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                        "d": w,
+                        "w": w,
+                        "h": h,
+                        "source": f"P7:{_adapter_abbr}",
+                    }
+    except Exception as _e:
+        print(f"  WARNING: P7 parts_library backfill failed: {_e}")
+
+    if _p7_filled or _p7_overridden:
+        print(f"  §6.4 P7 parts_library: filled {_p7_filled}, "
+              f"overrode {_p7_overridden}")
 
     data["placements"] = placements
     data["assembly"]["part_offsets"] = part_offsets

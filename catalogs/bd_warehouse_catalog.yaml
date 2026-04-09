@@ -1,0 +1,95 @@
+# bd_warehouse static catalog
+# =============================
+#
+# This file lets BdWarehouseAdapter answer is_available() and can_resolve()
+# without importing bd_warehouse itself (which is an optional dependency).
+# It also tells probe_dims() how to compute (w, d, h) from a size string
+# without instantiating a full bd_warehouse.Part.
+#
+# Version pinning: bd_warehouse changes shape-parameter names between releases,
+# so catalog entries pin a known-good version. On mismatch the adapter warns.
+#
+# To regenerate from an installed bd_warehouse: run tools/build_bd_catalog.py
+# (not yet implemented — manual entries are fine for Phase A).
+
+version: 1
+bd_warehouse_pinned_version: ">=0.9"
+
+# ─── Bearings ────────────────────────────────────────────────────────────
+# Source: bd_warehouse/bearing.py — 5 classes, sizes driven by CSV files
+# in bd_warehouse/data/*_parameters.csv
+
+bearings:
+  - module: bd_warehouse.bearing
+    class:  SingleRowDeepGrooveBallBearing
+    # The CSV key format is "M{d}-{D}-{B}" where d/D/B are in mm.
+    # ISO 15 designations like 608, 6000, 6200 map to specific rows.
+    # When the BOM says "608ZZ", we need to look up the actual d/D/B.
+    iso_designation_map:
+      "623":  {d: 3, D: 10, B: 4, csv_key: "M3-10-4"}
+      "618/4": {d: 4, D: 9, B: 2.5, csv_key: "M4-9-2.5"}
+      "619/4": {d: 4, D: 11, B: 4, csv_key: "M4-11-4"}
+      "604":  {d: 4, D: 12, B: 4, csv_key: "M4-12-4"}
+      "605":  {d: 5, D: 14, B: 5, csv_key: "M5-14-5"}
+      "608":  {d: 8, D: 22, B: 7, csv_key: "M8-22-7"}
+      "6000": {d: 10, D: 26, B: 8, csv_key: "M10-26-8"}
+      "6200": {d: 10, D: 30, B: 9, csv_key: "M10-30-9"}
+      "6202": {d: 15, D: 35, B: 11, csv_key: "M15-35-11"}
+      "6204": {d: 20, D: 47, B: 14, csv_key: "M20-47-14"}
+      "6205": {d: 25, D: 52, B: 15, csv_key: "M25-52-15"}
+    # Name keywords that indicate "this BOM row wants a deep-groove bearing"
+    name_keywords: [深沟, deep, groove, ball bearing, 608, 6000, 6200]
+    # Default bearing_type argument to pass to the class constructor
+    default_bearing_type: "SKT"
+
+    # Sizes that bd_warehouse DOES NOT support (document for fallback)
+    unsupported:
+      - MR105ZZ  # miniature metric, not in ISO 15
+      - MR85ZZ
+      - MR106ZZ
+
+  - module: bd_warehouse.bearing
+    class:  SingleRowAngularContactBallBearing
+    name_keywords: [angular contact, 角接触, 7000, 7200]
+    default_bearing_type: "SKT"
+
+# ─── Fasteners (hex head + socket cap) ──────────────────────────────────
+# Source: bd_warehouse/fastener.py
+
+fasteners:
+  - module: bd_warehouse.fastener
+    class:  HexHeadScrew
+    # Sizes in the form "M{d}-{pitch}" plus length suffix
+    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-", "M12-"]
+    material_keywords: [hex head, 六角头, DIN931, ISO4014, ISO4017]
+    default_fastener_type: "iso4014"
+
+  - module: bd_warehouse.fastener
+    class:  SocketHeadCapScrew
+    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-"]
+    material_keywords: [内六角, socket, cap, ISO4762, DIN912]
+    default_fastener_type: "iso4762"
+
+  - module: bd_warehouse.fastener
+    class:  HexNut
+    size_keywords: ["M2-", "M2.5-", "M3-", "M4-", "M5-", "M6-", "M8-", "M10-"]
+    material_keywords: [螺母, nut, DIN934, ISO4032]
+    default_fastener_type: "iso4032"
+
+  - module: bd_warehouse.fastener
+    class:  PlainWasher
+    size_keywords: [M3, M4, M5, M6, M8]
+    material_keywords: [平垫圈, washer, DIN125]
+    default_fastener_type: "iso7089"
+
+# ─── Size pattern extraction helpers ─────────────────────────────────────
+# Regex patterns BdWarehouseAdapter uses to extract size/designation from
+# BOM name_cn + material text.
+
+size_patterns:
+  # Matches "M3×10" or "M3-0.5 × 10" → extract metric size + length
+  metric_screw: '[Mm](\d+(?:\.\d+)?)[×x\-](\d+(?:\.\d+)?)'
+  # Matches "608ZZ", "6000-2RS", etc. → bearing designation
+  iso_bearing: '\b(\d{3}[/\-]?\d*)(?:ZZ|-2RS|-2Z)?\b'
+  # Matches "MR105", "MR85" → miniature metric (not supported, falls through)
+  miniature_bearing: '\bMR\d{2,4}(?:ZZ|-2RS)?\b'
