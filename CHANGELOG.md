@@ -1,0 +1,152 @@
+# Changelog
+
+All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the repository root.
+
+---
+
+## [2.8.0] — 2026-04-09
+
+**Theme:** Parts library system + assembly coherence consolidation.
+
+Full notes: [`RELEASE_v2.8.0.md`](RELEASE_v2.8.0.md)
+
+### Added
+- **Parts library system** (Phase A + B + C) — adapter-based resolver dispatching purchased BOM rows to one of:
+  - `bd_warehouse` (parametric bearings, fasteners, threaded parts) via `BdWarehouseAdapter`
+  - Local STEP file pool via `StepPoolAdapter`
+  - `partcad` package manager via `PartCADAdapter` (opt-in)
+  - `JinjaPrimitiveAdapter` (terminal byte-identical fallback)
+- New `parts_resolver.py` core: `PartQuery`, `ResolveResult`, `PartsResolver`, registry loader, `bd_to_cq()` helper
+- New `parts_library.yaml` registry format (project-local, optional) with ordered mapping rules: exact `part_no`, `part_no_glob`, `category` + `name_contains` / `material_contains` keywords
+- New `catalogs/bd_warehouse_catalog.yaml` — 76 ISO bearing designations across 5 classes + 7 fastener classes, extracted from `bd_warehouse` 0.2.0 CSVs
+- New `parts_library.default.yaml` — skill-shipped tiered default registry
+- New optional extras in `pyproject.toml`: `parts_library`, `parts_library_bd`, `parts_library_pc`
+- New §6.4 source tag namespace `P7:STEP` / `P7:BW` / `P7:PC` for parts-library-derived envelopes (with `P7:*(override_P5)` / `P7:*(override_P6)` variants)
+- New P5 (chain_span) and P6 (`_guess_geometry`) envelope backfill loops in `cad_spec_gen.py`
+- First CI workflow `.github/workflows/tests.yml` — Linux + Windows × Python 3.10/3.11/3.12 matrix + a `regression` job that enforces byte-identical legacy output via `CAD_PARTS_LIBRARY_DISABLE=1`
+- Upstream monitor `tools/check_bd_warehouse_upstream.py` for gumyr/bd_warehouse#75
+- New documentation `docs/PARTS_LIBRARY.md` (architecture, mapping vocabulary, kill switches, troubleshooting)
+- New tests: `tests/test_parts_resolver.py` (24), `tests/test_parts_adapters.py` (22 + 2 optional live)
+- New env var kill switch `CAD_PARTS_LIBRARY_DISABLE=1`
+- New CLI hint: `--parts-library PATH` propagated through `cad_pipeline.py`
+
+### Changed
+- `codegen/gen_std_parts.py` — `_GENERATORS` dispatch removed, `for p in parts:` delegates to `resolver.resolve()`. Public function signature unchanged. Three generated body forms (`codegen` / `step_import` / `python_import`) all preserve the `make_*() → cq.Workplane` zero-arg contract.
+- Generated `std_*.py` files are self-contained — `_bd_to_cq()` helper is inlined per file (not imported), so they work without skill root on `sys.path`.
+- `templates/part_module.py.j2` + `gen_parts._guess_geometry()` — flange `disc_arms` template rewritten: arms now extend outward from the disc edge with R=65 mm mounting platforms; renders as a recognizable 4-arm hub instead of a plain disc.
+- `BdWarehouseAdapter._auto_extract_size_from_text()` — rewrote to use longest-key substring matching against `iso_designation_map` first (handles `NU2204` / `7202B` / `623-2Z`), then falls back to digit-only `iso_bearing` regex. Fastener path also matches bare `M\d+` for washers/nuts written without an explicit length. Routing smoke test: 2/10 → 10/10 hits.
+- `parts_library.default.yaml` — tiered class selection: specific bearing classes first (cylindrical / tapered / angular / capped), generic deep-groove last; specific fastener head types first, `HexHeadScrew` / `HexNut` / `PlainWasher` last.
+- `cad_spec_extractors._match_name_to_bom()` — added `assembly_pno` scoping parameter to prevent cross-assembly name leak; 2-char prefix matching is disabled when unscoped.
+- `cad_spec_extractors.parse_assembly_pose()` — §6.2 assy regex now accepts optional 4-segment `part_no` like `(GIS-EE-001-08)`, stripping back to the parent prefix; layer parsing terminates on any `### ` subsection.
+- `cad_spec_extractors.compute_serial_offsets()` — connection-only chain nodes (e.g. `[4×M3螺栓]`) no longer advance the cursor; multi-node sub-chains accumulate top/bottom per pno across the chain and emit a single span result.
+- `gen_assembly._resolve_child_offsets()` — auto-stack respects container envelope bounds (wraps cursor at the largest envelope); high-confidence §6.3 entries bypass the outlier guard; §6.2 author Z values take priority over §9.2 contact constraints; disc-spring washers snap to the nearest already-positioned part in the same assembly.
+- `gen_assembly._STD_PART_CATEGORIES` — added `"other"` so 阻尼垫 / 配重块 / 刮涂头 etc. are no longer dropped at assembly time.
+- `JinjaPrimitiveAdapter` — `"other"` removed from `_SKIP_CATEGORIES`, new `_gen_generic()` block emits a default box when dims are missing.
+- `cad_spec_gen.py` P7 backfill — uses `cad_paths.PROJECT_ROOT` for `parts_library.yaml` lookup (was incorrectly using design doc's grandparent).
+- `tests/test_prompt_builder.py` — rewritten from scratch against the current `enhance_prompt.py` API (10 scenarios). Old tests targeted deleted `prompt_builder.py` symbols.
+- Skill metadata updated: `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`, `src/cad_spec_gen/__init__.py`, `pyproject.toml` → 2.8.0.
+
+### Fixed
+1. Connection-only chain nodes added a phantom 20 mm cursor advance (`compute_serial_offsets()`)
+2. Cross-assembly BOM name matching leaked across stations (`_match_name_to_bom()`)
+3. §6.2 assy regex rejected 4-segment `part_no`s (`parse_assembly_pose()`)
+4. `parse_assembly_pose` did not terminate §6.2 layer parsing on `### ` subsections
+5. Multi-node sub-chain spans were overwritten instead of accumulated
+6. §6.4 envelope backfill missing for chain spans and `_guess_geometry()` results
+7. Auto-stack ignored container envelope bounds, causing 300+ mm cumulative drops below station housings
+8. §6.3 high-confidence entries were rejected by the §6.4 outlier guard when envelope coverage was low
+9. §9.2 auto-derived contact constraints overrode author-provided §6.2 Z values
+10. Disc-spring washers were stacked far below their host PEEK ring (no fastener-accessory snap)
+11. `"other"`-category parts (阻尼垫 / 配重块 / 刮涂头) produced no geometry, breaking F5 completeness
+12. `_STD_PART_CATEGORIES` in `gen_assembly.py` was missing `"other"`
+13. P7 envelope backfill used the wrong project root for `parts_library.yaml` lookup
+14. `BdWarehouseAdapter` size extraction missed `NU2204` / `7202B` / `623-2Z` (suffix-stripping regex)
+15. Generated `std_*.py` could not import `_bd_to_cq` from `parts_resolver` at build time on machines without the skill on `sys.path` (helper now inlined)
+16. Missing `import os` in `cad_spec_gen.py` after the P6 backfill addition
+
+### Safety guarantees
+- `make_*() → cq.Workplane` contract unchanged
+- `CAD_SPEC.md` schema unchanged
+- No new pipeline intermediate files
+- Byte-identical regression: `CAD_PARTS_LIBRARY_DISABLE=1` or absent `parts_library.yaml` produces 0-diff `gen_std_parts.py` output vs v2.7.1
+- `bd_warehouse` and `partcad` are truly optional — lazy imports, graceful fallback
+- P1..P4 envelope source tiers (author-provided) are never overridden by P7
+
+### Known limitations
+- `bd_warehouse` Windows CJK locales hit `UnicodeDecodeError` on CSV read. Workaround: `PYTHONUTF8=1` (already in CI). Upstream fix: gumyr/bd_warehouse#75.
+- GISBOT 002-04 刮涂头 has a 5 mm pre-existing F1 gap; accepted as-is.
+
+### Validation
+- Tests: 135 passed, 2 skipped (optional live `bd_warehouse`)
+- Byte-identical regression: 0 diff with kill switch
+- End-to-end on `04-末端执行机构设计.md`: all 4 phases pass, both `step_pool` and `bd_warehouse` paths exercised, 7 PNG views rendered.
+
+---
+
+## [2.7.1] — 2026-04-09
+
+Assembly positioning fix release. 4 bugs in `gen_assembly._resolve_child_offsets()` causing floating / overlapping components in GLB output. See [`RELEASE_v2.7.1.md`](RELEASE_v2.7.1.md).
+
+## [2.7.0] — 2026-04-09
+
+Assembly constraint declaration system: §9.2 auto-derived from connection matrix, fit codes (H7/m6) extraction, GATE-3.5 assembly validator (F1–F5 sanity checks).
+
+## [2.5.0] — 2026-04-08
+
+§6.3 per-part positioning, §6.4 envelope dimensions, §9.1 assembly exclusions consumed by `gen_assembly.py`. See [`RELEASE_v2.5.0.md`](RELEASE_v2.5.0.md).
+
+## [2.4.1] — 2026-04-07
+
+Hotfixes for v2.4.0 (review pipeline, bom_parser).
+
+## [2.4.0] — 2026-04-07
+
+Review pipeline: design review → DESIGN_REVIEW.md → user iterate / `--auto-fill` / `--proceed`.
+
+## [2.3.0] — 2026-04-07
+
+View-aware AI enhancement materials, MATERIAL_PRESETS unification.
+
+## [2.2.2] — 2026-04-03
+
+Cable / harness length capping, std-part dimension lookup via parameter table.
+
+## [2.2.1] — 2026-04-03
+
+Auto-annotation in HLR sheets, near-real flange / bracket geometry inference, per-part offset positioning. See [`RELEASE_v2.1.2.md`](RELEASE_v2.1.2.md) (release note kept under the prior numbering).
+
+## [2.1.1] — 2026-04-02
+
+Hotfix release.
+
+## [2.1.0] — 2026-03-31
+
+Multi-view consistency, viewpoint lock, image role separation. See [`RELEASE_v2.1.0.md`](RELEASE_v2.1.0.md), [`RELEASE_v2.1.1.md`](RELEASE_v2.1.1.md).
+
+## [2.0.0] — 2026-03-30
+
+Major release: 6-phase unified pipeline orchestrator (`cad_pipeline.py`).
+
+## [1.9.0] — 2026-03-29
+
+Pre-2.0 stabilization.
+
+## Earlier releases
+
+See git history (`git log v1.7.0..v1.9.0`) for v1.7.x – v1.9.0.
+
+[2.8.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.8.0
+[2.7.1]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.7.1
+[2.7.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.7.0
+[2.5.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.5.0
+[2.4.1]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.4.1
+[2.4.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.4.0
+[2.3.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.3.0
+[2.2.2]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.2.2
+[2.2.1]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.2.1
+[2.1.1]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.1.1
+[2.1.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.1.0
+[2.0.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.0.0
+[1.9.0]: https://github.com/proecheng/cad-spec-gen/releases/tag/v1.9.0
