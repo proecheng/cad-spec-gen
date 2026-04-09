@@ -12,6 +12,7 @@ import argparse
 import glob
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -30,11 +31,11 @@ if _SCRIPT_DIR not in sys.path:
 from cad_spec_extractors import (
     extract_params, extract_tolerances, extract_fasteners, extract_bom,
     extract_connection_matrix, extract_assembly_pose, extract_visual_ids,
-    extract_render_plan,
+    extract_render_plan, extract_part_envelopes, extract_part_placements,
 )
 from cad_spec_defaults import (
     fill_fastener_defaults, fill_surface_defaults,
-    compute_derived, check_completeness,
+    compute_derived, check_completeness, compute_serial_offsets,
 )
 
 # ─── Configuration loading ───────────────────────────────────────────────
@@ -84,6 +85,68 @@ def _md_table(columns: list, rows: list) -> str:
         padded = list(row) + [""] * (len(columns) - len(row))
         lines.append(f"| {' | '.join(str(c) for c in padded[:len(columns)])} |")
     return "\n".join(lines) + "\n"
+
+
+def _apply_exclude_markers(data: dict):
+    """Cross-reference negative constraints to mark excluded assemblies."""
+    constraints = data.get("render_plan", {}).get("constraints", [])
+    layers = data.get("assembly", {}).get("layers", [])
+
+    exclude_keywords = ["不在", "不画", "排除", "不属于", "exclude"]
+
+    for constraint in constraints:
+        desc = constraint.get("description", "")
+        if not any(kw in desc.lower() for kw in exclude_keywords):
+            continue
+        # Extract part numbers from constraint description
+        pnos = re.findall(r"[A-Z]+-[A-Z]+-\d+", desc)
+        for pno in pnos:
+            # Try to mark existing layer
+            found_in_layer = False
+            for layer in layers:
+                if pno in layer.get("part", ""):
+                    layer["exclude"] = True
+                    layer["exclude_reason"] = desc[:100]
+                    found_in_layer = True
+            # If not in any layer, add a synthetic excluded entry
+            # (assembly exists in BOM but not in 装配层叠表)
+            if not found_in_layer:
+                bom = data.get("bom")
+                name = _lookup_part_name(pno, bom) if bom else pno
+                layers.append({
+                    "level": "", "part": f"{name} ({pno})",
+                    "fixed_moving": "", "connection": "",
+                    "offset": "", "axis_dir": "",
+                    "offset_parsed": {"z": None, "r": None, "theta": None, "is_origin": False},
+                    "axis_dir_parsed": [],
+                    "exclude": True,
+                    "exclude_reason": desc[:100],
+                })
+
+
+def _lookup_part_name(pno: str, bom) -> str:
+    """Look up part name from BOM by part_no."""
+    if not bom:
+        return ""
+    for assy in bom.get("assemblies", []):
+        if assy.get("part_no") == pno:
+            return assy.get("name", "")
+        for part in assy.get("parts", []):
+            if part.get("part_no") == pno:
+                return part.get("name", "")
+    return ""
+
+
+def _format_envelope(env: dict) -> str:
+    """Format envelope dict as human-readable dimension string."""
+    t = env.get("type", "")
+    if t in ("cylinder", "disc"):
+        return f"\u03a6{env.get('d', '')}\u00d7{env.get('h', '')}"
+    elif t == "box":
+        return f"{env.get('w', '')}\u00d7{env.get('d', '')}\u00d7{env.get('h', '')}"
+    elif t == "ring":
+        return f"\u03a6{env.get('d', '')}\u00d7{env.get('h', '')}"
+    return str(env)
 
 
 def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
@@ -207,11 +270,56 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     sections.append("### 6.2 装配层叠")
     sections.append("")
     sections.append(_md_table(
-        ["层级", "零件/模块", "固定/运动", "连接方式", "偏移(Z/R/θ)", "轴线方向"],
+        ["层级", "零件/模块", "固定/运动", "连接方式", "偏移(Z/R/θ)", "轴线方向", "排除"],
         [[l["level"], l["part"], l["fixed_moving"], l["connection"],
-          l["offset"], l["axis_dir"]]
+          l["offset"], l["axis_dir"],
+          "exclude" if l.get("exclude") else ""]
          for l in assembly.get("layers", [])]
     ))
+
+    # §6.3 零件级定位
+    part_offsets = assembly.get("part_offsets", {})
+    if part_offsets:
+        sections.append("### 6.3 零件级定位")
+        sections.append("")
+        # Group by assembly prefix (GIS-EE-001 → GIS-EE-001)
+        assy_groups = {}
+        for pno, off in part_offsets.items():
+            prefix = "-".join(pno.split("-")[:3])  # GIS-EE-001-01 → GIS-EE-001
+            assy_groups.setdefault(prefix, []).append((pno, off))
+
+        for prefix, items_list in sorted(assy_groups.items()):
+            bom_obj = data.get("bom")
+            assy_name = _lookup_part_name(prefix, bom_obj) if bom_obj else prefix
+            sections.append(f"#### {prefix} {assy_name}")
+            sections.append("")
+            sections.append(_md_table(
+                ["料号", "零件名", "模式", "高度(mm)", "底面Z(mm)", "来源", "置信度"],
+                [[pno,
+                  _lookup_part_name(pno, bom_obj),
+                  off.get("mode", "axial_stack"),
+                  str(off.get("h", "")),
+                  str(off.get("z", "")),
+                  off.get("source", ""),
+                  off.get("confidence", "")]
+                 for pno, off in sorted(items_list)]
+            ))
+
+    # §6.4 零件包络尺寸
+    envelopes = data.get("part_envelopes", {})
+    if envelopes:
+        sections.append("### 6.4 零件包络尺寸")
+        sections.append("")
+        bom_obj = data.get("bom")
+        sections.append(_md_table(
+            ["料号", "零件名", "类型", "尺寸(mm)", "来源"],
+            [[pno,
+              _lookup_part_name(pno, bom_obj),
+              env.get("type", ""),
+              _format_envelope(env),
+              env.get("source", "")]
+             for pno, env in sorted(envelopes.items())]
+        ))
 
     # §7 视觉标识
     sections.append("## 7. 视觉标识")
@@ -252,8 +360,35 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
          for c in render.get("constraints", [])]
     ))
 
-    # §9 缺失数据报告
-    sections.append("## 9. 缺失数据报告")
+    # §9 装配约束
+    excludes = [l for l in assembly.get("layers", []) if l.get("exclude")]
+    if excludes:
+        sections.append("## 9. 装配约束")
+        sections.append("")
+        sections.append("### 9.1 装配排除")
+        sections.append("")
+        sections.append(_md_table(
+            ["零件/模块", "原因"],
+            [[l["part"], l.get("exclude_reason", "（未说明）")] for l in excludes]
+        ))
+
+    # §9.2 Assembly constraints (auto-derived)
+    constraints = data.get("assembly_constraints", [])
+    if constraints:
+        if "## 9." not in "\n".join(sections):
+            sections.append("## 9. 装配约束")
+            sections.append("")
+        sections.append("### 9.2 约束声明（自动生成草稿）")
+        sections.append("")
+        sections.append(_md_table(
+            ["约束ID", "类型", "零件A", "零件B", "参数", "来源", "置信度"],
+            [[c["id"], c["type"], c["part_a"], c["part_b"],
+              c["params"], c["source"], c["confidence"]]
+             for c in constraints]
+        ))
+
+    # §10 缺失数据报告
+    sections.append("## 10. 缺失数据报告")
     sections.append("")
     issues = data.get("issues", [])
     if issues:
@@ -300,6 +435,154 @@ def _flatten_review_items(review_data):
                 "auto_fill": it.get("auto_fill", "否"),
             })
     return items
+
+
+# ─── Assembly constraint extraction ──────────────────────────────────────
+
+def _flatten_bom(assemblies: list) -> list:
+    """Flatten BOM assemblies+parts tree into a single list of part dicts."""
+    result = []
+    for assy in assemblies:
+        result.append(assy)
+        for part in assy.get("parts", []):
+            result.append(part)
+    return result
+
+
+def extract_assembly_constraints(fasteners: list, assembly: dict, bom: dict,
+                                  visual_ids: list, part_envelopes: dict) -> list:
+    """Derive machine-readable assembly constraints from §3/§6/§7 data.
+
+    Returns list of constraint dicts:
+        {"id": "C01", "type": "contact", "part_a": "...", "part_b": "...",
+         "params": "...", "source": "§3 ...", "confidence": "high"}
+    """
+    constraints = []
+    cid = 1
+
+    # Build name→part_no resolver from BOM
+    _bom_names = {}  # name_cn → part_no
+    if bom:
+        for assy in bom.get("assemblies", []):
+            _bom_names[assy.get("name", "")] = assy.get("part_no", "")
+            for part in assy.get("parts", []):
+                _bom_names[part.get("name", "")] = part.get("part_no", "")
+
+    def _resolve_to_pno(name_text: str) -> str:
+        """Resolve a constraint part name to BOM part_no. Returns part_no or original text."""
+        # Direct part_no embedded in text: "法兰本体 Φ90mm (GIS-EE-001-01)"
+        m = re.search(r"([A-Z]+-[A-Z]+-\d+(?:-\d+)?)", name_text)
+        if m:
+            return m.group(1)
+        # Exact match
+        if name_text in _bom_names:
+            return _bom_names[name_text]
+        # Substring match: "PEEK段" matches "PEEK绝缘段", "法兰" matches "法兰本体（含十字悬臂）"
+        for bname, bpno in _bom_names.items():
+            if name_text in bname or bname in name_text:
+                return bpno
+        # Prefix match (2+ chars)
+        for n in (4, 3, 2):
+            if len(name_text) >= n:
+                for bname, bpno in _bom_names.items():
+                    if bname.startswith(name_text[:n]):
+                        return bpno
+        return name_text  # unresolved — keep original
+
+    # --- Source 1: §3 Fastener table → contact constraints ---
+    for f in fasteners:
+        conn = f.get("location", "")
+        if "→" not in conn:
+            continue
+        parts = conn.split("→")
+        if len(parts) != 2:
+            continue
+        part_a = _resolve_to_pno(parts[0].strip())
+        part_b = _resolve_to_pno(parts[1].strip())
+        constraints.append({
+            "id": f"C{cid:02d}",
+            "type": "contact",
+            "part_a": part_a,
+            "part_b": part_b,
+            "params": f"gap=0, bolt={f.get('spec', '')}",
+            "source": f"§3 紧固件 {f.get('spec', '')}",
+            "confidence": "high",
+        })
+        cid += 1
+
+    # --- Source 2: §6.2 layer stacking → stack_on constraints ---
+    layers = assembly.get("layers", [])
+    for i in range(len(layers) - 1):
+        curr = layers[i]
+        nxt = layers[i + 1]
+        curr_part = _resolve_to_pno(curr.get("part", ""))
+        nxt_part = _resolve_to_pno(nxt.get("part", ""))
+        nxt_offset = nxt.get("offset", "")
+        # Skip station-level rows (they have R/θ)
+        if "R=" in nxt_offset and "θ=" in nxt_offset:
+            continue
+        if curr_part and nxt_part and "exclude" not in str(nxt.get("exclude", "")):
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "stack_on",
+                "part_a": nxt_part,
+                "part_b": curr_part,
+                "params": "",
+                "source": f"§6.2 L{curr.get('level', '?')}→L{nxt.get('level', '?')}",
+                "confidence": "medium",
+            })
+            cid += 1
+
+    # --- Source 3: §5 BOM category → exclude_stack for cables/connectors ---
+    if bom:
+        from bom_parser import classify_part
+        all_parts = _flatten_bom(bom.get("assemblies", []))
+        for p in all_parts:
+            if p.get("make_buy", "") == "总成":
+                continue
+            cat = classify_part(p.get("name", ""), p.get("material", ""))
+            if cat in ("cable", "connector"):
+                constraints.append({
+                    "id": f"C{cid:02d}",
+                    "type": "exclude_stack",
+                    "part_a": p.get("part_no", ""),
+                    "part_b": "",
+                    "params": f"type={cat}",
+                    "source": f"§5 BOM category={cat}",
+                    "confidence": "high",
+                })
+                cid += 1
+
+    # --- Source 4: §7 visual IDs → horizontal/coaxial constraints ---
+    for v in visual_ids:
+        direction = v.get("direction", "")
+        part_name = v.get("part", "")
+        if not direction or not part_name:
+            continue
+        if any(k in direction for k in ["∥XY", "水平", "径向外伸"]):
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "horizontal",
+                "part_a": part_name,
+                "part_b": "",
+                "params": "axis=radial",
+                "source": f"§7 方向约束: {direction[:40]}",
+                "confidence": "high",
+            })
+            cid += 1
+        if "同轴" in direction or "coaxial" in direction.lower():
+            constraints.append({
+                "id": f"C{cid:02d}",
+                "type": "coaxial",
+                "part_a": part_name,
+                "part_b": "",
+                "params": "axis=Z",
+                "source": f"§7: {direction[:40]}",
+                "confidence": "medium",
+            })
+            cid += 1
+
+    return constraints
 
 
 # ─── Main processing ─────────────────────────────────────────────────────
@@ -369,30 +652,235 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     visual_ids = extract_visual_ids(lines, bom)
     print(f"  §7 Visual: {len(visual_ids)} parts")
 
+    # Part envelopes (multi-source, priority-merged)
+    part_envelopes = extract_part_envelopes(lines, bom, visual_ids, params)
+    print(f"  §6.4 Envelopes: {len(part_envelopes)} parts")
+
     render_plan = extract_render_plan(lines)
     g_count = len(render_plan["groups"])
     v_count = len(render_plan["views"])
     c_count = len(render_plan["constraints"])
     print(f"  §8 Render: {g_count} groups + {v_count} views + {c_count} constraints")
 
-    # Connections (synthesized from fasteners + layers)
-    connections = extract_connection_matrix(lines, fasteners, assembly.get("layers", []))
-    print(f"  §4 Connections: {len(connections)} items")
-
     # Fill surface defaults
     tolerances["surfaces"] = fill_surface_defaults(tolerances["surfaces"])
 
-    # Aggregate all data
+    # Aggregate all data (connections synthesized after exclude marking)
     data = {
         "params": params,
         "tolerances": tolerances,
         "fasteners": fasteners,
         "bom": bom,
-        "connections": connections,
+        "connections": [],  # placeholder — filled after exclude marking
         "assembly": assembly,
         "visual_ids": visual_ids,
+        "part_envelopes": part_envelopes,
         "render_plan": render_plan,
     }
+
+    # Mark excluded layers via negative constraints from §8.3
+    _apply_exclude_markers(data)
+
+    # Connections (synthesized from fasteners + layers, AFTER exclude marking)
+    connections = extract_connection_matrix(lines, fasteners, assembly.get("layers", []))
+    data["connections"] = connections
+    print(f"  §4 Connections: {len(connections)} items")
+
+    # Part placements (serial chains + non-axial modes)
+    placements = extract_part_placements(lines, bom, assembly.get("layers", []))
+    print(f"  §6.3 Placements: {len(placements)} chains/modes")
+
+    # Compute serial offsets from chains (with real connections for axial_gap)
+    part_offsets = compute_serial_offsets(placements, part_envelopes, connections)
+    print(f"  §6.3 Offsets: {len(part_offsets)} parts positioned")
+
+    # Backfill §6.4 envelopes from §6.3 chain spans for parts without
+    # an existing envelope. The chain extractor already computed accurate
+    # heights from sub-chain analysis (e.g. 弹簧限力机构总成 = 16mm spanning
+    # 上端板+弹簧+下端板). Without this, gen_parts.py would use a tiny
+    # default height and the assembly validator would report large gaps.
+    for pno, off in part_offsets.items():
+        if pno in part_envelopes:
+            continue
+        h = off.get("h", 0)
+        if h <= 0:
+            continue
+        part_envelopes[pno] = {
+            "type": "cylinder",
+            "d": 20.0,  # conservative default diameter
+            "h": h,
+            "source": "P5:chain_span",
+        }
+
+    # Backfill §6.4 envelopes from gen_parts._guess_geometry() for ALL custom
+    # parts that still have no envelope. Without this, gen_parts.py creates a
+    # part with one set of dims (e.g. 50×60 housing) while gen_assembly.py
+    # uses a 15mm default height for stacking, causing a height mismatch and
+    # parts to overlap or float.
+    _guess_geometry = None
+    try:
+        import importlib.util as _ilu
+        _gp_path = os.path.join(os.path.dirname(__file__),
+                                 "codegen", "gen_parts.py")
+        _spec = _ilu.spec_from_file_location("_gp_for_backfill", _gp_path)
+        _gp = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_gp)
+        _guess_geometry = _gp._guess_geometry
+    except Exception as _e:
+        print(f"  WARNING: Could not load _guess_geometry: {_e}")
+
+    _backfilled_count = 0
+    if _guess_geometry is not None:
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pno = part.get("part_no", "")
+                if not pno or pno in part_envelopes:
+                    continue
+                # Only backfill custom parts (gen_parts.py outputs); std parts
+                # are handled by gen_std_parts.py from category fallbacks.
+                make_buy = part.get("make_buy", "")
+                if "自制" not in make_buy:
+                    continue
+                _backfilled_count += 1
+                geom = _guess_geometry(part.get("name", ""),
+                                       part.get("material", ""))
+                if not geom:
+                    continue
+                w = geom.get("envelope_w", geom.get("d", geom.get("w", 20)))
+                d = geom.get("envelope_d", geom.get("d", geom.get("w", 20)))
+                h = geom.get("envelope_h", geom.get("h", geom.get("t", 15)))
+                if h <= 0:
+                    continue
+                part_envelopes[pno] = {
+                    "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                    "d": w,
+                    "w": w,
+                    "h": h,
+                    "source": "P6:guess_geometry",
+                }
+
+    print(f"  §6.4 Backfilled: {_backfilled_count} envelopes from guess_geometry")
+
+    # ── P7: parts_library envelope probing (for 外购 parts) ───────────────
+    #
+    # Ask the parts_resolver to probe dimensions for every purchased BOM row.
+    # Library-derived dimensions (bd_warehouse / STEP pool / PartCAD) are more
+    # authoritative than either the keyword-based P6 guesses or the chain-
+    # span P5 approximations, so P7 OVERRIDES those tiers. It never overrides
+    # P1..P4 (author-provided design-doc values).
+    #
+    # If no `parts_library.yaml` is present, the resolver reduces to
+    # JinjaPrimitiveAdapter and probe_dims returns the same values the
+    # jinja fallback would draw — effectively a no-op.
+    _p7_filled = 0
+    _p7_overridden = 0
+    try:
+        sys.path.insert(0, os.path.dirname(__file__))
+        from parts_resolver import PartQuery, default_resolver
+        from bom_parser import classify_part
+        from cad_paths import PROJECT_ROOT as _CAD_PROJECT_ROOT
+
+        # Use the user's project root (where parts_library.yaml lives), not
+        # the design doc's parent. Design docs can live outside the project
+        # (e.g. D:/Work/cad-tests/04-*.md references
+        # D:/Work/cad-tests/GISBOT/parts_library.yaml).
+        _p7_resolver = default_resolver(project_root=_CAD_PROJECT_ROOT)
+
+        # Only tiers we allow P7 to override
+        _OVERRIDABLE_TIERS = ("P5:", "P6:")
+        # Tiers that P7 must never override (author-provided)
+        _PROTECTED_TIERS = ("P1:", "P2:", "P3:", "P4:")
+
+        for assy in bom.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pno = part.get("part_no", "")
+                if not pno:
+                    continue
+                make_buy = part.get("make_buy", "")
+                if "外购" not in make_buy and "标准" not in make_buy:
+                    continue  # Custom parts handled by P6
+
+                category = classify_part(
+                    part.get("name", ""), part.get("material", ""))
+
+                query = PartQuery(
+                    part_no=pno,
+                    name_cn=part.get("name", ""),
+                    material=part.get("material", ""),
+                    category=category,
+                    make_buy=make_buy,
+                    # Don't prime spec_envelope — we want to see what the
+                    # library says independently, then compare.
+                    spec_envelope=None,
+                    project_root=_CAD_PROJECT_ROOT,
+                )
+
+                # Use full resolve() so we know WHICH adapter produced the
+                # dims (library vs jinja fallback). P7 only writes the
+                # envelope when the result came from a non-fallback adapter
+                # (step_pool / bd_warehouse / partcad); jinja_primitive
+                # results are effectively equivalent to P6 guesses and would
+                # just recompute the same values, so skip them.
+                result = _p7_resolver.resolve(query)
+                if result.status == "miss" or result.kind == "miss":
+                    continue
+                if result.adapter == "jinja_primitive":
+                    continue  # Not a library win — skip to keep §6.4 stable
+                if result.real_dims is None:
+                    continue
+                w, d, h = result.real_dims
+                if h <= 0:
+                    continue
+
+                existing = part_envelopes.get(pno)
+                # Abbreviate the adapter name for the source tag
+                _adapter_abbr = {
+                    "step_pool": "STEP",
+                    "bd_warehouse": "BW",
+                    "partcad": "PC",
+                }.get(result.adapter, result.adapter)
+
+                if existing:
+                    source = existing.get("source", "")
+                    if source.startswith(_PROTECTED_TIERS):
+                        continue  # Author-provided, never override
+                    if not source.startswith(_OVERRIDABLE_TIERS):
+                        continue  # Unknown source, stay safe
+                    # Override P5/P6 with library value
+                    prior_tier = source.split(":")[0] if ":" in source else ""
+                    _p7_overridden += 1
+                    part_envelopes[pno] = {
+                        "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                        "d": w,
+                        "w": w,
+                        "h": h,
+                        "source": (f"P7:{_adapter_abbr}"
+                                   f"(override_{prior_tier})"),
+                    }
+                else:
+                    _p7_filled += 1
+                    part_envelopes[pno] = {
+                        "type": "cylinder" if abs(w - d) < 0.1 else "box",
+                        "d": w,
+                        "w": w,
+                        "h": h,
+                        "source": f"P7:{_adapter_abbr}",
+                    }
+    except Exception as _e:
+        print(f"  WARNING: P7 parts_library backfill failed: {_e}")
+
+    if _p7_filled or _p7_overridden:
+        print(f"  §6.4 P7 parts_library: filled {_p7_filled}, "
+              f"overrode {_p7_overridden}")
+
+    data["placements"] = placements
+    data["assembly"]["part_offsets"] = part_offsets
+
+    # Assembly constraints (auto-derived from §3/§6/§7)
+    assembly_constraints = extract_assembly_constraints(
+        fasteners, assembly, bom, visual_ids, part_envelopes)
+    data["assembly_constraints"] = assembly_constraints
+    print(f"  §9.2 Constraints: {len(assembly_constraints)} auto-derived")
 
     # Derived calculations
     derived = compute_derived(data)
@@ -426,7 +914,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         from cad_spec_reviewer import run_review, render_review, apply_auto_fill
         print(f"\n[Design Review] Running engineering review...")
         review_data = run_review(data)
-        review_md = render_review(review_data, info, str(path), md5)
+        review_md = render_review(review_data, info, str(path), md5, data)
         review_path = cad_dir / "DESIGN_REVIEW.md"
         review_path.write_text(review_md, encoding="utf-8")
         # Write machine-readable JSON sidecar for pipeline checkpoint

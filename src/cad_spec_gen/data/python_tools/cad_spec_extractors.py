@@ -50,6 +50,20 @@ CN_PARAM = {
     "阻抗": "IMPEDANCE", "增益": "GAIN", "灵敏度": "SENSITIVITY",
 }
 
+EN_PARAM = {
+    "total thickness": "TOTAL_THICK",
+    "flange od": "FLANGE_OD",
+    "flange diameter": "FLANGE_DIA",
+    "motor od": "MOTOR_OD",
+    "motor torque": "MOTOR_RATED_TORQUE",
+    "wall thickness": "WALL",
+    "bolt pcd": "FLANGE_BOLT_PCD",
+    "index angle": "INDEX",
+    "rotation range": "ROT_RANGE",
+    "switch time": "SWITCH_T",
+    "mount flatness": "MOUNT_FLAT",
+}
+
 
 def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
     """将中文参数名映射为 UPPER_CASE 英文名。
@@ -103,12 +117,23 @@ def _cn_to_upper(cn_name: str, context: str = "", line_no: int = 0) -> str:
             result = suffix
         else:
             result = prefix + suffix
-    elif line_no > 0:
-        result = f"{prefix}PARAM_L{line_no}" if prefix else f"PARAM_L{line_no}"
     else:
-        # Transliterate: keep alphanumeric, replace rest with _
-        clean = re.sub(r"[^\w]", "_", cn_name).strip("_").upper()
-        result = prefix + clean if clean else f"{prefix}UNNAMED"
+        # Try EN_PARAM with case-insensitive match
+        cn_lower = cn_name.lower().strip()
+        en_suffix = next(
+            (v for k, v in EN_PARAM.items() if k == cn_lower), None
+        )
+        if en_suffix:
+            if prefix and en_suffix.startswith(prefix.rstrip("_")):
+                result = en_suffix
+            else:
+                result = prefix + en_suffix
+        elif line_no > 0:
+            result = f"{prefix}PARAM_L{line_no}" if prefix else f"PARAM_L{line_no}"
+        else:
+            # Transliterate: keep alphanumeric, replace rest with _
+            clean = re.sub(r"[^\w]", "_", cn_name).strip("_").upper()
+            result = prefix + clean if clean else f"{prefix}UNNAMED"
 
     return result
 
@@ -554,18 +579,19 @@ def extract_connection_matrix(lines: list, fasteners: list,
 
     # From assembly layers: each layer connects to its parent (layer with lower level number)
     # This produces parallel topology (all L3 items connect to L2 parent, not each other)
-    for i in range(1, len(assembly_layers)):
-        b = assembly_layers[i]
+    active_layers = [l for l in assembly_layers if not l.get("exclude", False)]
+    for i in range(1, len(active_layers)):
+        b = active_layers[i]
         # Find nearest preceding layer with a strictly lower level
-        b_level = b.get("level", 0)
+        b_level = b.get("level", "")
         parent = None
         for j in range(i - 1, -1, -1):
-            a = assembly_layers[j]
-            if a.get("level", 0) < b_level:
+            a = active_layers[j]
+            if a.get("level", "") < b_level:
                 parent = a
                 break
         if parent is None:
-            parent = assembly_layers[i - 1]
+            parent = active_layers[i - 1]
         order += 1
         connections.append({
             "partA": parent.get("part", ""),
@@ -612,17 +638,83 @@ def extract_connection_matrix(lines: list, fasteners: list,
                 "fit": "", "torque": "", "order": order,
             })
 
+    # Extract ISO fit codes from connection type text (e.g. "H7/k6", "H7/h6")
+    for conn in connections:
+        if not conn["fit"]:
+            fit_match = re.search(r'([A-Z]\d+/[a-z]\d+)', conn.get("type", ""))
+            if fit_match:
+                conn["fit"] = fit_match.group(1)
+
     return connections
 
 
 # ─── 6. 装配姿态与定位 ───────────────────────────────────────────────────
+
+def _parse_offset(text: str) -> dict:
+    """Parse offset text like 'Z=+73mm(向上)' into structured values."""
+    result = {"z": None, "r": None, "theta": None, "is_origin": False}
+    if not text:
+        return result
+    if "基准" in text or "原点" in text:
+        result["z"] = 0.0
+        result["is_origin"] = True
+    m = re.search(r"Z\s*=\s*([+-]?\d+(?:\.\d+)?)", text)
+    if m:
+        result["z"] = float(m.group(1))
+    if result["z"] is None:
+        m = re.search(r"Z\s*=\s*0(?:\s*[\(（]|$)", text)
+        if m:
+            result["z"] = 0.0
+    m = re.search(r"R\s*[=≈]\s*(\d+(?:\.\d+)?)", text)
+    if m:
+        result["r"] = float(m.group(1))
+    m = re.search(r"θ\s*=\s*(\d+(?:\.\d+)?)", text)
+    if m:
+        result["theta"] = float(m.group(1))
+    return result
+
+
+def _parse_axis_dir(text: str) -> list:
+    """Parse axis_dir multi-clause text into structured list.
+
+    E.g. '壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）'
+    → [{"keyword": "壳体", "direction": (0,0,-1), "rotation": None},
+       {"keyword": "储罐", "direction": (1,0,0), "rotation": {"axis":(1,0,0),"angle":90}}]
+    """
+    if not text:
+        return []
+    clauses = re.split(r"[，,]", text)
+    parsed = []
+    for clause in clauses:
+        clause = clause.strip()
+        if not clause:
+            continue
+        entry = {"keyword": "", "direction": (0, 0, -1), "rotation": None}
+        kw_m = re.match(r"([\u4e00-\u9fff]{1,4})[轴面]", clause)
+        if kw_m:
+            entry["keyword"] = kw_m.group(1)
+        if any(k in clause for k in ["盘面∥XY", "环∥XY", "弧形∥XY"]):
+            entry["direction"] = (0, 0, 1)
+        elif any(k in clause for k in ["沿-Z", "-Z", "向下"]):
+            entry["direction"] = (0, 0, -1)
+        elif any(k in clause for k in ["沿+Z", "+Z", "向上"]):
+            entry["direction"] = (0, 0, 1)
+        elif any(k in clause for k in ["沿Z", "垂直", "⊥法兰"]):
+            entry["direction"] = (0, 0, -1)
+        elif any(k in clause for k in ["∥XY", "水平", "径向外伸", "径向"]):
+            entry["direction"] = (1, 0, 0)
+            entry["rotation"] = {"axis": (1, 0, 0), "angle": 90}
+        parsed.append(entry)
+    return parsed
+
 
 def extract_assembly_pose(lines: list) -> dict:
     """提取 §X.10.0 坐标系 + §X.10.1 装配层叠。
 
     Returns:
         {"coord_sys": [{term, definition, equivalent}],
-         "layers": [{level, part, fixed_moving, connection, offset, axis_dir}]}
+         "layers": [{level, part, fixed_moving, connection, offset, offset_parsed,
+                     axis_dir, axis_dir_parsed, exclude, exclude_reason}]}
     """
     result = {"coord_sys": [], "layers": []}
 
@@ -651,17 +743,21 @@ def extract_assembly_pose(lines: list) -> dict:
 
         for row in tbl["rows"]:
             part_name = row[part_i].strip() if part_i < len(row) else ""
-            # BUG-10: GIS-EE-006 (信号调理模块) is mounted on J3-J4 arm link,
-            # NOT on the end-effector flange — exclude from assembly layers.
-            if "GIS-EE-006" in part_name or "信号调理" in part_name:
-                continue
+            # Instead of hardcoded continue, keep all parts. Exclusion is determined
+            # later by cross-referencing negative constraints from §X.10.5.
+            offset_text = row[offset_i].strip() if offset_i >= 0 and offset_i < len(row) else ""
+            axis_text = row[axis_i].strip() if axis_i >= 0 and axis_i < len(row) else ""
             result["layers"].append({
                 "level": row[level_i].strip() if level_i < len(row) else "",
-                "part": row[part_i].strip() if part_i < len(row) else "",
+                "part": part_name,
                 "fixed_moving": row[fm_i].strip() if fm_i >= 0 and fm_i < len(row) else "",
                 "connection": row[conn_i].strip() if conn_i >= 0 and conn_i < len(row) else "",
-                "offset": row[offset_i].strip() if offset_i >= 0 and offset_i < len(row) else "",
-                "axis_dir": row[axis_i].strip() if axis_i >= 0 and axis_i < len(row) else "",
+                "offset": offset_text,
+                "offset_parsed": _parse_offset(offset_text),
+                "axis_dir": axis_text,
+                "axis_dir_parsed": _parse_axis_dir(axis_text),
+                "exclude": False,
+                "exclude_reason": "",
             })
 
     return result
@@ -776,7 +872,9 @@ def extract_render_plan(lines: list) -> dict:
     for tbl in constraint_tables:
         cols = [c.lower() for c in tbl["columns"]]
         id_i = next((i for i, c in enumerate(cols) if "id" in c or "编号" in c), 0)
-        desc_i = next((i for i, c in enumerate(cols) if "描述" in c or "约束" in c), 1)
+        # "描述" first; avoid matching "约束id" column when looking for "约束描述"
+        desc_i = next((i for i, c in enumerate(cols)
+                       if "描述" in c or ("约束" in c and "id" not in c and i != id_i)), 1)
         reason_i = next((i for i, c in enumerate(cols) if "原因" in c or "说明" in c), -1)
 
         for row in tbl["rows"]:
@@ -1011,3 +1109,376 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
             features_by_part[pno] = part_features
 
     return features_by_part
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 零件包络提取 — 多来源优先级合并
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def extract_part_envelopes(lines: list, bom_data=None,
+                           visual_ids: list = None, params: list = None) -> dict:
+    """从多来源提取零件包络尺寸，按优先级合并。
+
+    Priority: P1(零件级参数表) > P2(叙述包络) > P3(BOM材质列) > P4(视觉标识) > P5(全局参数)
+
+    Returns: {part_no: {"type": str, "d"|"w": float, "h": float, "source": str}}
+    """
+    from cad_spec_defaults import _parse_dims_from_text
+    result = {}
+
+    # --- P3: BOM 材质列 ---
+    if bom_data:
+        for assy in bom_data.get("assemblies", []):
+            for part in assy.get("parts", []):
+                pno = part.get("part_no", "")
+                material = part.get("material", "")
+                if not pno or not material:
+                    continue
+                dims = _parse_dims_from_text(material)
+                if dims:
+                    result[pno] = _dims_to_envelope(dims, "P3:BOM")
+
+    # --- P4: 视觉标识表 size 列 ---
+    if visual_ids and bom_data:
+        for v in visual_ids:
+            part_name = v.get("part", "")
+            size_text = v.get("size", "")
+            if not size_text or size_text == "[待定]":
+                continue
+            dims = _parse_dims_from_text(size_text)
+            if dims:
+                pno = _match_name_to_bom(part_name, bom_data)
+                if pno:
+                    result[pno] = _dims_to_envelope(dims, "P4:visual")
+
+    # --- P2: 叙述文字中"模块包络尺寸：W×D×H" ---
+    text = "\n".join(lines)
+    for m in re.finditer(
+        r"模块包络尺寸[：:]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
+        text
+    ):
+        w, d, h = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        pos = m.start()
+        context = text[max(0, pos - 500):pos]
+        pno = _find_nearest_assembly(context, bom_data)
+        if pno:
+            result[pno] = {"type": "box", "w": w, "d": d, "h": h, "source": "P2:narrative"}
+
+    # --- P1: 零件级参数表（含"外形"/"尺寸"列的子表格）---
+    part_tables = extract_tables(lines, column_keywords=["外形", "尺寸参数"])
+    if not part_tables:
+        part_tables = extract_tables(lines, column_keywords=["设计值"])
+    for tbl in part_tables:
+        cols = [c.lower() for c in tbl["columns"]]
+        name_i = next((i for i, c in enumerate(cols) if "零件" in c), 0)
+        dim_cols = [i for i, c in enumerate(cols) if "设计值" in c or "尺寸" in c or "外形" in c]
+        if not dim_cols:
+            continue
+        dim_i = dim_cols[0]
+        for row in tbl["rows"]:
+            part_name = row[name_i].strip() if name_i < len(row) else ""
+            dim_text = row[dim_i].strip() if dim_i < len(row) else ""
+            if not dim_text:
+                continue
+            dims = _parse_dims_from_text(dim_text)
+            if dims and bom_data:
+                pno = _match_name_to_bom(part_name, bom_data)
+                if pno:
+                    result[pno] = _dims_to_envelope(dims, "P1:part_table")
+
+    # --- Post-pass: fix disc-typed motors/reducers by searching body text ---
+    # When BOM only has "Φ16mm" (no length), _dims_to_envelope produces type="disc"
+    # with h = d*0.25. For motors/reducers, search body text for "Φd×Lmm" full dims.
+    text = "\n".join(lines)
+    motor_keywords = ("电机", "减速", "motor", "reducer")
+    for pno, env in list(result.items()):
+        if env.get("type") != "disc":
+            continue
+        # Check if this part is a motor/reducer
+        part_name = ""
+        if bom_data:
+            for assy in bom_data.get("assemblies", []):
+                for part in assy.get("parts", []):
+                    if part.get("part_no") == pno:
+                        part_name = part.get("name", "") + part.get("material", "")
+                        break
+        if not any(kw in part_name for kw in motor_keywords):
+            continue
+        # Search body text for full Φd×Lmm near the part name
+        d = env["d"]
+        pattern = rf'[Φφ]\s*{int(d)}(?:\.\d+)?\s*[×x×]\s*(\d+(?:\.\d+)?)\s*mm'
+        m = re.search(pattern, text)
+        if m:
+            full_length = float(m.group(1))
+            if full_length > env["h"]:  # only if body text gives a larger dimension
+                result[pno] = {"type": "cylinder", "d": d, "h": full_length,
+                               "source": env["source"] + "+body_text"}
+
+    return result
+
+
+def _dims_to_envelope(dims: dict, source: str) -> dict:
+    """Convert raw dims dict to envelope format."""
+    if "d" in dims and "l" in dims:
+        return {"type": "cylinder", "d": dims["d"], "h": dims["l"], "source": source}
+    elif "w" in dims and "h" in dims and "l" in dims:
+        return {"type": "box", "w": dims["w"], "d": dims["h"], "h": dims["l"], "source": source}
+    elif "w" in dims and "h" in dims:
+        return {"type": "box", "w": dims["w"], "d": dims["w"], "h": dims["h"], "source": source}
+    elif "od" in dims:
+        return {"type": "ring", "d": dims["od"], "h": dims.get("w", dims.get("h", 5)), "source": source}
+    elif "d" in dims:
+        return {"type": "disc", "d": dims["d"], "h": max(5, round(dims["d"] * 0.25, 1)), "source": source}
+    return {"type": "box", "w": 20, "d": 20, "h": 20, "source": source + "(fallback)"}
+
+
+def _match_name_to_bom(name: str, bom_data,
+                        assembly_pno: Optional[str] = None) -> Optional[str]:
+    """Match a Chinese part name to BOM part_no by keyword prefix matching.
+
+    If assembly_pno is given, the search is scoped to that assembly's parts.
+    This prevents cross-assembly false matches (e.g. GIS-EE-003 chain node
+    "弹簧限力上端板" falsely matching GIS-EE-001-04 "碟形弹簧垫圈" via the
+    2-char prefix "弹簧"). We also reject the 2-char fallback match unless
+    it is an assembly-scoped exact or longer substring match, because 2-char
+    prefixes are too loose to be reliable.
+    """
+    if not bom_data or not name:
+        return None
+
+    # Build candidate parts: scoped to assembly if given, else all
+    candidates = []
+    for assy in bom_data.get("assemblies", []):
+        if assembly_pno and assy.get("part_no") != assembly_pno:
+            continue
+        for part in assy.get("parts", []):
+            candidates.append(part)
+
+    # Prefer longest-prefix match (4 → 3 → skip 2 unless scoped)
+    # Skip 2-char prefix when unscoped: it's too permissive and causes
+    # cross-assembly false matches. Within a single assembly 2-char
+    # matches are acceptable because the scope already narrows candidates.
+    min_kw_len = 2 if assembly_pno else 3
+    keywords = [name[:n] for n in (4, 3, 2) if len(name) >= n and n >= min_kw_len]
+    for kw in keywords:
+        for part in candidates:
+            pname = part.get("name", "")
+            if kw in pname:
+                return part.get("part_no")
+    return None
+
+
+def _find_nearest_assembly(context: str, bom_data) -> Optional[str]:
+    """Find nearest assembly part_no from preceding text context."""
+    if not bom_data:
+        return None
+    pnos = re.findall(r"([A-Z]+-[A-Z]+-\d{3})", context)
+    if pnos:
+        return pnos[-1]
+    for assy in bom_data.get("assemblies", []):
+        name = assy.get("name", "")
+        if name and len(name) >= 4 and name[:4] in context:
+            return assy.get("part_no")
+    return None
+
+
+def extract_part_placements(lines: list, bom_data=None,
+                             assembly_layers: list = None) -> list:
+    """提取零件级定位信息：串联堆叠链 + 非轴向定位描述。
+
+    Returns list of placement dicts.
+    """
+    from cad_spec_defaults import _parse_dims_from_text
+    placements = []
+    text = "\n".join(lines)
+
+    # --- Part 1: Extract axial_stack chains from → syntax ---
+    # Find fenced code blocks containing → chains
+    code_blocks = re.finditer(r"```[^\n]*\n(.*?)```", text, re.DOTALL)
+    for block_match in code_blocks:
+        block = block_match.group(1)
+        if "→" not in block:
+            continue
+        chain_lines = [l.strip() for l in block.strip().splitlines() if l.strip()]
+        if len(chain_lines) < 2:
+            continue
+
+        # Detect assembly context from text before the code block.
+        # Use a larger window (2000 chars) so chains nested inside long
+        # subsection bodies can still resolve their parent assembly.
+        ctx_start = max(0, block_match.start() - 2000)
+        context = text[ctx_start:block_match.start()]
+        assembly_pno = _detect_assembly_context(context, bom_data)
+
+        # Parse anchor (text before first →)
+        anchor = ""
+        full_text = " ".join(chain_lines)
+        parts = full_text.split("→")
+        if parts:
+            anchor = parts[0].strip()
+
+        # Parse nodes (everything after first →) — scope BOM matching
+        # to the detected assembly to prevent cross-assembly false matches
+        nodes = []
+        for item_text in parts[1:]:
+            item_text = item_text.strip()
+            if not item_text:
+                continue
+            node = _parse_chain_node(item_text, bom_data,
+                                     assembly_pno=assembly_pno)
+            nodes.append(node)
+
+        if not nodes:
+            continue
+
+        # Determine stacking direction from assembly layers
+        direction = (0, 0, -1)  # default: downward
+        if assembly_layers and assembly_pno:
+            for layer in assembly_layers:
+                if assembly_pno in layer.get("part", ""):
+                    parsed_dirs = layer.get("axis_dir_parsed", [])
+                    if parsed_dirs:
+                        direction = parsed_dirs[0].get("direction", (0, 0, -1))
+                    break
+
+        placements.append({
+            "assembly": assembly_pno or "",
+            "anchor": anchor,
+            "direction": direction,
+            "mode": "axial_stack",
+            "chain": nodes,
+        })
+
+    # --- Part 2: Extract non-axial placements from narrative ---
+    _extract_non_axial_placements(text, bom_data, placements)
+
+    return placements
+
+
+def _parse_chain_node(text: str, bom_data,
+                       assembly_pno: Optional[str] = None) -> dict:
+    """Parse a single chain node like '[4×M3螺栓] → 力传感器KWR42(Φ42×20mm, 70g)'.
+
+    When assembly_pno is given, BOM matching is scoped to that assembly,
+    preventing cross-assembly false matches.
+    """
+    from cad_spec_defaults import _parse_dims_from_text
+    node = {"part_name": "", "part_no": None, "dims": None,
+            "connection": None, "sub_assembly": None}
+
+    # Extract connection prefix: [4×M3螺栓]
+    conn_m = re.match(r"\[([^\]]+)\]\s*", text)
+    if conn_m:
+        node["connection"] = conn_m.group(1).strip()
+        text = text[conn_m.end():]
+
+    # Extract dimensions from parentheses
+    dim_m = re.search(r"\(([^)]+)\)", text)
+    if dim_m:
+        dim_text = dim_m.group(1)
+        dims = _parse_dims_from_text(dim_text)
+        if dims:
+            node["dims"] = _dims_to_envelope(dims, "chain")
+        name = text[:dim_m.start()].strip()
+    else:
+        name = text.strip()
+
+    node["part_name"] = name
+
+    # Match to BOM (scoped to assembly if given)
+    if bom_data and name:
+        node["part_no"] = _match_name_to_bom(name, bom_data, assembly_pno)
+
+    return node
+
+
+def _detect_assembly_context(context: str, bom_data) -> Optional[str]:
+    """Detect which assembly a chain belongs to from surrounding text.
+
+    Strategy (in order):
+    1. Look for explicit assembly part_no like 'GIS-EE-003' in context
+    2. Match assembly name (≥4 chars) found in context
+    3. Match station-by-angle hints (e.g. "工位2", "AE检测", "(90°)")
+       to assembly names containing the same hint
+    """
+    if not bom_data:
+        return None
+    # Strategy 1: Look for assembly-level part numbers (3-segment: GIS-EE-003)
+    pnos = re.findall(r"([A-Z]+-[A-Z]+-\d{3})\b", context)
+    if pnos:
+        return pnos[-1]
+
+    # Strategy 2: Match assembly name keywords (longer prefixes first)
+    # Use the LAST match in context (closest to the chain)
+    best_match = None
+    best_pos = -1
+    for assy in bom_data.get("assemblies", []):
+        name = assy.get("name", "")
+        if not name:
+            continue
+        for prefix_len in (8, 6, 4):
+            if len(name) < prefix_len:
+                continue
+            kw = name[:prefix_len]
+            pos = context.rfind(kw)
+            if pos > best_pos:
+                best_pos = pos
+                best_match = assy.get("part_no")
+                break
+    if best_match:
+        return best_match
+
+    # Strategy 3: Substring keyword matching against assembly names
+    # e.g. context contains "AE检测" → match assembly with "AE检测" in name
+    keyword_hints = re.findall(r"[A-Z]{2,4}检测|工位\d+|涂抹模块|AE模块|UHF模块|清洁模块",
+                                context)
+    for hint in reversed(keyword_hints):  # nearest hint first
+        for assy in bom_data.get("assemblies", []):
+            name = assy.get("name", "")
+            if hint in name:
+                return assy.get("part_no")
+    return None
+
+
+def _extract_non_axial_placements(text: str, bom_data, placements: list):
+    """Extract radial_extend, side_mount, coaxial, lateral_array from narrative text."""
+    patterns = [
+        (r"(沿.{0,4}径向|轴线与悬臂共线).{0,6}(向外|外伸|延伸)", "radial_extend"),
+        (r"(安装于|位于).{0,4}(侧壁|侧面|外侧).{0,10}(竖直|并排)", "side_mount"),
+        (r"(压入|嵌入|过盈配合)", "coaxial"),
+        (r"(并列|并排).{0,6}间距\s*(\d+)\s*mm", "lateral_array"),
+        (r"(安装于|位于).{0,4}(顶部|底部|末端|端部)", "extremity"),
+    ]
+    for pattern, mode in patterns:
+        for m in re.finditer(pattern, text):
+            ctx_start = max(0, m.start() - 300)
+            ctx_end = min(len(text), m.end() + 100)
+            context = text[ctx_start:ctx_end]
+
+            # Find part number in context
+            pno = None
+            pno_m = re.search(r"([A-Z]+-[A-Z]+-\d+-\d+)", context)
+            if pno_m:
+                pno = pno_m.group(1)
+            elif bom_data:
+                pno_m2 = re.search(r"([A-Z]+-[A-Z]+-\d{3})", context)
+                if pno_m2:
+                    pno = pno_m2.group(1)
+
+            params = {}
+            if mode == "radial_extend":
+                params["rotation"] = {"axis": (1, 0, 0), "angle": 90}
+            elif mode == "lateral_array":
+                pitch_m = re.search(r"间距\s*(\d+)", context)
+                if pitch_m:
+                    params["pitch"] = float(pitch_m.group(1))
+
+            placements.append({
+                "assembly": "",
+                "part_no": pno,
+                "mode": mode,
+                "params": params,
+                "source": f"text:{mode}",
+                "confidence": "medium",
+            })

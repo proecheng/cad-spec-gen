@@ -119,6 +119,43 @@
 - Fix C: auto-stack 公式改为 `offset_z = cursor`（匹配 `centered=(T,T,False)` 几何原点）
 - Fix D: 向上堆叠种子改为 `max(bottom_z + envelope_h)`（从最高零件顶面开始）
 
+**Parts Library 系统**（v2.8.0+）：外购件不再硬编码到 `_gen_*` 简化几何，而是通过 `parts_resolver.PartsResolver` 路由到三个适配器之一：
+- **`StepPoolAdapter`**：从项目本地 `std_parts/` 目录加载真实的 vendor STEP 文件（Maxon / LEMO / ATI 等）
+- **`BdWarehouseAdapter`**：参数化 ISO 硬件（深沟球轴承、紧固件、螺纹），通过 `bd_warehouse` lazy import
+- **`PartCADAdapter`**：opt-in 包管理器(`partcad`),跨项目共享参数化零件
+- **`JinjaPrimitiveAdapter`**：终极 fallback，复用原有 `_gen_*` 简化几何（v2.8.0 之前的行为）
+
+路由由项目根的 `parts_library.yaml` 注册表驱动。无 yaml 时系统是 no-op，输出与 v2.7.x 字节级一致。CI 的 regression job (`CAD_PARTS_LIBRARY_DISABLE=1`) 强制保证这一点。
+
+**§6.4 P7 包络回填**（v2.8.0+）：Phase 1 的 `cad_spec_gen.py` 在 P5/P6 后新增 P7 backfill 循环，对每个外购件调 `resolver.probe_dims()` 把库探测到的尺寸写入 §6.4，标签 `P7:STEP` / `P7:BW` / `P7:PC`。优先级：
+- P1..P4（作者提供）：**永不**被 P7 覆盖
+- P5..P6（自动推断）：被 P7 覆盖（标记 `P7:STEP(override_P5)` 等）
+- 缺失：填入 P7 值
+
+**Registry inheritance `extends: default`**（v2.8.1+）：项目本地 `parts_library.yaml` 加 `extends: default` 即可继承 skill 自带的 `parts_library.default.yaml`：
+- 项目 `mappings` **prepend** 到 default mappings（项目规则优先 first-hit-wins，default 作为兜底）
+- 项目顶层 keys（`step_pool` / `bd_warehouse` / `partcad`）shallow override default
+- 解决了"项目 yaml 完全替换 default 的 sparse-yaml trap"
+
+**Resolver coverage report**（v2.8.1+）：`gen_std_parts.py` 末尾打印按适配器分组的覆盖率表：
+```
+[gen_std_parts] resolver coverage:
+  step_pool          8  GIS-EE-001-05, GIS-EE-001-06 ... (and 6 more)
+  jinja_primitive   26  GIS-EE-001-03, GIS-EE-001-04 ... (and 24 more)
+  ─────────────────────────────────────────────────────────
+  Total: 34 parts | Library hits: 8 (23.5%) | Fallback: 26 (76.5%)
+  Hint: 26 parts use simplified geometry. Add a STEP file under
+  std_parts/, write a parts_library.yaml rule, or set
+  `extends: default` to inherit category-driven routing.
+```
+hint footer 仅在有 jinja fallback 时显示。详见 `docs/PARTS_LIBRARY.md`。
+
+**F1+F3 disc_arms 模板重写**（v2.8.2+）：法兰类 (`disc_arms` 几何) 的 arm + platform 现在贯通整个 disc 厚度（不再是顶部 8mm 薄片），cross 结构从任何角度都可见——包括底面 iso 视角。叠加 chamfer/fillet polish 让 mounting platform 看起来像 CNC 件。多了一个 2mm `_arm_overlap` 修复 OCCT tangent boolean bug：
+- Before: `make_ee_001_01().val()` 返回 5 个 disjoint Solids（arm box 与 disc cylinder 相切但无体积重叠）
+- After: 1 fused Solid，bbox 不变，volume 200 → 309 cm³
+
+**GLB consolidator 后处理**（v2.8.2+）：`codegen/consolidate_glb.py` 在 `cad_pipeline.py build` 跑完后自动执行,合并 CadQuery 的 per-face mesh 拆分（一个 face 一个 mesh node）回到 per-part meshes。GISBOT end_effector：321 components → 39。`EE-001-01` 父节点 bbox 从 degenerate `6×0×8 mm` 修正为 `171×171×25 mm`。Gracefully no-ops 当 trimesh 未安装。
+
 **SPEC 部署**（v2.2.1+）：`cad_pipeline.py spec` 成功后自动将 `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` 拷贝到 `cad/<subsystem>/`，确保 codegen 读取的始终是最新版 SPEC。
 
 **增强质量门控**（v2.2.1+）：`cad_pipeline.py enhance` 在发送 PNG 到 Gemini 前检查文件大小和灰度方差，跳过空白/近空白渲染图并报 WARNING。阈值可通过 `render_config.json` 的 `enhance_quality_gate` 覆盖。

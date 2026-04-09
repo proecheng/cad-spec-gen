@@ -1,6 +1,7 @@
 {
   "_doc": "CAD pipeline persistent config. Auto-detected on first run; edit manually to override.",
-  "blender_path": "D:/Blender/blender.exe",
+  "_blender_path_doc": "Per-machine — set to your local Blender install. Empty string falls back to BLENDER_PATH env var, then PATH lookup, then platform-default install locations.",
+  "blender_path": "",
   "cadquery_python": "python",
   "output_base": "cad/output",
   "render": {
@@ -20,7 +21,7 @@
   },
   "enhance": {
     "backend": "gemini",
-    "_backend_doc": "Options: 'gemini' (cloud, soft geometry lock) | 'fal' (cloud, ControlNet hard lock, $0.20/img) | 'comfyui' (local GPU, hard lock, free) | 'engineering' (no AI, Blender PBR direct, free). Leave empty for auto-detect.",
+    "_backend_doc": "Options: 'gemini' (cloud, soft geometry lock) | 'fal' (cloud, Flux ControlNet hard lock) | 'fal_comfy' (cloud, ComfyUI workflow on fal, hard lock) | 'comfyui' (local GPU, hard lock, free) | 'engineering' (no AI, Blender PBR direct, free). Leave empty for auto-detect.",
     "model": "nano_banana_pro",
     "temperature": 0.2,
     "seed_from_image": true,
@@ -35,7 +36,7 @@
     "resolution": "2k",
     "timeout": 180,
     "comfyui": {
-      "root": "D:/ComfyUI",
+      "root": "",
       "host": "127.0.0.1",
       "port": 8188,
       "workflow_template": "templates/comfyui_workflow_template.json",
@@ -48,15 +49,33 @@
       "timeout": 7200
     },
     "fal": {
-      "_doc": "fal.ai Flux ControlNet — cloud API, hard geometry lock. Requires FAL_KEY env var.",
+      "_doc": "fal.ai Flux img2img + ControlNet — cloud API. img2img preserves base geometry, canny locks edges, depth optional. Requires FAL_KEY env var.",
       "model": "fal-ai/flux-general",
+      "img2img": true,
+      "img2img_strength": 0.6,
       "controlnet_canny": "InstantX/FLUX.1-dev-Controlnet-Canny",
       "controlnet_depth": "Shakker-Labs/FLUX.1-dev-ControlNet-Depth",
-      "canny_strength": 0.8,
-      "depth_strength": 0.95,
+      "canny_strength": 0.75,
+      "canny_end_pct": 0.8,
+      "depth_strength": 0.7,
+      "depth_end_pct": 0.8,
       "steps": 28,
       "guidance_scale": 3.5,
       "timeout": 120
+    },
+    "fal_comfy": {
+      "_doc": "fal.ai Cloud ComfyUI — serverless ComfyUI workflow execution. Requires FAL_KEY env var. Models downloaded from HuggingFace URLs (cached on fal infra after first run).",
+      "endpoint": "fal-ai/comfy",
+      "workflow_template": "templates/fal_comfy_workflow_template.json",
+      "checkpoint_url": "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors",
+      "controlnet_depth_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11f1p_sd15_depth.pth",
+      "controlnet_canny_url": "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_canny.pth",
+      "canny_strength": 0.85,
+      "depth_strength": 0.7,
+      "denoise_strength": 0.35,
+      "cfg_scale": 7.0,
+      "steps": 25,
+      "timeout": 300
     },
     "engineering": {
       "_doc": "No AI — Blender PBR render → light post-processing → JPG. Perfect geometry, zero cost.",

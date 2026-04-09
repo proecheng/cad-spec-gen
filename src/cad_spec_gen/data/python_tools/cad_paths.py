@@ -59,6 +59,20 @@ def get_blender_path():
         c = os.path.normpath(c) if c else ""
         if c and os.path.isfile(c):
             return c
+    # Auto-detect: search common install locations and PATH
+    import shutil
+    found = shutil.which("blender")
+    if found:
+        return found
+    # Platform-specific common paths
+    common = [
+        os.path.expandvars(r"%ProgramFiles%\Blender Foundation\Blender\blender.exe"),
+        "/usr/bin/blender",
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+    ]
+    for c in common:
+        if os.path.isfile(c):
+            return c
     return None
 
 

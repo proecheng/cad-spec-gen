@@ -41,10 +41,11 @@ def parse_bom_tree(spec_path: str) -> list:
     """
     text = Path(spec_path).read_text(encoding="utf-8")
     lines = text.splitlines()
-    parts = []
     in_section = False
     header_found = False
 
+    # Pass 1: collect all raw rows
+    raw_rows = []
     for line in lines:
         if re.match(r"##\s*5\.\s*BOM", line):
             in_section = True
@@ -54,7 +55,6 @@ def parse_bom_tree(spec_path: str) -> list:
         if not in_section:
             continue
 
-        # Detect table header
         if ("零件号" in line or "料号" in line) and "名称" in line:
             header_found = True
             continue
@@ -64,42 +64,43 @@ def parse_bom_tree(spec_path: str) -> list:
         if header_found and line.startswith("|"):
             cells = [c.strip() for c in line.split("|")]
             cells = [c for c in cells if c is not None]
-            # Remove empty bookend cells
             if cells and cells[0] == "":
                 cells = cells[1:]
             if cells and cells[-1] == "":
                 cells = cells[:-1]
             if len(cells) < 3:
                 continue
+            raw_rows.append(cells)
 
-            part_no = cells[0].replace("**", "").strip()
-            name_cn = cells[1].replace("**", "").strip() if len(cells) > 1 else ""
-            material = cells[2] if len(cells) > 2 else ""
-            quantity = cells[3] if len(cells) > 3 else "1"
-            make_buy = cells[4] if len(cells) > 4 else ""
+    # Pass 2: classify assembly vs leaf using structural analysis
+    all_part_nos = {r[0].replace("**", "").strip() for r in raw_rows}
+    parts = []
+    for cells in raw_rows:
+        part_no = cells[0].replace("**", "").strip()
+        name_cn = cells[1].replace("**", "").strip() if len(cells) > 1 else ""
+        material = cells[2] if len(cells) > 2 else ""
+        quantity = cells[3] if len(cells) > 3 else "1"
+        make_buy = cells[4] if len(cells) > 4 else ""
 
-            # Determine assembly vs leaf part:
-            # 1. Explicit "总成" in make_buy → assembly
-            # 2. GIS-style: 3 segments (GIS-EE-001) → assembly,
-            #               4+ segments (GIS-EE-001-01) → leaf
-            # 3. Flat BOM (SLP-100, UNKNOWN): only "总成" rows are assemblies
-            if "总成" in make_buy:
-                is_assembly = True
-            else:
-                segments = part_no.split("-")
-                # For GIS-XX-NNN style: 3 segments = assembly
-                # For short prefixes (SLP-100): never assembly unless "总成"
-                is_assembly = (len(segments) == 3 and
-                               re.match(r"[A-Z]+-[A-Z]+", part_no) is not None)
+        # Assembly detection (prefix-independent):
+        # 1. Explicit "总成" in make_buy → always assembly
+        # 2. Has children: other part_nos start with this + "-" → assembly
+        if "总成" in make_buy:
+            is_assembly = True
+        else:
+            is_assembly = any(
+                pno.startswith(part_no + "-")
+                for pno in all_part_nos if pno != part_no
+            )
 
-            parts.append({
-                "part_no": part_no,
-                "name_cn": name_cn,
-                "is_assembly": is_assembly,
-                "material": material,
-                "quantity": quantity,
-                "make_buy": make_buy,
-            })
+        parts.append({
+            "part_no": part_no,
+            "name_cn": name_cn,
+            "is_assembly": is_assembly,
+            "material": material,
+            "quantity": quantity,
+            "make_buy": make_buy,
+        })
 
     return parts
 

@@ -240,11 +240,13 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
     # Build ControlNet configuration
     canny_model = fal_cfg.get("controlnet_canny", "InstantX/FLUX.1-dev-Controlnet-Canny")
     depth_model = fal_cfg.get("controlnet_depth", "Shakker-Labs/FLUX.1-dev-ControlNet-Depth")
-    canny_strength = fal_cfg.get("canny_strength", 0.8)
-    depth_strength = fal_cfg.get("depth_strength", 0.95)
+    canny_strength = fal_cfg.get("canny_strength", 0.75)
+    depth_strength = fal_cfg.get("depth_strength", 0.7)
+    canny_end = fal_cfg.get("canny_end_pct", 0.8)
+    depth_end = fal_cfg.get("depth_end_pct", 0.8)
     steps = fal_cfg.get("steps", 28)
     guidance = fal_cfg.get("guidance_scale", 3.5)
-    timeout = fal_cfg.get("timeout", 120)
+    img2img_strength = fal_cfg.get("img2img_strength", 0.45)
 
     controlnets = [
         {
@@ -252,32 +254,47 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
             "control_image_url": render_url,
             "conditioning_scale": canny_strength,
             "start_percentage": 0.0,
-            "end_percentage": 0.8,
+            "end_percentage": canny_end,
         },
     ]
-    if depth_url:
+    if depth_url and depth_strength > 0:
         controlnets.append({
             "path": depth_model,
             "control_image_url": depth_url,
             "conditioning_scale": depth_strength,
             "start_percentage": 0.0,
-            "end_percentage": 1.0,
+            "end_percentage": depth_end,
         })
+
+    # Determine endpoint: img2img (preserves geometry) vs txt2img
+    endpoint = fal_cfg.get("model", "fal-ai/flux-general")
+    use_img2img = fal_cfg.get("img2img", True)  # default: img2img for geometry preservation
+    if use_img2img:
+        endpoint = endpoint.rstrip("/") + "/image-to-image"
+
+    api_args = {
+        "prompt": flux_prompt,
+        "num_inference_steps": steps,
+        "guidance_scale": guidance,
+        "num_images": 1,
+        "output_format": "jpeg",
+        "enable_safety_checker": False,
+        "controlnets": controlnets,
+    }
+    if use_img2img:
+        api_args["image_url"] = render_url
+        api_args["strength"] = img2img_strength
+    else:
+        api_args["image_size"] = "landscape_16_9"
+
+    log.info("  Endpoint: %s (img2img=%s, strength=%.2f)",
+             endpoint, use_img2img, img2img_strength if use_img2img else 0)
 
     # Call fal.ai API
     try:
         result = fal_client.subscribe(
-            fal_cfg.get("model", "fal-ai/flux-general"),
-            arguments={
-                "prompt": flux_prompt,
-                "image_size": "landscape_16_9",
-                "num_inference_steps": steps,
-                "guidance_scale": guidance,
-                "num_images": 1,
-                "output_format": "jpeg",
-                "enable_safety_checker": False,
-                "controlnets": controlnets,
-            },
+            endpoint,
+            arguments=api_args,
             with_logs=False,
         )
     finally:

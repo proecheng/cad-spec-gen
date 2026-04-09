@@ -97,6 +97,19 @@ The generated CAD_SPEC.md therefore gains three new sections:
 
 The generated CAD_SPEC.md §9.2 contains a constraint declaration table consumed by Phase 2 codegen for precise assembly positioning.
 
+**Phase 1 P7 Envelope Backfill** (v2.8.0+):
+
+If `parts_library.yaml` exists at the project root, Phase 1 adds a **P7 backfill loop** after P5/P6: for every purchased BOM row it calls `parts_resolver.PartsResolver.probe_dims()` and writes library-derived dimensions into §6.4. Source tags:
+
+| Tag | Meaning |
+|---|---|
+| `P7:STEP` | from a project-local STEP file (`std_parts/`) |
+| `P7:BW` | from a `bd_warehouse` parametric part |
+| `P7:PC` | from a `partcad` package |
+| `P7:STEP(override_P5)` | P7 overrode an earlier P5/P6 auto-inferred row |
+
+P1..P4 (author-provided dimensions) are **never** overridden by P7 — only missing §6.4 rows are filled, and P5/P6 auto-inferred rows are replaced. See `docs/PARTS_LIBRARY.md` for details.
+
 **Step 3 — Generate CAD_SPEC.md** (after all items are processed):
 
 ```bash

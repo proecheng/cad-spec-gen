@@ -4,6 +4,8 @@
 
 A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
+**Latest: v2.8.2** — Parts Library System (`bd_warehouse` + STEP pool + PartCAD) with `extends: default` registry inheritance + per-build coverage report + GLB consolidator + F1+F3 disc_arms flange template. Library coverage went from hardcoded primitives to real vendor STEP files via a project-local `parts_library.yaml`. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/PARTS_LIBRARY.md`](docs/PARTS_LIBRARY.md) for the full picture.
+
 ## Installation
 
 ### From PyPI (Recommended)
@@ -135,9 +137,12 @@ Labeled PNG — with leader lines and component names
 │     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
 │     build_all.py needs valid module refs, assembly.py needs       │
 │     hand-written mate logic. Complete before Phase 4.             │
-│     v2.3: auto-generates hole features from extracted feature    │
-│     list + section view overlay for parts with internal features │
-│     v2.2.3: cable/harness lengths auto-capped for visualization  │
+│     v2.8.0: parts_library.yaml routes purchased parts through    │
+│     bd_warehouse / STEP pool / PartCAD adapters (jinja_primitive  │
+│     terminal fallback). v2.8.1: extends:default registry         │
+│     inheritance + per-build resolver coverage report.            │
+│     v2.8.2: F1+F3 disc_arms flange (full-thickness arms +        │
+│     chamfer/fillet) + GLB consolidator (per-face → per-part).    │
 │  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │

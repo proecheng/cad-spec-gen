@@ -113,6 +113,43 @@ Parts without offset data remain origin-aligned.
 
 Outputs `ASSEMBLY_REPORT.json` (PASS/WARN/FAIL per check). FAIL items block subsequent Phase 4 RENDER.
 
+**Parts Library System** (v2.8.0+): Purchased parts are no longer hardcoded to `_gen_*` simplified geometry — they route through `parts_resolver.PartsResolver` to one of three adapters:
+- **`StepPoolAdapter`**: load real vendor STEP files from project-local `std_parts/` (Maxon / LEMO / ATI etc.)
+- **`BdWarehouseAdapter`**: parametric ISO hardware (deep-groove bearings, fasteners, threads) via lazy `bd_warehouse` import
+- **`PartCADAdapter`**: opt-in package manager (`partcad`) for cross-project shared parametric parts
+- **`JinjaPrimitiveAdapter`**: terminal fallback that reuses the legacy `_gen_*` simplified geometry (pre-v2.8.0 behavior)
+
+Routing is driven by the `parts_library.yaml` registry at the project root. Without a yaml, the system is a no-op and output is byte-identical to v2.7.x. The CI regression job (`CAD_PARTS_LIBRARY_DISABLE=1`) enforces this guarantee.
+
+**§6.4 P7 Envelope Backfill** (v2.8.0+): Phase 1's `cad_spec_gen.py` adds a P7 backfill loop after P5/P6, calling `resolver.probe_dims()` for every purchased BOM row and writing library-derived dimensions into §6.4 with source tags `P7:STEP` / `P7:BW` / `P7:PC`. Priority:
+- P1..P4 (author-provided): **never** overridden by P7
+- P5..P6 (auto-inferred): overridden by P7 (tagged `P7:STEP(override_P5)` etc.)
+- Missing rows: filled with the P7 value
+
+**Registry Inheritance `extends: default`** (v2.8.1+): A project-local `parts_library.yaml` can inherit the skill-shipped `parts_library.default.yaml` by adding `extends: default` at the top:
+- Project `mappings` are **prepended** to default mappings (project rules win first-hit-wins, default acts as fallback)
+- Project top-level keys (`step_pool` / `bd_warehouse` / `partcad`) shallow override default
+- Solves the "sparse-yaml trap" where a thin project yaml previously replaced the entire default registry
+
+**Resolver Coverage Report** (v2.8.1+): `gen_std_parts.py` prints a per-adapter coverage table at the end of code generation:
+```
+[gen_std_parts] resolver coverage:
+  step_pool          8  GIS-EE-001-05, GIS-EE-001-06 ... (and 6 more)
+  jinja_primitive   26  GIS-EE-001-03, GIS-EE-001-04 ... (and 24 more)
+  ─────────────────────────────────────────────────────────
+  Total: 34 parts | Library hits: 8 (23.5%) | Fallback: 26 (76.5%)
+  Hint: 26 parts use simplified geometry. Add a STEP file under
+  std_parts/, write a parts_library.yaml rule, or set
+  `extends: default` to inherit category-driven routing.
+```
+The hint footer is suppressed when there are no jinja fallbacks. See `docs/PARTS_LIBRARY.md` for the mapping vocabulary.
+
+**F1+F3 disc_arms Template Rewrite** (v2.8.2+): Flange-class parts (`disc_arms` geometry) now extrude arms + mounting platforms through the FULL disc thickness (not just the top 8mm slice). The 4-arm cross structure is visible from any viewing angle including straight-down from below. Plus chamfer/fillet polish makes the platforms look CNC-machined. A 2mm `_arm_overlap` fixes the OCCT tangent boolean bug:
+- Before: `make_ee_001_01().val()` returned 5 disjoint Solids (arm box was tangent to disc cylinder with zero volume overlap)
+- After: 1 fused Solid, bbox unchanged, volume 200 → 309 cm³
+
+**GLB Consolidator Post-process** (v2.8.2+): `codegen/consolidate_glb.py` runs automatically from `cad_pipeline.py build` after build_all.py finishes, merging CadQuery's per-face mesh split (one Mesh node per OCCT Face) back into per-part meshes. GISBOT end_effector: 321 components → 39. The `EE-001-01` parent bbox goes from a degenerate `6×0×8 mm` to the correct `171×171×25 mm`. Gracefully no-ops when trimesh isn't installed.
+
 **SPEC deployment** (v2.2.1+): After `cad_pipeline.py spec` succeeds, it automatically copies `output/<subsystem>/CAD_SPEC.md` + `DESIGN_REVIEW.*` to `cad/<subsystem>/`, ensuring codegen always reads the latest SPEC version.
 
 **Enhance quality gate** (v2.2.1+): `cad_pipeline.py enhance` checks file size and grayscale variance before sending PNGs to Gemini, skipping blank/near-blank renders with a WARNING. Thresholds can be overridden via `render_config.json`'s `enhance_quality_gate`.

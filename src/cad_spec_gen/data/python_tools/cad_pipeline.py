@@ -97,7 +97,22 @@ def _resolve_camera_coords(rc):
     cartesian, no subsystem-specific logic.
     """
     import math as _m
-    br = rc.get("subsystem", {}).get("bounding_radius_mm", 300)
+    br = rc.get("subsystem", {}).get("bounding_radius_mm", 0)
+    if not br:
+        # Auto-derive from §6.4 envelopes if available
+        spec_path = os.path.join(
+            get_subsystem_dir(rc.get("subsystem", {}).get("name", "")) or "",
+            "CAD_SPEC.md")
+        if os.path.isfile(spec_path):
+            try:
+                from codegen.gen_assembly import parse_envelopes
+                envs = parse_envelopes(spec_path)
+                if envs:
+                    br = max(max(e) for e in envs.values()) * 1.5
+            except Exception:
+                pass
+        if not br:
+            br = 300  # ultimate fallback
     for cam in rc.get("camera", {}).values():
         if "azimuth_deg" in cam and "location" not in cam:
             az = _m.radians(cam["azimuth_deg"])
@@ -799,8 +814,10 @@ def cmd_spec(args):
     force_flag = getattr(args, "force", False) or getattr(args, "force_spec", False)
 
     # ── Step 1: Run review-only first ──
+    _spec_output_dir = os.path.join(PROJECT_ROOT, "output")
     cmd_review = [sys.executable, spec_gen, design_doc,
                   "--config", CONFIG_PATH,
+                  "--output-dir", _spec_output_dir,
                   "--review-only"]
     if force_flag:
         cmd_review.append("--force")
@@ -883,6 +900,7 @@ def cmd_spec(args):
     # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
     cmd_gen = [sys.executable, spec_gen, design_doc,
                "--config", CONFIG_PATH,
+               "--output-dir", _spec_output_dir,
                "--review"]
     if choice == "auto_fill" or guided_auto_fill:
         cmd_gen.append("--auto-fill")
@@ -898,6 +916,11 @@ def cmd_spec(args):
     # Deploy spec artifacts from output/ to cad/ so codegen can read them
     _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
     _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+    if not _cad_sub and args.subsystem:
+        # Directory doesn't exist yet — create it so deploy can proceed
+        _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+        os.makedirs(_cad_sub, exist_ok=True)
+        log.info("  Created: %s", _cad_sub)
     if _cad_sub and os.path.isdir(_output_sub):
         for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
             _src = os.path.join(_output_sub, _fname)
@@ -1046,6 +1069,24 @@ def cmd_build(args):
     if not ok:
         return 1
 
+    # ── Post-build: GLB consolidation ────────────────────────────────────────
+    # CadQuery's exportGLTF emits one mesh node per OCCT face — a 100-face
+    # part becomes 100 sibling Mesh nodes in the GLB. The consolidator
+    # collapses sibling components by `_<digit>` suffix so each part is a
+    # single mesh under its canonical name. Without this, downstream
+    # tools that read per-component bbox (3D viewers, label projectors)
+    # see only the bbox of the first face. Gracefully no-ops when
+    # trimesh isn't installed.
+    if not args.dry_run:
+        try:
+            from codegen.consolidate_glb import consolidate_glb_file
+            import glob
+            glb_files = glob.glob(os.path.join(DEFAULT_OUTPUT, "*_assembly.glb"))
+            for glb_file in glb_files:
+                consolidate_glb_file(glb_file, logger=lambda m: log.info(m))
+        except ImportError:
+            pass  # consolidator module missing — non-fatal
+
     # ── Post-build: DXF → PNG rendering ──────────────────────────────────────
     render_dxf_script = os.path.join(sub_dir, "render_dxf.py")
     if os.path.isfile(render_dxf_script):
@@ -1058,6 +1099,21 @@ def cmd_build(args):
             log.warning("DXF → PNG rendering failed (non-fatal, DXF files are still available)")
     else:
         log.info("No render_dxf.py in %s — skipping DXF → PNG", sub_dir)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── Post-build: Assembly validation (GATE-3.5) ──────────────────────────
+    validator_script = os.path.join(SKILL_ROOT, "assembly_validator.py")
+    spec_in_sub = os.path.join(sub_dir, "CAD_SPEC.md")
+    if os.path.isfile(validator_script) and os.path.isfile(spec_in_sub):
+        log.info("[Phase 3 GATE-3.5] Running assembly validation ...")
+        ok_val, _ = _run_subprocess(
+            [sys.executable, validator_script, sub_dir,
+             "--spec", spec_in_sub,
+             "--output-dir", DEFAULT_OUTPUT],
+            "assembly_validator.py", dry_run=args.dry_run, timeout=120
+        )
+        if not ok_val:
+            log.warning("Assembly validation failed (non-fatal)")
     # ─────────────────────────────────────────────────────────────────────────
 
     return 0
@@ -1074,6 +1130,26 @@ def cmd_render(args):
     if not sub_dir:
         log.error("Subsystem '%s' not found. Use --subsystem.", args.subsystem or '(none)')
         return 1
+
+    # Deploy Blender render scripts if missing (look in SKILL_ROOT, then reference impl)
+    _render_scripts = ["render_3d.py", "render_exploded.py", "render_section.py",
+                       "render_label_utils.py", "render_depth_only.py",
+                       "render_config.json"]
+    for _rs in _render_scripts:
+        dst = os.path.join(sub_dir, _rs)
+        if os.path.isfile(dst):
+            continue
+        # Try SKILL_ROOT first, then any existing subsystem as reference
+        src = os.path.join(SKILL_ROOT, _rs)
+        if not os.path.isfile(src):
+            for _d in glob.glob(os.path.join(SKILL_ROOT, "cad", "*")):
+                _c = os.path.join(_d, _rs)
+                if os.path.isfile(_c):
+                    src = _c
+                    break
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+            log.info("  Deployed render script: %s → %s", _rs, os.path.basename(sub_dir))
 
     render_script = os.path.join(sub_dir, "render_3d.py")
     exploded_script = os.path.join(sub_dir, "render_exploded.py")
@@ -1182,7 +1258,7 @@ def cmd_render(args):
 
 
 def cmd_enhance(args):
-    """Run AI enhancement on rendered PNGs (Gemini or ComfyUI backend)."""
+    """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
     from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
 
     # Determine backend: CLI arg > pipeline_config.json > default gemini
@@ -1191,6 +1267,12 @@ def cmd_enhance(args):
     log.info("Enhance backend: %s", backend)
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
+
+    # ── Backend-specific init & validation ─────────────────────────────
+    # _enhance_fn / _enhance_cfg_key: set for table-driven backends
+    # (comfyui, fal, fal_comfy). gemini keeps its own subprocess path.
+    _enhance_fn = None
+    _enhance_cfg_key = None
 
     if backend == "comfyui":
         # Pre-flight env check — catches CPU-only, missing models, server down
@@ -1204,7 +1286,37 @@ def cmd_enhance(args):
             )
             log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
             return 1
-        from comfyui_enhancer import enhance_image as enhance_with_comfyui
+        from comfyui_enhancer import enhance_image as _comfyui_fn
+        _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
+    elif backend in ("fal", "fal_comfy"):
+        # Pre-flight env check for fal_comfy (FAL_KEY, fal-client, depth deps, API, models)
+        if backend == "fal_comfy":
+            _check_result = subprocess.run(
+                [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py"), "--quiet"],
+                capture_output=True,
+            )
+            if _check_result.returncode != 0:
+                subprocess.run(
+                    [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py")],
+                )
+                log.error("fal_comfy environment check failed. Fix the issues above, then retry.")
+                return 1
+        else:
+            # fal (Flux) backend — lightweight checks only
+            if not os.environ.get("FAL_KEY"):
+                log.error("FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys")
+                return 1
+            try:
+                import fal_client  # noqa — validate import early
+            except ImportError:
+                log.error("fal-client not installed. Run: pip install fal-client")
+                return 1
+        if backend == "fal":
+            from fal_enhancer import enhance_image as _fal_fn
+            _enhance_fn, _enhance_cfg_key = _fal_fn, "fal"
+        else:
+            from fal_comfy_enhancer import enhance_image as _fal_comfy_fn
+            _enhance_fn, _enhance_cfg_key = _fal_comfy_fn, "fal_comfy"
     else:
         backend = "gemini"  # normalise
         gemini_script = get_gemini_script()
@@ -1427,16 +1539,20 @@ def cmd_enhance(args):
                 f.write(prompt)
                 prompt_file = f.name
 
-            # ── ComfyUI backend ──────────────────────────────────────────
-            if backend == "comfyui":
-                log.info("  Running: enhance %s (%s, comfyui)",
-                         os.path.basename(png), view_key)
+            # ── Table-driven backend (comfyui / fal / fal_comfy) ────────
+            if _enhance_fn is not None:
+                log.info("  Running: enhance %s (%s, %s)",
+                         os.path.basename(png), view_key, backend)
                 t0 = time.time()
                 try:
-                    raw_path = enhance_with_comfyui(png, prompt, _pcfg.get("enhance", {}).get("comfyui", {}), view_key, rc)
-                except Exception as _ce:
-                    log.error("  ComfyUI enhance failed for %s: %s",
-                              os.path.basename(png), _ce)
+                    raw_path = _enhance_fn(
+                        png, prompt,
+                        _pcfg.get("enhance", {}).get(_enhance_cfg_key, {}),
+                        view_key, rc,
+                    )
+                except Exception as _be:
+                    log.error("  %s enhance failed for %s: %s",
+                              backend, os.path.basename(png), _be)
                     failures += 1
                     continue
                 elapsed = time.time() - t0
@@ -1457,8 +1573,8 @@ def cmd_enhance(args):
                         pass
                     log.info("  Saved: %s", new_path)
                 else:
-                    log.warning("  Could not locate ComfyUI output for %s",
-                                os.path.basename(png))
+                    log.warning("  Could not locate %s output for %s",
+                                backend, os.path.basename(png))
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────
@@ -2128,10 +2244,10 @@ def main():
     p_render.add_argument("--output-dir", help="Override output directory for rendered PNGs")
 
     # enhance
-    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini or ComfyUI)")
+    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui"],
+    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "fal_comfy"],
                            help="Override enhance backend (default: from pipeline_config.json)")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")

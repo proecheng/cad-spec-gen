@@ -54,12 +54,77 @@ def make_{{ func_name }}() -> cq.Workplane:
             .faces(">Z").workplane()
             .circle({{ geom_id }} / 2).cutThruAll())
 {% elif geom_type == "disc_arms" %}
-    _disc = cq.Workplane("XY").circle({{ geom_d }} / 2).extrude({{ geom_t }})
-    _arm = cq.Workplane("XY").box({{ geom_arm_l }}, {{ geom_arm_w }}, {{ geom_t }},
-                                  centered=(False, True, False))
+    # Disc body Φ{{ geom_d }} × {{ geom_t }}mm thick — central rotating hub.
+    _disc_r = {{ geom_d }} / 2
+    _disc_h = {{ geom_t }}
+    _disc = cq.Workplane("XY").circle(_disc_r).extrude(_disc_h)
+
+    # Central bore for the reducer output shaft (Φ22mm step + Φ8mm shaft).
+    # Cited in §4.1.1: "FLANGE_BODY_ID Φ22 H7 与减速器壳体定位配合".
+    _bore_d = 22.0
+    _disc = (_disc.faces(">Z").workplane()
+             .circle(_bore_d / 2).cutThruAll())
+
+    # Cross arms + mounting platforms span the FULL disc thickness so the
+    # 4-arm hub structure is visible from any angle (top, bottom, side, iso).
+    # The previous "platforms perched on the disc top face" design hid the
+    # cross structure when viewed from below or from a low-angle iso shot.
+    #
+    # Each arm starts INSIDE the disc by _arm_overlap mm and extends OUTWARD
+    # to the same visible tip as before. The overlap is critical: without
+    # it, the arm box would be tangent to the disc cylinder (touching only
+    # at a single line, not overlapping in volume), and OCCT's union would
+    # produce a Compound of disjoint Solids instead of a single fused
+    # Solid. That breaks any downstream code (and any GLB component bbox
+    # calculation) that assumes one cq.Solid per make_*() call.
+    _arm_overlap = 2.0  # mm of arm root buried inside the disc
+    _arm_l_eff = {{ geom_arm_l }} + _arm_overlap
+    _arm_x_mid = (_disc_r - _arm_overlap) + _arm_l_eff / 2
+    _plat_size = 40.0
+    _plat_x = _disc_r + {{ geom_arm_l }} - _plat_size / 2
+
+    _arm = (cq.Workplane("XY")
+            .center(_arm_x_mid, 0)
+            .box(_arm_l_eff, {{ geom_arm_w }}, _disc_h,
+                 centered=(True, True, False)))
+    _platform = (cq.Workplane("XY")
+                 .center(_plat_x, 0)
+                 .box(_plat_size, _plat_size, _disc_h,
+                      centered=(True, True, False)))
+
+    # Polish: chamfer/fillet the platform and arm BEFORE the union, while
+    # they are still clean boxes with unambiguous edge sets. Doing it after
+    # the union exposes seam edges (where two boxes meet) that OCCT can't
+    # chamfer reliably — the chained edges pick up slivers and the call
+    # fails with "BRep_API: command not done".
+    #
+    # Each operation is wrapped in try/except so a single OCCT failure
+    # leaves the part topologically valid (just unpolished) rather than
+    # crashing the build. The geometry is still correct, only the
+    # cosmetic edges are missing.
+    try:
+        # 4 vertical corner edges of the platform (|Z on a clean box) →
+        # 4 chamfered "machined corner" faces
+        _platform = _platform.edges("|Z").chamfer(2.0)
+    except Exception:
+        pass
+    try:
+        # Top-face perimeter of the platform (where the +Z face meets the
+        # 4 sides + 4 chamfered corners) → soft fillet on the upper rim
+        _platform = _platform.faces(">Z").edges().fillet(1.5)
+    except Exception:
+        pass
+    try:
+        # Smaller chamfer on the arm vertical corners — softens the arm
+        # cross-section without making it look like a separate platform
+        _arm = _arm.edges("|Z").chamfer(1.0)
+    except Exception:
+        pass
+
     body = _disc
     for _angle in range(0, 360, {{ (360 // geom_arm_count) | int }}):
         body = body.union(_arm.rotate((0, 0, 0), (0, 0, 1), _angle))
+        body = body.union(_platform.rotate((0, 0, 0), (0, 0, 1), _angle))
 {% elif geom_type == "l_bracket" %}
     _base = cq.Workplane("XY").box({{ geom_w }}, {{ geom_d }}, {{ geom_t }},
                                    centered=(True, True, False))

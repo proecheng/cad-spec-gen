@@ -98,6 +98,10 @@
 - **CAD Spec 意图**（`/cad-spec`）：输出 CAD_SPEC.md，v2.5.0+ 起包含 §6.3 零件级定位、§6.4 零件包络尺寸、§9 装配约束三个新章节；v2.7.0+ 新增 §9.2 约束声明（contact/stack_on/fit codes，从连接矩阵自动推导）
 - **Design Review 意图**（`/cad-spec --review-only`）：v2.5.0+ 审查项 B10（定位模式一致性）、B11（包络尺寸覆盖率）、B12（装配排除合法性）
 - **GATE-3.5 装配校验**（v2.7.0+）：Phase 3 BUILD 后自动运行 `assembly_validator.py`，执行 5 项公式驱动检查（F1 重叠/F2 断连/F3 紧凑度/F4 尺寸比/F5 排除合规）→ ASSEMBLY_REPORT.json。四道门控体系：GATE-1(审查) → GATE-2(TODO扫描) → GATE-3(方向校验) → GATE-3.5(装配校验)
+- **Parts Library 系统**（v2.8.0+）：外购件几何源由 `parts_library.yaml` 注册表驱动 — 支持三个 backend：本地 STEP 池 (`std_parts/`) / `bd_warehouse` 参数化 / `partcad` 包管理器，外加 `jinja_primitive` 终极 fallback。Phase 1 P7 包络回填把库探测尺寸写入 §6.4，Phase 2 codegen 用 `resolver.resolve()` 决定每个 `make_std_*()` 函数体形式（codegen / step_import / python_import）。无 yaml 时系统是 no-op，输出与 v2.7.x 字节级一致。Kill switch: `CAD_PARTS_LIBRARY_DISABLE=1`
+- **Registry inheritance + coverage report**（v2.8.1+）：`parts_library.yaml` 加 `extends: default` 即可继承 skill 自带的 default 规则,project mappings prepend 到 default 之前。`gen_std_parts.py` 末尾打印 per-adapter 覆盖率表,告诉用户哪些零件用了库,哪些是 jinja fallback,以及如何 upgrade
+- **法兰 F1+F3 + GLB consolidator**（v2.8.2+）：`disc_arms` 几何模板重写——arm + platform 贯通整个 disc 厚度,加 chamfer/fillet polish。`codegen/consolidate_glb.py` 在 build 后自动合并 CadQuery 的 per-face mesh 拆分,使每个 BOM part 在 GLB 里是单个 mesh node(GISBOT: 321 → 39 components)
+- **Phase B 多 vendor STEP**（v2.8.2+）：`tools/synthesize_demo_step_files.py` 生成 Maxon GP22C / LEMO FGG.0B / ATI Nano17 等参数化 stand-in STEP 文件,用于演示 step pool 路径。真实 vendor STEP 应替换这些占位符
 - 排错（troubleshoot）：先问用户具体报错信息，再对照排错指南定位
 - 状态（status）：扫描 cad/ 和 cad/output/ 目录，统计产物数量
 - 所有动作输出简洁明了，用 ✅/❌/⚠️ 标记状态

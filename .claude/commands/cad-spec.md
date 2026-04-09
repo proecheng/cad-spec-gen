@@ -100,6 +100,19 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 
 生成的 CAD_SPEC.md §9.2 包含约束声明表，供 Phase 2 codegen 消费用于精确装配定位。
 
+**Phase 1 P7 包络回填**（v2.8.0+）：
+
+如果项目根存在 `parts_library.yaml`，Phase 1 在 P5/P6 之后追加 **P7 backfill 循环**：对每个外购件调 `parts_resolver.PartsResolver.probe_dims()`，把库探测到的真实尺寸写入 §6.4。源标签：
+
+| 标签 | 含义 |
+|---|---|
+| `P7:STEP` | 来自项目本地 STEP 文件 (`std_parts/`) |
+| `P7:BW` | 来自 `bd_warehouse` 参数化零件 |
+| `P7:PC` | 来自 `partcad` 包 |
+| `P7:STEP(override_P5)` | P7 覆盖了 P5/P6 自动推断 |
+
+P1..P4（作者提供的尺寸）**永不**被 P7 覆盖,只补充缺失的 §6.4 行 + 替换 P5/P6 自动推断的行。详见 `docs/PARTS_LIBRARY.md`。
+
 **Step 3 — 生成 CAD_SPEC.md**（所有项处理完后）：
 
 ```bash

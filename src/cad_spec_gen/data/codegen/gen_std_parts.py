@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """
-Code Generator: Standard/Purchased Parts → Simplified CadQuery Geometry
+Code Generator: Standard/Purchased Parts → geometry source per parts_resolver.
 
-Generates simplified CadQuery models for purchased (外购) BOM parts so they
-appear in 3D renders. Motors → cylinders, springs → helical shapes, etc.
-Only creates NEW files — never overwrites existing ones.
+Phase A+ refactor: this module no longer contains the `_gen_*` dispatch table.
+Instead it delegates to `parts_resolver.PartsResolver`, which picks the right
+adapter (bd_warehouse, STEP pool, PartCAD, or jinja_primitive fallback) based
+on a project-local YAML registry (`parts_library.yaml`).
+
+Public contract (unchanged):
+- `generate_std_part_files(spec_path, output_dir, mode)` signature is identical
+- Generated `std_*.py` modules expose `make_std_*() -> cq.Workplane` with no args
+- Without a `parts_library.yaml`, behavior is byte-identical to pre-refactor
+  (JinjaPrimitiveAdapter is the terminal fallback and reproduces `_gen_*` verbatim)
 
 Usage:
     python codegen/gen_std_parts.py cad/end_effector/CAD_SPEC.md
     python codegen/gen_std_parts.py cad/end_effector/CAD_SPEC.md --output-dir cad/end_effector
+    CAD_PARTS_LIBRARY=my.yaml python codegen/gen_std_parts.py ...
 """
 
 import argparse
-import math
 import os
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 _PROJECT_ROOT = str(Path(__file__).parent.parent)
@@ -28,137 +33,13 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8")
 
 from bom_parser import classify_part
-from cad_spec_defaults import lookup_std_part_dims
+from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
+from parts_resolver import PartQuery, default_resolver
 
-
-# ─── Geometry generators per category ─────────────────────────────────────
-# Each returns a string of CadQuery code (body of the make_ function)
-
-def _gen_motor(dims: dict) -> str:
-    d = dims.get("d", 22)
-    l = dims.get("l", 50)
-    sd = dims.get("shaft_d", 4)
-    sl = dims.get("shaft_l", 12)
-    return f"""    # Simplified motor: cylinder + shaft
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    # Output shaft
-    body = body.faces(">Z").workplane().circle({sd/2}).extrude({sl})
-    return body"""
-
-
-def _gen_reducer(dims: dict) -> str:
-    d = dims.get("d", 25)
-    l = dims.get("l", 35)
-    sd = dims.get("shaft_d", 6)
-    sl = dims.get("shaft_l", 10)
-    return f"""    # Simplified reducer/gearbox: cylinder + output shaft
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    body = body.faces(">Z").workplane().circle({sd/2}).extrude({sl})
-    return body"""
-
-
-def _gen_spring(dims: dict) -> str:
-    od = dims.get("od", 10)
-    t = dims.get("t", 0.7)
-    h = dims.get("h", 0.85)
-    id_ = dims.get("id", od * 0.5)
-    return f"""    # Simplified disc spring: annular ring (stack approximation)
-    body = (cq.Workplane("XY")
-            .circle({od/2}).circle({id_/2}).extrude({max(t, h)})
-            )
-    return body"""
-
-
-def _gen_bearing(dims: dict) -> str:
-    od = dims.get("od", 12)
-    id_ = dims.get("id", 6)
-    w = dims.get("w", 4)
-    return f"""    # Simplified bearing: outer ring + inner ring + gap
-    outer = cq.Workplane("XY").circle({od/2}).circle({od/2 - 1}).extrude({w})
-    inner = cq.Workplane("XY").circle({id_/2 + 1}).circle({id_/2}).extrude({w})
-    body = outer.union(inner)
-    return body"""
-
-
-def _gen_sensor(dims: dict) -> str:
-    if "d" in dims:
-        d = dims["d"]
-        l = dims.get("l", 12)
-        return f"""    # Simplified sensor: cylinder
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    return body"""
-    w = dims.get("w", 20)
-    h = dims.get("h", 15)
-    l = dims.get("l", 12)
-    return f"""    # Simplified sensor: box
-    body = cq.Workplane("XY").box({w}, {h}, {l}, centered=(True, True, False))
-    return body"""
-
-
-def _gen_pump(dims: dict) -> str:
-    w = dims.get("w", 30)
-    h = dims.get("h", 25)
-    l = dims.get("l", 40)
-    return f"""    # Simplified pump: box with port stubs
-    body = cq.Workplane("XY").box({w}, {h}, {l}, centered=(True, True, False))
-    # Input/output port stubs
-    body = body.faces(">X").workplane().center(0, {l/2}).circle(3).extrude(5)
-    body = body.faces("<X").workplane().center(0, {l/2}).circle(3).extrude(5)
-    return body"""
-
-
-def _gen_connector(dims: dict) -> str:
-    d = dims.get("d", 10)
-    l = min(dims.get("l", 25), 50)  # cap for assembly visualization
-    if "w" in dims:
-        w = dims["w"]
-        h = dims.get("h", 3)
-        l = min(dims.get("l", 8), 50)
-        return f"""    # Simplified flat connector
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
-    return body"""
-    return f"""    # Simplified round connector
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    return body"""
-
-
-def _gen_seal(dims: dict) -> str:
-    od = dims.get("od", 80)
-    section_d = dims.get("section_d", 2.4)
-    id_ = dims.get("id", od - 2 * section_d)
-    r_center = (od + id_) / 4
-    return f"""    # Simplified O-ring: torus
-    path = cq.Workplane("XY").circle({r_center})
-    body = (cq.Workplane("XZ")
-            .center({r_center}, 0)
-            .circle({section_d/2})
-            .sweep(path))
-    return body"""
-
-
-def _gen_tank(dims: dict) -> str:
-    d = dims.get("d", 38)
-    l = dims.get("l", 280)
-    return f"""    # Simplified tank: cylinder with domed ends
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    return body"""
-
-
-_GENERATORS = {
-    "motor":     _gen_motor,
-    "reducer":   _gen_reducer,
-    "spring":    _gen_spring,
-    "bearing":   _gen_bearing,
-    "sensor":    _gen_sensor,
-    "pump":      _gen_pump,
-    "connector": _gen_connector,
-    "seal":      _gen_seal,
-    "tank":      _gen_tank,
-}
-
-# Categories to skip (too small or too complex for simplified geometry)
-_SKIP_CATEGORIES = {"fastener", "cable", "other"}
+# Categories the pipeline never tries to generate geometry for.
+# Kept here (not in the adapter) because this is the enter-point filter.
+_SKIP_CATEGORIES = {"fastener", "cable"}
 
 
 def _safe_module_name(part_no: str) -> str:
@@ -174,15 +55,193 @@ def _safe_module_name(part_no: str) -> str:
     return f"std_{suffix}"
 
 
-def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffold") -> tuple:
+def _envelope_to_spec_envelope(env):
+    """Convert parse_envelopes() output tuple to the PartQuery field.
+
+    parse_envelopes returns dict[part_no: (w, d, h)]. PartQuery.spec_envelope
+    is the same tuple. This function exists so we have one place to document
+    the convention.
+    """
+    if env is None:
+        return None
+    return tuple(env)
+
+
+def _emit_module_source(part, mod_name: str, category: str, result) -> str:
+    """Build the full Python module text for a std_*.py file.
+
+    The contract is: whatever the `make_*()` function returns must be
+    compatible with cq.Workplane (chainable .translate / .rotate / used in
+    cq.Assembly.add()).
+
+    Byte-identical regression guarantee: when result.adapter is
+    "jinja_primitive" (the fallback case), emit the exact pre-refactor
+    header format. This preserves byte equality with the legacy
+    gen_std_parts.py output for projects without a parts_library.yaml.
+    """
+    if result.adapter == "jinja_primitive":
+        # Legacy header format — DO NOT CHANGE (byte-identical gate)
+        dims = result.metadata.get("dims", {})
+        header = f'''"""
+{part["name_cn"]} ({part["part_no"]}) — 简化标准件几何
+
+Auto-generated by codegen/gen_std_parts.py
+Category: {category} | Make/Buy: 外购
+Material: {part["material"]}
+Dimensions: {dims}
+
+NOTE: This is a simplified representation for visualization only.
+      Not for manufacturing — actual part is purchased.
+"""
+
+import cadquery as cq
+'''
+    else:
+        header = f'''"""
+{part["name_cn"]} ({part["part_no"]}) — 简化标准件几何
+
+Auto-generated by codegen/gen_std_parts.py via parts_resolver
+Category: {category} | Make/Buy: {part["make_buy"]}
+Material: {part["material"]}
+Source: {result.source_tag}
+
+NOTE: This is a simplified representation for visualization only.
+      Not for manufacturing — actual part is purchased.
+"""
+
+import cadquery as cq
+'''
+
+    func_name = f"make_{mod_name}"
+
+    if result.kind == "codegen":
+        body = result.body_code
+        func_block = f'''
+
+def {func_name}() -> cq.Workplane:
+    """{part["part_no"]}: {part["name_cn"]} — simplified {category} geometry."""
+{body}
+'''
+
+    elif result.kind == "step_import":
+        # Resolve the step path at IMPORT time from the module's location,
+        # so generated files are relocatable with the project root.
+        func_block = f'''
+
+def {func_name}() -> cq.Workplane:
+    """{part["part_no"]}: {part["name_cn"]} — imported from STEP file.
+
+    Source: {result.source_tag}
+    """
+    import os
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _step_path = os.path.join(_here, "..", "..", {result.step_path!r})
+    _step_path = os.path.normpath(_step_path)
+    if not os.path.isfile(_step_path):
+        raise FileNotFoundError(
+            f"STEP file missing for {part["part_no"]}: {{_step_path}}")
+    return cq.importers.importStep(_step_path)
+'''
+
+    elif result.kind == "python_import":
+        # External library import goes inside the function, not at module
+        # top, so the spec-gen machine doesn't need the optional dep
+        # installed to IMPORT the generated file — only to EXECUTE it.
+        #
+        # Two sub-cases based on what the external call returns:
+        #   1. bd_warehouse returns a build123d Part (has .wrapped) →
+        #      need _bd_to_cq() conversion.
+        #   2. PartCAD's get_part_cadquery() already returns a cq.Solid →
+        #      just wrap it in a Workplane.
+        #
+        # The _bd_to_cq() helper is INLINED here (not imported from
+        # parts_resolver) because the build subprocess runs from
+        # cad/<subsystem>/ which is not on the skill's sys.path. Inlining
+        # keeps generated files self-contained and relocatable.
+        args_str = result.import_args
+
+        if result.adapter == "partcad":
+            func_block = f'''
+
+def {func_name}() -> cq.Workplane:
+    """{part["part_no"]}: {part["name_cn"]} — partcad package part.
+
+    Source: {result.source_tag}
+    """
+    import partcad as pc
+    _solid = pc.{result.import_symbol}({args_str})
+    return cq.Workplane("XY").newObject([_solid])
+'''
+        else:
+            # bd_warehouse (default) — returns build123d Part, convert
+            func_block = f'''
+
+def _bd_to_cq(bd_part):
+    """Convert a build123d Part to a CadQuery Workplane (self-contained)."""
+    wrapped = getattr(bd_part, "wrapped", None)
+    if wrapped is None:
+        raise ValueError(
+            f"_bd_to_cq: input has no .wrapped attribute (got {{type(bd_part)}})")
+    inner = getattr(wrapped, "wrapped", wrapped)
+    try:
+        return cq.Workplane("XY").newObject([cq.Solid(inner)])
+    except Exception:
+        return cq.Workplane("XY").newObject([cq.Shape(inner)])
+
+
+def {func_name}() -> cq.Workplane:
+    """{part["part_no"]}: {part["name_cn"]} — {result.adapter} part.
+
+    Source: {result.source_tag}
+    """
+    from {result.import_module} import {result.import_symbol}
+    _bd_part = {result.import_symbol}({args_str})
+    return _bd_to_cq(_bd_part)
+'''
+
+    else:
+        # Should never reach here; treat as error
+        raise ValueError(
+            f"Unknown ResolveResult.kind: {result.kind!r} for {part['part_no']}")
+
+    footer = f'''
+
+if __name__ == "__main__":
+    import os
+    out = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(out, exist_ok=True)
+    r = {func_name}()
+    p = os.path.join(out, "{part["part_no"]}_std.step")
+    cq.exporters.export(r, p)
+    print(f"Exported: {{p}}")
+'''
+
+    return header + func_block + footer
+
+
+def generate_std_part_files(
+    spec_path: str,
+    output_dir: str,
+    mode: str = "scaffold",
+) -> tuple:
     """Generate simplified CadQuery files for purchased standard parts.
 
     Args:
+        spec_path: Path to CAD_SPEC.md
+        output_dir: Where to write std_*.py files
         mode: "scaffold" (skip existing), "force" (overwrite existing)
 
     Returns (generated_files, skipped_files).
     """
     parts = parse_bom_tree(spec_path)
+    envelopes = parse_envelopes(spec_path)
+
+    # Build a resolver rooted at the project (spec's grandparent dir is
+    # typically the project root, one level above cad/<subsystem>/)
+    project_root = str(Path(spec_path).resolve().parent.parent.parent)
+    resolver = default_resolver(project_root=project_root,
+                                 logger=lambda m: print(m))
+
     generated = []
     skipped = []
 
@@ -196,68 +255,64 @@ def generate_std_part_files(spec_path: str, output_dir: str, mode: str = "scaffo
         if category in _SKIP_CATEGORIES:
             continue
 
-        gen_func = _GENERATORS.get(category)
-        if not gen_func:
-            continue
+        # Build the query, priming spec_envelope from §6.4 when available
+        env = envelopes.get(p["part_no"])
+        query = PartQuery(
+            part_no=p["part_no"],
+            name_cn=p["name_cn"],
+            material=p["material"],
+            category=category,
+            make_buy=p.get("make_buy", ""),
+            spec_envelope=_envelope_to_spec_envelope(env),
+            project_root=project_root,
+        )
 
-        dims = lookup_std_part_dims(p["name_cn"], p["material"], category)
-        if not dims:
+        result = resolver.resolve(query)
+        if result.status == "miss" or result.kind == "miss":
+            # Nothing matched, not even the jinja fallback → skip silently.
+            # This happens for parts the fallback doesn't know how to draw
+            # (e.g. missing dims AND unknown category).
             continue
 
         mod_name = _safe_module_name(p["part_no"])
         out_file = os.path.join(output_dir, f"{mod_name}.py")
 
-        # Skip existing unless force mode
+        # Scaffold mode: don't overwrite existing files
         if os.path.exists(out_file) and mode != "force":
             skipped.append(out_file)
             continue
 
-        body_code = gen_func(dims)
-
-        content = f'''"""
-{p["name_cn"]} ({p["part_no"]}) — 简化标准件几何
-
-Auto-generated by codegen/gen_std_parts.py
-Category: {category} | Make/Buy: 外购
-Material: {p["material"]}
-Dimensions: {dims}
-
-NOTE: This is a simplified representation for visualization only.
-      Not for manufacturing — actual part is purchased.
-"""
-
-import cadquery as cq
-
-
-def make_{mod_name}() -> cq.Workplane:
-    """{p["part_no"]}: {p["name_cn"]} — simplified {category} geometry."""
-{body_code}
-
-
-if __name__ == "__main__":
-    import os
-    out = os.path.join(os.path.dirname(__file__), "..", "output")
-    os.makedirs(out, exist_ok=True)
-    r = make_{mod_name}()
-    p = os.path.join(out, "{p["part_no"]}_std.step")
-    cq.exporters.export(r, p)
-    print(f"Exported: {{p}}")
-'''
+        content = _emit_module_source(p, mod_name, category, result)
         Path(out_file).write_text(content, encoding="utf-8")
         generated.append(out_file)
+
+    # Print the resolver coverage report. The report tells the user, per
+    # adapter, which specific parts were handled and gives an explicit
+    # hint when many parts fell through to the simplified jinja fallback.
+    # See PartsResolver.coverage_report() for the format.
+    report = resolver.coverage_report()
+    if report:
+        for line in report.splitlines():
+            print(f"[gen_std_parts] {line}")
 
     return generated, skipped
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate simplified CadQuery for purchased standard parts")
+        description="Generate CadQuery files for purchased standard parts "
+                    "via unified parts_resolver")
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
     parser.add_argument("--output-dir", "-o", default=None,
                         help="Output directory (default: same dir as spec)")
     parser.add_argument("--mode", choices=["scaffold", "force"], default="scaffold",
                         help="scaffold=skip existing, force=overwrite")
+    parser.add_argument("--parts-library", default=None,
+                        help="Path to parts_library.yaml (overrides default search)")
     args = parser.parse_args()
+
+    if args.parts_library:
+        os.environ["CAD_PARTS_LIBRARY"] = args.parts_library
 
     spec_path = os.path.abspath(args.spec)
     output_dir = args.output_dir or os.path.dirname(spec_path)
