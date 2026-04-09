@@ -6,6 +6,50 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.8.2] — 2026-04-10
+
+**Theme:** Flange visual fidelity + GLB per-part bbox correctness + Phase B vendor STEP coverage expansion.
+
+### Added
+- **`tools/synthesize_demo_step_files.py`** — generates dimensionally accurate parametric stand-in STEP files for vendor parts that the project doesn't have real STEP downloads for. Ships three demo parts:
+  - Maxon GP22C 53:1 planetary gearhead (Φ24 × 48 mm + Φ6 × 12 mm output)
+  - LEMO FGG.0B.307 push-pull plug (Φ8.6 × 37 mm + hex collet + cable tail)
+  - ATI Nano17 6-axis force/torque sensor (Φ17 × 14.5 mm + cable tab)
+  Documentation links to the official vendor STEP download pages so users can swap in real files.
+- **`codegen/consolidate_glb.py`** — post-export GLB merger that collapses CadQuery's per-face mesh split back into one mesh per part. Groups sibling Mesh nodes by `_<digit>` suffix prefix and concatenates them into a single Trimesh under the canonical part name. Gracefully no-ops when `trimesh` is not installed (the helper handles the import probe internally).
+- **9 new tests** in `tests/test_consolidate_glb.py` across three layers: prefix grouping logic (4), trimesh availability gating (2), full round-trip on a 2-part fixture (3 — gated by `@pytest.mark.skipif`).
+- **Auto-invocation** of the GLB consolidator from `cad_pipeline.py build` between `build_all.py` completion and DXF rendering. Logs `[consolidate_glb] N components → M consolidated parts` so the user can see it run.
+- **GISBOT `parts_library.yaml`** updated with 7 new exact-part_no STEP routes covering the GP22C reducer, ATI Nano17 sensor, and 5 LEMO connector instances (the same model is used in 5 different cable harnesses).
+
+### Changed
+- **`templates/part_module.py.j2` (`disc_arms` block)** — arm boxes now extend 2 mm INSIDE the disc cylinder edge (`_arm_overlap`) instead of being tangent to it. Without this overlap, OCCT's `union()` of arm + disc was returning a `Compound([disc, arm])` of disjoint Solids rather than a single fused Solid (because the tangent contact has zero volume). The visible tip of the arm is unchanged.
+- **`templates/assembly.py.j2`** — docstring update only; the GLB consolidator call lives in `cad_pipeline.py` (cleaner pipeline-vs-generated-code separation).
+- **`cad_pipeline.py`** — `cmd_build` now runs the consolidator on all `*_assembly.glb` files in `DEFAULT_OUTPUT` after `build_all.py` succeeds. The step is wrapped in `try/except ImportError` so projects without `trimesh` continue silently.
+
+### Fixed
+- **Multi-solid bug in `disc_arms` template**: `make_ee_001_01()` was returning a `cq.Workplane` whose `.val()` was a Compound with **5 disconnected Solids** because the 4 arm boxes were tangent to the disc cylinder edge (zero-volume overlap). After the `_arm_overlap = 2 mm` fix, `.Solids()` returns 1 fused Solid. Verification on the GISBOT flange:
+  - Before: `.Solids() = 5`, `.Faces() = 51`, single fused solid: NO
+  - After: `.Solids() = 1`, `.Faces() = 35`, single fused solid: YES
+  - bbox unchanged (171×171×25), volume unchanged (310 cm³)
+- **`EE-001-01` GLB parent component bbox**: was a degenerate `6 × 0 × 8 mm` representing one tiny face. After the multi-solid fix + the consolidator post-process, it is now `171 × 171 × 25 mm` with 4536 mesh triangles representing the entire flange. The same fix applies to all 39 BOM parts in the GISBOT end_effector.
+- **CadQuery per-face GLB split**: `cq.Assembly.save("file.glb", "GLTF")` walks each part's OCCT topology and emits one Mesh node per Face — a 100-face part becomes 100 sibling glTF nodes. This is hard-coded behavior in OCCT's `RWGltf_CafWriter` (no flag to suppress it). The new `consolidate_glb.py` post-process collapses sibling components back into per-part meshes, taking GISBOT from 321 components down to 39.
+
+### Phase B coverage impact
+
+GISBOT end_effector library coverage went from **2.9% → 23.5%** (1 → 8 STEP routes), an 8x improvement on the same BOM. The 26 remaining `jinja_primitive` parts are vendor-specific items that bd_warehouse genuinely cannot model (sensors, pumps, seals, custom gear sets) — the new coverage report makes it clear which ones could be upgraded by adding STEP files.
+
+### Validation
+- Tests: **169 passed** (was 160 in v2.8.1 — +9 new consolidator tests, 0 regressions)
+- GISBOT end_effector pipeline: codegen + build + DXF render + assembly validation all pass
+- ASSEMBLY_REPORT: `1 WARNING` (the pre-existing 002-04 5 mm gap), F4 max_extent=402 mm, F5=86.7% — identical to v2.8.1
+- Build log shows `[consolidate_glb] EE-000_assembly.glb: 321 components → 39 consolidated parts`
+
+### Files
+- New: `codegen/consolidate_glb.py`, `tests/test_consolidate_glb.py`, `tools/synthesize_demo_step_files.py`
+- Modified: `templates/part_module.py.j2`, `templates/assembly.py.j2`, `cad_pipeline.py`, `pyproject.toml`, `src/cad_spec_gen/__init__.py`, `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`, `CHANGELOG.md`
+
+---
+
 ## [2.8.1] — 2026-04-09
 
 **Theme:** Registry inheritance + coverage report — close the parts library "user can't tell what's happening" loop.
