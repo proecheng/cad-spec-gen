@@ -214,3 +214,40 @@ def test_fixture_plate_make_returns_valid_solid():
     mod = _load_template_module("fixture_plate")
     result = mod.make(**mod.example_params())
     assert result.val().Volume() > 0
+
+
+@pytest.mark.parametrize("name", [
+    "iso_9409_flange",
+    "l_bracket",
+    "rectangular_housing",
+    "cylindrical_housing",
+    "fixture_plate",
+])
+def test_all_templates_have_complete_contract(name):
+    """Every template must fully implement the module contract."""
+    mod = _load_template_module(name)
+    assert hasattr(mod, "MATCH_KEYWORDS") and mod.MATCH_KEYWORDS
+    assert hasattr(mod, "MATCH_PRIORITY") and isinstance(mod.MATCH_PRIORITY, int)
+    assert hasattr(mod, "TEMPLATE_CATEGORY") and mod.TEMPLATE_CATEGORY in _CATEGORIES
+    assert hasattr(mod, "TEMPLATE_VERSION") and mod.TEMPLATE_VERSION
+    assert hasattr(mod, "make") and callable(mod.make)
+    assert hasattr(mod, "example_params") and callable(mod.example_params)
+    params = mod.example_params()
+    assert isinstance(params, dict) and len(params) > 0
+
+
+@pytest.mark.parametrize("name", [
+    "l_bracket",
+    "rectangular_housing",
+    "cylindrical_housing",
+    "fixture_plate",
+])
+def test_new_templates_are_generic(name):
+    """New templates (not iso_9409_flange which has illustrative GISBOT mention)
+    must not reference any specific subsystem."""
+    mod = _load_template_module(name)
+    source = (_TEMPLATES_DIR / f"{name}.py").read_text(encoding="utf-8").lower()
+    forbidden = ["end_effector", "end-effector", "lifting_platform",
+                 "lifting-platform", "gisbot", "applicator"]
+    for word in forbidden:
+        assert word not in source, f"{name} contains forbidden subsystem reference: {word}"
