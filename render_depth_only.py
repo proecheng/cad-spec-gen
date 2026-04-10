@@ -149,7 +149,10 @@ def setup_camera(scene, cam_preset, bounding_radius, config):
                 sensor_w = cam_data.sensor_width  # Blender default 36mm
                 aspect = scene.render.resolution_x / scene.render.resolution_y
                 sensor_h = sensor_w / aspect
-                fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
+                # Spec 1 fix: use min(fov_v, fov_h) so wide models frame correctly.
+                fov_v = math.atan(sensor_h / (2.0 * cam_data.lens))
+                fov_h = math.atan(sensor_w / (2.0 * cam_data.lens))
+                fov_half = min(fov_v, fov_h)
                 required_dist = bs_radius / math.sin(fov_half) / frame_fill
                 view_dir = (cam_obj.location - target_vec).normalized()
                 cam_obj.location = bs_center + view_dir * required_dist

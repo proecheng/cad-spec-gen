@@ -82,3 +82,16 @@ def test_render_3d_frame_fill_default_unchanged():
     # Explicitly verify 0.82 has NOT been introduced as frame_fill value
     assert 'frame_fill", 0.82' not in content and "frame_fill = 0.82" not in content, \
         "frame_fill was changed to 0.82 — Spec 1 keeps it at 0.75"
+
+
+def test_render_depth_only_has_new_formula():
+    """render_depth_only.py must use the same min(fov_v, fov_h) formula."""
+    src = pathlib.Path(__file__).parent.parent / "render_depth_only.py"
+    assert src.exists(), f"Expected {src} to exist"
+    content = src.read_text(encoding="utf-8")
+    assert "fov_v = math.atan(sensor_h" in content, \
+        "render_depth_only.py is missing the new fov_v line"
+    assert "fov_h = math.atan(sensor_w" in content, \
+        "render_depth_only.py is missing the new fov_h line"
+    assert "min(fov_v, fov_h)" in content, \
+        "render_depth_only.py is missing the min(fov_v, fov_h) formula"
