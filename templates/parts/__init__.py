@@ -1,41 +1,21 @@
+"""cad-spec-gen parts template library — data directory.
+
+Templates in this directory are discovered at runtime via filesystem
+iteration by `cad_spec_gen.parts_routing.discover_templates`. They are
+NOT imported as Python modules through this __init__.py — each template
+file is parsed via AST or loaded on demand via importlib.util.
+
+Each template file must define:
+    - make(**params) -> cq.Workplane
+    - MATCH_KEYWORDS: list[str]
+    - MATCH_PRIORITY: int
+    - TEMPLATE_CATEGORY: str (bracket | housing | plate | mechanical_interface | fastener_family)
+    - TEMPLATE_VERSION: str
+    - example_params() -> dict
+
+See templates/parts/iso_9409_flange.py for the canonical example.
+
+This directory is shipped to pip users at:
+    <site-packages>/cad_spec_gen/data/templates/parts/
+via hatch_build.py's COPY_DIRS mechanism.
 """
-cad-spec-gen parts template library
-===================================
-
-Reusable parametric CadQuery templates for common mechanical part
-morphologies. Each template is a self-contained module exposing a
-`make(**params) -> cq.Workplane` function that returns a fully detailed,
-renderable part.
-
-Templates (current):
-    - iso_9409_flange   Robot tool flange per ISO 9409-1 with optional
-                        cross-arm hub overlay and station mounting holes.
-
-Templates are intentionally **verbose and detail-rich** (fillets,
-chamfers, counterbores, rib stiffeners) so renders look like real
-machined parts — not like the ad-hoc "box + cylinder + union" code the
-heuristic `gen_parts.py` scaffold falls back to.
-
-Usage from a project's part module (`cad/<subsystem>/ee_*.py`)::
-
-    from cad_spec_gen.templates.parts import iso_9409_flange
-
-    def make_ee_001_01():
-        return iso_9409_flange.make(
-            outer_dia=90.0,
-            thickness=25.0,
-            iso_pcd=50.0,
-            iso_bolt_dia=6.0,
-            iso_bolt_count=4,
-            ...
-        )
-
-When invoked from project-generated code that can't import the skill
-package, the template module can also be copied verbatim into the
-project's cad/<subsystem>/ directory — each template is pure CadQuery
-with no cross-template dependencies.
-"""
-
-from . import iso_9409_flange  # noqa: F401
-
-__all__ = ["iso_9409_flange"]
