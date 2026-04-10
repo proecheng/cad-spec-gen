@@ -94,3 +94,34 @@ def test_iso_9409_flange_docstring_is_generic():
     # iso_9409_flange's GISBOT mention is allowed per spec.
     # We just verify the docstring exists and is reasonable.
     assert len(doc) > 50, "docstring too short"
+
+
+# l_bracket tests
+def test_l_bracket_has_match_keywords():
+    mod = _load_template_module("l_bracket")
+    assert hasattr(mod, "MATCH_KEYWORDS")
+    assert "l_bracket" in mod.MATCH_KEYWORDS
+
+
+def test_l_bracket_category_is_bracket():
+    mod = _load_template_module("l_bracket")
+    assert mod.TEMPLATE_CATEGORY == "bracket"
+
+
+def test_l_bracket_example_params_has_required_fields():
+    mod = _load_template_module("l_bracket")
+    p = mod.example_params()
+    for key in ["w", "d", "h", "t", "bend_fillet"]:
+        assert key in p, f"Missing {key}"
+
+
+@pytest.mark.integration
+def test_l_bracket_make_returns_valid_solid():
+    try:
+        import cadquery as cq  # noqa: F401
+    except ImportError:
+        pytest.skip("cadquery not available")
+    mod = _load_template_module("l_bracket")
+    result = mod.make(**mod.example_params())
+    assert result is not None
+    assert result.val().Volume() > 0
