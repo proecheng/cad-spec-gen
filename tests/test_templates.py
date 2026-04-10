@@ -125,3 +125,32 @@ def test_l_bracket_make_returns_valid_solid():
     result = mod.make(**mod.example_params())
     assert result is not None
     assert result.val().Volume() > 0
+
+
+# rectangular_housing tests
+def test_rectangular_housing_has_match_keywords():
+    mod = _load_template_module("rectangular_housing")
+    assert "rectangular housing" in mod.MATCH_KEYWORDS or "enclosure" in mod.MATCH_KEYWORDS
+
+
+def test_rectangular_housing_category_is_housing():
+    mod = _load_template_module("rectangular_housing")
+    assert mod.TEMPLATE_CATEGORY == "housing"
+
+
+def test_rectangular_housing_example_params_has_wall_t():
+    mod = _load_template_module("rectangular_housing")
+    p = mod.example_params()
+    assert "wall_t" in p
+    assert p["wall_t"] > 0
+
+
+@pytest.mark.integration
+def test_rectangular_housing_make_returns_valid_solid():
+    try:
+        import cadquery as cq  # noqa: F401
+    except ImportError:
+        pytest.skip("cadquery not available")
+    mod = _load_template_module("rectangular_housing")
+    result = mod.make(**mod.example_params())
+    assert result.val().Volume() > 0
