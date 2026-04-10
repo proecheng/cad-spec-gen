@@ -7,7 +7,6 @@ from pathlib import Path
 def test_home_is_redirected():
     """Path.home() must point inside tmp_path, not the real user home."""
     home = Path.home()
-    assert ".cad-spec-gen" not in str(home) or "fake_home" in str(home)
     assert "fake_home" in str(home), f"Expected fake_home in {home}"
 
 
