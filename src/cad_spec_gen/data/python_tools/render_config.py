@@ -10,6 +10,12 @@ Provides:
   - lighting_scale(bounding_r): energy scaling for scene size
   - auto_bounding_radius(scene_objects): detect from GLB geometry
 
+Auto-frame formula (Spec 1 Phase 1 fix):
+  render_3d.py computes required_dist using min(fov_v, fov_h) — i.e. the
+  tighter-axis field of view governs framing distance. This replaces the
+  earlier vertical-FOV-only formula which under-framed wide/landscape
+  models on 1920x1080 renders. frame_fill default stays at 0.75.
+
 Constraints:
   - Core functions use ONLY stdlib imports (json, math, os) — runs inside Blender Python
   - validate_config() optionally uses jsonschema if available
