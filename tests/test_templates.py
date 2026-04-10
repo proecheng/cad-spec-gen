@@ -184,3 +184,33 @@ def test_cylindrical_housing_make_returns_valid_solid():
     mod = _load_template_module("cylindrical_housing")
     result = mod.make(**mod.example_params())
     assert result.val().Volume() > 0
+
+
+# fixture_plate tests
+def test_fixture_plate_has_match_keywords():
+    mod = _load_template_module("fixture_plate")
+    assert "fixture plate" in mod.MATCH_KEYWORDS
+
+
+def test_fixture_plate_category_is_plate():
+    mod = _load_template_module("fixture_plate")
+    assert mod.TEMPLATE_CATEGORY == "plate"
+
+
+def test_fixture_plate_example_params_has_hole_grid():
+    mod = _load_template_module("fixture_plate")
+    p = mod.example_params()
+    assert "hole_grid_nx" in p
+    assert "hole_grid_ny" in p
+    assert "hole_dia" in p
+
+
+@pytest.mark.integration
+def test_fixture_plate_make_returns_valid_solid():
+    try:
+        import cadquery as cq  # noqa: F401
+    except ImportError:
+        pytest.skip("cadquery not available")
+    mod = _load_template_module("fixture_plate")
+    result = mod.make(**mod.example_params())
+    assert result.val().Volume() > 0
