@@ -44,6 +44,51 @@ import cadquery as cq
 
 
 # ---------------------------------------------------------------------------
+# Module contract (Spec 1 Phase 2 retrofit)
+# ---------------------------------------------------------------------------
+
+MATCH_KEYWORDS: list[str] = [
+    "iso_9409_flange",
+    "iso 9409 flange",
+    "robot tool flange",
+    "robot flange",
+    "tool mount flange",
+    "cross-arm hub",       # cross-arm overlay mode
+    "mounting flange",     # common English fallback
+]
+MATCH_PRIORITY: int = 20
+TEMPLATE_CATEGORY: str = "mechanical_interface"
+TEMPLATE_VERSION: str = "1.0"
+
+
+def example_params() -> dict:
+    """Canonical parameter set for this template.
+
+    Calling make(**example_params()) must return a valid non-empty solid.
+    Used by tests and by Spec 2's `cad-lib create template --from iso_9409_flange`.
+    """
+    return {
+        "outer_dia": 90.0,
+        "thickness": 25.0,
+        "outer_fillet": 2.0,
+        "central_bore_dia": 32.0,
+        "central_bore_chamfer": 1.5,
+        "iso_pcd": 50.0,
+        "iso_bolt_dia": 6.0,
+        "iso_bolt_count": 4,
+        "iso_counterbore_dia": 10.0,
+        "iso_counterbore_depth": 6.0,
+        "iso_start_angle_deg": 45.0,
+        # Cross-arm hub disabled by default
+        "arm_count": 0,
+        "arm_length": 0.0,
+        "arm_width": 12.0,
+        # Tool-side bolts disabled
+        "tool_bolt_count": 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public factory
 # ---------------------------------------------------------------------------
 
