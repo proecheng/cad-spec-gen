@@ -82,3 +82,49 @@ def test_locate_builtin_templates_dir_finds_repo_root():
     assert (result / "rectangular_housing.py").exists()
     assert (result / "cylindrical_housing.py").exists()
     assert (result / "fixture_plate.py").exists()
+
+
+def test_discover_templates_finds_all_builtin():
+    """discover_templates on the real templates dir must find all 5 templates."""
+    from cad_spec_gen.parts_routing import discover_templates, locate_builtin_templates_dir
+    dir_path = locate_builtin_templates_dir()
+    assert dir_path is not None
+    descriptors = discover_templates([dir_path])
+    names = {d.name for d in descriptors}
+    expected = {"iso_9409_flange", "l_bracket", "rectangular_housing",
+                "cylindrical_housing", "fixture_plate"}
+    assert expected.issubset(names), f"Missing: {expected - names}"
+
+
+def test_discover_templates_handles_empty_list():
+    from cad_spec_gen.parts_routing import discover_templates
+    descriptors = discover_templates([])
+    assert descriptors == []
+
+
+def test_discover_templates_skips_underscore_files(tmp_path):
+    """Files starting with _ should be skipped."""
+    from cad_spec_gen.parts_routing import discover_templates
+    (tmp_path / "_private.py").write_text("# private helper")
+    (tmp_path / "valid_tpl.py").write_text(
+        'MATCH_KEYWORDS = ["valid"]\n'
+        'MATCH_PRIORITY = 10\n'
+        'TEMPLATE_CATEGORY = "bracket"\n'
+        'TEMPLATE_VERSION = "1.0"\n'
+        'def make(**p): pass\n'
+        'def example_params(): return {}\n'
+    )
+    descriptors = discover_templates([tmp_path])
+    names = {d.name for d in descriptors}
+    assert "valid_tpl" in names
+    assert "_private" not in names
+
+
+def test_discover_templates_extracts_correct_metadata():
+    from cad_spec_gen.parts_routing import discover_templates, locate_builtin_templates_dir
+    descriptors = discover_templates([locate_builtin_templates_dir()])
+    iso = next(d for d in descriptors if d.name == "iso_9409_flange")
+    assert iso.category == "mechanical_interface"
+    assert iso.priority == 20
+    assert iso.tier == "builtin"
+    assert len(iso.keywords) >= 3
