@@ -157,3 +157,41 @@ class WalkerReport:
     stats: WalkerStats | None
     feature_flag_enabled: bool
     runtime_error: str | None = None
+
+
+# ─── Axis label canonicalization ────────────────────────────────────────────
+
+_AXIS_LABEL_BOX_MAP: dict[str, tuple[int, int, int]] = {
+    # Map normalized label → (raw_index_for_X, raw_index_for_Y, raw_index_for_Z)
+    # "宽×深×高" means raw[0]=width=X, raw[1]=depth=Y, raw[2]=height=Z → (0, 1, 2)
+    "宽×深×高": (0, 1, 2),
+    "W×D×H": (0, 1, 2),
+    "长×宽×高": (0, 1, 2),   # length=X, width=Y, height=Z (position-0 is X regardless)
+    "L×W×H": (0, 1, 2),
+    # Swapped orders
+    "深×宽×高": (1, 0, 2),   # raw[0]=depth→Y, raw[1]=width→X, raw[2]=height→Z
+    "宽×高×深": (0, 2, 1),   # raw[0]=width→X, raw[1]=height→Z, raw[2]=depth→Y
+    "高×宽×深": (1, 2, 0),
+    "长×高×宽": (0, 2, 1),
+}
+
+
+def _canonicalize_box_axes(
+    raw: tuple[float, float, float],
+    label: str,
+) -> tuple[tuple[str, float], ...] | None:
+    """Map source-order box dims to canonical (X, Y, Z) order via the label map.
+
+    Returns None when the label is not in _AXIS_LABEL_BOX_MAP — the caller
+    must surface this as UNMATCHED with reason='unrecognized_axis_label'
+    rather than silently defaulting.
+    """
+    label_norm = re.sub(r"\s+", "", label or "")
+    order = _AXIS_LABEL_BOX_MAP.get(label_norm)
+    if order is None:
+        return None
+    return (
+        ("x", raw[order[0]]),
+        ("y", raw[order[1]]),
+        ("z", raw[order[2]]),
+    )
