@@ -1,10 +1,10 @@
 {
   "skill": "cad-spec-gen",
-  "version": "2.9.0",
-  "installed_at": "2026-04-11T16:30:00.000000",
+  "version": "2.9.1",
+  "installed_at": "2026-04-11T17:30:00.000000",
   "lang": "zh",
   "files": {
-    "cad_pipeline.py": "4454abacdd1295c5d40c6de3dd20c26a",
+    "cad_pipeline.py": "bb5d283078462fce7c44ba4e262dcdd0",
     "cad_spec_gen.py": "d40547828e5ac8e00f51e82387707b0d",
     "cad_spec_extractors.py": "7d2cf061319487f2df2b76258bda3c36",
     "cad_spec_reviewer.py": "125c2848615d8af61abd53204beb4c30",
@@ -16,6 +16,7 @@
     "gemini_gen.py": "6b0771b450d0396552772e71264414a6",
     "comfyui_enhancer.py": "2c516706ce70b9fb5fe927193f6e00aa",
     "comfyui_env_check.py": "14715fae34a27eab3ff5aab2fa021819",
+    "engineering_enhancer.py": "0f043228db8077bd9733ecc5a9863afc",
     "pipeline_config.json": "0e69b95ae74f27e6bb348e5a00a61ba2",
     "drawing.py": "c5b844fa43dbffe3615b57333484ed25",
     "draw_three_view.py": "633941ea2c42aa44757a9ebae4362d85",

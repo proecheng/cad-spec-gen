@@ -146,6 +146,19 @@ def check_f1_floating(bboxes: dict, threshold: float) -> list:
     return issues
 
 
+def _envelope_dims(env) -> tuple:
+    """Unwrap an envelope entry to a (w, d, h) tuple of floats.
+
+    v2.9.0 changed parse_envelopes() to return
+      {part_no: {"dims": (w, d, h), "granularity": str}}
+    Older callers still pass raw 3-tuples. Accept both so the validator
+    survives spec layouts from either era.
+    """
+    if isinstance(env, dict):
+        return env.get("dims") or (0.0, 0.0, 0.0)
+    return tuple(env)
+
+
 def check_f2_size_mismatch(bboxes: dict, envelopes: dict) -> list:
     """F2: Check part BBox dimensions vs §6.4 expected envelopes.
 
@@ -181,7 +194,7 @@ def check_f2_size_mismatch(bboxes: dict, envelopes: dict) -> list:
         if not pno or pno not in envelopes:
             continue
 
-        expected = envelopes[pno]
+        expected = _envelope_dims(envelopes[pno])
         actual = (bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
 
         # Sort both to compare largest-to-largest (orientation-independent)
@@ -230,7 +243,7 @@ def check_f3_compactness(bboxes: dict, envelopes: dict,
         heights = []
         for pno, env in envelopes.items():
             if pno.startswith(prefix):
-                heights.append(env[2])
+                heights.append(_envelope_dims(env)[2])
         if not heights:
             heights = [20.0]  # fallback
 

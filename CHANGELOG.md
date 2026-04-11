@@ -6,6 +6,32 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.9.1] — 2026-04-11
+
+**Theme:** End-to-end regression-hardening after a full real-document pipeline test on the GISBOT end-effector design doc. Four skill bugs fixed; no feature work.
+
+See [`RELEASE_v2.9.1.md`](RELEASE_v2.9.1.md) for the full release notes.
+
+### Added
+- **`engineering_enhancer.py`** (new, ~75 lines) — zero-AI enhance backend that was already documented in `pipeline_config.json` under `enhance._backend_doc` and `enhance.engineering` but whose implementation was missing. Reads the `sharpness` / `contrast` / `saturation` / `quality` parameters already present in `pipeline_config.json["enhance"]["engineering"]` and applies `PIL.ImageEnhance.Contrast` → `Sharpness` → `Color` to the Blender PNG before saving as JPG. Function signature matches `comfyui_enhancer.enhance_image()` / `fal_enhancer.enhance_image()` so `cad_pipeline.cmd_enhance` drops it into the existing table-driven dispatch. No external dependencies beyond Pillow (already in the `render` extra). Now the default fallback when Gemini / fal / ComfyUI are all unavailable — matches the advertised auto-detect chain.
+- `engineering_enhancer.py` added to `hatch_build._PIPELINE_TOOLS` and `cad_spec_gen.wizard.skill_register._PIPELINE_TOOLS` so the wheel ships it and `cad-skill-setup` deploys it to user project roots.
+
+### Fixed
+- **`tools/hybrid_render/check_env.py::_find_blender`** missed the `pipeline_config.json` `blender_path` field — inconsistent with `cad_paths.get_blender_path()` which does read it. On machines where Blender is installed outside of `PATH` / `tools/blender/` / `%ProgramFiles%\Blender Foundation\` the env-check reported Level 3 CAD even though the pipeline itself could locate Blender and render fine. Now `_find_blender()` checks (1) `BLENDER_PATH` env var → (2) `pipeline_config.json.blender_path` (new) → (3) project-local portable → (4) `shutil.which` → (5) platform default install locations (`%ProgramFiles%\Blender Foundation\Blender\blender.exe`, `/usr/bin/blender`, `/Applications/Blender.app/Contents/MacOS/Blender`; also new).
+- **`assembly_validator.py::check_f2_size_mismatch`** crashed with `TypeError: '<' not supported between instances of 'str' and 'float'` after v2.9.0 changed `codegen/gen_assembly.py::parse_envelopes` to return `{pno: {"dims": (w,d,h), "granularity": str}}` instead of `{pno: (w,d,h)}`. The validator was not updated for the new shape, so `sorted(expected, reverse=True)` sorted dict keys (`["granularity", "dims"]`) and the subsequent numeric comparison on `e_sorted[k]` exploded. New `_envelope_dims(env)` helper tolerates both tuple and dict shapes; `check_f2_size_mismatch` and `check_f3_compactness` both route through it. GATE-3.5 validation no longer aborts builds post-Phase 3.
+- **`cad_pipeline.py enhance --backend` argparse choices** was missing `"engineering"` even though `pipeline_config.json._backend_doc` advertised it as a legal value. Invoking `--backend engineering` raised `argparse.ArgumentError` at parse time. Added to `choices=[...]` with updated `help=` text.
+- **`cad_pipeline.py::cmd_enhance`** the dispatch had no branch for `"engineering"`, so even with the argparse fix above, any `backend == "engineering"` case would have fallen through to the `else:` branch and been silently re-normalised to `gemini`. New branch loads `engineering_enhancer.enhance_image` into the same `_enhance_fn` / `_enhance_cfg_key` table-driven slots used by `comfyui` / `fal` / `fal_comfy`.
+
+### Validation
+- Full end-to-end pipeline run against `D:\Work\cad-tests\04-末端执行机构设计.md` (the GISBOT end-effector chapter) with `CAD_PROJECT_ROOT` redirected to a fresh working directory — verified artifact counts: 26 STEP (11 自制 + 14 std + 1 assembly), 11 DXF + 11 2D-drawing PNG, 14 3D render PNG (7 views × 2 timestamp copies), 7 engineering-enhanced JPG, 7 Chinese-labeled annotated JPG, 1 GLB, 1 ASSEMBLY_REPORT.json. Phases 1–6 all reported OK; GATE-3.5 surfaced 5 legitimate design warnings (4 F1 floating + 1 F2 size mismatch) instead of crashing with a TypeError.
+
+### Files
+- New: `engineering_enhancer.py`, `src/cad_spec_gen/data/python_tools/engineering_enhancer.py`, `RELEASE_v2.9.1.md`
+- Modified: `tools/hybrid_render/check_env.py`, `assembly_validator.py`, `cad_pipeline.py`, `src/cad_spec_gen/data/python_tools/cad_pipeline.py`, `hatch_build.py`, `src/cad_spec_gen/wizard/skill_register.py`, `README.md`
+- Version metadata: `pyproject.toml`, `src/cad_spec_gen/__init__.py`, `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`
+
+---
+
 ## [2.9.0] — 2026-04-11
 
 **Theme:** Section-header walker + granularity enforcement + vendor STEP auto-synthesizer.

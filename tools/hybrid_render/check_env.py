@@ -39,22 +39,44 @@ def _find_blender():
     if env_path and os.path.isfile(env_path):
         return env_path, "from BLENDER_PATH env var"
 
-    # 2. Project-local portable install
+    # 2. pipeline_config.json (authoritative per-machine override)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.normpath(os.path.join(script_dir, "..", ".."))
-    local_path = os.path.join(project_root, "tools", "blender", "blender.exe")
+    skill_root = os.path.normpath(os.path.join(script_dir, "..", ".."))
+    config_path = os.path.join(skill_root, "pipeline_config.json")
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            cfg_blender = cfg.get("blender_path", "")
+            if cfg_blender and os.path.isfile(cfg_blender):
+                return cfg_blender, "from pipeline_config.json"
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # 3. Project-local portable install
+    local_path = os.path.join(skill_root, "tools", "blender", "blender.exe")
     if os.path.isfile(local_path):
         return local_path, "project-local portable"
 
     # Also check blender (no .exe) for Linux/Mac
-    local_path2 = os.path.join(project_root, "tools", "blender", "blender")
+    local_path2 = os.path.join(skill_root, "tools", "blender", "blender")
     if os.path.isfile(local_path2):
         return local_path2, "project-local portable"
 
-    # 3. System PATH
+    # 4. System PATH
     system_blender = shutil.which("blender")
     if system_blender:
         return system_blender, "system PATH"
+
+    # 5. Platform-specific common install locations
+    common = [
+        os.path.expandvars(r"%ProgramFiles%\Blender Foundation\Blender\blender.exe"),
+        "/usr/bin/blender",
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+    ]
+    for c in common:
+        if c and os.path.isfile(c):
+            return c, "platform default"
 
     return None, "not found"
 

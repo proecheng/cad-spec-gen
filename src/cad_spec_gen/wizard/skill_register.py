@@ -25,6 +25,7 @@ _PIPELINE_TOOLS = [
     "enhance_prompt.py", "prompt_data_builder.py",
     "gemini_gen.py",
     "comfyui_enhancer.py", "comfyui_env_check.py",
+    "engineering_enhancer.py",
     "pipeline_config.json",
 ]
 

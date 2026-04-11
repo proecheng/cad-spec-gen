@@ -29,6 +29,7 @@ _PIPELINE_TOOLS = [
     "comfyui_enhancer.py",
     "comfyui_env_check.py",
     "fal_enhancer.py",
+    "engineering_enhancer.py",
     "pipeline_config.json",
 ]
 

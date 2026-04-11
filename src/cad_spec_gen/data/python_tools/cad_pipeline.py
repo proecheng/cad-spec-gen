@@ -62,15 +62,24 @@ def _deploy_tool_modules(sub_dir: str):
     """Copy shared Python tool modules to a subsystem directory.
 
     These modules are needed at runtime by generated code (ee_*.py, build_all.py):
-      - drawing.py        — ezdxf GB/T drawing primitives
-      - draw_three_view.py — ThreeViewSheet class
-      - cq_to_dxf.py      — CadQuery→DXF HLR projection bridge
-      - render_dxf.py      — DXF→PNG batch renderer
+      - drawing.py          — ezdxf GB/T drawing primitives
+      - draw_three_view.py  — ThreeViewSheet class (imports cad_spec_defaults)
+      - cq_to_dxf.py        — CadQuery→DXF HLR projection bridge
+      - render_dxf.py       — DXF→PNG batch renderer
+      - render_config.py    — render camera / pose helpers
+      - cad_spec_defaults.py — surface roughness + part-no helper tables,
+                               imported lazily from draw_three_view.save()
     Only copies if source is newer or target is missing (scaffold-safe).
     """
     import shutil
-    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py",
-                  "render_config.py"]
+    tool_files = [
+        "drawing.py",
+        "draw_three_view.py",
+        "cq_to_dxf.py",
+        "render_dxf.py",
+        "render_config.py",
+        "cad_spec_defaults.py",
+    ]
     for fname in tool_files:
         src = os.path.join(SKILL_ROOT, fname)
         dst = os.path.join(sub_dir, fname)
@@ -178,11 +187,23 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
     return None
 
 
-def _run_subprocess(cmd, label, dry_run=False, timeout=600):
-    """Run a subprocess with error capture. Returns (success, elapsed)."""
+def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None):
+    """Run a subprocess with error capture. Returns (success, elapsed).
+
+    Parameters
+    ----------
+    warn_exit_codes : set[int] | None
+        Exit codes that should be treated as "completed with warnings" rather
+        than as hard failures. A match still returns success=True but logs
+        a WARNING-level line with the trailing stderr so the pipeline
+        continues. Used by gen_parts.py (exit 2 = scaffolds emitted with
+        unfilled TODO markers — valid scaffolds, just not yet hand-finalized).
+    """
     if dry_run:
         log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
         return True, 0.0
+
+    warn_codes = set(warn_exit_codes or ())
 
     log.info("  Running: %s", label)
     t0 = time.time()
@@ -192,6 +213,17 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
             encoding="utf-8", errors="replace",
         )
         elapsed = time.time() - t0
+        if result.returncode in warn_codes:
+            log.warning(
+                "  WARN %s (exit %d, %.1fs) — continuing",
+                label, result.returncode, elapsed,
+            )
+            # Surface a short stderr tail so the warning is actionable,
+            # but do not treat as failure.
+            if result.stderr:
+                for line in result.stderr.strip().split("\n")[-5:]:
+                    log.warning("    %s", line)
+            return True, elapsed
         if result.returncode != 0:
             log.error("  FAILED %s (exit %d, %.1fs)", label, result.returncode, elapsed)
             if result.stderr:
@@ -915,12 +947,19 @@ def cmd_spec(args):
 
     # Deploy spec artifacts from output/ to cad/ so codegen can read them
     _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
-    _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
-    if not _cad_sub and args.subsystem:
-        # Directory doesn't exist yet — create it so deploy can proceed
-        _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+    _out_dir_override = getattr(args, "out_dir", None)
+    if _out_dir_override and args.subsystem:
+        # --out-dir supplied: redirect all writes away from cad/<subsystem>/
+        _cad_sub = os.path.join(_out_dir_override, args.subsystem)
         os.makedirs(_cad_sub, exist_ok=True)
-        log.info("  Created: %s", _cad_sub)
+        log.info("  --out-dir: redirecting subsystem output to %s", _cad_sub)
+    else:
+        _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+        if not _cad_sub and args.subsystem:
+            # Directory doesn't exist yet — create it so deploy can proceed
+            _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+            os.makedirs(_cad_sub, exist_ok=True)
+            log.info("  Created: %s", _cad_sub)
     if _cad_sub and os.path.isdir(_output_sub):
         for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
             _src = os.path.join(_output_sub, _fname)
@@ -999,10 +1038,17 @@ def cmd_codegen(args):
     if not ok:
         failures += 1
 
-    # 2c: part module scaffolds
+    # 2c: part module scaffolds.
+    # gen_parts.py uses exit 2 as a soft signal that scaffolds were emitted
+    # but still have unfilled TODO markers (coordinate-system blocks the
+    # designer needs to review). That is NOT a failure for the pipeline —
+    # the files are valid Python and Phase 2.5 build can proceed.
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
            spec_path, "--output-dir", sub_dir, "--mode", mode]
-    ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
+    ok, _ = _run_subprocess(
+        cmd, "codegen part scaffolds",
+        dry_run=args.dry_run, warn_exit_codes={2},
+    )
     if not ok:
         failures += 1
 
@@ -1288,6 +1334,11 @@ def cmd_enhance(args):
             return 1
         from comfyui_enhancer import enhance_image as _comfyui_fn
         _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
+    elif backend == "engineering":
+        # 零 AI 工程后端：Blender PBR PNG → PIL 轻量后处理 → JPG。
+        # 无外部依赖（仅 Pillow），用于兜底 / 离线 / 零成本场景。
+        from engineering_enhancer import enhance_image as _eng_fn
+        _enhance_fn, _enhance_cfg_key = _eng_fn, "engineering"
     elif backend in ("fal", "fal_comfy"):
         # Pre-flight env check for fal_comfy (FAL_KEY, fal-client, depth deps, API, models)
         if backend == "fal_comfy":
@@ -2223,6 +2274,13 @@ def main():
     p_spec.add_argument("--supplements", default=None,
                         help="JSON string of Agent-collected supplements, e.g. '{\"B3\":\"4xM4\",\"D2\":\"__AUTO__\"}'. "
                              "Written to user_supplements.json then spec is generated.")
+    p_spec.add_argument(
+        "--out-dir",
+        type=str,
+        default=None,
+        help="Override subsystem output root (default: cad/<subsystem>/). "
+             "Used by tests to redirect writes away from pinned subsystem dirs.",
+    )
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
@@ -2247,8 +2305,10 @@ def main():
     p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "fal_comfy"],
-                           help="Override enhance backend (default: from pipeline_config.json)")
+    p_enhance.add_argument("--backend",
+                           choices=["gemini", "comfyui", "fal", "fal_comfy", "engineering"],
+                           help="Override enhance backend (default: from pipeline_config.json). "
+                                "'engineering' = no AI, Blender PBR direct + post-processing.")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
     p_enhance.add_argument("--model", default=None,

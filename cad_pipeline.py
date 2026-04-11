@@ -1334,6 +1334,11 @@ def cmd_enhance(args):
             return 1
         from comfyui_enhancer import enhance_image as _comfyui_fn
         _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
+    elif backend == "engineering":
+        # 零 AI 工程后端：Blender PBR PNG → PIL 轻量后处理 → JPG。
+        # 无外部依赖（仅 Pillow），用于兜底 / 离线 / 零成本场景。
+        from engineering_enhancer import enhance_image as _eng_fn
+        _enhance_fn, _enhance_cfg_key = _eng_fn, "engineering"
     elif backend in ("fal", "fal_comfy"):
         # Pre-flight env check for fal_comfy (FAL_KEY, fal-client, depth deps, API, models)
         if backend == "fal_comfy":
@@ -2300,8 +2305,10 @@ def main():
     p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)")
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend", choices=["gemini", "comfyui", "fal", "fal_comfy"],
-                           help="Override enhance backend (default: from pipeline_config.json)")
+    p_enhance.add_argument("--backend",
+                           choices=["gemini", "comfyui", "fal", "fal_comfy", "engineering"],
+                           help="Override enhance backend (default: from pipeline_config.json). "
+                                "'engineering' = no AI, Blender PBR direct + post-processing.")
     p_enhance.add_argument("--labeled", action="store_true",
                            help="Also generate English-labeled version via Gemini (gemini backend only)")
     p_enhance.add_argument("--model", default=None,
