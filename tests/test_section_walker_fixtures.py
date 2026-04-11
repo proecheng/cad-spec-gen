@@ -112,3 +112,58 @@ def test_10_english_header():
     # All tiers abstain: no CJK in header, no ASCII overlap with BOM names
     assert outputs[0].matched_pno is None
     assert outputs[0].reason == "all_tiers_abstained"
+
+
+def test_11_non_gisbot_chassis_via_constructor_kwargs():
+    """G12 validation: chassis subsystem uses DIFFERENT trigger term and
+    station pattern, customized via constructor kwargs — NO code edit."""
+    chassis_bom = _bom([
+        {"part_no": "CHASSIS-DRV-001", "name": "驱动轮1 减速器总成"},
+        {"part_no": "CHASSIS-DRV-002", "name": "驱动轮2 减速器总成"},
+        {"part_no": "CHASSIS-DRV-003", "name": "驱动轮3 减速器总成"},
+    ])
+    walker = SectionWalker(
+        _load("11_non_gisbot_chassis.md"),
+        chassis_bom,
+        trigger_terms=("外形尺寸",),
+        station_patterns=[(r"驱动轮\s*(\d+)", "驱动轮")],
+        axis_label_default="长×宽×高",
+    )
+    outputs, stats = walker.extract_envelopes()
+    assert stats.matched_count == 3
+    assert {o.matched_pno for o in outputs} == {
+        "CHASSIS-DRV-001", "CHASSIS-DRV-002", "CHASSIS-DRV-003",
+    }
+    assert all(o.tier == 1 for o in outputs)
+
+
+def test_12_english_bom_ascii_word_subsequence():
+    """G12 + Tier 2 ASCII path: English BOM + English header → match via
+    word subsequence (not CJK path)."""
+    english_bom = _bom([
+        {"part_no": "LIFT-001", "name": "Main Arm"},
+        {"part_no": "LIFT-002", "name": "Cross Beam"},
+    ])
+    outputs, stats = SectionWalker(
+        _load("12_english_bom.md"), english_bom,
+    ).extract_envelopes()
+    assert stats.matched_count == 1
+    assert outputs[0].matched_pno == "LIFT-001"
+    assert outputs[0].tier == 2
+
+
+def test_13_axis_label_canonicalization():
+    """Box with 長×宽×高 label → dims stored as canonical (X, Y, Z)
+    where position 0 = length, 1 = width, 2 = height. The raw label
+    is preserved in axis_label for audit."""
+    bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1长方形臂"}])
+    outputs, _ = SectionWalker(_load("13_axis_label_rotation.md"), bom).extract_envelopes()
+    assert len(outputs) == 1
+    o = outputs[0]
+    assert o.matched_pno == "GIS-EE-002"
+    # dims[0] is X and carries the length value (1200)
+    assert o.dims[0] == ("x", 1200.0)
+    assert o.dims[1] == ("y", 60.0)
+    assert o.dims[2] == ("z", 290.0)
+    # Raw source label preserved
+    assert o.axis_label == "长×宽×高"
