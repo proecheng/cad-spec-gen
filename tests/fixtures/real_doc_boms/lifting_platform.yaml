@@ -1,0 +1,268 @@
+subsystem: 19-液压钳升降平台
+encoding_rule: ''
+assemblies:
+- part_no: UNKNOWN
+  name: 未分组
+  parts:
+  - part_no: SLP-100
+    name: 上固定板
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-200
+    name: 左支撑条
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-201
+    name: 右支撑条
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-300
+    name: 动板
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-400
+    name: 电机支架
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-403
+    name: 下限位传感器支架
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-404
+    name: 上限位传感器支架
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-500
+    name: 同步带护罩
+    material: ''
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-P01
+    name: 丝杠 L350
+    material: ''
+    qty: 2
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-P02
+    name: 导向轴 L296
+    material: ''
+    qty: 2
+    make_buy: 自制
+    part_category: custom
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C01
+    name: T16 螺母 C7
+    material: ''
+    qty: 2
+    make_buy: 外购
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C02
+    name: LM10UU
+    material: ''
+    qty: 2
+    make_buy: 外购
+    part_category: bearing
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C03
+    name: KFL001
+    material: ''
+    qty: 4
+    make_buy: 外购
+    part_category: bearing
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C04
+    name: GT2 20T 开式带轮 φ12
+    material: ''
+    qty: 2
+    make_buy: 外购
+    part_category: cable
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C05
+    name: GT2-310-6mm 带
+    material: ''
+    qty: 1
+    make_buy: 外购
+    part_category: cable
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C06
+    name: L070 联轴器
+    material: ''
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C07
+    name: NEMA23 闭环步进 ≥1.0Nm
+    material: ''
+    qty: 1
+    make_buy: 外购
+    part_category: motor
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-C08
+    name: CL57T 闭环驱动器
+    material: ''
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F01
+    name: M5×16 DIN7991 沉头
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F02
+    name: M5×20 DIN912（全牙）
+    material: ''
+    qty: 8
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F03
+    name: M4×12 DIN912
+    material: ''
+    qty: 6
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F04
+    name: 轴用 E 型挡圈 φ10
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F05
+    name: 孔用 C 型挡圈 φ19
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F06
+    name: φ5×20 定位销
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F07
+    name: M5 法兰螺母
+    material: ''
+    qty: 8
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F08
+    name: M4×16 DIN912
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F09
+    name: M5×25 DIN912
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F10
+    name: 钢丝螺套 M6×1D
+    material: ''
+    qty: 4
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F11
+    name: PU 缓冲垫 20×20×3
+    material: ''
+    qty: 4
+    make_buy: 外购
+    part_category: seal
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F12
+    name: M8 电感接近开关 NPN-NO
+    material: ''
+    qty: 2
+    make_buy: 外购
+    part_category: sensor
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F13
+    name: 导向轴保护帽 φ10
+    material: ''
+    qty: 4
+    make_buy: 外购
+    part_category: other
+    unit_price: 0.0
+    total_price: 0.0
+  - part_no: SLP-F14
+    name: M3×8 DIN912
+    material: ''
+    qty: 6
+    make_buy: 标准件
+    part_category: fastener
+    unit_price: 0.0
+    total_price: 0.0
+summary:
+  total_parts: 32
+  assemblies: 1
+  custom_parts: 10
+  purchased_parts: 11
+  total_cost: 0.0

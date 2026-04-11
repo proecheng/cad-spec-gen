@@ -1,0 +1,760 @@
+"""Unit tests for cad_spec_section_walker."""
+from __future__ import annotations
+
+import pytest
+
+from cad_spec_section_walker import (
+    EnvelopeData,
+    MatchResult,
+    SectionFrame,
+    WalkerOutput,
+    WalkerReport,
+    WalkerStats,
+)
+from cad_spec_section_walker import _canonicalize_box_axes
+
+
+class TestDataclasses:
+    def test_envelope_data_is_hashable(self):
+        """Frozen + tuple dims means EnvelopeData can live in a set."""
+        e1 = EnvelopeData(
+            type="box",
+            dims=(("x", 60.0), ("y", 40.0), ("z", 290.0)),
+            axis_label="宽×深×高",
+        )
+        e2 = EnvelopeData(
+            type="box",
+            dims=(("x", 60.0), ("y", 40.0), ("z", 290.0)),
+            axis_label="宽×深×高",
+        )
+        # Hashable + equal → same set member
+        assert {e1, e2} == {e1}
+
+    def test_envelope_data_dims_dict_returns_canonical_xyz(self):
+        e = EnvelopeData(
+            type="box",
+            dims=(("x", 60.0), ("y", 40.0), ("z", 290.0)),
+        )
+        assert e.dims_dict() == {"x": 60.0, "y": 40.0, "z": 290.0}
+
+    def test_match_result_carries_reason_code(self):
+        m = MatchResult(pno="GIS-EE-002", tier=1, confidence=1.0,
+                        reason="tier1_unique_match")
+        assert m.reason == "tier1_unique_match"
+
+    def test_walker_output_has_all_required_fields(self):
+        o = WalkerOutput(
+            matched_pno="GIS-EE-002",
+            envelope_type="box",
+            dims=(("x", 60.0), ("y", 40.0), ("z", 290.0)),
+            tier=1,
+            confidence=1.0,
+            reason="tier1_unique_match",
+            header_text="工位1涂抹模块",
+            line_number=42,
+            granularity="station_constraint",
+            axis_label="宽×深×高",
+            source_line="- **模块包络尺寸**：60×40×290mm (宽×深×高)",
+        )
+        assert o.matched_pno == "GIS-EE-002"
+        assert o.granularity == "station_constraint"
+        assert o.candidates == ()  # default empty tuple
+
+
+class TestAxisCanonicalization:
+    def test_default_gisbot_label_passes_through(self):
+        raw = (60.0, 40.0, 290.0)
+        result = _canonicalize_box_axes(raw, "宽×深×高")
+        assert result == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+
+    def test_length_first_label_keeps_position_semantics(self):
+        """长×宽×高: first dim is length (X), second is width (Y), third is height (Z)."""
+        raw = (1200.0, 60.0, 290.0)
+        result = _canonicalize_box_axes(raw, "长×宽×高")
+        assert result == (("x", 1200.0), ("y", 60.0), ("z", 290.0))
+
+    def test_english_wdh_equals_chinese_default(self):
+        raw = (60.0, 40.0, 290.0)
+        assert _canonicalize_box_axes(raw, "W×D×H") == \
+               _canonicalize_box_axes(raw, "宽×深×高")
+
+    def test_unrecognized_label_returns_none(self):
+        """No silent defaulting on unknown labels — caller must handle None."""
+        assert _canonicalize_box_axes((1, 2, 3), "X×Y×Z (random order)") is None
+
+    def test_label_whitespace_insensitive(self):
+        result = _canonicalize_box_axes((60.0, 40.0, 290.0), " 宽 × 深 × 高 ")
+        assert result == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+
+    def test_axis_swap_reorders_correctly(self):
+        """深×宽×高: first raw dim is depth→Y, second is width→X, third is height→Z."""
+        raw = (40.0, 60.0, 290.0)  # depth=40, width=60, height=290
+        result = _canonicalize_box_axes(raw, "深×宽×高")
+        # Canonical order should have X=60 (width), Y=40 (depth), Z=290 (height)
+        assert result == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+
+    def test_label_with_trailing_annotation_uses_prefix(self):
+        """Real GISBOT docs use labels like 宽×深×高，含储罐延伸 where a
+        trailing annotation follows a Chinese comma. The comma-prefix
+        fallback resolves them via the known-prefix portion (round-2
+        real-doc integration finding)."""
+        raw = (60.0, 40.0, 290.0)
+        # Chinese comma
+        assert _canonicalize_box_axes(raw, "宽×深×高，含储罐延伸") == (
+            ("x", 60.0), ("y", 40.0), ("z", 290.0),
+        )
+        # ASCII comma also works
+        assert _canonicalize_box_axes(raw, "宽×深×高, trailing") == (
+            ("x", 60.0), ("y", 40.0), ("z", 290.0),
+        )
+        # Unknown prefix still returns None (no silent fallback)
+        assert _canonicalize_box_axes(raw, "bogus×label×foo，tail") is None
+
+
+from cad_spec_section_walker import _build_envelope_regexes
+
+
+class TestEnvelopeRegex:
+    def _box_re(self, terms=("模块包络尺寸",)):
+        box, _ = _build_envelope_regexes(terms)
+        return box
+
+    def _cyl_re(self, terms=("模块包络尺寸",)):
+        _, cyl = _build_envelope_regexes(terms)
+        return cyl
+
+    def test_box_plain(self):
+        m = self._box_re().search("模块包络尺寸：60×40×290mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_bold_before_colon(self):
+        m = self._box_re().search("- **模块包络尺寸**：60×40×290mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_bold_around_value(self):
+        m = self._box_re().search("模块包络尺寸：**60×40×290mm**")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_with_axis_label_captured(self):
+        m = self._box_re().search("模块包络尺寸：60×40×290mm (宽×深×高)")
+        assert m is not None
+        assert m.group(4) == "宽×深×高"
+
+    def test_box_floats(self):
+        m = self._box_re().search("模块包络尺寸：60.5×40.0×290.25mm")
+        assert m is not None
+        assert m.group(1) == "60.5"
+        assert m.group(3) == "290.25"
+
+    def test_cylinder_phi(self):
+        m = self._cyl_re().search("模块包络尺寸：Φ45×120mm")
+        assert m is not None
+        assert (m.group(1), m.group(2)) == ("45", "120")
+
+    def test_cylinder_alternate_symbols(self):
+        for sym in ("φ", "Ø", "∅"):
+            m = self._cyl_re().search(f"模块包络尺寸：{sym}30×45mm")
+            assert m is not None, f"failed on symbol {sym}"
+
+    def test_custom_trigger_term(self):
+        """Non-GISBOT subsystems pass their own term via constructor kwarg."""
+        box, _ = _build_envelope_regexes(("外形尺寸",))
+        m = box.search("外形尺寸：1200×600×300mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("1200", "600", "300")
+
+    def test_multiple_trigger_terms(self):
+        """Terms are joined with alternation."""
+        box, _ = _build_envelope_regexes(("外形尺寸", "总体尺寸"))
+        assert box.search("外形尺寸：60×40×290mm") is not None
+        assert box.search("总体尺寸：60×40×290mm") is not None
+
+    def test_wrong_trigger_term_does_not_match(self):
+        box, _ = _build_envelope_regexes(("外形尺寸",))
+        assert box.search("模块包络尺寸：60×40×290mm") is None
+
+
+from cad_spec_section_walker import _normalize_header, _parse_section_header
+
+
+class TestSectionHeader:
+    def test_normalize_strips_bold(self):
+        assert _normalize_header("**工位1**") == "工位1"
+
+    def test_normalize_strips_markdown_hash(self):
+        assert _normalize_header("### 4.1.2 各工位机械结构") == "4.1.2 各工位机械结构"
+
+    def test_normalize_collapses_whitespace(self):
+        assert _normalize_header("  工位1   涂抹  模块  ") == "工位1 涂抹 模块"
+
+    def test_markdown_h1(self):
+        assert _parse_section_header("# Top") == (1, "Top")
+
+    def test_markdown_h3(self):
+        assert _parse_section_header("### 4.1 Stations") == (3, "4.1 Stations")
+
+    def test_markdown_h6(self):
+        assert _parse_section_header("###### Deep") == (6, "Deep")
+
+    def test_markdown_h7_not_a_header(self):
+        """Seven hashes is not a valid Markdown header."""
+        assert _parse_section_header("####### Too deep") is None
+
+    def test_standalone_bold_is_level_100(self):
+        result = _parse_section_header("**工位1(0°)：耦合剂涂抹模块**")
+        assert result == (100, "工位1(0°)：耦合剂涂抹模块")
+
+    def test_bullet_bold_is_not_a_header(self):
+        """Property labels like `- **模块包络尺寸**：60×40×290mm` must NOT
+        reset section state — if they did, the walker would lose the
+        parent station on every envelope line."""
+        assert _parse_section_header("- **模块包络尺寸**：60×40×290mm") is None
+
+    def test_regular_line_is_not_a_header(self):
+        assert _parse_section_header("This is a paragraph.") is None
+
+    def test_empty_line_is_not_a_header(self):
+        assert _parse_section_header("") is None
+
+    def test_bold_with_trailing_content_is_not_a_header(self):
+        """Only standalone-bold-on-own-line counts."""
+        assert _parse_section_header("**工位1**: some text after") is None
+
+
+from cad_spec_section_walker import _match_by_pattern, _DEFAULT_STATION_PATTERNS
+
+
+def _bom(assemblies):
+    return {"assemblies": assemblies}
+
+
+class TestTier1Pattern:
+    def test_unique_station_match(self):
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"},
+        ])
+        result = _match_by_pattern("工位1(0°)：耦合剂涂抹模块", bom,
+                                   _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.pno == "GIS-EE-002"
+        assert result.tier == 1
+        assert result.confidence == 1.0
+        assert result.reason == "tier1_unique_match"
+
+    def test_ambiguous_station_returns_none(self):
+        """Two BOM rows share 工位1 → abstain entirely (return None),
+        do NOT fall through to the next pattern. Regression test for
+        round-2 programmer review finding: earlier draft used `continue`
+        which silently matched a later pattern on the same header."""
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-004", "name": "工位1驱动模块"},
+        ])
+        result = _match_by_pattern("工位1 耦合剂涂抹", bom,
+                                   _DEFAULT_STATION_PATTERNS)
+        assert result is None
+
+    def test_pattern_fires_but_no_bom_match_tries_next_pattern(self):
+        """工位1 regex fires but BOM has no 工位 row → fall through to
+        the next pattern (模块). This is the one legitimate `continue`
+        case — distinct from ambiguity."""
+        bom = _bom([
+            {"part_no": "GIS-EE-010", "name": "模块3输电线"},
+        ])
+        result = _match_by_pattern("工位1 模块3", bom, _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.pno == "GIS-EE-010"
+
+    def test_no_pattern_matches_header(self):
+        bom = _bom([{"part_no": "X", "name": "something"}])
+        assert _match_by_pattern("Plain English Title", bom,
+                                 _DEFAULT_STATION_PATTERNS) is None
+
+    def test_custom_station_patterns(self):
+        """Chassis subsystem passes its own patterns via kwargs."""
+        chassis = [(r"驱动轮\s*(\d+)", "驱动轮")]
+        bom = _bom([{"part_no": "CHASSIS-DRV-003", "name": "驱动轮3 减速器总成"}])
+        result = _match_by_pattern("驱动轮3 减速器", bom, chassis)
+        assert result is not None
+        assert result.pno == "CHASSIS-DRV-003"
+
+    def test_level_pattern(self):
+        bom = _bom([{"part_no": "L2", "name": "第2级支撑"}])
+        assert _match_by_pattern("第2级主体", bom,
+                                 _DEFAULT_STATION_PATTERNS).pno == "L2"
+
+
+from cad_spec_section_walker import _match_by_subsequence
+
+
+class TestTier2Subsequence:
+    def test_cjk_subsequence_matches(self):
+        """工位涂抹模块 is a character subsequence of 工位耦合剂涂抹模块."""
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测"},
+        ])
+        result = _match_by_subsequence("工位1(0°)：耦合剂涂抹模块", bom)
+        assert result is not None
+        assert result.pno == "GIS-EE-002"
+        assert result.tier == 2
+        assert result.confidence == 0.85
+        assert result.reason == "tier2_unique_subsequence"
+
+    def test_ascii_word_subsequence_matches(self):
+        """'Main Arm' is a word subsequence of 'Main Arm Assembly'."""
+        bom = _bom([
+            {"part_no": "LIFT-001", "name": "Main Arm"},
+            {"part_no": "LIFT-002", "name": "Cross Beam"},
+        ])
+        result = _match_by_subsequence("## Main Arm Assembly", bom)
+        assert result is not None
+        assert result.pno == "LIFT-001"
+
+    def test_density_tie_abstains(self):
+        """Two BOM rows with near-identical density → abstain."""
+        bom = _bom([
+            {"part_no": "A", "name": "工位1驱动"},
+            {"part_no": "B", "name": "工位1涂抹"},
+        ])
+        # Header contains both subsequences with similar density.
+        result = _match_by_subsequence("工位1 驱动 涂抹 共用", bom)
+        assert result is None
+
+    def test_no_cjk_no_ascii_returns_none(self):
+        bom = _bom([{"part_no": "A", "name": "工位1模块"}])
+        assert _match_by_subsequence("12345", bom) is None
+
+    def test_empty_bom_returns_none(self):
+        assert _match_by_subsequence("工位1", _bom([])) is None
+
+    def test_out_of_order_chars_no_match(self):
+        """Characters must appear IN ORDER as a subsequence."""
+        bom = _bom([{"part_no": "A", "name": "涂抹工位"}])
+        assert _match_by_subsequence("工位1涂抹", bom) is None
+
+    def test_deterministic_tie_break_by_pno(self):
+        """Equal density, different pnos → sort by pno alphabetically.
+        Current behavior under tie: near-tie (gap < 0.1) abstains, so this
+        test validates the sort key, not a match result."""
+        bom = _bom([
+            {"part_no": "B-BBB", "name": "工位模"},  # density 3/3
+            {"part_no": "A-AAA", "name": "工位模"},  # density 3/3
+        ])
+        # Exact tie → abstain
+        assert _match_by_subsequence("工位模", bom) is None
+
+
+from cad_spec_section_walker import _match_by_jaccard, _tokenize
+
+
+class TestTier3Jaccard:
+    def test_tokenize_cjk_bigrams(self):
+        tokens = _tokenize("工位耦合剂")
+        assert "工位" in tokens
+        assert "位耦" in tokens
+        assert "耦合" in tokens
+
+    def test_tokenize_ascii_words_lowercased(self):
+        tokens = _tokenize("Main Arm Module")
+        assert "main" in tokens
+        assert "arm" in tokens
+        assert "module" in tokens
+
+    def test_tokenize_short_ascii_words_excluded(self):
+        """Single-char ASCII words are too noisy for Jaccard."""
+        tokens = _tokenize("a bc")
+        assert "a" not in tokens
+        assert "bc" in tokens
+
+    def test_match_above_threshold(self):
+        bom = _bom([{"part_no": "X", "name": "传感器模块组件"}])
+        result = _match_by_jaccard("传感器模块组件设计", bom)
+        assert result is not None
+        assert result.pno == "X"
+        assert result.tier == 3
+        assert result.reason == "tier3_jaccard_match"
+
+    def test_below_threshold_returns_none(self):
+        bom = _bom([{"part_no": "X", "name": "unrelated stuff"}])
+        assert _match_by_jaccard("完全不同的章节", bom) is None
+
+    def test_exact_tie_abstains(self):
+        bom = _bom([
+            {"part_no": "A", "name": "工位模块"},
+            {"part_no": "B", "name": "工位模块"},
+        ])
+        assert _match_by_jaccard("工位模块 附加", bom) is None
+
+    def test_near_tie_abstains(self):
+        """Two scores within AMBIGUITY_GAP → abstain."""
+        bom = _bom([
+            {"part_no": "A", "name": "大功率电机驱动"},
+            {"part_no": "B", "name": "大功率电机控制"},
+        ])
+        assert _match_by_jaccard("大功率电机 通用", bom) is None
+
+    def test_deterministic_tie_break_in_sort(self):
+        """Non-tied candidates sorted by (-score, pno). Use pnos that would
+        sort differently by dict iteration order vs alphabetical."""
+        bom = _bom([
+            {"part_no": "Z-highscore", "name": "aa bb cc dd ee ff"},
+            {"part_no": "A-lower",    "name": "aa bb"},
+        ])
+        # Z has higher Jaccard, should win regardless of iteration order
+        result = _match_by_jaccard("aa bb cc dd ee ff gg", bom)
+        assert result is not None
+        assert result.pno == "Z-highscore"
+
+    def test_empty_tokens_returns_none(self):
+        """Header with only single-char ASCII and single-char CJK runs."""
+        bom = _bom([{"part_no": "X", "name": "工位1"}])
+        assert _match_by_jaccard("a b c", bom) is None
+
+
+from cad_spec_section_walker import _match_header, _match_context
+
+
+class TestDispatchers:
+    def test_match_header_tries_tiers_in_order(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        # Unique station → Tier 1 fires
+        result = _match_header("工位1涂抹", bom, _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 1
+
+    def test_match_header_falls_through_to_tier2(self):
+        """Tier 1 abstains (no 工位 in header); Tier 2 matches on CJK subsequence."""
+        bom = _bom([{"part_no": "X", "name": "传感器组件"}])
+        result = _match_header("传感器模块组件测试", bom,
+                               _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 2
+
+    def test_match_header_falls_through_to_tier3(self):
+        """Tier 1+2 abstain; Tier 3 Jaccard matches.
+
+        BOM name has words in reversed order so they cannot be a word
+        subsequence of the header (Tier 2 abstains), but Jaccard overlap
+        is high enough for Tier 3 to fire.
+        """
+        bom = _bom([{"part_no": "X", "name": "ee dd cc bb aa"}])
+        result = _match_header("aa bb cc dd ee ff", bom,
+                               _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 3
+
+    def test_match_header_all_abstain_returns_none(self):
+        bom = _bom([{"part_no": "X", "name": "completely unrelated"}])
+        assert _match_header("完全不同", bom, _DEFAULT_STATION_PATTERNS) is None
+
+    def test_match_context_fires_tier0_on_explicit_pno(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        context = "earlier paragraphs... see GIS-EE-002 spec table above."
+        result = _match_context(context, ("GIS-EE",), bom)
+        assert result is not None
+        assert result.tier == 0
+        assert result.pno == "GIS-EE-002"
+        assert result.reason == "tier0_context_window_match"
+
+    def test_match_context_no_pno_returns_none(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        result = _match_context("unrelated context", ("GIS-EE",), bom)
+        # May fall back to name-substring match (4-char 工位1涂 not in context)
+        assert result is None
+
+
+from cad_spec_section_walker import SectionWalker
+
+
+class TestSectionWalkerInit:
+    def test_default_construction(self):
+        w = SectionWalker(["hello"], _bom([]))
+        assert w.trigger_terms == ("模块包络尺寸",)
+        assert w.axis_label_default == "宽×深×高"
+        # Station patterns default to GISBOT set
+        assert any("工位" in p[1] for p in w.station_patterns)
+
+    def test_custom_trigger_terms(self):
+        w = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        assert w.trigger_terms == ("外形尺寸",)
+        # Regex is per-instance — verify the compiled regex binds to this term
+        assert w._box_re.search("外形尺寸：60×40×290mm") is not None
+        assert w._box_re.search("模块包络尺寸：60×40×290mm") is None
+
+    def test_custom_station_patterns(self):
+        patterns = [(r"驱动轮\s*(\d+)", "驱动轮")]
+        w = SectionWalker([], _bom([]), station_patterns=patterns)
+        assert w.station_patterns == patterns
+
+    def test_bom_prefixes_auto_derived(self):
+        bom = _bom([
+            {"part_no": "CHASSIS-DRV-001", "name": "a"},
+            {"part_no": "CHASSIS-SUS-003", "name": "b"},
+        ])
+        w = SectionWalker([], bom)
+        assert "CHASSIS-DRV" in w.bom_pno_prefixes
+        assert "CHASSIS-SUS" in w.bom_pno_prefixes
+
+    def test_bom_prefixes_override(self):
+        w = SectionWalker([], _bom([]), bom_pno_prefixes=("CUSTOM",))
+        assert w.bom_pno_prefixes == ("CUSTOM",)
+
+    def test_per_instance_regex_isolation(self):
+        """Two walkers with different trigger_terms must have different
+        compiled regexes — module-level cache would break this."""
+        w1 = SectionWalker([], _bom([]), trigger_terms=("模块包络尺寸",))
+        w2 = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        assert w1._box_re is not w2._box_re
+        assert w1._box_re.search("模块包络尺寸：1×2×3mm") is not None
+        assert w2._box_re.search("模块包络尺寸：1×2×3mm") is None
+        assert w2._box_re.search("外形尺寸：1×2×3mm") is not None
+        assert w1._box_re.search("外形尺寸：1×2×3mm") is None
+
+
+class TestEnvelopeExtraction:
+    def test_box_extraction_with_default_axis(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line("模块包络尺寸：60×40×290mm")
+        assert env is not None
+        assert env.type == "box"
+        assert env.dims == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+        assert w._axis_label_default_count == 1
+
+    def test_box_with_explicit_label_preserved(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：60×40×290mm (宽×深×高)"
+        )
+        assert env is not None
+        assert env.axis_label == "宽×深×高"
+        assert env.dims[0] == ("x", 60.0)
+        assert w._axis_label_default_count == 0
+
+    def test_box_with_length_first_label_reorders_correctly(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：1200×60×290mm (长×宽×高)"
+        )
+        assert env is not None
+        # (长, 宽, 高) → (x=1200, y=60, z=290) per the axis map
+        assert env.dims == (("x", 1200.0), ("y", 60.0), ("z", 290.0))
+
+    def test_cylinder_extraction(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line("模块包络尺寸：Φ45×120mm")
+        assert env is not None
+        assert env.type == "cylinder"
+        assert env.dims == (("d", 45.0), ("z", 120.0))
+
+    def test_unrecognized_axis_label_returns_none(self):
+        """Walker refuses silent defaulting on unknown labels."""
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：60×40×290mm (random order)"
+        )
+        assert env is None  # will surface as UNMATCHED with reason='unrecognized_axis_label'
+
+    def test_line_without_envelope_returns_none(self):
+        w = SectionWalker([], _bom([]))
+        assert w._extract_envelope_from_line("Just some paragraph text.") is None
+
+    def test_custom_trigger_term(self):
+        w = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        env = w._extract_envelope_from_line("外形尺寸：100×50×25mm")
+        assert env is not None
+        assert env.dims == (("x", 100.0), ("y", 50.0), ("z", 25.0))
+
+
+class TestWalkStateMachine:
+    def test_envelope_attributed_to_innermost_matched_frame(self):
+        doc = [
+            "## 4.1 机械结构",
+            "",
+            "**工位1(0°)：耦合剂涂抹模块**",
+            "",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 1
+        assert outputs[0].matched_pno == "GIS-EE-002"
+        assert outputs[0].tier == 1
+        assert outputs[0].granularity == "station_constraint"
+        assert stats.matched_count == 1
+
+    def test_envelope_walks_up_stack_past_unmatched_parent(self):
+        """Intermediate '4.1.2 各工位机械结构' has no BOM match, so
+        attribution walks past it to the station header."""
+        doc = [
+            "**工位1：耦合剂涂抹模块**",
+            "### 4.1.2 各工位机械结构",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert outputs[0].matched_pno == "GIS-EE-002"
+
+    def test_envelope_before_any_section_is_unmatched(self):
+        doc = [
+            "- **模块包络尺寸**：60×40×290mm",
+            "**工位1 涂抹**",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 1
+        assert outputs[0].matched_pno is None
+        assert outputs[0].reason == "no_parent_section"
+        assert stats.unmatched_count == 1
+
+    def test_tier0_fires_on_explicit_pno_in_context(self):
+        """Section header doesn't match any BOM row, but an explicit pno
+        appears in the preceding context window → Tier 0 fires."""
+        doc = [
+            "## 参考",
+            "文档中提到 GIS-EE-002 的相关内容。",
+            "**无法匹配的标题**",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "完全不同的名字"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert outputs[0].matched_pno == "GIS-EE-002"
+        assert outputs[0].tier == 0
+
+    def test_multiple_envelopes_in_one_section(self):
+        doc = [
+            "**工位1 涂抹模块**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "- 其他说明...",
+            "- **模块包络尺寸**：Φ30×45mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 2
+        assert all(o.matched_pno == "GIS-EE-002" for o in outputs)
+        assert stats.matched_count == 2
+
+    def test_stack_pops_on_shallower_header(self):
+        """Entering a new H2 pops any active H3/H4/bold frames."""
+        doc = [
+            "## A",
+            "**工位1 涂抹**",
+            "## B",  # pops bold + nothing matches B
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        # Envelope under H2 B — no ancestor has a match → UNMATCHED
+        assert outputs[0].matched_pno is None
+
+    def test_stats_counters_populated(self):
+        doc = [
+            "**工位1 涂抹**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "**no match header**",
+            "- **模块包络尺寸**：Φ30×45mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert stats.total_envelopes == 2
+        assert stats.matched_count == 1
+        assert stats.unmatched_count == 1
+        assert stats.axis_label_default_count == 1  # first envelope has no label
+
+
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+
+class TestIsolationAndDeterminism:
+    def test_two_walkers_different_trigger_terms_same_process(self):
+        """G12: running two walkers with DIFFERENT trigger_terms in one
+        process produces independent results. No module-level regex cache."""
+        doc_a = ["**工位1 涂抹**", "- **模块包络尺寸**：60×40×290mm"]
+        doc_b = ["**Station 1**", "外形尺寸：100×50×25mm"]
+        bom_a = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        bom_b = _bom([{"part_no": "CHASSIS-001", "name": "Station 1"}])
+
+        walker_a = SectionWalker(doc_a, bom_a, trigger_terms=("模块包络尺寸",))
+        outputs_a, _ = walker_a.extract_envelopes()
+
+        walker_b = SectionWalker(doc_b, bom_b, trigger_terms=("外形尺寸",))
+        outputs_b, _ = walker_b.extract_envelopes()
+
+        # Walker A's output is untouched by walker B's construction.
+        assert len(outputs_a) == 1
+        assert outputs_a[0].matched_pno == "GIS-EE-002"
+        assert len(outputs_b) == 1
+        assert outputs_b[0].matched_pno == "CHASSIS-001"
+        # And the regex objects are distinct.
+        assert walker_a._box_re is not walker_b._box_re
+
+    def test_walker_deterministic_within_process(self):
+        """Running the walker twice on the same input produces identical
+        output (hash seed may randomize set iteration, so deterministic
+        tie-break sort is required)."""
+        doc = [
+            "**工位1 涂抹**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "**工位2 检测**",
+            "- **模块包络尺寸**：Φ45×120mm",
+        ]
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"},
+        ])
+        out1, _ = SectionWalker(doc, bom).extract_envelopes()
+        out2, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert out1 == out2
+
+    def test_walker_deterministic_under_hash_randomization(self, tmp_path):
+        """Subprocess run with PYTHONHASHSEED=random must produce byte-
+        identical output. Validates the stable (-score, pno) tie-break
+        sort keys in Tier 2/3."""
+        repo_root = Path(__file__).resolve().parents[1]
+        repo_root_str = str(repo_root).replace("\\", "\\\\")
+        script = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, r"{repo_root_str}")
+            from cad_spec_section_walker import SectionWalker
+            doc = [
+                "**工位1 涂抹**",
+                "- **模块包络尺寸**：60×40×290mm",
+                "**工位2 检测**",
+                "- **模块包络尺寸**：Φ45×120mm",
+            ]
+            bom = {{"assemblies": [
+                {{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}},
+                {{"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"}},
+            ]}}
+            outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+            for o in outputs:
+                print(f"{{o.matched_pno}}:{{o.tier}}:{{o.dims}}")
+        """)
+        script_path = tmp_path / "run_walker.py"
+        script_path.write_text(script, encoding="utf-8")
+
+        def run(env_seed: str) -> str:
+            env = os.environ.copy()
+            env["PYTHONHASHSEED"] = env_seed
+            env["PYTHONIOENCODING"] = "utf-8"
+            result = subprocess.run(
+                [sys.executable, str(script_path)],
+                env=env, capture_output=True, text=True, check=True,
+                encoding="utf-8",
+            )
+            return result.stdout
+
+        baseline = run("0")
+        randomized = run("random")
+        assert baseline == randomized, (
+            f"walker output differs under PYTHONHASHSEED=random:\n"
+            f"{baseline}\nvs\n{randomized}"
+        )

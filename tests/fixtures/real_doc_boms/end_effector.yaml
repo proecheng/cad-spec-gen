@@ -1,0 +1,411 @@
+subsystem: 04-末端执行机构
+encoding_rule: GIS-EE-NNN-NN
+assemblies:
+- part_no: GIS-EE-001
+  name: 法兰总成
+  parts:
+  - part_no: GIS-EE-001-01
+    name: 法兰本体（含十字悬臂）
+    material: 7075-T6铝合金
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 3000.0
+    total_price: 3000.0
+  - part_no: GIS-EE-001-02
+    name: PEEK绝缘段
+    material: PEEK
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 500.0
+    total_price: 500.0
+  - part_no: GIS-EE-001-03
+    name: O型圈
+    material: FKM Φ80×2.4
+    qty: 1
+    make_buy: 外购
+    part_category: seal
+    unit_price: 15.0
+    total_price: 15.0
+  - part_no: GIS-EE-001-04
+    name: 碟形弹簧垫圈
+    material: DIN 2093 A6
+    qty: 6
+    make_buy: 外购
+    part_category: spring
+    unit_price: 5.0
+    total_price: 30.0
+  - part_no: GIS-EE-001-05
+    name: 伺服电机
+    material: Maxon ECX SPEED 22L
+    qty: 1
+    make_buy: 外购
+    part_category: motor
+    unit_price: 2500.0
+    total_price: 2500.0
+  - part_no: GIS-EE-001-06
+    name: 行星减速器
+    material: Maxon GP22C (53:1)
+    qty: 1
+    make_buy: 外购
+    part_category: reducer
+    unit_price: 1800.0
+    total_price: 1800.0
+  - part_no: GIS-EE-001-07
+    name: 弹簧销组件（含弹簧）
+    material: Φ4×20mm锥形头
+    qty: 4
+    make_buy: 外购
+    part_category: spring
+    unit_price: 50.0
+    total_price: 200.0
+  - part_no: GIS-EE-001-08
+    name: ISO 9409适配板
+    material: 7075-T6铝合金
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 500.0
+    total_price: 500.0
+  - part_no: GIS-EE-001-09
+    name: FFC线束总成
+    material: Molex 15168, 20芯×500mm
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 500.0
+    total_price: 500.0
+  - part_no: GIS-EE-001-10
+    name: ZIF连接器
+    material: Molex 5052xx
+    qty: 2
+    make_buy: 外购
+    part_category: connector
+    unit_price: 30.0
+    total_price: 60.0
+  - part_no: GIS-EE-001-11
+    name: Igus拖链段
+    material: E2 micro, 内径6mm
+    qty: 1
+    make_buy: 外购
+    part_category: cable
+    unit_price: 80.0
+    total_price: 80.0
+  - part_no: GIS-EE-001-12
+    name: 定位销
+    material: Φ3×6mm H7/g6
+    qty: 4
+    make_buy: 外购
+    part_category: fastener
+    unit_price: 5.0
+    total_price: 20.0
+- part_no: GIS-EE-002
+  name: 工位1涂抹模块
+  parts:
+  - part_no: GIS-EE-002-01
+    name: 涂抹模块壳体
+    material: 7075-T6铝合金
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 800.0
+    total_price: 800.0
+  - part_no: GIS-EE-002-02
+    name: 储罐
+    material: 不锈钢Φ38×280mm
+    qty: 1
+    make_buy: 外购
+    part_category: tank
+    unit_price: 200.0
+    total_price: 200.0
+  - part_no: GIS-EE-002-03
+    name: 齿轮泵
+    material: —
+    qty: 1
+    make_buy: 外购
+    part_category: pump
+    unit_price: 1500.0
+    total_price: 1500.0
+  - part_no: GIS-EE-002-04
+    name: 刮涂头
+    material: 硅橡胶
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 30.0
+    total_price: 30.0
+  - part_no: GIS-EE-002-05
+    name: LEMO插头
+    material: FGG.0B.307
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 150.0
+    total_price: 150.0
+- part_no: GIS-EE-003
+  name: 工位2 AE检测模块
+  parts:
+  - part_no: GIS-EE-003-01
+    name: AE传感器
+    material: TWAE-03
+    qty: 1
+    make_buy: 外购
+    part_category: sensor
+    unit_price: 3000.0
+    total_price: 3000.0
+  - part_no: GIS-EE-003-02
+    name: 六轴力传感器
+    material: ATI Nano17/坤维KWR42
+    qty: 1
+    make_buy: 外购
+    part_category: sensor
+    unit_price: 25000.0
+    total_price: 25000.0
+  - part_no: GIS-EE-003-03
+    name: 弹簧限力机构总成
+    material: 见§4.1.2零件表
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 300.0
+    total_price: 300.0
+  - part_no: GIS-EE-003-04
+    name: 柔性关节（万向节）
+    material: 硅橡胶Shore A 40
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 200.0
+    total_price: 200.0
+  - part_no: GIS-EE-003-05
+    name: 阻尼垫
+    material: 黏弹性硅橡胶
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 50.0
+    total_price: 50.0
+  - part_no: GIS-EE-003-06
+    name: 压力阵列
+    material: 4×4薄膜 20×20mm
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 500.0
+    total_price: 500.0
+  - part_no: GIS-EE-003-07
+    name: 配重块
+    material: 钨合金Φ12×7mm/50g
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 200.0
+    total_price: 200.0
+  - part_no: GIS-EE-003-08
+    name: LEMO插头
+    material: FGG.0B.307
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 150.0
+    total_price: 150.0
+  - part_no: GIS-EE-003-09
+    name: Gore柔性同轴
+    material: MicroTCA系列×500mm
+    qty: 1
+    make_buy: 外购
+    part_category: cable
+    unit_price: 800.0
+    total_price: 800.0
+- part_no: GIS-EE-004
+  name: 工位3卷带清洁模块
+  parts:
+  - part_no: GIS-EE-004-01
+    name: 清洁模块壳体（含卷轴腔+清洁窗口）
+    material: 7075-T6铝合金
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 800.0
+    total_price: 800.0
+  - part_no: GIS-EE-004-02
+    name: 清洁带盒（供带卷轴+收带卷轴+10m无纺布带）
+    material: 超细纤维无纺布
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 45.0
+    total_price: 45.0
+  - part_no: GIS-EE-004-03
+    name: 微型电机
+    material: DC 3V Φ16mm
+    qty: 1
+    make_buy: 外购
+    part_category: motor
+    unit_price: 50.0
+    total_price: 50.0
+  - part_no: GIS-EE-004-04
+    name: 齿轮减速组（电机→收带卷轴）
+    material: 塑料齿轮
+    qty: 1
+    make_buy: 外购
+    part_category: reducer
+    unit_price: 30.0
+    total_price: 30.0
+  - part_no: GIS-EE-004-05
+    name: 弹性衬垫
+    material: 硅橡胶Shore A 30, 20×15×5mm
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 15.0
+    total_price: 15.0
+  - part_no: GIS-EE-004-06
+    name: 恒力弹簧（供带侧张力）
+    material: SUS301, 0.3N
+    qty: 1
+    make_buy: 外购
+    part_category: spring
+    unit_price: 10.0
+    total_price: 10.0
+  - part_no: GIS-EE-004-07
+    name: 光电编码器（带面余量）
+    material: 反射式
+    qty: 1
+    make_buy: 外购
+    part_category: sensor
+    unit_price: 25.0
+    total_price: 25.0
+  - part_no: GIS-EE-004-08
+    name: 溶剂储罐（活塞式正压密封）
+    material: Φ25×110mm，M8快拆接口
+    qty: 1
+    make_buy: 外购
+    part_category: tank
+    unit_price: 150.0
+    total_price: 150.0
+  - part_no: GIS-EE-004-09
+    name: 微量泵（溶剂喷射）
+    material: 电磁阀式
+    qty: 1
+    make_buy: 外购
+    part_category: pump
+    unit_price: 80.0
+    total_price: 80.0
+  - part_no: GIS-EE-004-10
+    name: 配重块
+    material: 钨合金Φ14×13mm/120g
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 400.0
+    total_price: 400.0
+  - part_no: GIS-EE-004-11
+    name: 微型轴承
+    material: MR105ZZ（Φ10×Φ5×4mm）
+    qty: 4
+    make_buy: 外购
+    part_category: bearing
+    unit_price: 8.0
+    total_price: 32.0
+  - part_no: GIS-EE-004-12
+    name: 清洁窗口翻盖
+    material: 硅橡胶一体成型
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 20.0
+    total_price: 20.0
+  - part_no: GIS-EE-004-13
+    name: LEMO插头
+    material: FGG.0B.307
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 150.0
+    total_price: 150.0
+- part_no: GIS-EE-005
+  name: 工位4 UHF模块（方案A）
+  parts:
+  - part_no: GIS-EE-005-01
+    name: I300-UHF-GT传感器
+    material: 波译科技
+    qty: 1
+    make_buy: 外购
+    part_category: sensor
+    unit_price: 6000.0
+    total_price: 6000.0
+  - part_no: GIS-EE-005-02
+    name: UHF安装支架
+    material: 7075-T6铝合金
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 300.0
+    total_price: 300.0
+  - part_no: GIS-EE-005-03
+    name: LEMO插头
+    material: FGG.0B.307
+    qty: 1
+    make_buy: 外购
+    part_category: connector
+    unit_price: 150.0
+    total_price: 150.0
+- part_no: GIS-EE-006
+  name: 信号调理模块
+  parts:
+  - part_no: GIS-EE-006-01
+    name: 壳体（含散热鳍片）
+    material: 6063铝合金 140×100×55mm
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 1500.0
+    total_price: 1500.0
+  - part_no: GIS-EE-006-02
+    name: 信号调理PCB
+    material: 定制4层混合信号
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 8000.0
+    total_price: 8000.0
+  - part_no: GIS-EE-006-03
+    name: 安装支架（抱箍+L型）
+    material: 不锈钢
+    qty: 1
+    make_buy: 自制
+    part_category: custom
+    unit_price: 300.0
+    total_price: 300.0
+  - part_no: GIS-EE-006-04
+    name: LEMO插座
+    material: EGG.0B.307
+    qty: 4
+    make_buy: 外购
+    part_category: connector
+    unit_price: 150.0
+    total_price: 600.0
+  - part_no: GIS-EE-006-05
+    name: SMA穿壁连接器
+    material: 50Ω
+    qty: 2
+    make_buy: 外购
+    part_category: connector
+    unit_price: 50.0
+    total_price: 100.0
+  - part_no: GIS-EE-006-06
+    name: M12防水诊断接口
+    material: 4芯
+    qty: 1
+    make_buy: 外购
+    part_category: other
+    unit_price: 80.0
+    total_price: 80.0
+summary:
+  total_parts: 48
+  assemblies: 6
+  custom_parts: 11
+  purchased_parts: 37
+  total_cost: 60922.0

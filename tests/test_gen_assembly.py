@@ -524,3 +524,44 @@ def test_seed_does_not_overlap_explicit_parts():
     # Must be below PEEK bottom (-27) to avoid overlap
     assert z_spring <= -27.0, \
         f"Disc spring Z={z_spring} overlaps with PEEK at Z=-27"
+
+
+def test_parse_envelopes_returns_granularity_from_column(tmp_path):
+    """When the §6.4 table includes a '粒度' column, parse_envelopes
+    reads it by header name and returns {pno: {"dims": ..., "granularity": ...}}.
+
+    Positional cells[3] dims lookup is unchanged."""
+    spec = tmp_path / "CAD_SPEC.md"
+    spec.write_text(
+        "### 6.4 零件包络尺寸\n"
+        "\n"
+        "| 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 | 粒度 |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| GIS-EE-002 | 工位1涂抹模块 | box | 60×40×290 | P2:walker:tier1 | station_constraint |\n"
+        "| GIS-EE-001-05 | 螺钉 | box | 10×10×30 | P1:param_table | part_envelope |\n",
+        encoding="utf-8",
+    )
+    from codegen.gen_assembly import parse_envelopes
+    envs = parse_envelopes(str(spec))
+    assert "GIS-EE-002" in envs
+    assert envs["GIS-EE-002"]["dims"] == (60.0, 40.0, 290.0)
+    assert envs["GIS-EE-002"]["granularity"] == "station_constraint"
+    assert envs["GIS-EE-001-05"]["granularity"] == "part_envelope"
+
+
+def test_parse_envelopes_defaults_granularity_when_column_absent(tmp_path):
+    """Backward compat: old §6.4 tables without 粒度 column default to
+    part_envelope (preserves legacy behavior)."""
+    spec = tmp_path / "CAD_SPEC.md"
+    spec.write_text(
+        "### 6.4 零件包络尺寸\n"
+        "\n"
+        "| 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| GIS-EE-001 | 法兰 | box | 90×90×25 | P1:param_table |\n",
+        encoding="utf-8",
+    )
+    from codegen.gen_assembly import parse_envelopes
+    envs = parse_envelopes(str(spec))
+    assert envs["GIS-EE-001"]["dims"] == (90.0, 90.0, 25.0)
+    assert envs["GIS-EE-001"]["granularity"] == "part_envelope"

@@ -169,3 +169,80 @@ def test_known_limitation_documented():
         "Documentation must name the function with the limitation"
     assert "section-header walker" in src or "follow-up spec" in src, \
         "Documentation must reference the deferred fix"
+
+
+def test_find_nearest_assembly_uses_bom_derived_prefixes():
+    """Tier 0 must work on non-GISBOT subsystems. The prefix regex should
+    be built from BOM data at call time, not hardcoded to GIS-EE-NNN."""
+    from cad_spec_extractors import _find_nearest_assembly
+
+    bom = {
+        "assemblies": [
+            {"part_no": "CHASSIS-DRV-001", "name": "Drive Wheel 1"},
+            {"part_no": "CHASSIS-DRV-002", "name": "Drive Wheel 2"},
+        ]
+    }
+    prefixes = ("CHASSIS-DRV",)
+    context = "see CHASSIS-DRV-001 specification for detail"
+    assert _find_nearest_assembly(context, bom, prefixes) == "CHASSIS-DRV-001"
+
+
+def test_find_nearest_assembly_auto_derives_prefix_when_not_supplied():
+    """When bom_pno_prefixes is None, auto-derive from BOM assemblies.
+    This preserves backward compat with the legacy P2 block that calls
+    with only two args."""
+    from cad_spec_extractors import _find_nearest_assembly
+    bom = {
+        "assemblies": [{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}],
+    }
+    context = "as defined in GIS-EE-002 above"
+    assert _find_nearest_assembly(context, bom) == "GIS-EE-002"
+
+
+def test_find_nearest_assembly_empty_bom_no_match():
+    from cad_spec_extractors import _find_nearest_assembly
+    bom = {"assemblies": []}
+    assert _find_nearest_assembly("anything", bom) is None
+
+
+def test_find_nearest_assembly_no_match_falls_back_to_name_substring():
+    """When no part_no matches, the second strategy — 4-char substring
+    of BOM name — still works. This is the existing behavior, preserved."""
+    from cad_spec_extractors import _find_nearest_assembly
+    bom = {
+        "assemblies": [{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}],
+    }
+    # Context contains the first 4 chars of the BOM name
+    context = "The 工位1涂 module has been defined"
+    assert _find_nearest_assembly(context, bom) == "GIS-EE-002"
+
+
+def test_extract_part_envelopes_returns_tuple_with_walker_report():
+    """Return type is now (envelopes, walker_report) — all callers must
+    destructure the tuple."""
+    from cad_spec_extractors import extract_part_envelopes
+
+    lines = [
+        "## 4.1 机械结构",
+        "**工位1(0°)：耦合剂涂抹模块**",
+        "- **模块包络尺寸**：60×40×290mm (宽×深×高)",
+    ]
+    bom = {
+        "assemblies": [
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块", "parts": []},
+        ]
+    }
+    result = extract_part_envelopes(lines, bom)
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    envelopes, walker_report = result
+    assert isinstance(envelopes, dict)
+    assert "GIS-EE-002" in envelopes
+    assert envelopes["GIS-EE-002"]["source"].startswith("P2:walker:tier")
+    assert envelopes["GIS-EE-002"]["granularity"] == "station_constraint"
+    # Envelope dict carries canonical axes.
+    assert envelopes["GIS-EE-002"]["x"] == 60.0
+    assert envelopes["GIS-EE-002"]["y"] == 40.0
+    assert envelopes["GIS-EE-002"]["z"] == 290.0
+    # walker_report is the WalkerReport dataclass
+    assert walker_report.feature_flag_enabled is True

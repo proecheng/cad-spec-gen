@@ -539,3 +539,51 @@ class TestBdWarehouseLiveIntegration:
         assert 21 <= (bbox.xmax - bbox.xmin) <= 23
         assert 21 <= (bbox.ymax - bbox.ymin) <= 23
         assert 6 <= (bbox.zmax - bbox.zmin) <= 8
+
+
+def test_jinja_adapter_rejects_station_constraint_envelope():
+    """station_constraint envelopes MUST NOT be used to size individual
+    std parts. The adapter falls through to lookup_std_part_dims.
+
+    This is the core G11 enforcement test: without this check, a
+    60×40×290mm station-level envelope would silently size a LEMO
+    connector as 60×40×290mm."""
+    from adapters.parts.jinja_primitive_adapter import (
+        _resolve_dims_from_spec_envelope_or_lookup,
+    )
+    from parts_resolver import PartQuery
+
+    q = PartQuery(
+        part_no="GIS-EE-002-05",
+        name_cn="LEMO 连接器",
+        material="",
+        category="connector",
+        make_buy="外购",
+        spec_envelope=(60.0, 40.0, 290.0),
+        spec_envelope_granularity="station_constraint",
+    )
+    dims = _resolve_dims_from_spec_envelope_or_lookup(q)
+    # Dims must NOT be (60, 40, 290) — that would be the bug.
+    # Adapter falls through to lookup_std_part_dims; the actual returned
+    # dims come from the lookup (or a default), not the walker envelope.
+    if dims is not None:
+        assert not (dims.get("w") == 60 and dims.get("d") == 40 and dims.get("h") == 290), \
+            "station_constraint envelope leaked into per-part dims"
+
+
+def test_jinja_adapter_accepts_part_envelope():
+    """Legacy per-part envelopes (default granularity) still work."""
+    from adapters.parts.jinja_primitive_adapter import (
+        _resolve_dims_from_spec_envelope_or_lookup,
+    )
+    from parts_resolver import PartQuery
+
+    q = PartQuery(
+        part_no="X", name_cn="Y", material="", category="bracket",
+        make_buy="自制",
+        spec_envelope=(40.0, 20.0, 10.0),
+        # spec_envelope_granularity defaults to "part_envelope"
+    )
+    dims = _resolve_dims_from_spec_envelope_or_lookup(q)
+    assert dims is not None
+    assert dims.get("w") == 40.0

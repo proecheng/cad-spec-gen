@@ -382,21 +382,28 @@ def _parse_dims_text(text: str):
 def parse_envelopes(spec_path: str) -> dict:
     """Parse §6.4 envelope dimensions table from CAD_SPEC.md.
 
-    Returns {part_no: (w, d, h)} where w,d,h are floats in mm.
-    For cylinders: w=d=diameter, h=length.
-    For boxes: w,d,h as given.
+    Returns:
+        {part_no: {"dims": (w, d, h), "granularity": str}}
+
+    The `dims` tuple is read from positional `cells[3]` to preserve the
+    historical column layout. `granularity` is read by header name so new
+    audit columns can be appended without breaking this parser. Missing
+    粒度 column defaults to 'part_envelope' for backward compat with
+    legacy §6.4 tables that predate the walker.
     """
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
     except Exception:
         return {}
 
-    envelopes = {}
+    envelopes: dict = {}
     in_section = False
+    header_cells: list[str] | None = None
 
     for line in text.splitlines():
         if "### 6.4" in line and "包络" in line:
             in_section = True
+            header_cells = None
             continue
         if in_section and (line.startswith("## ") or
                           (line.startswith("### ") and "6.4" not in line)):
@@ -406,19 +413,33 @@ def parse_envelopes(spec_path: str) -> dict:
 
         cells = [c.strip() for c in line.split("|")]
         cells = cells[1:-1] if len(cells) >= 2 else cells
-        if len(cells) < 4 or cells[0] == "料号":
+
+        # Header row: capture for named-column lookup below.
+        if cells and cells[0] == "料号":
+            header_cells = cells
+            continue
+        if len(cells) < 4:
             continue
 
         pno = cells[0]
         if not re.match(r"[A-Z]+-", pno):
             continue
 
+        # dims: positional cells[3] (unchanged) — keep walker output
+        # backward-compatible with this parser.
         dims_text = cells[3] if len(cells) > 3 else ""
-        # Table cells use bare notation (e.g. "Φ90.0×25.0") without "mm" suffix;
-        # append it so _parse_dims_text() regexes match correctly.
         parsed = _parse_dims_text(dims_text + " mm")
-        if parsed:
-            envelopes[pno] = parsed
+        if not parsed:
+            continue
+
+        # granularity: header-name lookup, default part_envelope.
+        granularity = "part_envelope"
+        if header_cells and "粒度" in header_cells:
+            gran_idx = header_cells.index("粒度")
+            if gran_idx < len(cells):
+                granularity = cells[gran_idx] or "part_envelope"
+
+        envelopes[pno] = {"dims": parsed, "granularity": granularity}
 
     return envelopes
 
@@ -537,7 +558,11 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
     part_positions = _parse_part_positions(spec_path) if spec_path else {}
 
     # Hoist file-based lookups before the assembly loop (parse once, reuse).
-    _envelopes_cache = parse_envelopes(spec_path) if spec_path else {}
+    # parse_envelopes() now returns {pno: {"dims": (w,d,h), "granularity": str}};
+    # unwrap to bare tuples so all positional indexing below is unchanged.
+    _envelopes_raw = parse_envelopes(spec_path) if spec_path else {}
+    _envelopes_cache = {pno: (e["dims"] if isinstance(e, dict) else e)
+                        for pno, e in _envelopes_raw.items()}
     constraints = parse_constraints(spec_path) if spec_path else []
 
     assemblies = [p for p in parts if p["is_assembly"]]
