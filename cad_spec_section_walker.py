@@ -498,3 +498,55 @@ def _match_context(
         pno=pno, tier=0, confidence=1.0,
         reason="tier0_context_window_match",
     )
+
+
+# ─── SectionWalker class ────────────────────────────────────────────────────
+
+
+class SectionWalker:
+    """Stateful walker that tracks active section headers + attributes
+    envelope markers to BOM assemblies via 4-tier hybrid matching.
+
+    Construction is the only state boundary — one instance per
+    extract_part_envelopes() call. NO module-level mutable state.
+    """
+
+    def __init__(
+        self,
+        lines: list[str],
+        bom_data: dict,
+        *,
+        trigger_terms: tuple[str, ...] = _DEFAULT_TRIGGER_TERMS,
+        station_patterns: list[tuple[str, str]] | None = None,
+        axis_label_default: str = _DEFAULT_AXIS_LABEL,
+        bom_pno_prefixes: tuple[str, ...] | None = None,
+    ) -> None:
+        self.lines = list(lines)
+        self.bom_data = bom_data or {"assemblies": []}
+        self.trigger_terms = tuple(trigger_terms)
+        self.station_patterns = (
+            list(station_patterns) if station_patterns is not None
+            else list(_DEFAULT_STATION_PATTERNS)
+        )
+        self.axis_label_default = axis_label_default
+
+        # Derive BOM prefixes when not supplied.
+        if bom_pno_prefixes is None:
+            derived: set[str] = set()
+            for assy in self.bom_data.get("assemblies", []):
+                pno = assy.get("part_no", "")
+                if "-" in pno:
+                    derived.add(pno.rsplit("-", 1)[0])
+            self.bom_pno_prefixes = tuple(sorted(derived))
+        else:
+            self.bom_pno_prefixes = tuple(bom_pno_prefixes)
+
+        # Per-instance compiled envelope regexes — NO module-level cache.
+        self._box_re, self._cyl_re = _build_envelope_regexes(self.trigger_terms)
+
+        # Per-instance counters (written during walk).
+        self._axis_label_default_count = 0
+
+        # Caches for public API.
+        self._outputs: list[WalkerOutput] = []
+        self._stats: WalkerStats | None = None

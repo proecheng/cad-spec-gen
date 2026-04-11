@@ -449,3 +449,51 @@ class TestDispatchers:
         result = _match_context("unrelated context", ("GIS-EE",), bom)
         # May fall back to name-substring match (4-char 工位1涂 not in context)
         assert result is None
+
+
+from cad_spec_section_walker import SectionWalker
+
+
+class TestSectionWalkerInit:
+    def test_default_construction(self):
+        w = SectionWalker(["hello"], _bom([]))
+        assert w.trigger_terms == ("模块包络尺寸",)
+        assert w.axis_label_default == "宽×深×高"
+        # Station patterns default to GISBOT set
+        assert any("工位" in p[1] for p in w.station_patterns)
+
+    def test_custom_trigger_terms(self):
+        w = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        assert w.trigger_terms == ("外形尺寸",)
+        # Regex is per-instance — verify the compiled regex binds to this term
+        assert w._box_re.search("外形尺寸：60×40×290mm") is not None
+        assert w._box_re.search("模块包络尺寸：60×40×290mm") is None
+
+    def test_custom_station_patterns(self):
+        patterns = [(r"驱动轮\s*(\d+)", "驱动轮")]
+        w = SectionWalker([], _bom([]), station_patterns=patterns)
+        assert w.station_patterns == patterns
+
+    def test_bom_prefixes_auto_derived(self):
+        bom = _bom([
+            {"part_no": "CHASSIS-DRV-001", "name": "a"},
+            {"part_no": "CHASSIS-SUS-003", "name": "b"},
+        ])
+        w = SectionWalker([], bom)
+        assert "CHASSIS-DRV" in w.bom_pno_prefixes
+        assert "CHASSIS-SUS" in w.bom_pno_prefixes
+
+    def test_bom_prefixes_override(self):
+        w = SectionWalker([], _bom([]), bom_pno_prefixes=("CUSTOM",))
+        assert w.bom_pno_prefixes == ("CUSTOM",)
+
+    def test_per_instance_regex_isolation(self):
+        """Two walkers with different trigger_terms must have different
+        compiled regexes — module-level cache would break this."""
+        w1 = SectionWalker([], _bom([]), trigger_terms=("模块包络尺寸",))
+        w2 = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        assert w1._box_re is not w2._box_re
+        assert w1._box_re.search("模块包络尺寸：1×2×3mm") is not None
+        assert w2._box_re.search("模块包络尺寸：1×2×3mm") is None
+        assert w2._box_re.search("外形尺寸：1×2×3mm") is not None
+        assert w1._box_re.search("外形尺寸：1×2×3mm") is None
