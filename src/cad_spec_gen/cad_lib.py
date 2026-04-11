@@ -484,7 +484,65 @@ def cmd_validate(args) -> int:
 
 
 def cmd_migrate_subsystem(args) -> int:
-    raise NotImplementedError("cmd_migrate_subsystem — implemented in Task 25")
+    """Copy canonical render_3d.py to a subsystem directory with .bak backup."""
+    import shutil
+    from datetime import datetime
+
+    target_dir = Path(args.directory).resolve()
+    if not target_dir.is_dir():
+        print(f"[X] Not a directory: {target_dir}", file=sys.stderr)
+        return 1
+
+    target_file = target_dir / "render_3d.py"
+
+    # Locate canonical source
+    canonical: Optional[Path] = None
+    try:
+        import importlib.resources as ir
+        try:
+            canonical_ref = ir.files("cad_spec_gen") / "render_3d.py"
+            canonical_path = Path(str(canonical_ref))
+            if canonical_path.is_file():
+                canonical = canonical_path
+        except (FileNotFoundError, AttributeError):
+            pass
+    except ImportError:
+        pass
+
+    if canonical is None:
+        # Fallback: try the repo-checkout location (this file's sibling)
+        fallback = Path(__file__).parent / "render_3d.py"
+        if fallback.is_file():
+            canonical = fallback
+
+    if canonical is None or not canonical.is_file():
+        print(f"[X] Canonical render_3d.py not found.", file=sys.stderr)
+        return 1
+
+    # Prompt unless --yes
+    if not args.yes:
+        print(f"This will replace {target_file}")
+        print(f"  with:           {canonical}")
+        print(f"  backup to:      {target_file}.bak.<timestamp>")
+        try:
+            resp = input("Proceed? [y/N] ").strip().lower()
+        except EOFError:
+            resp = ""
+        if resp not in ("y", "yes"):
+            print("Aborted.")
+            return 0
+
+    # Backup existing if present
+    if target_file.exists():
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        backup = target_file.parent / f"{target_file.name}.bak.{timestamp}"
+        shutil.copy2(target_file, backup)
+        print(f"  backup: {backup}")
+
+    # Copy canonical
+    shutil.copy2(canonical, target_file)
+    print(f"[OK] Migrated {target_file}")
+    return 0
 
 
 def cmd_report(args) -> int:

@@ -147,3 +147,20 @@ def test_cad_lib_validate_template_rejects_traversal(capsys):
     exit_code = main(["validate", "template", "../../etc/passwd"])
     # Path form doesn't exist, then falls through to name form which fails the regex
     assert exit_code != 0
+
+
+def test_cad_lib_migrate_subsystem_creates_backup(tmp_path):
+    from cad_spec_gen.cad_lib import main
+    # Create a fake subsystem dir with an old render_3d.py
+    sub = tmp_path / "fake_subsystem"
+    sub.mkdir()
+    (sub / "render_3d.py").write_text("# old render_3d content\n")
+    exit_code = main(["migrate-subsystem", str(sub), "--yes"])
+    assert exit_code == 0
+    # New file copied
+    new_content = (sub / "render_3d.py").read_text(encoding="utf-8")
+    assert "old render_3d content" not in new_content
+    # Backup created with timestamp
+    backups = list(sub.glob("render_3d.py.bak.*"))
+    assert len(backups) == 1
+    assert "old render_3d content" in backups[0].read_text(encoding="utf-8")
