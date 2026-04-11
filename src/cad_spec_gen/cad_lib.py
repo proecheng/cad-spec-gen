@@ -237,7 +237,101 @@ def cmd_init(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    raise NotImplementedError("cmd_doctor — implemented in Task 21")
+    """Run diagnostic checks and report issues.
+
+    Returns 0 if all critical checks pass, 1 if any error.
+    """
+    checks = []  # list of (name, status, detail)
+    errors = 0
+
+    # Check 1: canonical render_3d.py exists
+    canonical_exists = False
+    try:
+        import importlib.resources as ir
+        try:
+            canonical_ref = ir.files("cad_spec_gen") / "render_3d.py"
+            canonical_exists = canonical_ref.is_file()
+        except (FileNotFoundError, AttributeError):
+            canonical_exists = False
+    except ImportError:
+        canonical_exists = False
+
+    if not canonical_exists:
+        # Fallback: repo-checkout filesystem check
+        canonical_path = Path(__file__).parent / "render_3d.py"
+        canonical_exists = canonical_path.exists()
+
+    if canonical_exists:
+        checks.append(("canonical render_3d.py", "OK", ""))
+    else:
+        checks.append(("canonical render_3d.py", "ERROR", "not found"))
+        errors += 1
+
+    # Check 2: parts_routing module importable
+    try:
+        from cad_spec_gen import parts_routing  # noqa: F401
+        checks.append(("parts_routing module", "OK", ""))
+    except ImportError as e:
+        checks.append(("parts_routing module", "ERROR", str(e)))
+        errors += 1
+
+    # Check 3: template discovery
+    try:
+        from cad_spec_gen.parts_routing import (
+            discover_templates, locate_builtin_templates_dir,
+        )
+        tier1 = locate_builtin_templates_dir()
+        if tier1 is None:
+            checks.append(("builtin templates dir", "ERROR",
+                          "locate_builtin_templates_dir() returned None"))
+            errors += 1
+        else:
+            templates = discover_templates([tier1])
+            count = len(templates)
+            if count >= 5:
+                checks.append(("template discovery", "OK", f"{count} templates found"))
+            else:
+                checks.append(("template discovery", "WARN",
+                              f"only {count} templates found, expected >= 5"))
+    except Exception as e:
+        checks.append(("template discovery", "ERROR", str(e)))
+        errors += 1
+
+    # Check 4: ~/.cad-spec-gen/ layout (if initialized)
+    home = _get_home()
+    if home.exists():
+        if (home / "shared").is_dir() and (home / "state").is_dir():
+            checks.append(("~/.cad-spec-gen layout", "OK", ""))
+        else:
+            checks.append(("~/.cad-spec-gen layout", "WARN",
+                          "run 'cad-lib init' to create shared/ and state/"))
+    else:
+        checks.append(("~/.cad-spec-gen layout", "INFO",
+                      "not initialized; run 'cad-lib init'"))
+
+    # Check 5: pyproject entry point (informational)
+    import shutil
+    if shutil.which("cad-lib"):
+        checks.append(("pyproject entry point", "OK", ""))
+    else:
+        checks.append(("pyproject entry point", "INFO",
+                      "cad-lib not on PATH; run via 'python -m cad_spec_gen.cad_lib'"))
+
+    # Print results
+    print("cad-lib doctor report")
+    print("-" * 40)
+    for name, status, detail in checks:
+        marker = {"OK": "[OK]", "WARN": "[!]", "ERROR": "[X]", "INFO": "[i]"}.get(status, "[?]")
+        line = f"  {marker} {name}: {status}"
+        if detail:
+            line += f" - {detail}"
+        print(line)
+    print("-" * 40)
+
+    if errors > 0:
+        print(f"{errors} error(s) found")
+        return 1
+    return 0
 
 
 def cmd_list(args) -> int:

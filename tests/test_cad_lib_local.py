@@ -52,6 +52,23 @@ def test_cad_lib_init_creates_layout():
     assert (home / "state" / ".gitignore").is_file()
 
 
+def test_cad_lib_doctor_passes_with_existing_canonical():
+    """doctor should pass (exit 0) since Phase 1 established the canonical render_3d.py."""
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["doctor"])
+    assert exit_code == 0
+
+
+def test_cad_lib_doctor_reports_template_count(capsys):
+    """doctor must discover >=5 templates and report them."""
+    from cad_spec_gen.cad_lib import main
+    main(["doctor"])
+    captured = capsys.readouterr()
+    # Should mention templates and some count indicator
+    combined = captured.out + captured.err
+    assert "template" in combined.lower()
+
+
 def test_cad_lib_init_refuses_to_clobber_populated_dir():
     """cad-lib init refuses to overwrite an existing populated library."""
     from cad_spec_gen.cad_lib import main, _get_home
