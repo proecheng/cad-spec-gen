@@ -488,17 +488,31 @@ def setup_lighting():
 
 
 def _get_bounding_sphere():
-    """Return (center, radius) of all non-ground mesh objects in scene."""
-    verts = []
+    """Return (center, radius) of all non-ground mesh objects in scene.
+
+    Uses the axis-aligned bounding box center (NOT the vertex centroid)
+    so vertex density on one side of the model cannot bias the framing.
+    The radius is the distance from that center to the farthest vertex,
+    which is the minimum sphere guaranteed to enclose the geometry.
+    """
+    xs, ys, zs = [], [], []
     for obj in bpy.context.scene.objects:
         if obj.type == "MESH" and obj.name not in ("Ground",):
             matrix = obj.matrix_world
             for v in obj.data.vertices:
-                verts.append(matrix @ v.co)
-    if not verts:
+                w = matrix @ v.co
+                xs.append(w.x)
+                ys.append(w.y)
+                zs.append(w.z)
+    if not xs:
         return Vector((0.0, 0.0, 0.0)), float(_BOUNDING_R)
-    center = sum(verts, Vector()) / len(verts)
-    radius = max((v - center).length for v in verts)
+    center = Vector((
+        (min(xs) + max(xs)) * 0.5,
+        (min(ys) + max(ys)) * 0.5,
+        (min(zs) + max(zs)) * 0.5,
+    ))
+    # Half-diagonal is a tight upper bound; good enough for framing.
+    radius = (Vector((max(xs), max(ys), max(zs))) - center).length
     return center, radius
 
 
