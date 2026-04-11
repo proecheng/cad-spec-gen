@@ -330,3 +330,70 @@ class TestTier2Subsequence:
         ])
         # Exact tie → abstain
         assert _match_by_subsequence("工位模", bom) is None
+
+
+from cad_spec_section_walker import _match_by_jaccard, _tokenize
+
+
+class TestTier3Jaccard:
+    def test_tokenize_cjk_bigrams(self):
+        tokens = _tokenize("工位耦合剂")
+        assert "工位" in tokens
+        assert "位耦" in tokens
+        assert "耦合" in tokens
+
+    def test_tokenize_ascii_words_lowercased(self):
+        tokens = _tokenize("Main Arm Module")
+        assert "main" in tokens
+        assert "arm" in tokens
+        assert "module" in tokens
+
+    def test_tokenize_short_ascii_words_excluded(self):
+        """Single-char ASCII words are too noisy for Jaccard."""
+        tokens = _tokenize("a bc")
+        assert "a" not in tokens
+        assert "bc" in tokens
+
+    def test_match_above_threshold(self):
+        bom = _bom([{"part_no": "X", "name": "传感器模块组件"}])
+        result = _match_by_jaccard("传感器模块组件设计", bom)
+        assert result is not None
+        assert result.pno == "X"
+        assert result.tier == 3
+        assert result.reason == "tier3_jaccard_match"
+
+    def test_below_threshold_returns_none(self):
+        bom = _bom([{"part_no": "X", "name": "unrelated stuff"}])
+        assert _match_by_jaccard("完全不同的章节", bom) is None
+
+    def test_exact_tie_abstains(self):
+        bom = _bom([
+            {"part_no": "A", "name": "工位模块"},
+            {"part_no": "B", "name": "工位模块"},
+        ])
+        assert _match_by_jaccard("工位模块 附加", bom) is None
+
+    def test_near_tie_abstains(self):
+        """Two scores within AMBIGUITY_GAP → abstain."""
+        bom = _bom([
+            {"part_no": "A", "name": "大功率电机驱动"},
+            {"part_no": "B", "name": "大功率电机控制"},
+        ])
+        assert _match_by_jaccard("大功率电机 通用", bom) is None
+
+    def test_deterministic_tie_break_in_sort(self):
+        """Non-tied candidates sorted by (-score, pno). Use pnos that would
+        sort differently by dict iteration order vs alphabetical."""
+        bom = _bom([
+            {"part_no": "Z-highscore", "name": "aa bb cc dd ee ff"},
+            {"part_no": "A-lower",    "name": "aa bb"},
+        ])
+        # Z has higher Jaccard, should win regardless of iteration order
+        result = _match_by_jaccard("aa bb cc dd ee ff gg", bom)
+        assert result is not None
+        assert result.pno == "Z-highscore"
+
+    def test_empty_tokens_returns_none(self):
+        """Header with only single-char ASCII and single-char CJK runs."""
+        bom = _bom([{"part_no": "X", "name": "工位1"}])
+        assert _match_by_jaccard("a b c", bom) is None

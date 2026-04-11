@@ -396,3 +396,61 @@ def _match_by_subsequence(header: str, bom_data: dict) -> MatchResult | None:
         confidence=TIER2_SUBSEQUENCE_CONFIDENCE,
         reason="tier2_unique_subsequence",
     )
+
+
+# ─── Tier 3: Jaccard mixed-token similarity ─────────────────────────────────
+
+
+def _tokenize(text: str) -> set[str]:
+    """Produce CJK bigrams + ASCII words (length ≥ 2, lowercased)."""
+    tokens: set[str] = set()
+    for run in _CJK_RE.findall(text):
+        for i in range(len(run) - 1):
+            tokens.add(run[i:i + 2])
+    for word in _ASCII_WORD_RE.findall(text):
+        if len(word) >= 2:
+            tokens.add(word.lower())
+    return tokens
+
+
+def _match_by_jaccard(
+    header: str,
+    bom_data: dict,
+    threshold: float = TIER3_JACCARD_THRESHOLD,
+) -> MatchResult | None:
+    """Tier 3: mixed CJK bigram + ASCII word Jaccard similarity.
+
+    Collects all above-threshold scores, sorts with deterministic tie-break
+    `(-score, pno)`, abstains on exact ties and near-ties.
+    """
+    header_tokens = _tokenize(header)
+    if not header_tokens:
+        return None
+
+    scored: list[tuple[str, float]] = []
+    for assy in bom_data.get("assemblies", []):
+        bom_tokens = _tokenize(assy.get("name", ""))
+        if not bom_tokens:
+            continue
+        intersection = len(header_tokens & bom_tokens)
+        union = len(header_tokens | bom_tokens)
+        score = intersection / union if union > 0 else 0.0
+        if score >= threshold:
+            scored.append((assy["part_no"], score))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda x: (-x[1], x[0]))
+    best_pno, best_score = scored[0]
+    if len(scored) >= 2:
+        _, runner_score = scored[1]
+        if runner_score == best_score:
+            return None
+        if (best_score - runner_score) < AMBIGUITY_GAP:
+            return None
+
+    return MatchResult(
+        pno=best_pno, tier=3, confidence=best_score,
+        reason="tier3_jaccard_match",
+    )
