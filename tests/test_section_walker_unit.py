@@ -551,3 +551,99 @@ class TestEnvelopeExtraction:
         env = w._extract_envelope_from_line("外形尺寸：100×50×25mm")
         assert env is not None
         assert env.dims == (("x", 100.0), ("y", 50.0), ("z", 25.0))
+
+
+class TestWalkStateMachine:
+    def test_envelope_attributed_to_innermost_matched_frame(self):
+        doc = [
+            "## 4.1 机械结构",
+            "",
+            "**工位1(0°)：耦合剂涂抹模块**",
+            "",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 1
+        assert outputs[0].matched_pno == "GIS-EE-002"
+        assert outputs[0].tier == 1
+        assert outputs[0].granularity == "station_constraint"
+        assert stats.matched_count == 1
+
+    def test_envelope_walks_up_stack_past_unmatched_parent(self):
+        """Intermediate '4.1.2 各工位机械结构' has no BOM match, so
+        attribution walks past it to the station header."""
+        doc = [
+            "**工位1：耦合剂涂抹模块**",
+            "### 4.1.2 各工位机械结构",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert outputs[0].matched_pno == "GIS-EE-002"
+
+    def test_envelope_before_any_section_is_unmatched(self):
+        doc = [
+            "- **模块包络尺寸**：60×40×290mm",
+            "**工位1 涂抹**",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 1
+        assert outputs[0].matched_pno is None
+        assert outputs[0].reason == "no_parent_section"
+        assert stats.unmatched_count == 1
+
+    def test_tier0_fires_on_explicit_pno_in_context(self):
+        """Section header doesn't match any BOM row, but an explicit pno
+        appears in the preceding context window → Tier 0 fires."""
+        doc = [
+            "## 参考",
+            "文档中提到 GIS-EE-002 的相关内容。",
+            "**无法匹配的标题**",
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "完全不同的名字"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert outputs[0].matched_pno == "GIS-EE-002"
+        assert outputs[0].tier == 0
+
+    def test_multiple_envelopes_in_one_section(self):
+        doc = [
+            "**工位1 涂抹模块**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "- 其他说明...",
+            "- **模块包络尺寸**：Φ30×45mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert len(outputs) == 2
+        assert all(o.matched_pno == "GIS-EE-002" for o in outputs)
+        assert stats.matched_count == 2
+
+    def test_stack_pops_on_shallower_header(self):
+        """Entering a new H2 pops any active H3/H4/bold frames."""
+        doc = [
+            "## A",
+            "**工位1 涂抹**",
+            "## B",  # pops bold + nothing matches B
+            "- **模块包络尺寸**：60×40×290mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+        # Envelope under H2 B — no ancestor has a match → UNMATCHED
+        assert outputs[0].matched_pno is None
+
+    def test_stats_counters_populated(self):
+        doc = [
+            "**工位1 涂抹**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "**no match header**",
+            "- **模块包络尺寸**：Φ30×45mm",
+        ]
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        outputs, stats = SectionWalker(doc, bom).extract_envelopes()
+        assert stats.total_envelopes == 2
+        assert stats.matched_count == 1
+        assert stats.unmatched_count == 1
+        assert stats.axis_label_default_count == 1  # first envelope has no label

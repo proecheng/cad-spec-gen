@@ -238,6 +238,23 @@ _STANDALONE_BOLD_RE = re.compile(r"^\*\*([^*]+)\*\*\s*$")
 BOLD_HEADER_LEVEL: int = 100  # sentinel: always deeper than any markdown hash
 
 
+def _should_pop_frame(frame_level: int, new_level: int) -> bool:
+    """Return True if a frame at *frame_level* should be popped when a new
+    header at *new_level* is encountered.
+
+    Regular markdown frames (level 1-6): pop when frame_level >= new_level
+    (same-level headers replace each other; shallower headers reset deeper ones).
+
+    Bold frames (level == BOLD_HEADER_LEVEL): pop only when the incoming header
+    is at the same bold level (another bold) OR at a major section boundary
+    (level <= 2, i.e. H1/H2).  H3-H6 sub-headers may appear WITHIN a bold
+    station section and must not evict it from the attribution stack.
+    """
+    if frame_level == BOLD_HEADER_LEVEL:
+        return new_level <= 2 or new_level == BOLD_HEADER_LEVEL
+    return frame_level >= new_level
+
+
 def _normalize_header(text: str) -> str:
     """Strip markdown artifacts and collapse whitespace; return the semantic
     content of the header, preserving original characters for tier 2/3
@@ -582,3 +599,159 @@ class SectionWalker:
                 axis_label=m.group(3),
             )
         return None
+
+    # ─── Two-phase walk ─────────────────────────────────────────────────
+
+    _CONTEXT_WINDOW_CHARS: int = 500
+
+    def extract_envelopes(self) -> tuple[list[WalkerOutput], WalkerStats]:
+        """Walk lines. For each section header, run Phase A (Tier 1/2/3).
+        For each envelope line, attribute it via stack walk-up; if no
+        ancestor has a match, run Phase B (Tier 0) on the 500-char
+        preceding context window.
+
+        Returns (outputs, stats). Never raises — internal errors are
+        caught, logged at DEBUG, and the function returns whatever has
+        been collected so far.
+        """
+        try:
+            return self._walk_impl()
+        except Exception as exc:
+            log.debug("walker internal error: %s", exc, exc_info=True)
+            stats = self._build_stats()
+            return list(self._outputs), stats
+
+    def _walk_impl(self) -> tuple[list[WalkerOutput], WalkerStats]:
+        stack: list[SectionFrame] = []
+        bom_empty = not self.bom_data.get("assemblies")
+
+        for idx, line in enumerate(self.lines):
+            # Phase A: section header push/pop.
+            hdr = _parse_section_header(line)
+            if hdr is not None:
+                level, text = hdr
+                while stack and _should_pop_frame(stack[-1].level, level):
+                    stack.pop()
+                match = _match_header(text, self.bom_data,
+                                      self.station_patterns)
+                stack.append(SectionFrame(level=level, header_text=text,
+                                          match=match))
+                continue
+
+            # Phase B: envelope emit + attribution.
+            env = self._extract_envelope_from_line(line)
+            if env is None:
+                # Fall-through: check whether the line was an ENVELOPE-LIKE
+                # line that failed axis canonicalization — surface as
+                # UNMATCHED rather than dropping silently.
+                if self._box_re.search(line) or self._cyl_re.search(line):
+                    self._outputs.append(self._unmatched(
+                        envelope_type="box",
+                        dims=(),
+                        header_text=(stack[-1].header_text if stack else ""),
+                        line_number=idx,
+                        source_line=line,
+                        reason="unrecognized_axis_label",
+                    ))
+                continue
+
+            # Walk up the stack looking for an ancestor with a match.
+            ancestor_match: MatchResult | None = None
+            ancestor_header: str = ""
+            for frame in reversed(stack):
+                if frame.match is not None:
+                    ancestor_match = frame.match
+                    ancestor_header = frame.header_text
+                    break
+                if not ancestor_header:
+                    ancestor_header = frame.header_text
+
+            # Tier 0 fallback at envelope-emit time.
+            if ancestor_match is None and not bom_empty:
+                start = max(0, idx - 20)  # ~20 lines ≈ ~500 chars window
+                context = "\n".join(self.lines[start:idx])
+                if len(context) > self._CONTEXT_WINDOW_CHARS:
+                    context = context[-self._CONTEXT_WINDOW_CHARS:]
+                ancestor_match = _match_context(
+                    context, self.bom_pno_prefixes, self.bom_data
+                )
+
+            if ancestor_match is not None:
+                self._outputs.append(WalkerOutput(
+                    matched_pno=ancestor_match.pno,
+                    envelope_type=env.type,
+                    dims=env.dims,
+                    tier=ancestor_match.tier,
+                    confidence=ancestor_match.confidence,
+                    reason=ancestor_match.reason,
+                    header_text=ancestor_header,
+                    line_number=idx,
+                    granularity="station_constraint",
+                    axis_label=env.axis_label,
+                    source_line=line,
+                ))
+            else:
+                reason = "empty_bom" if bom_empty else (
+                    "no_parent_section" if not stack else "all_tiers_abstained"
+                )
+                self._outputs.append(self._unmatched(
+                    envelope_type=env.type,
+                    dims=env.dims,
+                    header_text=ancestor_header,
+                    line_number=idx,
+                    source_line=line,
+                    reason=reason,
+                    axis_label=env.axis_label,
+                ))
+
+        stats = self._build_stats()
+        self._stats = stats
+        return list(self._outputs), stats
+
+    def _unmatched(
+        self,
+        *,
+        envelope_type: str,
+        dims: tuple,
+        header_text: str,
+        line_number: int,
+        source_line: str,
+        reason: str,
+        axis_label: str | None = None,
+    ) -> WalkerOutput:
+        return WalkerOutput(
+            matched_pno=None,
+            envelope_type=envelope_type,  # type: ignore[arg-type]
+            dims=dims,
+            tier=None,
+            confidence=0.0,
+            reason=reason,
+            header_text=header_text,
+            line_number=line_number,
+            granularity="station_constraint",
+            axis_label=axis_label,
+            source_line=source_line,
+        )
+
+    def _build_stats(self) -> WalkerStats:
+        matched = [o for o in self._outputs if o.matched_pno is not None]
+        unmatched = [o for o in self._outputs if o.matched_pno is None]
+        histogram: dict[int, int] = {}
+        for o in matched:
+            if o.tier is not None:
+                histogram[o.tier] = histogram.get(o.tier, 0) + 1
+        reason_counts: dict[str, int] = {}
+        for o in unmatched:
+            reason_counts[o.reason] = reason_counts.get(o.reason, 0) + 1
+        return WalkerStats(
+            total_envelopes=len(self._outputs),
+            matched_count=len(matched),
+            unmatched_count=len(unmatched),
+            tier_histogram=tuple(sorted(histogram.items())),
+            axis_label_default_count=self._axis_label_default_count,
+            unmatched_reasons=tuple(sorted(reason_counts.items())),
+        )
+
+    @property
+    def unmatched(self) -> list[WalkerOutput]:
+        return [o for o in self._outputs if o.matched_pno is None]
