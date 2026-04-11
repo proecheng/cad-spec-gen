@@ -324,3 +324,75 @@ def _match_by_pattern(
             reason="tier1_unique_match",
         )
     return None
+
+
+# ─── Tier 2: dual-path subsequence matching ─────────────────────────────────
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
+_ASCII_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+
+
+def _cjk_only(text: str) -> str:
+    return "".join(_CJK_RE.findall(text))
+
+
+def _ascii_words(text: str) -> list[str]:
+    return [w.lower() for w in _ASCII_WORD_RE.findall(text) if len(w) >= 2]
+
+
+def _is_char_subsequence(needle: str, haystack: str) -> bool:
+    it = iter(haystack)
+    return all(ch in it for ch in needle)
+
+
+def _is_word_subsequence(needle: list[str], haystack: list[str]) -> bool:
+    it = iter(haystack)
+    return all(w in it for w in needle)
+
+
+def _match_by_subsequence(header: str, bom_data: dict) -> MatchResult | None:
+    """Tier 2: CJK character subsequence OR ASCII word subsequence.
+
+    Dual-path: runs both paths in parallel and picks the better density.
+    Abstains on ties (density gap < AMBIGUITY_GAP).
+    """
+    header_cjk = _cjk_only(header)
+    header_words = _ascii_words(header)
+
+    matches: list[tuple[str, float]] = []
+    for assy in bom_data.get("assemblies", []):
+        name = assy.get("name", "")
+        bom_cjk = _cjk_only(name)
+        bom_words = _ascii_words(name)
+
+        best_density = 0.0
+        if bom_cjk and header_cjk and _is_char_subsequence(bom_cjk, header_cjk):
+            best_density = max(best_density, len(bom_cjk) / max(len(header_cjk), 1))
+        if bom_words and header_words and _is_word_subsequence(bom_words, header_words):
+            best_density = max(best_density, len(bom_words) / max(len(header_words), 1))
+
+        if best_density > 0:
+            matches.append((assy["part_no"], best_density))
+
+    if not matches:
+        return None
+
+    # Stable deterministic sort: density desc, then part_no asc.
+    matches.sort(key=lambda m: (-m[1], m[0]))
+    if len(matches) == 1:
+        return MatchResult(
+            pno=matches[0][0], tier=2,
+            confidence=TIER2_SUBSEQUENCE_CONFIDENCE,
+            reason="tier2_unique_subsequence",
+        )
+
+    top_pno, top_dens = matches[0]
+    _, runner_dens = matches[1]
+    if abs(top_dens - runner_dens) < AMBIGUITY_GAP:
+        return None  # tie → abstain
+
+    return MatchResult(
+        pno=top_pno, tier=2,
+        confidence=TIER2_SUBSEQUENCE_CONFIDENCE,
+        reason="tier2_unique_subsequence",
+    )

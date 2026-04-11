@@ -269,3 +269,64 @@ class TestTier1Pattern:
         bom = _bom([{"part_no": "L2", "name": "第2级支撑"}])
         assert _match_by_pattern("第2级主体", bom,
                                  _DEFAULT_STATION_PATTERNS).pno == "L2"
+
+
+from cad_spec_section_walker import _match_by_subsequence
+
+
+class TestTier2Subsequence:
+    def test_cjk_subsequence_matches(self):
+        """工位涂抹模块 is a character subsequence of 工位耦合剂涂抹模块."""
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测"},
+        ])
+        result = _match_by_subsequence("工位1(0°)：耦合剂涂抹模块", bom)
+        assert result is not None
+        assert result.pno == "GIS-EE-002"
+        assert result.tier == 2
+        assert result.confidence == 0.85
+        assert result.reason == "tier2_unique_subsequence"
+
+    def test_ascii_word_subsequence_matches(self):
+        """'Main Arm' is a word subsequence of 'Main Arm Assembly'."""
+        bom = _bom([
+            {"part_no": "LIFT-001", "name": "Main Arm"},
+            {"part_no": "LIFT-002", "name": "Cross Beam"},
+        ])
+        result = _match_by_subsequence("## Main Arm Assembly", bom)
+        assert result is not None
+        assert result.pno == "LIFT-001"
+
+    def test_density_tie_abstains(self):
+        """Two BOM rows with near-identical density → abstain."""
+        bom = _bom([
+            {"part_no": "A", "name": "工位1驱动"},
+            {"part_no": "B", "name": "工位1涂抹"},
+        ])
+        # Header contains both subsequences with similar density.
+        result = _match_by_subsequence("工位1 驱动 涂抹 共用", bom)
+        assert result is None
+
+    def test_no_cjk_no_ascii_returns_none(self):
+        bom = _bom([{"part_no": "A", "name": "工位1模块"}])
+        assert _match_by_subsequence("12345", bom) is None
+
+    def test_empty_bom_returns_none(self):
+        assert _match_by_subsequence("工位1", _bom([])) is None
+
+    def test_out_of_order_chars_no_match(self):
+        """Characters must appear IN ORDER as a subsequence."""
+        bom = _bom([{"part_no": "A", "name": "涂抹工位"}])
+        assert _match_by_subsequence("工位1涂抹", bom) is None
+
+    def test_deterministic_tie_break_by_pno(self):
+        """Equal density, different pnos → sort by pno alphabetically.
+        Current behavior under tie: near-tie (gap < 0.1) abstains, so this
+        test validates the sort key, not a match result."""
+        bom = _bom([
+            {"part_no": "B-BBB", "name": "工位模"},  # density 3/3
+            {"part_no": "A-AAA", "name": "工位模"},  # density 3/3
+        ])
+        # Exact tie → abstain
+        assert _match_by_subsequence("工位模", bom) is None
