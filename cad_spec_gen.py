@@ -653,7 +653,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     print(f"  §7 Visual: {len(visual_ids)} parts")
 
     # Part envelopes (multi-source, priority-merged)
-    part_envelopes = extract_part_envelopes(lines, bom, visual_ids, params)
+    part_envelopes, walker_report = extract_part_envelopes(lines, bom, visual_ids, params)
     print(f"  §6.4 Envelopes: {len(part_envelopes)} parts")
 
     render_plan = extract_render_plan(lines)
@@ -675,6 +675,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         "assembly": assembly,
         "visual_ids": visual_ids,
         "part_envelopes": part_envelopes,
+        "walker_report": walker_report,
         "render_plan": render_plan,
     }
 

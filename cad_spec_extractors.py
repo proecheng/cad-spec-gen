@@ -7,8 +7,27 @@ CAD Spec 提取器 — 从设计文档 Markdown 提取 7 类结构化数据
 
 import re
 import sys
+import os
 from pathlib import Path
 from typing import Optional
+
+# Feature flag — default ON, flip to 0 to disable the walker without a
+# code revert during rollout regression mitigation.
+_WALKER_ENABLED = os.environ.get("CAD_SPEC_WALKER_ENABLED", "1") == "1"
+
+try:
+    from cad_spec_section_walker import SectionWalker, WalkerReport
+    _WALKER_AVAILABLE = True
+except ImportError as _walker_import_exc:
+    import logging as _walker_logging
+    _walker_logging.getLogger("cad_spec_extractors").error(
+        "cad_spec_section_walker module not found — P2 envelope extraction "
+        "DISABLED. This is a packaging bug; check hatch_build.py:_PIPELINE_TOOLS. "
+        "Error: %s", _walker_import_exc
+    )
+    SectionWalker = None
+    WalkerReport = None
+    _WALKER_AVAILABLE = False
 
 # ─── 中文→UPPER_CASE 参数名映射 ──────────────────────────────────────────
 
@@ -1117,12 +1136,15 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
 
 
 def extract_part_envelopes(lines: list, bom_data=None,
-                           visual_ids: list = None, params: list = None) -> dict:
+                           visual_ids: list = None, params: list = None):
     """从多来源提取零件包络尺寸，按优先级合并。
 
-    Priority: P1(零件级参数表) > P2(叙述包络) > P3(BOM材质列) > P4(视觉标识) > P5(全局参数)
+    Priority: P1(零件级参数表) > P2(walker/叙述包络) > P3(BOM材质列) > P4(视觉标识)
 
-    Returns: {part_no: {"type": str, "d"|"w": float, "h": float, "source": str}}
+    Returns: tuple[dict, WalkerReport]
+        envelopes: {part_no: {"type": str, "x"|"d"|"w": float, ..., "source": str,
+                              "granularity": str, ...}}
+        walker_report: WalkerReport dataclass with unmatched + stats
     """
     from cad_spec_defaults import _parse_dims_from_text
     result = {}
@@ -1152,49 +1174,59 @@ def extract_part_envelopes(lines: list, bom_data=None,
                 if pno:
                     result[pno] = _dims_to_envelope(dims, "P4:visual")
 
-    # --- P2: 叙述文字中"模块包络尺寸: W×D×H" 或 "模块包络尺寸: Φd×h" ---
-    # Handles markdown bold wrappers: 模块包络尺寸**：60×40×290mm
-    # and both box (W×D×H) and cylinder (Φ×H) forms.
-    #
-    # KNOWN LIMITATION (Spec 1 partial fix): even with these regex matches
-    # succeeding, _find_nearest_assembly() may still return None because
-    # its fallback-2 strategy (first-4-char substring match of BOM name
-    # in context) is too strict for design docs where the section heading
-    # ("工位1(0°)：耦合剂涂抹模块") differs from the BOM-normalized
-    # name ("工位1涂抹模块"). Fully fixing this requires a
-    # section-header walker or a name-normalization layer and is
-    # deferred to a follow-up spec (envelope/Chinese-workflow work).
-    # For now, the regex fixes below are a prerequisite: they unblock
-    # the case where _find_nearest_assembly DOES resolve (e.g. design
-    # docs that include explicit part_no references like "GIS-EE-002"
-    # near the envelope marker).
-    text = "\n".join(lines)
-
-    # Box form: W×D×H
-    for m in re.finditer(
-        r"模块包络尺寸(?:\*\*)?[：:]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
-        text
-    ):
-        w, d, h = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        pos = m.start()
-        context = text[max(0, pos - 500):pos]
-        pno = _find_nearest_assembly(context, bom_data)
-        if pno:
-            result[pno] = {"type": "box", "w": w, "d": d, "h": h, "source": "P2:narrative"}
-
-    # Cylinder form: Φd×h (handles Φ, φ, Ø, ∅ diameter markers)
-    for m in re.finditer(
-        r"模块包络尺寸(?:\*\*)?[：:]\s*[ΦφØ∅](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
-        text
-    ):
-        diameter = float(m.group(1))
-        height = float(m.group(2))
-        pos = m.start()
-        context = text[max(0, pos - 500):pos]
-        pno = _find_nearest_assembly(context, bom_data)
-        if pno:
-            result[pno] = {"type": "cylinder", "d": diameter, "h": height,
-                           "source": "P2:narrative"}
+    # --- P2: Section walker (NEW) or legacy regex block behind feature flag ---
+    import logging
+    log = logging.getLogger("cad_spec_extractors")
+    walker_report = None
+    if _WALKER_ENABLED and _WALKER_AVAILABLE and bom_data:
+        try:
+            walker = SectionWalker(lines, bom_data)
+            outputs, stats = walker.extract_envelopes()
+            for entry in outputs:
+                if entry.matched_pno is None:
+                    continue
+                pno = entry.matched_pno
+                # UNCONDITIONAL write — NO "if pno not in result" guard.
+                # P3 runs before us and P1 runs after us; letting P2
+                # overwrite P3 matches the P1>P2>P4>P3 invariant. A guard
+                # here would silently invert the order.
+                payload = {
+                    "type": entry.envelope_type,
+                    "source": f"P2:walker:tier{entry.tier}",
+                    "granularity": entry.granularity,
+                    "axis_label": entry.axis_label,
+                    "confidence": entry.confidence,
+                    "reason": entry.reason,
+                    "source_line": entry.source_line,
+                }
+                payload.update(dict(entry.dims))
+                result[pno] = payload
+            walker_report = WalkerReport(
+                unmatched=tuple(o for o in outputs if o.matched_pno is None),
+                stats=stats,
+                feature_flag_enabled=True,
+            )
+        except Exception as exc:
+            log.warning(
+                "Section walker runtime failure, skipping P2 extraction: %s", exc
+            )
+            walker_report = WalkerReport(
+                unmatched=(), stats=None,
+                feature_flag_enabled=True, runtime_error=str(exc),
+            )
+    elif not _WALKER_ENABLED:
+        log.info("CAD_SPEC_WALKER_ENABLED=0 — using legacy P2 regex block")
+        _legacy_p2_regex_block(lines, bom_data, result)
+        if WalkerReport is not None:
+            walker_report = WalkerReport(
+                unmatched=(), stats=None, feature_flag_enabled=False
+            )
+    else:
+        _legacy_p2_regex_block(lines, bom_data, result)
+        if WalkerReport is not None:
+            walker_report = WalkerReport(
+                unmatched=(), stats=None, feature_flag_enabled=True
+            )
 
     # --- P1: 零件级参数表（含"外形"/"尺寸"列的子表格）---
     part_tables = extract_tables(lines, column_keywords=["外形", "尺寸参数"])
@@ -1246,7 +1278,62 @@ def extract_part_envelopes(lines: list, bom_data=None,
                 result[pno] = {"type": "cylinder", "d": d, "h": full_length,
                                "source": env["source"] + "+body_text"}
 
-    return result
+    if walker_report is None and WalkerReport is not None:
+        walker_report = WalkerReport(
+            unmatched=(), stats=None, feature_flag_enabled=_WALKER_ENABLED
+        )
+    return result, walker_report
+
+
+def _legacy_p2_regex_block(lines, bom_data, result) -> None:
+    """Original P2 narrative regex block preserved behind the feature flag
+    for rollback safety. Deleted in next spec cycle after real-world
+    validation of the walker.
+
+    KNOWN LIMITATION (Spec 1 partial fix): even with these regex matches
+    succeeding, _find_nearest_assembly() may still return None because
+    its fallback-2 strategy (first-4-char substring match of BOM name
+    in context) is too strict for design docs where the section heading
+    ("工位1(0°)：耦合剂涂抹模块") differs from the BOM-normalized
+    name ("工位1涂抹模块"). Fully fixing this requires a
+    section-header walker or a name-normalization layer and is
+    deferred to a follow-up spec (envelope/Chinese-workflow work).
+    For now, the regex fixes below are a prerequisite: they unblock
+    the case where _find_nearest_assembly DOES resolve (e.g. design
+    docs that include explicit part_no references like "GIS-EE-002"
+    near the envelope marker).
+    """
+    if not bom_data:
+        return
+    text = "\n".join(lines)
+    # Box form: W×D×H
+    for m in re.finditer(
+        r"模块包络尺寸(?:\*\*)?[：:]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
+        text,
+    ):
+        w, d, h = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        pos = m.start()
+        context = text[max(0, pos - 500):pos]
+        pno = _find_nearest_assembly(context, bom_data)
+        if pno:
+            result[pno] = {"type": "box", "w": w, "d": d, "h": h,
+                           "source": "P2:legacy_regex",
+                           "granularity": "station_constraint"}
+    # Cylinder form: Φd×h
+    for m in re.finditer(
+        r"模块包络尺寸(?:\*\*)?[：:]\s*[ΦφØ∅](\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*mm",
+        text,
+    ):
+        diameter, height = float(m.group(1)), float(m.group(2))
+        pos = m.start()
+        context = text[max(0, pos - 500):pos]
+        pno = _find_nearest_assembly(context, bom_data)
+        if pno:
+            result[pno] = {"type": "cylinder", "d": diameter, "h": height,
+                           "source": "P2:legacy_regex",
+                           "granularity": "station_constraint"}
 
 
 def _dims_to_envelope(dims: dict, source: str) -> dict:
