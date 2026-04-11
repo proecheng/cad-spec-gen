@@ -583,3 +583,26 @@ class TestCoverageReport:
         # separator line. Everything else must encode under cp1252/cp936.
         non_ascii = [c for c in report if ord(c) > 127 and c != "─"]
         assert non_ascii == [], f"unexpected non-ASCII: {non_ascii!r}"
+
+
+# ─── PartQuery spec_envelope_granularity field tests ─────────────────────
+
+
+def test_part_query_has_spec_envelope_granularity_default():
+    """New field defaults to 'part_envelope' so all legacy callers remain
+    safe — only the codegen chain sets non-default values."""
+    q = PartQuery(
+        part_no="X", name_cn="Y", material="", category="other",
+        make_buy="自制",
+    )
+    assert q.spec_envelope_granularity == "part_envelope"
+
+
+def test_part_query_accepts_station_constraint():
+    q = PartQuery(
+        part_no="X", name_cn="Y", material="", category="other",
+        make_buy="自制",
+        spec_envelope=(60.0, 40.0, 290.0),
+        spec_envelope_granularity="station_constraint",
+    )
+    assert q.spec_envelope_granularity == "station_constraint"

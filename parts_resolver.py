@@ -58,6 +58,7 @@ class PartQuery:
     category: str                   # classify_part() output
     make_buy: str                   # "外购" / "标准" / "自制"
     spec_envelope: Optional[tuple] = None  # (w, d, h) from §6.4 if known
+    spec_envelope_granularity: str = "part_envelope"  # "station_constraint" must NOT size individual parts
     project_root: str = ""          # base path for relative STEP paths
 
 
