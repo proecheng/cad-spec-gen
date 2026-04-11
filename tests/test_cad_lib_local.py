@@ -127,3 +127,23 @@ def test_cad_lib_which_template_missing(capsys):
     from cad_spec_gen.cad_lib import main
     exit_code = main(["which", "template", "nonexistent_template"])
     assert exit_code != 0
+
+
+def test_cad_lib_validate_template_by_name(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["validate", "template", "l_bracket"])
+    assert exit_code == 0
+
+
+def test_cad_lib_validate_template_missing(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["validate", "template", "nonexistent_foo"])
+    assert exit_code != 0
+
+
+def test_cad_lib_validate_template_rejects_traversal(capsys):
+    """Path-traversal attempts must be rejected by name regex."""
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["validate", "template", "../../etc/passwd"])
+    # Path form doesn't exist, then falls through to name form which fails the regex
+    assert exit_code != 0

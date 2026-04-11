@@ -407,7 +407,80 @@ def cmd_which(args) -> int:
 
 
 def cmd_validate(args) -> int:
-    raise NotImplementedError("cmd_validate — implemented in Task 24")
+    """Validate a template structurally."""
+    if args.kind != "template":
+        return 2
+
+    name_or_path = args.name_or_path
+
+    # Resolution: try as filesystem path first, then as module name
+    path: Optional[Path] = None
+
+    # Option 1: filesystem path (absolute or relative to cwd)
+    candidate = Path(name_or_path)
+    if candidate.exists() and candidate.is_file() and candidate.suffix == ".py":
+        path = candidate.resolve()
+    else:
+        # Option 2: treat as module name — validate regex + look up via discover_templates
+        if not _validate_name(name_or_path):
+            print(f"Invalid template name: {name_or_path!r} "
+                  f"(must match [a-z0-9_]{{1,64}} or be a valid file path)",
+                  file=sys.stderr)
+            return 2
+        try:
+            from cad_spec_gen.parts_routing import (
+                discover_templates, locate_builtin_templates_dir,
+            )
+        except ImportError as e:
+            print(f"Error: cannot import parts_routing: {e}", file=sys.stderr)
+            return 1
+        tier1 = locate_builtin_templates_dir()
+        if tier1 is None:
+            print("No builtin templates dir.", file=sys.stderr)
+            return 1
+        templates = discover_templates([tier1])
+        match = next((t for t in templates if t.name == name_or_path), None)
+        if match is None:
+            print(f"Template {name_or_path!r} not found.", file=sys.stderr)
+            return 1
+        path = match.source_path
+
+    # Parse + validate
+    import ast
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, UnicodeDecodeError) as e:
+        print(f"[X] Parse error: {e}", file=sys.stderr)
+        return 1
+
+    # Check required constants and functions via AST
+    required_funcs = {"make", "example_params"}
+    required_consts = {"MATCH_KEYWORDS", "MATCH_PRIORITY",
+                       "TEMPLATE_CATEGORY", "TEMPLATE_VERSION"}
+    found_funcs = set()
+    found_consts = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in required_funcs:
+            found_funcs.add(node.name)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = [node.target] if isinstance(node, ast.AnnAssign) else node.targets
+            for t in targets:
+                if isinstance(t, ast.Name) and t.id in required_consts:
+                    found_consts.add(t.id)
+
+    missing = []
+    if required_funcs - found_funcs:
+        missing.append(f"functions: {required_funcs - found_funcs}")
+    if required_consts - found_consts:
+        missing.append(f"constants: {required_consts - found_consts}")
+
+    if missing:
+        print(f"[X] Template {path} is missing: {'; '.join(missing)}", file=sys.stderr)
+        return 1
+
+    print(f"[OK] Template {path} passes structural validation.")
+    return 0
 
 
 def cmd_migrate_subsystem(args) -> int:
