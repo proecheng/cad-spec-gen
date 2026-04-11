@@ -326,13 +326,16 @@ def _match_rule(match: dict, query: PartQuery) -> bool:
     """Evaluate a mapping rule's `match:` dict against the query.
 
     Conditions are AND'd within a rule. Supported keys:
-      - any: true              (unconditional)
-      - part_no: "EXACT"       (case-sensitive equality)
-      - part_no_glob: "PAT*"   (fnmatch-style)
-      - category: "bearing"    (classify_part output)
-      - name_contains: [...]   (any substring match, case-insensitive)
-      - material_contains: [...]
-      - make_buy: "外购"       (substring)
+      - any: true                   (unconditional)
+      - part_no: "EXACT"            (case-sensitive equality)
+      - part_no_glob: "PAT*"        (fnmatch-style)
+      - category: "bearing"         (classify_part output)
+      - name_contains: [...]        (substring match on name_cn, case-insensitive)
+      - material_contains: [...]    (substring match on material)
+      - keyword_contains: [...]     (substring match on EITHER name_cn OR material;
+                                     useful for vendor part lookups where the
+                                     model name may appear in either column)
+      - make_buy: "外购"            (substring)
     """
     if not match:
         return False
@@ -366,6 +369,18 @@ def _match_rule(match: dict, query: PartQuery) -> bool:
         if isinstance(keywords, str):
             keywords = [keywords]
         if not any(kw.lower() in mat_lower for kw in keywords):
+            return False
+
+    if "keyword_contains" in match:
+        name_lower = query.name_cn.lower()
+        mat_lower = query.material.lower()
+        keywords = match["keyword_contains"]
+        if isinstance(keywords, str):
+            keywords = [keywords]
+        if not any(
+            kw.lower() in name_lower or kw.lower() in mat_lower
+            for kw in keywords
+        ):
             return False
 
     if "make_buy" in match:
