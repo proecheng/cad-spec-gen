@@ -67,3 +67,18 @@ def test_allowed_categories_constant():
     assert "plate" in ALLOWED_CATEGORIES
     assert "mechanical_interface" in ALLOWED_CATEGORIES
     assert "fastener_family" in ALLOWED_CATEGORIES
+
+
+def test_locate_builtin_templates_dir_finds_repo_root():
+    """Running from repo checkout must find templates/parts/ at repo root."""
+    from cad_spec_gen.parts_routing import locate_builtin_templates_dir
+    result = locate_builtin_templates_dir()
+    assert result is not None
+    assert result.is_dir()
+    assert result.name == "parts"
+    assert (result / "iso_9409_flange.py").exists()
+    # Must also find the 4 new templates from Phase 2
+    assert (result / "l_bracket.py").exists()
+    assert (result / "rectangular_housing.py").exists()
+    assert (result / "cylindrical_housing.py").exists()
+    assert (result / "fixture_plate.py").exists()

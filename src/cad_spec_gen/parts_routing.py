@@ -76,3 +76,35 @@ ALLOWED_CATEGORIES = {
     "mechanical_interface",
     "fastener_family",
 }
+
+
+# ---------------------------------------------------------------------------
+# Template location
+# ---------------------------------------------------------------------------
+
+def locate_builtin_templates_dir() -> Path | None:
+    """Find the builtin templates/parts directory in both pip-install
+    and repo-checkout modes. Returns None if neither location exists.
+
+    Resolution order:
+      1. Pip-installed: <cad_spec_gen package>/data/templates/parts/
+      2. Repo-checkout: <repo_root>/templates/parts/
+    """
+    # Option 1: pip-installed — templates shipped as package data
+    try:
+        import importlib.resources as ir
+        pkg_data = ir.files("cad_spec_gen") / "data" / "templates" / "parts"
+        if pkg_data.is_dir():
+            return Path(str(pkg_data))
+    except (ImportError, ModuleNotFoundError, FileNotFoundError, AttributeError):
+        pass
+
+    # Option 2: repo-checkout — templates at repo root
+    # This file lives at src/cad_spec_gen/parts_routing.py
+    # → repo root = parents[2]
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_templates = repo_root / "templates" / "parts"
+    if repo_templates.is_dir():
+        return repo_templates
+
+    return None
