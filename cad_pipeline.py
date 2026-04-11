@@ -62,15 +62,24 @@ def _deploy_tool_modules(sub_dir: str):
     """Copy shared Python tool modules to a subsystem directory.
 
     These modules are needed at runtime by generated code (ee_*.py, build_all.py):
-      - drawing.py        — ezdxf GB/T drawing primitives
-      - draw_three_view.py — ThreeViewSheet class
-      - cq_to_dxf.py      — CadQuery→DXF HLR projection bridge
-      - render_dxf.py      — DXF→PNG batch renderer
+      - drawing.py          — ezdxf GB/T drawing primitives
+      - draw_three_view.py  — ThreeViewSheet class (imports cad_spec_defaults)
+      - cq_to_dxf.py        — CadQuery→DXF HLR projection bridge
+      - render_dxf.py       — DXF→PNG batch renderer
+      - render_config.py    — render camera / pose helpers
+      - cad_spec_defaults.py — surface roughness + part-no helper tables,
+                               imported lazily from draw_three_view.save()
     Only copies if source is newer or target is missing (scaffold-safe).
     """
     import shutil
-    tool_files = ["drawing.py", "draw_three_view.py", "cq_to_dxf.py", "render_dxf.py",
-                  "render_config.py"]
+    tool_files = [
+        "drawing.py",
+        "draw_three_view.py",
+        "cq_to_dxf.py",
+        "render_dxf.py",
+        "render_config.py",
+        "cad_spec_defaults.py",
+    ]
     for fname in tool_files:
         src = os.path.join(SKILL_ROOT, fname)
         dst = os.path.join(sub_dir, fname)
@@ -178,11 +187,23 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
     return None
 
 
-def _run_subprocess(cmd, label, dry_run=False, timeout=600):
-    """Run a subprocess with error capture. Returns (success, elapsed)."""
+def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None):
+    """Run a subprocess with error capture. Returns (success, elapsed).
+
+    Parameters
+    ----------
+    warn_exit_codes : set[int] | None
+        Exit codes that should be treated as "completed with warnings" rather
+        than as hard failures. A match still returns success=True but logs
+        a WARNING-level line with the trailing stderr so the pipeline
+        continues. Used by gen_parts.py (exit 2 = scaffolds emitted with
+        unfilled TODO markers — valid scaffolds, just not yet hand-finalized).
+    """
     if dry_run:
         log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
         return True, 0.0
+
+    warn_codes = set(warn_exit_codes or ())
 
     log.info("  Running: %s", label)
     t0 = time.time()
@@ -192,6 +213,17 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600):
             encoding="utf-8", errors="replace",
         )
         elapsed = time.time() - t0
+        if result.returncode in warn_codes:
+            log.warning(
+                "  WARN %s (exit %d, %.1fs) — continuing",
+                label, result.returncode, elapsed,
+            )
+            # Surface a short stderr tail so the warning is actionable,
+            # but do not treat as failure.
+            if result.stderr:
+                for line in result.stderr.strip().split("\n")[-5:]:
+                    log.warning("    %s", line)
+            return True, elapsed
         if result.returncode != 0:
             log.error("  FAILED %s (exit %d, %.1fs)", label, result.returncode, elapsed)
             if result.stderr:
@@ -999,10 +1031,17 @@ def cmd_codegen(args):
     if not ok:
         failures += 1
 
-    # 2c: part module scaffolds
+    # 2c: part module scaffolds.
+    # gen_parts.py uses exit 2 as a soft signal that scaffolds were emitted
+    # but still have unfilled TODO markers (coordinate-system blocks the
+    # designer needs to review). That is NOT a failure for the pipeline —
+    # the files are valid Python and Phase 2.5 build can proceed.
     cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
            spec_path, "--output-dir", sub_dir, "--mode", mode]
-    ok, _ = _run_subprocess(cmd, "codegen part scaffolds", dry_run=args.dry_run)
+    ok, _ = _run_subprocess(
+        cmd, "codegen part scaffolds",
+        dry_run=args.dry_run, warn_exit_codes={2},
+    )
     if not ok:
         failures += 1
 
