@@ -23,6 +23,24 @@ _PROJECT_ROOT = str(Path(__file__).parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+# Spec 1: make the cad_spec_gen package importable in repo-checkout mode.
+# hatch_build.py publishes it as an installed package for wheel users;
+# repo-checkout users need src/ on sys.path BEFORE the repo root so the
+# package at src/cad_spec_gen/ wins over the top-level cad_spec_gen.py script.
+_SRC = str(Path(__file__).parent.parent / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+try:
+    from cad_spec_gen.parts_routing import (
+        GeomInfo, route, discover_templates, locate_builtin_templates_dir,
+    )
+    _PARTS_ROUTING_AVAILABLE = True
+except ImportError as _exc:
+    _PARTS_ROUTING_AVAILABLE = False
+    import logging as _log
+    _log.getLogger(__name__).debug("parts_routing unavailable: %s", _exc)
+
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -259,6 +277,32 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
         envelope = envelopes.get(p["part_no"])
         geom = _guess_geometry(p["name_cn"], p["material"], envelope=envelope)
+
+        # Spec 1: log routing preview (dormant integration; emission unchanged).
+        if _PARTS_ROUTING_AVAILABLE:
+            try:
+                _geom = GeomInfo(
+                    type=geom.get("type", "unknown"),
+                    envelope_w=float(geom.get("envelope_w") or 0),
+                    envelope_d=float(geom.get("envelope_d") or 0),
+                    envelope_h=float(geom.get("envelope_h") or 0),
+                    extras={k: v for k, v in geom.items()
+                            if k not in {"type", "envelope_w", "envelope_d", "envelope_h"}},
+                )
+                _tier1 = locate_builtin_templates_dir()
+                _search = [_tier1] if _tier1 else []
+                _templates = discover_templates(_search)
+                _decision = route(p["name_cn"] or "", _geom, _templates)
+                import logging as _lg
+                _lg.getLogger(__name__).info(
+                    "gen_parts routing preview: %s -> %s (%s)",
+                    p["name_cn"],
+                    _decision.outcome,
+                    _decision.template.name if _decision.template else "fallback",
+                )
+            except Exception as _err:
+                import logging as _lg
+                _lg.getLogger(__name__).debug("routing preview failed: %s", _err)
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA
