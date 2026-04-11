@@ -149,6 +149,94 @@ def _format_envelope(env: dict) -> str:
     return str(env)
 
 
+def _build_markdown(data: dict) -> list:
+    """Build §6.4 and related sections from a data dict.
+
+    Returns a list of markdown lines for the §6.4 zero-part-envelope block
+    (plus the §6.4.1 UNMATCHED subsection when applicable). Used by tests and
+    by render_spec internally so the rendering logic has a single testable
+    entry point.
+    """
+    sections: list = []
+    envelopes = data.get("part_envelopes", {})
+    walker_report = data.get("walker_report")
+    if envelopes:
+        sections.append("### 6.4 零件包络尺寸")
+        sections.append("")
+
+        try:
+            from cad_spec_section_walker import (
+                TIER_LEGEND_MD, CONFIDENCE_LEGEND_MD, GRANULARITY_LEGEND_MD,
+                CONFIDENCE_VERIFY_THRESHOLD, UNMATCHED_SUGGESTIONS,
+            )
+            sections.append("> 说明 / Legend")
+            for block in (TIER_LEGEND_MD, CONFIDENCE_LEGEND_MD, GRANULARITY_LEGEND_MD):
+                for line in block.splitlines():
+                    sections.append(f"> {line}")
+            sections.append("")
+        except ImportError:
+            CONFIDENCE_VERIFY_THRESHOLD = 0.75
+            UNMATCHED_SUGGESTIONS = {}
+
+        bom_obj = data.get("bom")
+        rows = []
+        for pno, env in sorted(envelopes.items()):
+            conf = env.get("confidence")
+            conf_cell = "—"
+            if conf is not None:
+                conf_cell = f"{conf:.2f}"
+                if conf < CONFIDENCE_VERIFY_THRESHOLD:
+                    conf_cell = f"**{conf_cell} VERIFY**"
+            rows.append([
+                pno,
+                _lookup_part_name(pno, bom_obj),
+                env.get("type", ""),
+                _format_envelope(env),
+                env.get("source", ""),
+                env.get("axis_label") or "—",
+                conf_cell,
+                env.get("granularity") or "—",
+                env.get("reason") or "—",
+                "",  # 备注 — reserved for future annotations
+            ])
+        sections.append(_md_table(
+            ["料号", "零件名", "类型", "尺寸(mm)", "来源",
+             "轴向标签", "置信度", "粒度", "理由", "备注"],
+            rows,
+        ))
+
+        if walker_report is not None and getattr(walker_report, "unmatched", None):
+            sections.append("")
+            sections.append("#### 6.4.1 未匹配的包络 (Unmatched envelopes — manual review required)")
+            sections.append("")
+            unmatched_rows = []
+            for o in walker_report.unmatched:
+                try:
+                    from cad_spec_section_walker import UNMATCHED_SUGGESTIONS
+                except ImportError:
+                    UNMATCHED_SUGGESTIONS = {}
+                suggestion_tpl = UNMATCHED_SUGGESTIONS.get(o.reason, "")
+                n = len(o.candidates) if getattr(o, "candidates", None) else 0
+                candidates_str = ", ".join(
+                    f"{c[0]}({c[1]:.2f})" for c in (o.candidates or ())
+                )
+                try:
+                    suggestion = suggestion_tpl.format(n=n, candidates=candidates_str)
+                except (KeyError, IndexError):
+                    suggestion = suggestion_tpl
+                unmatched_rows.append([
+                    str(o.line_number),
+                    f"`{o.source_line.strip()}`",
+                    o.reason,
+                    suggestion or "—",
+                ])
+            sections.append(_md_table(
+                ["行号", "原始文字", "理由代码", "建议"],
+                unmatched_rows,
+            ))
+    return sections
+
+
 def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     """Render extracted data as a full CAD_SPEC.md Markdown document."""
     info = SUBSYSTEM_MAP.get(chapter, {"name": "未知", "prefix": "GIS-XX"})
@@ -305,21 +393,8 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
                  for pno, off in sorted(items_list)]
             ))
 
-    # §6.4 零件包络尺寸
-    envelopes = data.get("part_envelopes", {})
-    if envelopes:
-        sections.append("### 6.4 零件包络尺寸")
-        sections.append("")
-        bom_obj = data.get("bom")
-        sections.append(_md_table(
-            ["料号", "零件名", "类型", "尺寸(mm)", "来源"],
-            [[pno,
-              _lookup_part_name(pno, bom_obj),
-              env.get("type", ""),
-              _format_envelope(env),
-              env.get("source", "")]
-             for pno, env in sorted(envelopes.items())]
-        ))
+    # §6.4 零件包络尺寸 — delegate to shared helper (single source of truth)
+    sections.extend(_build_markdown(data))
 
     # §7 视觉标识
     sections.append("## 7. 视觉标识")
