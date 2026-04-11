@@ -92,3 +92,69 @@ class TestAxisCanonicalization:
         result = _canonicalize_box_axes(raw, "深×宽×高")
         # Canonical order should have X=60 (width), Y=40 (depth), Z=290 (height)
         assert result == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+
+
+from cad_spec_section_walker import _build_envelope_regexes
+
+
+class TestEnvelopeRegex:
+    def _box_re(self, terms=("模块包络尺寸",)):
+        box, _ = _build_envelope_regexes(terms)
+        return box
+
+    def _cyl_re(self, terms=("模块包络尺寸",)):
+        _, cyl = _build_envelope_regexes(terms)
+        return cyl
+
+    def test_box_plain(self):
+        m = self._box_re().search("模块包络尺寸：60×40×290mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_bold_before_colon(self):
+        m = self._box_re().search("- **模块包络尺寸**：60×40×290mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_bold_around_value(self):
+        m = self._box_re().search("模块包络尺寸：**60×40×290mm**")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("60", "40", "290")
+
+    def test_box_with_axis_label_captured(self):
+        m = self._box_re().search("模块包络尺寸：60×40×290mm (宽×深×高)")
+        assert m is not None
+        assert m.group(4) == "宽×深×高"
+
+    def test_box_floats(self):
+        m = self._box_re().search("模块包络尺寸：60.5×40.0×290.25mm")
+        assert m is not None
+        assert m.group(1) == "60.5"
+        assert m.group(3) == "290.25"
+
+    def test_cylinder_phi(self):
+        m = self._cyl_re().search("模块包络尺寸：Φ45×120mm")
+        assert m is not None
+        assert (m.group(1), m.group(2)) == ("45", "120")
+
+    def test_cylinder_alternate_symbols(self):
+        for sym in ("φ", "Ø", "∅"):
+            m = self._cyl_re().search(f"模块包络尺寸：{sym}30×45mm")
+            assert m is not None, f"failed on symbol {sym}"
+
+    def test_custom_trigger_term(self):
+        """Non-GISBOT subsystems pass their own term via constructor kwarg."""
+        box, _ = _build_envelope_regexes(("外形尺寸",))
+        m = box.search("外形尺寸：1200×600×300mm")
+        assert m is not None
+        assert (m.group(1), m.group(2), m.group(3)) == ("1200", "600", "300")
+
+    def test_multiple_trigger_terms(self):
+        """Terms are joined with alternation."""
+        box, _ = _build_envelope_regexes(("外形尺寸", "总体尺寸"))
+        assert box.search("外形尺寸：60×40×290mm") is not None
+        assert box.search("总体尺寸：60×40×290mm") is not None
+
+    def test_wrong_trigger_term_does_not_match(self):
+        box, _ = _build_envelope_regexes(("外形尺寸",))
+        assert box.search("模块包络尺寸：60×40×290mm") is None

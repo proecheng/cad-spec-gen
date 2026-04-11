@@ -195,3 +195,36 @@ def _canonicalize_box_axes(
         ("y", raw[order[1]]),
         ("z", raw[order[2]]),
     )
+
+
+# ─── Envelope regex builder ─────────────────────────────────────────────────
+
+
+def _build_envelope_regexes(
+    trigger_terms: tuple[str, ...],
+) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Build (box_regex, cylinder_regex) for a given trigger-term set.
+
+    Handles bold-before-colon (`模块包络尺寸**：`), bold-around-value
+    (`模块包络尺寸：**60×40×290mm**`), and an optional parenthetical axis label.
+
+    Called per-walker-instance inside SectionWalker.__init__ — NO module-level
+    cache. This is load-bearing for G12 cross-subsystem isolation.
+    """
+    trigger = "|".join(re.escape(t) for t in trigger_terms)
+    prelude = fr"(?:{trigger})(?:\*\*)?[：:]\s*(?:\*\*)?\s*"
+    # optional closing bold + optional parenthetical label (supports both ASCII and full-width parens)
+    suffix = r"\s*(?:\*\*)?(?:\s*[(（]([^)）]+)[)）])?"
+
+    box_body = (
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*mm"
+    )
+    cyl_body = (
+        r"[ΦφØ∅](\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*mm"
+    )
+    box_re = re.compile(prelude + box_body + suffix)      # groups: 1=w 2=d 3=h 4=axis_label
+    cyl_re = re.compile(prelude + cyl_body + suffix)      # groups: 1=dia 2=h 3=axis_label
+    return box_re, cyl_re
