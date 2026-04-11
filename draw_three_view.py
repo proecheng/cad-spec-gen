@@ -215,12 +215,18 @@ class ThreeViewSheet:
             elif vtype == "auxiliary":
                 add_auxiliary_label(msp, (label_x, label_y), ev["label"])
 
-        # 技术要求区 — GB/T 10609.1: 图框内、标题栏上方左侧空白区
-        # X: 内框左边 (MARGIN_BIND) + 2mm 间距
-        # Y: 在标题栏顶边和最低视图底边之间，从上往下写
+        # 技术要求区 — GB/T 10609.1: 技术要求应放置在图纸下方空白处
+        #                           （视图下方、标题栏上方 / 或标题栏左侧）
+        # 严禁放在图纸上方 — 上方区域留给视图和粗糙度符号。
+        #
+        # 4 级降级策略（永远保持在图纸下方）：
+        #   Tier 1: gap >= 35mm — 视图下方正常书写（字号 3.5/2.5mm）
+        #   Tier 2: 35 > gap >= 20mm — 字号压缩到 0.75 倍，仍在视图下方
+        #   Tier 3: gap < 20mm — 放到标题栏左侧的空白区（同样在图纸下方）
+        #   Tier 4: 上面全部失败 — 警告并仍放在 Tier 3 位置（不回退到上方！）
         from drawing import MARGIN_BIND
         title_top_y = MARGIN_STD + TITLE_BLOCK_H  # 标题栏顶边 y = 66mm
-        notes_x = MARGIN_BIND + 2  # = 27mm (内框内)
+        notes_x = MARGIN_BIND + 2  # = 27mm (内框内左侧)
 
         # 找最低视图的底边
         _view_bottoms = []
@@ -237,14 +243,36 @@ class ThreeViewSheet:
         lowest_view_bottom = min(_view_bottoms) if _view_bottoms else A3_H * 0.5
 
         gap_for_notes = lowest_view_bottom - title_top_y
+        notes_font_scale = 1.0
+
         if gap_for_notes >= 35:
-            # 空隙足够：技术要求从最低视图底边下方 5mm 开始向下写
+            # Tier 1: 空隙足够 — 正常字号，视图下方向下书写
             notes_y = lowest_view_bottom - 5
+        elif gap_for_notes >= 20:
+            # Tier 2: 空隙紧张 — 压缩字号到 0.75 倍（2.625mm 标题 / 1.875mm 正文）
+            # 仍然从视图下方 3mm 处开始向下写
+            notes_y = lowest_view_bottom - 3
+            notes_font_scale = 0.75
         else:
-            # 空隙不足：放在图框内左上角（内框顶边下方）
-            notes_y = A3_H - MARGIN_STD - 5
+            # Tier 3: 空隙不足 — 放到标题栏左侧。标题栏在 (230, 10)..(410, 66)，
+            # 左侧空间 x=[27, 230)，高度 y=[10, 66]。在这块 ~200×56mm 区域里
+            # 书写技术要求，从标题栏顶边上方 3mm 处开始向下写。
+            # 这样技术要求仍然在「图纸下方空白处」符合 GB/T 10609.1，
+            # 绝不会放到图纸上方。
+            notes_y = title_top_y - 3  # 63mm，在标题栏上边界下方
+            notes_font_scale = 0.75
+            import warnings
+            warnings.warn(
+                f"draw_three_view: vertical gap between views and title block "
+                f"is only {gap_for_notes:.1f}mm; technical notes placed in "
+                f"title-block-left area at reduced font size. Consider reducing "
+                f"drawing scale to create more room.",
+                stacklevel=2,
+            )
+
         add_technical_notes(msp, material_type=material_type,
-                            pos=(notes_x, notes_y))
+                            pos=(notes_x, notes_y),
+                            font_scale=notes_font_scale)
 
         # 默认粗糙度符号（右上角）— 从 SURFACE_RA 查表，不硬编码
         from cad_spec_defaults import SURFACE_RA

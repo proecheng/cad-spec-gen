@@ -986,19 +986,36 @@ def add_technical_notes(msp: Modelspace,
                         notes: Optional[List[str]] = None,
                         material_type: Optional[str] = None,
                         pos: Optional[Tuple[float, float]] = None,
-                        layer: str = "TEXT"):
+                        layer: str = "TEXT",
+                        font_scale: float = 1.0):
     """Draw technical notes block on the drawing sheet.
 
-    GB/T 10609.1: 技术要求应放置在图纸下方空白处（视图下方、标题栏上方）。
-    若空间不足则回退到左上角。
+    GB/T 10609.1: 技术要求应放置在图纸下方空白处（视图下方、标题栏上方），
+    从上往下书写。若视图下方空间不足，应：
+      1. 压缩字号（font_scale < 1.0）以在窄缝中放下；
+      2. 将技术要求放到标题栏左侧空白区（同样位于图纸下方区域）；
+      3. 如果以上均不可行，在调用方层面缩小图纸比例使视图变小、让出空间。
+
+    绝不放到图纸上方 — 那违反 GB/T 10609.1。
 
     Args:
         notes: custom notes list; None = use preset for material_type
         material_type: "al" | "peek" | "steel" | "nylon" | "rubber" | None
-        pos: top-left position of the notes block; None = use default fallback (27, 275)
+        pos: top-left position of the notes block; None = use GB/T-compliant
+             default of (27, 62) — just above a standard title block which ends
+             at y=66 on A3. Callers should normally compute pos explicitly based
+             on their layout; see draw_three_view.py for the 4-tier strategy.
+        layer: target layer name
+        font_scale: scale factor for text height (default 1.0 = 3.5mm/2.5mm
+                    per GB/T 14691). Use 0.7-0.85 for compact layouts in tight
+                    vertical gaps, e.g. font_scale=0.8 → 2.8mm/2.0mm.
     """
     if pos is None:
-        pos = (27.0, 275.0)
+        # GB/T-compliant default: lower-left, just above a standard 56mm-tall
+        # title block at y=10..66. Leave 4mm clearance above the title block.
+        # This default is safe for ANY drawing, even if the caller doesn't
+        # know the view geometry.
+        pos = (27.0, 62.0)
     if notes is None:
         if material_type is None:
             import warnings
@@ -1008,9 +1025,9 @@ def add_technical_notes(msp: Modelspace,
         notes = _TECH_NOTES.get(material_type, TECH_NOTES_AL)
 
     x, y = pos
-    line_spacing = 5.0
+    line_spacing = 5.0 * font_scale
     for i, line in enumerate(notes):
-        h = 3.5 if i == 0 else 2.5  # GB/T 14691 标准系列 3.5mm
+        h = (3.5 if i == 0 else 2.5) * font_scale  # GB/T 14691 标准系列
         msp.add_text(line, height=h,
                      dxfattribs={"layer": layer}
                      ).set_placement((x, y - i * line_spacing))
