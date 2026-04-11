@@ -647,3 +647,97 @@ class TestWalkStateMachine:
         assert stats.matched_count == 1
         assert stats.unmatched_count == 1
         assert stats.axis_label_default_count == 1  # first envelope has no label
+
+
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+
+class TestIsolationAndDeterminism:
+    def test_two_walkers_different_trigger_terms_same_process(self):
+        """G12: running two walkers with DIFFERENT trigger_terms in one
+        process produces independent results. No module-level regex cache."""
+        doc_a = ["**工位1 涂抹**", "- **模块包络尺寸**：60×40×290mm"]
+        doc_b = ["**Station 1**", "外形尺寸：100×50×25mm"]
+        bom_a = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        bom_b = _bom([{"part_no": "CHASSIS-001", "name": "Station 1"}])
+
+        walker_a = SectionWalker(doc_a, bom_a, trigger_terms=("模块包络尺寸",))
+        outputs_a, _ = walker_a.extract_envelopes()
+
+        walker_b = SectionWalker(doc_b, bom_b, trigger_terms=("外形尺寸",))
+        outputs_b, _ = walker_b.extract_envelopes()
+
+        # Walker A's output is untouched by walker B's construction.
+        assert len(outputs_a) == 1
+        assert outputs_a[0].matched_pno == "GIS-EE-002"
+        assert len(outputs_b) == 1
+        assert outputs_b[0].matched_pno == "CHASSIS-001"
+        # And the regex objects are distinct.
+        assert walker_a._box_re is not walker_b._box_re
+
+    def test_walker_deterministic_within_process(self):
+        """Running the walker twice on the same input produces identical
+        output (hash seed may randomize set iteration, so deterministic
+        tie-break sort is required)."""
+        doc = [
+            "**工位1 涂抹**",
+            "- **模块包络尺寸**：60×40×290mm",
+            "**工位2 检测**",
+            "- **模块包络尺寸**：Φ45×120mm",
+        ]
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"},
+        ])
+        out1, _ = SectionWalker(doc, bom).extract_envelopes()
+        out2, _ = SectionWalker(doc, bom).extract_envelopes()
+        assert out1 == out2
+
+    def test_walker_deterministic_under_hash_randomization(self, tmp_path):
+        """Subprocess run with PYTHONHASHSEED=random must produce byte-
+        identical output. Validates the stable (-score, pno) tie-break
+        sort keys in Tier 2/3."""
+        repo_root = Path(__file__).resolve().parents[1]
+        repo_root_str = str(repo_root).replace("\\", "\\\\")
+        script = textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, r"{repo_root_str}")
+            from cad_spec_section_walker import SectionWalker
+            doc = [
+                "**工位1 涂抹**",
+                "- **模块包络尺寸**：60×40×290mm",
+                "**工位2 检测**",
+                "- **模块包络尺寸**：Φ45×120mm",
+            ]
+            bom = {{"assemblies": [
+                {{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}},
+                {{"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"}},
+            ]}}
+            outputs, _ = SectionWalker(doc, bom).extract_envelopes()
+            for o in outputs:
+                print(f"{{o.matched_pno}}:{{o.tier}}:{{o.dims}}")
+        """)
+        script_path = tmp_path / "run_walker.py"
+        script_path.write_text(script, encoding="utf-8")
+
+        def run(env_seed: str) -> str:
+            env = os.environ.copy()
+            env["PYTHONHASHSEED"] = env_seed
+            env["PYTHONIOENCODING"] = "utf-8"
+            result = subprocess.run(
+                [sys.executable, str(script_path)],
+                env=env, capture_output=True, text=True, check=True,
+                encoding="utf-8",
+            )
+            return result.stdout
+
+        baseline = run("0")
+        randomized = run("random")
+        assert baseline == randomized, (
+            f"walker output differs under PYTHONHASHSEED=random:\n"
+            f"{baseline}\nvs\n{randomized}"
+        )
