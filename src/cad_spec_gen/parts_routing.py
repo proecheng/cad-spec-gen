@@ -236,3 +236,126 @@ def discover_templates(search_paths: "list[Path]") -> "list[TemplateDescriptor]"
                 descriptors_by_name[desc.name] = desc
 
     return sorted(descriptors_by_name.values(), key=lambda d: d.name)
+
+
+# ---------------------------------------------------------------------------
+# Routing
+# ---------------------------------------------------------------------------
+
+_KNOWN_GEOM_TYPES = {"box", "cylinder", "disc_arms", "ring", "l_bracket", "plate"}
+
+
+def _tier_outcome(tier: str) -> str:
+    """Map tier string to outcome name."""
+    return "HIT_PROJECT" if tier == "project" else "HIT_BUILTIN"
+
+
+def _pick_best(candidates: list) -> "TemplateDescriptor":
+    """Pick the best candidate: highest priority, then project tier, then alphabetical."""
+    return sorted(
+        candidates,
+        key=lambda t: (-t.priority, 0 if t.tier == "project" else 1, t.name),
+    )[0]
+
+
+def route(
+    name: str,
+    geom_info: "GeomInfo",
+    templates: list,
+    yaml_rules: list = None,
+) -> "RouteDecision":
+    """Route a BOM part to a template, or fall back.
+
+    Pure function. Never raises; always returns a RouteDecision.
+    See spec section 7.2.1 for the error/edge case table.
+    """
+    # Edge case: empty templates list
+    if not templates:
+        return RouteDecision(
+            outcome="FALLBACK",
+            template=None,
+            reason="no templates available",
+        )
+
+    # Edge case: empty name
+    if not name or not name.strip():
+        return RouteDecision(
+            outcome="FALLBACK",
+            template=None,
+            reason="empty part name",
+        )
+
+    # Edge case: unknown geom type
+    if geom_info.type not in _KNOWN_GEOM_TYPES:
+        return RouteDecision(
+            outcome="FALLBACK",
+            template=None,
+            reason=f"unknown geom type: {geom_info.type}",
+        )
+
+    # Edge case: degenerate envelope
+    if (geom_info.envelope_w <= 0 or geom_info.envelope_d <= 0
+            or geom_info.envelope_h <= 0):
+        return RouteDecision(
+            outcome="FALLBACK",
+            template=None,
+            reason="degenerate geometry: envelope has zero or negative dimension",
+        )
+
+    # Special case: disc_arms REQUIRES a mechanical_interface template
+    if geom_info.type == "disc_arms":
+        candidates = [t for t in templates if t.category == "mechanical_interface"]
+        if not candidates:
+            return RouteDecision(
+                outcome="FALLBACK",
+                template=None,
+                reason="disc_arms requires mechanical_interface template",
+            )
+        best = _pick_best(candidates)
+        return RouteDecision(
+            outcome=_tier_outcome(best.tier),
+            template=best,
+            reason="disc_arms -> cross-arm hub template",
+        )
+
+    # Keyword matching: find templates whose MATCH_KEYWORDS substring-match the name
+    name_lower = name.lower()
+    matches = []
+    for t in templates:
+        for kw in t.keywords:
+            if kw.lower() in name_lower:
+                matches.append(t)
+                break  # one match per template is enough
+
+    if not matches:
+        return RouteDecision(
+            outcome="FALLBACK",
+            template=None,
+            reason="no keyword match",
+        )
+
+    # Filter by highest priority
+    max_prio = max(t.priority for t in matches)
+    top_prio = [t for t in matches if t.priority == max_prio]
+
+    # Prefer project tier over builtin when priority is tied
+    project_matches = [t for t in top_prio if t.tier == "project"]
+    if project_matches:
+        top_prio = project_matches
+
+    if len(top_prio) == 1:
+        best = top_prio[0]
+        return RouteDecision(
+            outcome=_tier_outcome(best.tier),
+            template=best,
+            reason=f"matched keyword at priority {max_prio}",
+        )
+
+    # Ambiguous: multiple templates at same (max) priority in same tier
+    return RouteDecision(
+        outcome="AMBIGUOUS",
+        template=None,
+        reason=f"multiple templates match at priority {max_prio}; "
+               f"add geom_type discriminator or raise one template's priority",
+        ambiguous_candidates=tuple(sorted(top_prio, key=lambda t: t.name)),
+    )

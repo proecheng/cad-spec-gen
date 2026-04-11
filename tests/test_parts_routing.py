@@ -128,3 +128,135 @@ def test_discover_templates_extracts_correct_metadata():
     assert iso.priority == 20
     assert iso.tier == "builtin"
     assert len(iso.keywords) >= 3
+
+
+# ---- route() tests ----
+
+
+def _get_route_symbols():
+    """Load GeomInfo, TemplateDescriptor, RouteDecision, route via the safe importer."""
+    m = _import_parts_routing_module()
+    return m.GeomInfo, m.TemplateDescriptor, m.RouteDecision, m.route
+
+
+def _make_td(name, kws, priority, category, tier="builtin"):
+    _, TemplateDescriptor, _, _ = _get_route_symbols()
+    return TemplateDescriptor(
+        name=name,
+        keywords=tuple(sorted(kws)),
+        priority=priority,
+        category=category,
+        tier=tier,
+        source_path=Path(f"/tmp/{name}.py"),
+    )
+
+
+def test_route_empty_templates_returns_fallback():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 50, 20)
+    decision = route("some part", geom, [])
+    assert decision.outcome == "FALLBACK"
+    assert decision.template is None
+    assert "no templates available" in decision.reason
+
+
+def test_route_empty_name_returns_fallback():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 50, 20)
+    t = [_make_td("l_bracket", ["bracket"], 10, "bracket")]
+    decision = route("", geom, t)
+    assert decision.outcome == "FALLBACK"
+    assert "empty part name" in decision.reason
+
+
+def test_route_unknown_geom_type_returns_fallback():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("weird_shape", 100, 50, 20)
+    t = [_make_td("l_bracket", ["bracket"], 10, "bracket")]
+    decision = route("bracket 01", geom, t)
+    assert decision.outcome == "FALLBACK"
+    assert "unknown geom type" in decision.reason
+
+
+def test_route_disc_arms_with_mechanical_interface_template_hits():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("disc_arms", 90, 90, 25,
+                    extras={"arm_count": 4, "arm_l": 40})
+    t = [_make_td("iso_9409_flange", ["flange", "robot flange"],
+                  20, "mechanical_interface")]
+    decision = route("十字法兰 01", geom, t)
+    assert decision.outcome == "HIT_BUILTIN"
+    assert decision.template.name == "iso_9409_flange"
+
+
+def test_route_disc_arms_without_mechanical_interface_fallback():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("disc_arms", 90, 90, 25, extras={"arm_count": 4})
+    t = [_make_td("l_bracket", ["bracket"], 15, "bracket")]
+    decision = route("flange", geom, t)
+    assert decision.outcome == "FALLBACK"
+    assert "mechanical_interface" in decision.reason
+
+
+def test_route_single_keyword_match_hits_builtin():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 50, 20)
+    t = [_make_td("l_bracket", ["l_bracket", "angle bracket"], 15, "bracket")]
+    decision = route("l_bracket mount", geom, t)
+    assert decision.outcome == "HIT_BUILTIN"
+    assert decision.template.name == "l_bracket"
+
+
+def test_route_higher_priority_wins_on_keyword_collision():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 100, 100)
+    t = [
+        _make_td("housing_a", ["housing"], 10, "housing"),
+        _make_td("housing_b", ["housing"], 20, "housing"),  # higher priority
+    ]
+    decision = route("enclosure housing", geom, t)
+    assert decision.outcome == "HIT_BUILTIN"
+    assert decision.template.name == "housing_b"
+
+
+def test_route_equal_priority_collision_returns_ambiguous():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 100, 100)
+    t = [
+        _make_td("a", ["shared_kw"], 15, "bracket"),
+        _make_td("b", ["shared_kw"], 15, "bracket"),
+    ]
+    decision = route("shared_kw mount", geom, t)
+    assert decision.outcome == "AMBIGUOUS"
+    assert decision.template is None
+    assert len(decision.ambiguous_candidates) == 2
+
+
+def test_route_project_tier_shadows_builtin():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 50, 20)
+    t = [
+        _make_td("l_bracket", ["l_bracket"], 15, "bracket", tier="builtin"),
+        _make_td("l_bracket", ["l_bracket"], 15, "bracket", tier="project"),
+    ]
+    decision = route("l_bracket", geom, t)
+    assert decision.outcome == "HIT_PROJECT"
+
+
+def test_route_degenerate_envelope_fallback():
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 0, 50, 20)  # zero width
+    t = [_make_td("l_bracket", ["bracket"], 15, "bracket")]
+    decision = route("l_bracket", geom, t)
+    assert decision.outcome == "FALLBACK"
+    assert "degenerate" in decision.reason
+
+
+def test_route_is_deterministic():
+    """Same inputs must produce identical RouteDecision 100 times."""
+    GeomInfo, _, _, route = _get_route_symbols()
+    geom = GeomInfo("box", 100, 50, 20)
+    t = [_make_td("l_bracket", ["bracket", "angle"], 15, "bracket")]
+    first = route("bracket mount", geom, t)
+    for _ in range(100):
+        assert route("bracket mount", geom, t) == first
