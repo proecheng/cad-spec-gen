@@ -1152,10 +1152,27 @@ def extract_part_envelopes(lines: list, bom_data=None,
                 if pno:
                     result[pno] = _dims_to_envelope(dims, "P4:visual")
 
-    # --- P2: 叙述文字中"模块包络尺寸：W×D×H" ---
+    # --- P2: 叙述文字中"模块包络尺寸: W×D×H" 或 "模块包络尺寸: Φd×h" ---
+    # Handles markdown bold wrappers: 模块包络尺寸**：60×40×290mm
+    # and both box (W×D×H) and cylinder (Φ×H) forms.
+    #
+    # KNOWN LIMITATION (Spec 1 partial fix): even with these regex matches
+    # succeeding, _find_nearest_assembly() may still return None because
+    # its fallback-2 strategy (first-4-char substring match of BOM name
+    # in context) is too strict for design docs where the section heading
+    # ("工位1(0°)：耦合剂涂抹模块") differs from the BOM-normalized
+    # name ("工位1涂抹模块"). Fully fixing this requires a
+    # section-header walker or a name-normalization layer and is
+    # deferred to a follow-up spec (envelope/Chinese-workflow work).
+    # For now, the regex fixes below are a prerequisite: they unblock
+    # the case where _find_nearest_assembly DOES resolve (e.g. design
+    # docs that include explicit part_no references like "GIS-EE-002"
+    # near the envelope marker).
     text = "\n".join(lines)
+
+    # Box form: W×D×H
     for m in re.finditer(
-        r"模块包络尺寸[：:]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
+        r"模块包络尺寸(?:\*\*)?[：:]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
         text
     ):
         w, d, h = float(m.group(1)), float(m.group(2)), float(m.group(3))
@@ -1164,6 +1181,20 @@ def extract_part_envelopes(lines: list, bom_data=None,
         pno = _find_nearest_assembly(context, bom_data)
         if pno:
             result[pno] = {"type": "box", "w": w, "d": d, "h": h, "source": "P2:narrative"}
+
+    # Cylinder form: Φd×h (handles Φ, φ, Ø, ∅ diameter markers)
+    for m in re.finditer(
+        r"模块包络尺寸(?:\*\*)?[：:]\s*[ΦφØ∅](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
+        text
+    ):
+        diameter = float(m.group(1))
+        height = float(m.group(2))
+        pos = m.start()
+        context = text[max(0, pos - 500):pos]
+        pno = _find_nearest_assembly(context, bom_data)
+        if pno:
+            result[pno] = {"type": "cylinder", "d": diameter, "h": height,
+                           "source": "P2:narrative"}
 
     # --- P1: 零件级参数表（含"外形"/"尺寸"列的子表格）---
     part_tables = extract_tables(lines, column_keywords=["外形", "尺寸参数"])
