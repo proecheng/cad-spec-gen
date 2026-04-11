@@ -205,3 +205,67 @@ class TestSectionHeader:
     def test_bold_with_trailing_content_is_not_a_header(self):
         """Only standalone-bold-on-own-line counts."""
         assert _parse_section_header("**工位1**: some text after") is None
+
+
+from cad_spec_section_walker import _match_by_pattern, _DEFAULT_STATION_PATTERNS
+
+
+def _bom(assemblies):
+    return {"assemblies": assemblies}
+
+
+class TestTier1Pattern:
+    def test_unique_station_match(self):
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-003", "name": "工位2 AE检测模块"},
+        ])
+        result = _match_by_pattern("工位1(0°)：耦合剂涂抹模块", bom,
+                                   _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.pno == "GIS-EE-002"
+        assert result.tier == 1
+        assert result.confidence == 1.0
+        assert result.reason == "tier1_unique_match"
+
+    def test_ambiguous_station_returns_none(self):
+        """Two BOM rows share 工位1 → abstain entirely (return None),
+        do NOT fall through to the next pattern. Regression test for
+        round-2 programmer review finding: earlier draft used `continue`
+        which silently matched a later pattern on the same header."""
+        bom = _bom([
+            {"part_no": "GIS-EE-002", "name": "工位1涂抹模块"},
+            {"part_no": "GIS-EE-004", "name": "工位1驱动模块"},
+        ])
+        result = _match_by_pattern("工位1 耦合剂涂抹", bom,
+                                   _DEFAULT_STATION_PATTERNS)
+        assert result is None
+
+    def test_pattern_fires_but_no_bom_match_tries_next_pattern(self):
+        """工位1 regex fires but BOM has no 工位 row → fall through to
+        the next pattern (模块). This is the one legitimate `continue`
+        case — distinct from ambiguity."""
+        bom = _bom([
+            {"part_no": "GIS-EE-010", "name": "模块3输电线"},
+        ])
+        result = _match_by_pattern("工位1 模块3", bom, _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.pno == "GIS-EE-010"
+
+    def test_no_pattern_matches_header(self):
+        bom = _bom([{"part_no": "X", "name": "something"}])
+        assert _match_by_pattern("Plain English Title", bom,
+                                 _DEFAULT_STATION_PATTERNS) is None
+
+    def test_custom_station_patterns(self):
+        """Chassis subsystem passes its own patterns via kwargs."""
+        chassis = [(r"驱动轮\s*(\d+)", "驱动轮")]
+        bom = _bom([{"part_no": "CHASSIS-DRV-003", "name": "驱动轮3 减速器总成"}])
+        result = _match_by_pattern("驱动轮3 减速器", bom, chassis)
+        assert result is not None
+        assert result.pno == "CHASSIS-DRV-003"
+
+    def test_level_pattern(self):
+        bom = _bom([{"part_no": "L2", "name": "第2级支撑"}])
+        assert _match_by_pattern("第2级主体", bom,
+                                 _DEFAULT_STATION_PATTERNS).pno == "L2"

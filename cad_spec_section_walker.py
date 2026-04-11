@@ -266,3 +266,61 @@ def _parse_section_header(line: str) -> tuple[int, str] | None:
     if m:
         return (BOLD_HEADER_LEVEL, _normalize_header(m.group(1)))
     return None
+
+
+# ─── Tier 1: structured pattern matching ────────────────────────────────────
+
+
+def _match_by_pattern(
+    header: str,
+    bom_data: dict,
+    station_patterns: list[tuple[str, str]],
+) -> MatchResult | None:
+    """Extract an (index, category) from a structured pattern and find the
+    matching BOM assembly. Abstains (returns None) on ambiguity AT THE
+    FIRST pattern that matches — does NOT fall through to the next
+    pattern, which would produce false-confident matches.
+
+    Each entry in station_patterns is (header_regex, category_prefix).
+    BOM names are scanned using both the category_prefix (for prefix-style
+    patterns like 工位N) and the header_regex itself (for interleaved patterns
+    like 第N级, 第N部分) to ensure consistent matching across all pattern types.
+    """
+    for regex, category in station_patterns:
+        m = re.search(regex, header)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        # Build two candidate regexes:
+        # 1. category-prefix style: "工位\s*(\d+)" for names like "工位1涂抹模块"
+        # 2. header-regex reuse: same pattern applied to BOM names (handles
+        #    interleaved patterns like "第\s*(\d+)\s*级" for "第2级支撑")
+        prefix_re = re.compile(fr"{re.escape(category)}\s*(\d+)")
+        full_re = re.compile(regex)
+        matching = []
+        for assy in bom_data.get("assemblies", []):
+            name = assy.get("name", "")
+            found = False
+            m2 = prefix_re.search(name)
+            if m2 and int(m2.group(1)) == idx:
+                found = True
+            if not found:
+                m3 = full_re.search(name)
+                if m3 and int(m3.group(1)) == idx:
+                    found = True
+            if found:
+                matching.append(assy)
+        if len(matching) == 0:
+            # This pattern fired but BOM has no row — fall through to next pattern.
+            continue
+        if len(matching) >= 2:
+            # Ambiguity at THIS pattern — abstain entirely. Returning None
+            # hands off to Tier 2, NOT to the next pattern in the list.
+            return None
+        return MatchResult(
+            pno=matching[0]["part_no"],
+            tier=1,
+            confidence=1.0,
+            reason="tier1_unique_match",
+        )
+    return None
