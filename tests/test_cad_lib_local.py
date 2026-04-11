@@ -94,3 +94,21 @@ def test_cad_lib_init_yaml_has_schema_version():
     assert inst["schema_version"] == 1
     sug = yaml.safe_load((home / "state" / "suggestions.yaml").read_text())
     assert sug["schema_version"] == 1
+
+
+def test_cad_lib_list_templates_shows_all_five(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["list", "templates"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    for name in ["iso_9409_flange", "l_bracket", "rectangular_housing",
+                 "cylindrical_housing", "fixture_plate"]:
+        assert name in captured.out, f"{name} missing from list output"
+
+
+def test_cad_lib_list_textures_shows_spec2_message(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["list", "textures"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Spec 2" in captured.out or "not available" in captured.out.lower()

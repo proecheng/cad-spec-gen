@@ -335,7 +335,34 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_list(args) -> int:
-    raise NotImplementedError("cmd_list — implemented in Task 22")
+    """List assets of a given kind."""
+    if args.kind == "templates":
+        try:
+            from cad_spec_gen.parts_routing import (
+                discover_templates, locate_builtin_templates_dir,
+            )
+        except ImportError as e:
+            print(f"Error: cannot import parts_routing: {e}", file=sys.stderr)
+            return 1
+        tier1 = locate_builtin_templates_dir()
+        if tier1 is None:
+            print("No builtin templates directory found.", file=sys.stderr)
+            return 1
+        templates = discover_templates([tier1])
+        if not templates:
+            print("No templates found.")
+            return 0
+        print(f"{'NAME':<25} {'CATEGORY':<22} {'TIER':<10} {'PRIORITY'}")
+        print("-" * 70)
+        for t in templates:
+            print(f"{t.name:<25} {t.category:<22} {t.tier:<10} {t.priority}")
+        return 0
+
+    elif args.kind in ("textures", "models"):
+        print(f"{args.kind} are not available in Spec 1 - see Spec 2 (deferred).")
+        return 0
+
+    return 1
 
 
 def cmd_which(args) -> int:
