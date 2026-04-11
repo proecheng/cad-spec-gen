@@ -228,3 +228,41 @@ def _build_envelope_regexes(
     box_re = re.compile(prelude + box_body + suffix)      # groups: 1=w 2=d 3=h 4=axis_label
     cyl_re = re.compile(prelude + cyl_body + suffix)      # groups: 1=dia 2=h 3=axis_label
     return box_re, cyl_re
+
+
+# ─── Section header parsing ─────────────────────────────────────────────────
+
+_HASH_HEADER_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_STANDALONE_BOLD_RE = re.compile(r"^\*\*([^*]+)\*\*\s*$")
+
+BOLD_HEADER_LEVEL: int = 100  # sentinel: always deeper than any markdown hash
+
+
+def _normalize_header(text: str) -> str:
+    """Strip markdown artifacts and collapse whitespace; return the semantic
+    content of the header, preserving original characters for tier 2/3
+    matching which operates on character content."""
+    text = re.sub(r"\*\*", "", text)
+    text = re.sub(r"^#{1,6}\s*", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _parse_section_header(line: str) -> tuple[int, str] | None:
+    """Return (level, normalized_text) or None.
+
+    - Markdown `#` headers (levels 1-6) → (1..6, text)
+    - Standalone `**bold**` on its own line → (BOLD_HEADER_LEVEL, text)
+    - Bullet-list bold items (`- **label**:value`) → None (property label, not header)
+    - Anything else → None
+    """
+    if not line or not line.strip():
+        return None
+    m = _HASH_HEADER_RE.match(line)
+    if m:
+        level = len(m.group(1))
+        return (level, _normalize_header(m.group(2)))
+    m = _STANDALONE_BOLD_RE.match(line)
+    if m:
+        return (BOLD_HEADER_LEVEL, _normalize_header(m.group(1)))
+    return None

@@ -158,3 +158,50 @@ class TestEnvelopeRegex:
     def test_wrong_trigger_term_does_not_match(self):
         box, _ = _build_envelope_regexes(("外形尺寸",))
         assert box.search("模块包络尺寸：60×40×290mm") is None
+
+
+from cad_spec_section_walker import _normalize_header, _parse_section_header
+
+
+class TestSectionHeader:
+    def test_normalize_strips_bold(self):
+        assert _normalize_header("**工位1**") == "工位1"
+
+    def test_normalize_strips_markdown_hash(self):
+        assert _normalize_header("### 4.1.2 各工位机械结构") == "4.1.2 各工位机械结构"
+
+    def test_normalize_collapses_whitespace(self):
+        assert _normalize_header("  工位1   涂抹  模块  ") == "工位1 涂抹 模块"
+
+    def test_markdown_h1(self):
+        assert _parse_section_header("# Top") == (1, "Top")
+
+    def test_markdown_h3(self):
+        assert _parse_section_header("### 4.1 Stations") == (3, "4.1 Stations")
+
+    def test_markdown_h6(self):
+        assert _parse_section_header("###### Deep") == (6, "Deep")
+
+    def test_markdown_h7_not_a_header(self):
+        """Seven hashes is not a valid Markdown header."""
+        assert _parse_section_header("####### Too deep") is None
+
+    def test_standalone_bold_is_level_100(self):
+        result = _parse_section_header("**工位1(0°)：耦合剂涂抹模块**")
+        assert result == (100, "工位1(0°)：耦合剂涂抹模块")
+
+    def test_bullet_bold_is_not_a_header(self):
+        """Property labels like `- **模块包络尺寸**：60×40×290mm` must NOT
+        reset section state — if they did, the walker would lose the
+        parent station on every envelope line."""
+        assert _parse_section_header("- **模块包络尺寸**：60×40×290mm") is None
+
+    def test_regular_line_is_not_a_header(self):
+        assert _parse_section_header("This is a paragraph.") is None
+
+    def test_empty_line_is_not_a_header(self):
+        assert _parse_section_header("") is None
+
+    def test_bold_with_trailing_content_is_not_a_header(self):
+        """Only standalone-bold-on-own-line counts."""
+        assert _parse_section_header("**工位1**: some text after") is None
