@@ -550,3 +550,35 @@ class SectionWalker:
         # Caches for public API.
         self._outputs: list[WalkerOutput] = []
         self._stats: WalkerStats | None = None
+
+    def _extract_envelope_from_line(self, line: str) -> EnvelopeData | None:
+        """Extract a box or cylinder envelope from one line.
+
+        Applies axis-label canonicalization: box dims are rewritten to
+        canonical (X, Y, Z) order using _AXIS_LABEL_BOX_MAP. An unknown
+        axis label returns None (the caller surfaces it as UNMATCHED with
+        reason='unrecognized_axis_label'). When no label is present, the
+        walker's `axis_label_default` is applied and the default-counter
+        increments.
+        """
+        m = self._box_re.search(line)
+        if m:
+            raw = (float(m.group(1)), float(m.group(2)), float(m.group(3)))
+            raw_label = m.group(4)
+            effective_label = raw_label or self.axis_label_default
+            dims = _canonicalize_box_axes(raw, effective_label)
+            if dims is None:
+                # Unknown label — caller will handle UNMATCHED.
+                return None
+            if raw_label is None:
+                self._axis_label_default_count += 1
+            return EnvelopeData(type="box", dims=dims, axis_label=raw_label)
+
+        m = self._cyl_re.search(line)
+        if m:
+            return EnvelopeData(
+                type="cylinder",
+                dims=(("d", float(m.group(1))), ("z", float(m.group(2)))),
+                axis_label=m.group(3),
+            )
+        return None

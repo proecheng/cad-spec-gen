@@ -497,3 +497,57 @@ class TestSectionWalkerInit:
         assert w2._box_re.search("模块包络尺寸：1×2×3mm") is None
         assert w2._box_re.search("外形尺寸：1×2×3mm") is not None
         assert w1._box_re.search("外形尺寸：1×2×3mm") is None
+
+
+class TestEnvelopeExtraction:
+    def test_box_extraction_with_default_axis(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line("模块包络尺寸：60×40×290mm")
+        assert env is not None
+        assert env.type == "box"
+        assert env.dims == (("x", 60.0), ("y", 40.0), ("z", 290.0))
+        assert w._axis_label_default_count == 1
+
+    def test_box_with_explicit_label_preserved(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：60×40×290mm (宽×深×高)"
+        )
+        assert env is not None
+        assert env.axis_label == "宽×深×高"
+        assert env.dims[0] == ("x", 60.0)
+        assert w._axis_label_default_count == 0
+
+    def test_box_with_length_first_label_reorders_correctly(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：1200×60×290mm (长×宽×高)"
+        )
+        assert env is not None
+        # (长, 宽, 高) → (x=1200, y=60, z=290) per the axis map
+        assert env.dims == (("x", 1200.0), ("y", 60.0), ("z", 290.0))
+
+    def test_cylinder_extraction(self):
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line("模块包络尺寸：Φ45×120mm")
+        assert env is not None
+        assert env.type == "cylinder"
+        assert env.dims == (("d", 45.0), ("z", 120.0))
+
+    def test_unrecognized_axis_label_returns_none(self):
+        """Walker refuses silent defaulting on unknown labels."""
+        w = SectionWalker([], _bom([]))
+        env = w._extract_envelope_from_line(
+            "模块包络尺寸：60×40×290mm (random order)"
+        )
+        assert env is None  # will surface as UNMATCHED with reason='unrecognized_axis_label'
+
+    def test_line_without_envelope_returns_none(self):
+        w = SectionWalker([], _bom([]))
+        assert w._extract_envelope_from_line("Just some paragraph text.") is None
+
+    def test_custom_trigger_term(self):
+        w = SectionWalker([], _bom([]), trigger_terms=("外形尺寸",))
+        env = w._extract_envelope_from_line("外形尺寸：100×50×25mm")
+        assert env is not None
+        assert env.dims == (("x", 100.0), ("y", 50.0), ("z", 25.0))
