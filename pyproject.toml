@@ -47,6 +47,7 @@ all = [
 [project.scripts]
 cad-skill-setup = "cad_spec_gen.cli:main_setup"
 cad-skill-check = "cad_spec_gen.cli:main_check"
+cad-lib = "cad_spec_gen.cad_lib:main"
 
 [project.urls]
 Homepage = "https://github.com/proecheng/cad-spec-gen"
