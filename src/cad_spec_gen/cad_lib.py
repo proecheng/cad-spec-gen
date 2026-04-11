@@ -143,7 +143,97 @@ def main(argv: Optional[list] = None) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_init(args) -> int:
-    raise NotImplementedError("cmd_init — implemented in Task 20")
+    """Create ~/.cad-spec-gen/ directory layout with schema v1 YAML stubs."""
+    home = _get_home()
+
+    # Check if library already populated (shared/ or state/ exist with content)
+    shared = home / "shared"
+    state = home / "state"
+    already_populated = False
+    for check_dir in (shared, state):
+        if check_dir.exists() and any(check_dir.iterdir()):
+            already_populated = True
+            break
+
+    if already_populated and not args.force:
+        log.error("~/.cad-spec-gen/ is already populated. Use --force to reinitialize.")
+        log.error(f"  {home}")
+        return 1
+
+    # Create directory structure
+    home.mkdir(parents=True, exist_ok=True)
+    shared.mkdir(exist_ok=True)
+    state.mkdir(exist_ok=True)
+    (shared / "templates").mkdir(exist_ok=True)
+
+    # Write library.yaml
+    (shared / "library.yaml").write_text(
+        "# cad-spec-gen user library - shared config\n"
+        "# This file is safe to commit to git for team-sharing.\n"
+        "# See ~/.cad-spec-gen/state/ for machine-local state.\n"
+        "\n"
+        "schema_version: 1\n"
+        "\n"
+        "# Template routing rules (Spec 2 populates).\n"
+        "routing: []\n"
+        "\n"
+        "# User-defined material preset extensions (Spec 2 populates).\n"
+        "materials: {}\n"
+        "\n"
+        "# User template keyword overrides (Spec 2 populates).\n"
+        "template_keywords: {}\n",
+        encoding="utf-8",
+    )
+
+    # Write shared/README.md
+    (shared / "README.md").write_text(
+        "# cad-spec-gen shared library\n"
+        "\n"
+        "This directory is **safe to commit to git** for team-sharing.\n"
+        "\n"
+        "Contents:\n"
+        "- `library.yaml` - routing rules, material presets, keyword overrides\n"
+        "- `templates/` - (Spec 2) user-added template modules\n"
+        "\n"
+        "Machine-local state is stored in the sibling `state/` directory and\n"
+        "must NOT be committed.\n"
+        "\n"
+        "Run `cad-lib doctor` to check the library's health.\n",
+        encoding="utf-8",
+    )
+
+    # Write state/installed.yaml
+    (state / "installed.yaml").write_text(
+        "# cad-spec-gen installed asset log - MACHINE-LOCAL, do not commit.\n"
+        "\n"
+        "schema_version: 1\n"
+        "\n"
+        "textures: {}\n"
+        "templates: {}\n"
+        "models: {}\n",
+        encoding="utf-8",
+    )
+
+    # Write state/suggestions.yaml
+    (state / "suggestions.yaml").write_text(
+        "# cad-spec-gen library growth suggestions - MACHINE-LOCAL, do not commit.\n"
+        "\n"
+        "schema_version: 1\n"
+        "\n"
+        "suggestions: []\n",
+        encoding="utf-8",
+    )
+
+    # Write state/.gitignore
+    (state / ".gitignore").write_text(
+        "# Machine-local state - never commit.\n"
+        "*\n"
+        "!.gitignore\n",
+        encoding="utf-8",
+    )
+
+    log.info(f"Initialized cad-spec-gen library at {home}")
+    return 0
 
 
 def cmd_doctor(args) -> int:
