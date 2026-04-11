@@ -267,7 +267,10 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
     # Parse §6.4 envelope dimensions (most accurate source)
     from codegen.gen_assembly import parse_envelopes
-    envelopes = parse_envelopes(spec_path)
+    envelopes_raw = parse_envelopes(spec_path)
+    # Legacy callers expect bare tuples: unwrap the new dict shape.
+    envelopes = {pno: (e["dims"] if isinstance(e, dict) else e)
+                 for pno, e in envelopes_raw.items()}
 
     for p in parts:
         # Only generate for custom-made leaf parts

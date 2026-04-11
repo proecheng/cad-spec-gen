@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 def test_parse_envelopes_from_spec():
-    """§6.4 table should parse into {part_no: (w, d, h)} dict."""
+    """§6.4 table should parse into {part_no: {"dims": (w, d, h), "granularity": str}} dict."""
     from codegen.gen_assembly import parse_envelopes
     spec = os.path.join(os.path.dirname(__file__), "..", "cad", "end_effector", "CAD_SPEC.md")
     # Fall back to fixture if the real spec doesn't exist or lacks a §6.4 envelope table
@@ -13,9 +13,11 @@ def test_parse_envelopes_from_spec():
         spec = _write_fixture_spec()
     envs = parse_envelopes(spec)
     assert len(envs) > 0
-    for pno, dims in envs.items():
+    for pno, entry in envs.items():
+        dims = entry["dims"]
         assert len(dims) == 3, f"{pno}: expected 3-tuple, got {dims}"
         assert all(isinstance(v, float) for v in dims), f"{pno}: non-float in {dims}"
+        assert "granularity" in entry, f"{pno}: missing granularity key"
 
 
 def _write_fixture_spec():
@@ -40,19 +42,21 @@ def _write_fixture_spec():
 
 
 def test_parse_envelopes_cylinder():
-    """Cylinder format: Φ90.0×25.0 → (90.0, 90.0, 25.0)."""
+    """Cylinder format: Φ90.0×25.0 → dims=(90.0, 90.0, 25.0)."""
     from codegen.gen_assembly import parse_envelopes
     spec = _write_fixture_spec()
     envs = parse_envelopes(spec)
-    assert envs["TEST-001-01"] == (90.0, 90.0, 25.0)
+    assert envs["TEST-001-01"]["dims"] == (90.0, 90.0, 25.0)
+    assert envs["TEST-001-01"]["granularity"] == "part_envelope"
 
 
 def test_parse_envelopes_box():
-    """Box format: 140.0×100.0×55.0 → (140.0, 100.0, 55.0)."""
+    """Box format: 140.0×100.0×55.0 → dims=(140.0, 100.0, 55.0)."""
     from codegen.gen_assembly import parse_envelopes
     spec = _write_fixture_spec()
     envs = parse_envelopes(spec)
-    assert envs["TEST-006-01"] == (140.0, 100.0, 55.0)
+    assert envs["TEST-006-01"]["dims"] == (140.0, 100.0, 55.0)
+    assert envs["TEST-006-01"]["granularity"] == "part_envelope"
 
 
 def test_guess_geometry_uses_envelope():
