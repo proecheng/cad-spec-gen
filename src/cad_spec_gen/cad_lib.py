@@ -546,11 +546,75 @@ def cmd_migrate_subsystem(args) -> int:
 
 
 def cmd_report(args) -> int:
-    raise NotImplementedError("cmd_report — implemented in Task 26")
+    """Print the suggestions log."""
+    import yaml
+    home = _get_home()
+    sug_file = home / "state" / "suggestions.yaml"
+    if not sug_file.exists():
+        print("No suggestions.yaml found. Run 'cad-lib init' first.")
+        return 0
+    try:
+        data = yaml.safe_load(sug_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as e:
+        print(f"[X] Failed to parse suggestions.yaml: {e}", file=sys.stderr)
+        return 1
+
+    sv = data.get("schema_version")
+    if sv != 1:
+        print(f"[X] Unsupported schema_version: {sv}", file=sys.stderr)
+        return 1
+
+    sug_list = data.get("suggestions", [])
+    if not sug_list:
+        print("No suggestions (0 entries). Spec 2 Phase R populates this log.")
+        return 0
+
+    print(f"cad-lib library growth suggestions ({len(sug_list)} entries):")
+    print("-" * 40)
+    for entry in sug_list:
+        print(f"  [{entry.get('kind', '?')}] {entry.get('reason', '?')}")
+        if "suggestion" in entry:
+            print(f"    -> {entry['suggestion']}")
+    return 0
 
 
 def cmd_migrate(args) -> int:
-    raise NotImplementedError("cmd_migrate — implemented in Task 27")
+    """Schema migration stub. Checks versions, errors on unknown."""
+    import yaml
+    home = _get_home()
+    if not home.exists():
+        print("~/.cad-spec-gen/ does not exist. Run 'cad-lib init' first.")
+        return 0
+
+    yaml_files = [
+        home / "shared" / "library.yaml",
+        home / "state" / "installed.yaml",
+        home / "state" / "suggestions.yaml",
+    ]
+    issues = []
+    for f in yaml_files:
+        if not f.exists():
+            continue
+        try:
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            issues.append(f"{f.name}: parse error - {e}")
+            continue
+        sv = data.get("schema_version")
+        if sv is None:
+            issues.append(f"{f.name}: missing schema_version")
+        elif sv > 1:
+            issues.append(f"{f.name}: unknown version {sv} (expected 1); upgrade the skill")
+        elif sv < 1:
+            issues.append(f"{f.name}: legacy version {sv}; migration not yet implemented")
+
+    if issues:
+        for msg in issues:
+            print(f"[X] {msg}", file=sys.stderr)
+        return 1
+
+    print("All schemas current (version 1).")
+    return 0
 
 
 if __name__ == "__main__":

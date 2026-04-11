@@ -164,3 +164,24 @@ def test_cad_lib_migrate_subsystem_creates_backup(tmp_path):
     backups = list(sub.glob("render_3d.py.bak.*"))
     assert len(backups) == 1
     assert "old render_3d content" in backups[0].read_text(encoding="utf-8")
+
+
+def test_cad_lib_report_empty_library(capsys):
+    from cad_spec_gen.cad_lib import main
+    # Initialize library first
+    main(["init", "--force"])
+    exit_code = main(["report"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    out_lower = captured.out.lower()
+    assert "no suggestions" in out_lower or "0 entries" in out_lower or "0 suggestion" in out_lower
+
+
+def test_cad_lib_migrate_stub_passes_on_v1(capsys):
+    from cad_spec_gen.cad_lib import main
+    main(["init", "--force"])
+    exit_code = main(["migrate"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    out_lower = captured.out.lower()
+    assert "current" in out_lower or "version 1" in out_lower
