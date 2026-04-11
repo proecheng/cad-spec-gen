@@ -6,6 +6,55 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.9.0] — 2026-04-11
+
+**Theme:** Section-header walker + granularity enforcement + vendor STEP auto-synthesizer.
+
+See [`RELEASE_v2.9.0.md`](RELEASE_v2.9.0.md) for the full release notes. Summary:
+
+### Added
+- **`cad_spec_section_walker.py`** (~770 lines) — stateful Markdown walker that attributes `模块包络尺寸` envelope markers to BOM assemblies via 4-tier hybrid matching: Tier 0 (`_find_nearest_assembly` regression guard) / Tier 1 (structured pattern — `工位N`, `第N级`, `模块N`) / Tier 2 (dual-path CJK char + ASCII word subsequence) / Tier 3 (CJK bigram + ASCII word Jaccard similarity). Two-phase dispatch: `_match_header` at header-push time, `_match_context` at envelope-emit time with a 500-char window. Per-instance regex compilation — no module-level state. Subsystem configurable via `trigger_terms` / `station_patterns` / `axis_label_default` / `bom_pno_prefixes` constructor kwargs.
+- **Six-step granularity enforcement chain**: `WalkerOutput.granularity` → `extract_part_envelopes` dict → `§6.4` `粒度` column → `parse_envelopes` header-name lookup → `PartQuery.spec_envelope_granularity` → `JinjaPrimitiveAdapter` REJECTS `station_constraint` envelopes for per-part sizing. Guarded by `tests/test_walker_downstream_integration.py::test_station_constraint_not_used_as_part_size`.
+- **`adapters/parts/vendor_synthesizer.py`** (329 lines) — factory registry that builds dimensionally-accurate parametric stand-ins for vendor parts (Maxon GP22C, LEMO FGG, ATI Nano17). `StepPoolAdapter` auto-invokes the synthesizer on missing STEP files, warming `~/.cad-spec-gen/step_cache/` so fresh projects with only a design doc route vendor BOM rows to real geometry without hand-crafted YAML.
+- **`parts_resolver.keyword_contains` matcher** — substring match across BOTH `name_cn` and `material` columns. Default `parts_library.default.yaml` uses this to cover project-specific vendor-name placement variations.
+- **`cad_pipeline.py spec --out-dir <path>`** — redirect subsystem output to a custom directory so tests can run the full pipeline against `tmp_path` without mutating `cad/<subsystem>/`.
+- **113 new tests** across 6 new test files + 2 existing file extensions: unit (73), fixtures (13), cross-subsystem isolation + determinism (3), real-doc integration (3), six-step enforcement (1), rendering (1), plus adapter/resolver/codegen extensions.
+
+### Changed
+- **`cad_spec_extractors.extract_part_envelopes` return type**: `dict` → `tuple[dict, WalkerReport]`. `WalkerReport` carries `unmatched`, `stats`, and `feature_flag_enabled`. `cad_spec_gen.py:656` updated to destructure.
+- **`cad_spec_extractors.py` P2 block** replaced by walker invocation. Legacy regex block preserved behind `CAD_SPEC_WALKER_ENABLED=0` feature flag as `_legacy_p2_regex_block` helper (will be removed in v2.10).
+- **`codegen/gen_assembly.py::parse_envelopes`** return shape: `dict[pno, (w,d,h)]` → `dict[pno, {"dims": (w,d,h), "granularity": str}]`. Positional `cells[3]` dims lookup unchanged; granularity read by header name with `"part_envelope"` default for legacy §6.4 tables. `codegen/gen_parts.py` and `codegen/gen_params.py` legacy callers unwrap via `isinstance(env, dict)` check for backward compat.
+- **`parts_resolver.PartQuery`** gains `spec_envelope_granularity: str = "part_envelope"` field. Default safe for all legacy callers.
+- **`adapters/parts/jinja_primitive_adapter._resolve_dims_from_spec_envelope_or_lookup`** REJECTS envelopes whose granularity is not `"part_envelope"`, falling through to `lookup_std_part_dims`.
+- **`cad_spec_gen.py §6.4` rendering** — imports legend constants from the walker module (`TIER_LEGEND_MD`, `CONFIDENCE_LEGEND_MD`, `GRANULARITY_LEGEND_MD`, `CONFIDENCE_VERIFY_THRESHOLD`, `UNMATCHED_SUGGESTIONS`). First 5 columns preserved (positional compat with `parse_envelopes`); new audit columns appended: `| 轴向标签 | 置信度 | 粒度 | 理由 | 备注`. Confidence <0.75 rendered as `**0.62 VERIFY**`. New `§6.4.1 未匹配的包络` subsection with reason-driven suggestion templates.
+- **`cad_spec_extractors._find_nearest_assembly`** parametrized with `bom_pno_prefixes` kwarg. Auto-derives from BOM via `pno.rsplit('-', 1)[0]` when not supplied, so Tier 0 regression guard generalizes beyond `GIS-EE-NNN` to arbitrary `XYZ-ABC-NNN` subsystems.
+- **`hatch_build._PIPELINE_TOOLS`** ships `cad_spec_section_walker.py` in the wheel.
+- **`tools/synthesize_demo_step_files.py`** refactored as a thin CLI wrapper around `vendor_synthesizer.py`.
+
+### Fixed
+- **GISBOT end-effector envelope attribution** — the walker correctly attributes all 4 station envelopes in the real `04-末端执行机构设计.md` document (previously returned zero). Validated by `tests/test_section_walker_real_docs.py::test_end_effector_docs_match_four_stations`.
+- **`codegen/gen_std_parts.py` `step_import` path resolver** now handles absolute paths for shared-cache STEP hits. Previously unconditionally wrapped the path with `os.path.join(_here, "..", "..", step_path)` which broke on absolute cache paths.
+- **`src/cad_spec_gen/render_3d.py _get_bounding_sphere`** now uses axis-aligned bounding box center instead of the vertex centroid. Vertex density on one side of the model (fine curved surfaces) no longer biases the camera framing. The radius is the half-diagonal — a tight upper bound that guarantees the sphere encloses all geometry.
+- **`cad_pipeline.py` `_run_subprocess`** gains `warn_exit_codes` parameter so callers can mark specific exit codes as "completed with warnings" rather than hard failures. Used by `gen_parts.py` where exit=2 means scaffolds were emitted with TODO markers (valid scaffolds, just unfinalized).
+- **`cad_pipeline.py` `_deploy_tool_modules`** adds `cad_spec_defaults.py` to the deployed tool list so `draw_three_view.save()` can lazy-import its surface roughness and part-no helper tables at runtime.
+
+### Validation
+- **Tests: 383 passed, 3 skipped, 1 deselected** (up from 270 baseline; +113 new tests, 0 regressions)
+- **Real-doc integration**: end_effector 4/4 station envelopes matched via Tier 1; lifting_platform skipped (documented known limitation — sparse data); `--out-dir` flag preserves `cad/end_effector/` mtimes across a full pipeline run
+- **Determinism**: walker output is byte-identical under `PYTHONHASHSEED=random` (subprocess test validates stable `(-score, pno)` tie-break sort keys in Tier 2/3)
+- **Cross-subsystem isolation**: two `SectionWalker` instances with different `trigger_terms` in one process produce independent output and have distinct compiled regexes
+- **Backwards compatibility**: feature flag `CAD_SPEC_WALKER_ENABLED=0` falls back to the legacy P2 regex block without requiring a code revert
+
+### Migration notes
+See [`RELEASE_v2.9.0.md`](RELEASE_v2.9.0.md) § "Migration notes" for the `extract_part_envelopes` return-type change, `PartQuery` constructor update for manual walker-envelope consumers, the rollback feature flag, and non-GISBOT subsystem kwargs.
+
+### Files
+- New: `cad_spec_section_walker.py`, `adapters/parts/vendor_synthesizer.py`, `RELEASE_v2.9.0.md`, 6 new test files, 13 synthetic fixtures, 2 BOM YAML fixtures + regenerator
+- Modified: `cad_spec_extractors.py`, `cad_spec_gen.py`, `codegen/gen_assembly.py`, `codegen/gen_std_parts.py`, `codegen/gen_parts.py`, `codegen/gen_params.py`, `parts_resolver.py`, `adapters/parts/jinja_primitive_adapter.py`, `adapters/parts/step_pool_adapter.py`, `parts_library.default.yaml`, `tools/synthesize_demo_step_files.py`, `cad_pipeline.py`, `hatch_build.py`, `src/cad_spec_gen/render_3d.py`, `docs/pipeline_architecture.md`, `docs/PARTS_LIBRARY.md`, `README.md`
+- Version metadata: `pyproject.toml`, `src/cad_spec_gen/__init__.py`, `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`
+
+---
+
 ## [2.8.2] — 2026-04-10
 
 **Theme:** Flange visual fidelity + GLB per-part bbox correctness + Phase B vendor STEP coverage expansion.

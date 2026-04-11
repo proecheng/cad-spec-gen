@@ -54,11 +54,25 @@ Phase 1    Phase 2    Phase 3    Phase 4    Phase 5    Phase 6
         │           radial_extend / side_mount / coaxial / lateral_array / extremity
         │         → §6.3 零件级定位（Z 偏移 + mode + confidence + source）
         │
-        ├─► [1f] v2.5: extract_part_envelopes()
-        │         从 5 个来源收集零件包络尺寸（优先级降序）：
-        │           P1 零件级参数表 > P2 叙述文字包络 > P3 BOM材质列
-        │             > P4 视觉标识表 > P5 全局参数
-        │         → §6.4 零件包络尺寸（type / size / source）
+        ├─► [1f] v2.5: extract_part_envelopes()  (v2.9 returns tuple)
+        │         从多个来源收集零件包络尺寸，跨模块有效优先级：
+        │           P1 零件级参数表 > P2 SectionWalker (v2.9)
+        │             > P4 视觉标识表 > P3 BOM材质列
+        │             > P7 parts_library > P5/P6 几何回填
+        │         v2.9: P2 块由 SectionWalker 取代 — 有状态地
+        │         追踪 Markdown 章节栈，用 4 层混合匹配策略
+        │         （Tier 0 part_no 回归守护 / Tier 1 结构编号 /
+        │         Tier 2 CJK+ASCII 双路子序列 / Tier 3 Jaccard）
+        │         把 §6.4 包络标签归属到正确的 BOM 装配体。
+        │         尺寸按 (X, Y, Z) 轴向规范化，每个条目携带
+        │         granularity 标签（station_constraint | part_envelope）
+        │         → 下游 JinjaPrimitiveAdapter 拒绝把
+        │         station_constraint 用作单件尺寸。
+        │         返回 (envelopes, WalkerReport) 元组，WalkerReport
+        │         包含 UNMATCHED 列表 + 统计 + feature flag 状态。
+        │         CAD_SPEC_WALKER_ENABLED=0 可回退到旧 regex 块。
+        │         → §6.4 零件包络尺寸（增加 粒度 / 理由 / 轴向标签 /
+        │           置信度 审计列 + §6.4.1 UNMATCHED 子节）
         │
         └─► [1g] v2.5: _apply_exclude_markers()
                   交叉引用 §8.3 否定约束表

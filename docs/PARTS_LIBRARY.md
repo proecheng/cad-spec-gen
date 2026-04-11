@@ -1,6 +1,6 @@
 # Parts Library System
 
-**Added in:** v2.8.0
+**Added in:** v2.8.0  •  **v2.9.0 additions:** vendor STEP auto-synthesizer + `keyword_contains` matcher + `spec_envelope_granularity` enforcement
 **Scope:** Phase 2 codegen + Phase 1 spec-gen envelope backfill
 
 ## Overview
@@ -18,6 +18,41 @@ parametric or vendor-provided CAD geometry from three sources:
 All three sources are **optional**. Without a `parts_library.yaml` in the
 project root, the pipeline behaves exactly like pre-v2.8.0 (byte-identical
 output verified by regression test).
+
+## v2.9.0: Shared-cache vendor synthesizer
+
+As of v2.9.0, `parts_library.default.yaml` ships vendor STEP mappings that
+point at the **shared cache** (`~/.cad-spec-gen/step_cache/` or
+`$CAD_SPEC_GEN_STEP_CACHE`). On first use, `StepPoolAdapter` calls
+`adapters/parts/vendor_synthesizer.py` to write a dimensionally-accurate
+parametric stand-in for each vendor part into the cache, so a fresh project
+with only a design document can route vendor BOM rows (Maxon GP22C, LEMO FGG,
+ATI Nano17, …) to real geometry **without** a hand-crafted project-level
+`parts_library.yaml`. To use real vendor STEP files instead, drop them at
+`~/.cad-spec-gen/step_cache/<vendor>/<model>.step` — the adapter prefers an
+existing file over the synthesizer, and project-local `std_parts/` is still
+searched first.
+
+Default mappings in v2.9.0 use the new `keyword_contains` matcher, which
+searches BOTH the BOM `name_cn` column AND the `material` column. Vendor
+model names commonly appear in either column (e.g. `name_cn="伺服电机"` +
+`material="Maxon ECX SPEED 22L"` in one project, `name_cn="Maxon ECX"` in
+another), so matching across both columns eliminates project-specific rule
+duplication.
+
+## v2.9.0: Granularity enforcement (`spec_envelope_granularity`)
+
+`PartQuery` gained a `spec_envelope_granularity: str = "part_envelope"` field
+that flows through the entire envelope chain (section walker → extractor →
+`gen_assembly.parse_envelopes` → `PartQuery` → `JinjaPrimitiveAdapter`).
+`JinjaPrimitiveAdapter._resolve_dims_from_spec_envelope_or_lookup` REJECTS
+any envelope whose granularity is not `"part_envelope"` and falls through to
+`lookup_std_part_dims` instead. This prevents station-level envelopes
+(`station_constraint`, produced by the new section walker) from silently
+sizing individual purchased parts as the full station bounding box — which
+was the catastrophic bug the v2.9.0 walker spec's round-2 review identified.
+End-to-end regression test at
+`tests/test_walker_downstream_integration.py::test_station_constraint_not_used_as_part_size`.
 
 ## Architecture
 

@@ -4,7 +4,7 @@
 
 A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
-**Latest: v2.8.2** — Parts Library System (`bd_warehouse` + STEP pool + PartCAD) with `extends: default` registry inheritance + per-build coverage report + GLB consolidator + F1+F3 disc_arms flange template. Library coverage went from hardcoded primitives to real vendor STEP files via a project-local `parts_library.yaml`. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/PARTS_LIBRARY.md`](docs/PARTS_LIBRARY.md) for the full picture.
+**Latest: v2.9.0** — Section-header walker (`cad_spec_section_walker.py`) with 4-tier hybrid matching (structured pattern / CJK+ASCII subsequence / Jaccard + Tier 0 regression guard) attributes `模块包络尺寸` markers to the correct BOM assembly. Six-step granularity enforcement chain prevents station-level envelopes from silently sizing individual purchased parts. Vendor STEP auto-synthesizer warms `~/.cad-spec-gen/step_cache/` on first use so fresh projects route Maxon/LEMO/ATI rows to real geometry without hand-crafted YAML. `cad_pipeline.py --out-dir` flag + subsystem-configurable walker kwargs (`trigger_terms`, `station_patterns`, `axis_label_default`) make the pipeline work on non-GISBOT subsystems. See [`CHANGELOG.md`](CHANGELOG.md), [`RELEASE_v2.9.0.md`](RELEASE_v2.9.0.md), and [`docs/PARTS_LIBRARY.md`](docs/PARTS_LIBRARY.md) for the full picture.
 
 ## Installation
 
