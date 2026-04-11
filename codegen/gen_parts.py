@@ -27,9 +27,19 @@ if _PROJECT_ROOT not in sys.path:
 # hatch_build.py publishes it as an installed package for wheel users;
 # repo-checkout users need src/ on sys.path BEFORE the repo root so the
 # package at src/cad_spec_gen/ wins over the top-level cad_spec_gen.py script.
+#
+# When cad-spec-gen is pip-installed in editable mode, pip writes a .pth
+# file that puts src/ into sys.path automatically — but AFTER site-packages
+# which comes AFTER our _PROJECT_ROOT insertion above. That means the
+# top-level cad_spec_gen.py script would shadow the src/cad_spec_gen/
+# package. To fix this, we force _SRC to position 0 by removing any
+# existing occurrence first (a simple `if _SRC not in sys.path: insert`
+# check would skip the reinsertion when .pth already put it deeper in
+# the list).
 _SRC = str(Path(__file__).parent.parent / "src")
-if _SRC not in sys.path:
-    sys.path.insert(0, _SRC)
+while _SRC in sys.path:
+    sys.path.remove(_SRC)
+sys.path.insert(0, _SRC)
 
 try:
     from cad_spec_gen.parts_routing import (
