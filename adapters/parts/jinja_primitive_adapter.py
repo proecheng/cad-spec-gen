@@ -198,7 +198,14 @@ def _resolve_dims_from_spec_envelope_or_lookup(query) -> Optional[dict]:
     """Reproduce the original dims-resolution logic from gen_std_parts.py.
 
     Order:
-      1. If query.spec_envelope is set (from §6.4), convert (w,d,h) → dims dict
+      0. If query.spec_envelope is set BUT granularity is NOT "part_envelope"
+         (i.e. it's a station_constraint or component-level envelope),
+         REJECT and fall through to lookup — station constraints describe
+         an outer bounding box that multiple parts must fit inside, NOT
+         the size of an individual part. This enforcement is the last
+         step of the six-step granularity chain from the walker spec.
+      1. If query.spec_envelope is set AND granularity is "part_envelope",
+         convert (w,d,h) → dims dict
       2. Else call lookup_std_part_dims(name, material, category)
       3. Else for category="other", use a small default block
       4. Else return None (caller should skip)
@@ -206,11 +213,20 @@ def _resolve_dims_from_spec_envelope_or_lookup(query) -> Optional[dict]:
     from cad_spec_defaults import lookup_std_part_dims
 
     if query.spec_envelope is not None:
-        w, d, h = query.spec_envelope
-        if abs(w - d) < 0.1:  # cylindrical
-            return {"d": w, "l": h}
+        granularity = getattr(query, "spec_envelope_granularity", "part_envelope")
+        if granularity == "part_envelope":
+            w, d, h = query.spec_envelope
+            if abs(w - d) < 0.1:  # cylindrical
+                return {"d": w, "l": h}
+            else:
+                return {"w": w, "d": d, "h": h}
         else:
-            return {"w": w, "d": d, "h": h}
+            # station_constraint / component — do NOT size an individual part.
+            import logging
+            logging.getLogger("jinja_primitive_adapter").debug(
+                "spec_envelope for %s has granularity=%s; deferring to lookup",
+                query.part_no, granularity,
+            )
 
     dims = lookup_std_part_dims(query.name_cn, query.material, query.category)
     if dims:
