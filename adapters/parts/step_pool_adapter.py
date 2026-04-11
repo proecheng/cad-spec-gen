@@ -89,13 +89,19 @@ class StepPoolAdapter(PartsAdapter):
         if not resolved_path:
             return ResolveResult.miss()
         if not os.path.isfile(resolved_path):
-            # File missing → fall through to next adapter instead of crashing
-            return ResolveResult(
-                status="miss",
-                kind="miss",
-                adapter=self.name,
-                warnings=[f"STEP file not found: {resolved_path}"],
-            )
+            # File missing → if the spec nominates a skill-level synthesizer,
+            # write the parametric stand-in into the shared cache and retry.
+            synthesized = self._try_synthesize(spec)
+            if synthesized and os.path.isfile(synthesized):
+                resolved_path = synthesized
+            else:
+                # Fall through to next adapter instead of crashing
+                return ResolveResult(
+                    status="miss",
+                    kind="miss",
+                    adapter=self.name,
+                    warnings=[f"STEP file not found: {resolved_path}"],
+                )
 
         # Probe bounding box for dimension consistency
         dims = self._probe_bbox(resolved_path)
@@ -117,8 +123,14 @@ class StepPoolAdapter(PartsAdapter):
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:
         """Return STEP bounding box without emitting code."""
         resolved_path = self._resolve_spec_path(spec, query)
-        if not resolved_path or not os.path.isfile(resolved_path):
+        if not resolved_path:
             return None
+        if not os.path.isfile(resolved_path):
+            synthesized = self._try_synthesize(spec)
+            if synthesized and os.path.isfile(synthesized):
+                resolved_path = synthesized
+            else:
+                return None
         return self._probe_bbox(resolved_path)
 
     # ---- Path resolution --------------------------------------------------
@@ -129,7 +141,9 @@ class StepPoolAdapter(PartsAdapter):
         Search order:
           1. `spec.file` — literal relative path, resolved against step_pool.root
           2. `spec.file_template` — template with placeholders (future work)
-          3. Shared cache fallback
+          3. Shared cache fallback (`step_pool.cache` or
+             `adapters.parts.vendor_synthesizer.default_cache_root()` when the
+             registry does not set it)
         """
         file_spec = spec.get("file") or spec.get("file_template")
         if not file_spec:
@@ -148,17 +162,56 @@ class StepPoolAdapter(PartsAdapter):
         if os.path.isfile(project_path):
             return os.path.normpath(project_path)
 
-        # Search 2: shared cache
+        # Search 2: shared cache (registry override or skill-default location)
+        cache_path = self._shared_cache_path(file_spec)
+        if cache_path and os.path.isfile(cache_path):
+            return os.path.normpath(cache_path)
+
+        # Not found — return the shared-cache path when we can, since that is
+        # the preferred write target for auto-synthesis. Falls back to the
+        # project-relative path when no cache has been configured so the
+        # "missing file" warning still points somewhere meaningful.
+        return os.path.normpath(cache_path or project_path)
+
+    def _shared_cache_path(self, file_spec: str) -> Optional[str]:
+        """Return the absolute cached-path for a vendor-relative file.
+
+        Honors `step_pool.cache` from parts_library.yaml if set. Falls back
+        to the skill-level shared cache root (`~/.cad-spec-gen/step_cache/`)
+        so a blank registry still resolves vendor parts the same way.
+        """
         cache = self.config.get("cache", "")
         if cache:
             cache = self._normalize_dir(cache)
-            cache_path = os.path.join(cache, file_spec)
-            if os.path.isfile(cache_path):
-                return os.path.normpath(cache_path)
+            return os.path.join(cache, file_spec)
+        try:
+            from adapters.parts.vendor_synthesizer import default_cache_root
+        except ImportError:
+            return None
+        return os.path.join(str(default_cache_root()), file_spec)
 
-        # Not found — return the project-relative path so the caller can
-        # log a clear "missing" message pointing to the expected location
-        return os.path.normpath(project_path)
+    def _try_synthesize(self, spec: dict) -> Optional[str]:
+        """Run a registered synthesizer to write a missing STEP into cache.
+
+        Consulted only when `_resolve_spec_path()` pointed at a non-existent
+        file. Returns the absolute path of the freshly written STEP on
+        success, or None if (a) no `synthesizer:` key is set, (b) the
+        factory is not registered, or (c) the synthesis itself failed.
+        Failures are swallowed — the caller will simply fall through to the
+        next adapter.
+        """
+        factory_id = spec.get("synthesizer")
+        file_spec = spec.get("file") or spec.get("file_template")
+        if not factory_id or not file_spec:
+            return None
+
+        try:
+            from adapters.parts.vendor_synthesizer import synthesize_to_cache
+        except ImportError:
+            return None
+
+        target = synthesize_to_cache(factory_id, file_spec)
+        return str(target) if target else None
 
     def _normalize_dir(self, dir_path: str) -> str:
         """Expand ~ and resolve relative paths against project_root."""
