@@ -12,9 +12,16 @@ content mutation regardless of timestamp resolution.
 """
 import hashlib
 import os
+import sys
 from pathlib import Path
 
 import pytest
+
+# Ensure src/ is on sys.path BEFORE pytest collects tests, to avoid
+# shadowing from top-level cad_spec_gen.py script.
+_SRC = Path(__file__).parent.parent / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 
 def _dir_state_hash(path: Path) -> str | None:
