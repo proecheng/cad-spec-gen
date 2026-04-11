@@ -69,11 +69,13 @@ def test_cad_pipeline_out_dir_flag_isolates_writes(tmp_path):
     if cad_ee.exists():
         before = {p.name: p.stat().st_mtime for p in cad_ee.glob("*") if p.is_file()}
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "spec",
          "--design-doc", str(END_EFFECTOR_DOC),
          "--out-dir", str(tmp_path), "--proceed", "--auto-fill"],
         env=env, capture_output=True, text=True, timeout=300,
+        encoding="utf-8", errors="replace",
     )
     after = {}
     if cad_ee.exists():

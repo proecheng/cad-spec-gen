@@ -93,6 +93,23 @@ class TestAxisCanonicalization:
         # Canonical order should have X=60 (width), Y=40 (depth), Z=290 (height)
         assert result == (("x", 60.0), ("y", 40.0), ("z", 290.0))
 
+    def test_label_with_trailing_annotation_uses_prefix(self):
+        """Real GISBOT docs use labels like 宽×深×高，含储罐延伸 where a
+        trailing annotation follows a Chinese comma. The comma-prefix
+        fallback resolves them via the known-prefix portion (round-2
+        real-doc integration finding)."""
+        raw = (60.0, 40.0, 290.0)
+        # Chinese comma
+        assert _canonicalize_box_axes(raw, "宽×深×高，含储罐延伸") == (
+            ("x", 60.0), ("y", 40.0), ("z", 290.0),
+        )
+        # ASCII comma also works
+        assert _canonicalize_box_axes(raw, "宽×深×高, trailing") == (
+            ("x", 60.0), ("y", 40.0), ("z", 290.0),
+        )
+        # Unknown prefix still returns None (no silent fallback)
+        assert _canonicalize_box_axes(raw, "bogus×label×foo，tail") is None
+
 
 from cad_spec_section_walker import _build_envelope_regexes
 
