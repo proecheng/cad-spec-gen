@@ -124,8 +124,17 @@ def {func_name}() -> cq.Workplane:
 '''
 
     elif result.kind == "step_import":
-        # Resolve the step path at IMPORT time from the module's location,
-        # so generated files are relocatable with the project root.
+        # Resolve the step path at IMPORT time. Project-relative paths
+        # anchor on the generated module's location so the project stays
+        # relocatable; absolute paths (e.g. shared cache hits) are used
+        # verbatim.
+        _step_path = result.step_path or ""
+        if os.path.isabs(_step_path):
+            path_resolver_line = f'    _step_path = {_step_path!r}'
+        else:
+            path_resolver_line = (
+                f'    _step_path = os.path.join(_here, "..", "..", {_step_path!r})'
+            )
         func_block = f'''
 
 def {func_name}() -> cq.Workplane:
@@ -135,7 +144,7 @@ def {func_name}() -> cq.Workplane:
     """
     import os
     _here = os.path.dirname(os.path.abspath(__file__))
-    _step_path = os.path.join(_here, "..", "..", {result.step_path!r})
+{path_resolver_line}
     _step_path = os.path.normpath(_step_path)
     if not os.path.isfile(_step_path):
         raise FileNotFoundError(
