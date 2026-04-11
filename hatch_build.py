@@ -18,6 +18,7 @@ _PIPELINE_TOOLS = [
     "cad_pipeline.py",
     "cad_spec_gen.py",
     "cad_spec_extractors.py",
+    "cad_spec_section_walker.py",
     "cad_spec_reviewer.py",
     "cad_paths.py",
     "bom_parser.py",

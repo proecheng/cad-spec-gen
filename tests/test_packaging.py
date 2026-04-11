@@ -124,3 +124,11 @@ def test_wheel_install_smoke(tmp_path):
                      "cylindrical_housing", "fixture_plate"]:
         assert expected in list_result.stdout, \
             f"Template {expected} missing from wheel install:\n{list_result.stdout}"
+
+
+def test_wheel_ships_cad_spec_section_walker():
+    """The walker module must be shipped in the wheel alongside the other
+    pipeline tools, mirrored to src/cad_spec_gen/data/python_tools/."""
+    content = (_REPO_ROOT / "hatch_build.py").read_text(encoding="utf-8")
+    assert "cad_spec_section_walker.py" in content, \
+        "Walker module not added to hatch_build._PIPELINE_TOOLS"
