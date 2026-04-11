@@ -397,3 +397,55 @@ class TestTier3Jaccard:
         """Header with only single-char ASCII and single-char CJK runs."""
         bom = _bom([{"part_no": "X", "name": "工位1"}])
         assert _match_by_jaccard("a b c", bom) is None
+
+
+from cad_spec_section_walker import _match_header, _match_context
+
+
+class TestDispatchers:
+    def test_match_header_tries_tiers_in_order(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        # Unique station → Tier 1 fires
+        result = _match_header("工位1涂抹", bom, _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 1
+
+    def test_match_header_falls_through_to_tier2(self):
+        """Tier 1 abstains (no 工位 in header); Tier 2 matches on CJK subsequence."""
+        bom = _bom([{"part_no": "X", "name": "传感器组件"}])
+        result = _match_header("传感器模块组件测试", bom,
+                               _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 2
+
+    def test_match_header_falls_through_to_tier3(self):
+        """Tier 1+2 abstain; Tier 3 Jaccard matches.
+
+        BOM name has words in reversed order so they cannot be a word
+        subsequence of the header (Tier 2 abstains), but Jaccard overlap
+        is high enough for Tier 3 to fire.
+        """
+        bom = _bom([{"part_no": "X", "name": "ee dd cc bb aa"}])
+        result = _match_header("aa bb cc dd ee ff", bom,
+                               _DEFAULT_STATION_PATTERNS)
+        assert result is not None
+        assert result.tier == 3
+
+    def test_match_header_all_abstain_returns_none(self):
+        bom = _bom([{"part_no": "X", "name": "completely unrelated"}])
+        assert _match_header("完全不同", bom, _DEFAULT_STATION_PATTERNS) is None
+
+    def test_match_context_fires_tier0_on_explicit_pno(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        context = "earlier paragraphs... see GIS-EE-002 spec table above."
+        result = _match_context(context, ("GIS-EE",), bom)
+        assert result is not None
+        assert result.tier == 0
+        assert result.pno == "GIS-EE-002"
+        assert result.reason == "tier0_context_window_match"
+
+    def test_match_context_no_pno_returns_none(self):
+        bom = _bom([{"part_no": "GIS-EE-002", "name": "工位1涂抹模块"}])
+        result = _match_context("unrelated context", ("GIS-EE",), bom)
+        # May fall back to name-substring match (4-char 工位1涂 not in context)
+        assert result is None

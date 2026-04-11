@@ -454,3 +454,47 @@ def _match_by_jaccard(
         pno=best_pno, tier=3, confidence=best_score,
         reason="tier3_jaccard_match",
     )
+
+
+# ─── Two-phase match dispatchers ────────────────────────────────────────────
+
+
+def _match_header(
+    header: str,
+    bom_data: dict,
+    station_patterns: list[tuple[str, str]],
+) -> MatchResult | None:
+    """Phase A: run Tier 1 → 2 → 3 on a section header.
+
+    Called at header-push time inside SectionWalker.walk(). The first
+    non-None tier result wins; returns None when all three abstain.
+    """
+    result = _match_by_pattern(header, bom_data, station_patterns)
+    if result is not None:
+        return result
+    result = _match_by_subsequence(header, bom_data)
+    if result is not None:
+        return result
+    return _match_by_jaccard(header, bom_data)
+
+
+def _match_context(
+    context: str,
+    bom_pno_prefixes: tuple[str, ...],
+    bom_data: dict,
+) -> MatchResult | None:
+    """Phase B: Tier 0 — lazy import of the legacy helper.
+
+    Called at envelope-emit time with the 500-char preceding window.
+    Imports `_find_nearest_assembly` locally because `cad_spec_extractors`
+    imports this module transitively at P2 integration time — module-level
+    import would create a cycle.
+    """
+    from cad_spec_extractors import _find_nearest_assembly
+    pno = _find_nearest_assembly(context, bom_data, bom_pno_prefixes)
+    if pno is None:
+        return None
+    return MatchResult(
+        pno=pno, tier=0, confidence=1.0,
+        reason="tier0_context_window_match",
+    )
