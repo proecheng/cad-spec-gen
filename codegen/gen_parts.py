@@ -293,16 +293,18 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
                 _search = [_tier1] if _tier1 else []
                 _templates = discover_templates(_search)
                 _decision = route(p["name_cn"] or "", _geom, _templates)
-                import logging as _lg
-                _lg.getLogger(__name__).info(
-                    "gen_parts routing preview: %s -> %s (%s)",
-                    p["name_cn"],
-                    _decision.outcome,
-                    _decision.template.name if _decision.template else "fallback",
+                _tpl = _decision.template.name if _decision.template else "fallback"
+                # Spec 1: print to stdout so the preview is observable during
+                # standalone gen_parts runs. gen_parts.py does not configure
+                # logging.basicConfig, so log.info() is silently dropped; use
+                # print() to match the rest of gen_parts.py's status output style.
+                print(
+                    f"  [routing preview] {p['name_cn']} -> "
+                    f"{_decision.outcome} ({_tpl})"
                 )
             except Exception as _err:
-                import logging as _lg
-                _lg.getLogger(__name__).debug("routing preview failed: %s", _err)
+                # Don't crash gen_parts on routing preview failure — diagnostic only.
+                print(f"  [routing preview] {p['name_cn']} -> failed: {_err}")
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA
