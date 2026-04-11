@@ -128,6 +128,14 @@ Labeled PNG — with leader lines and component names
 │     BOM tree, assembly pose, visual IDs, render plan, gaps      │
 │     v2.3: auto-extracts per-part feature list (holes/slots)     │
 │     by cross-referencing §2/§3/§4/§8 (extract_part_features)   │
+│     v2.9: §6.4 envelope attribution via stateful SectionWalker  │
+│     (cad_spec_section_walker.py) — 4-tier hybrid matching       │
+│     (Tier 0 part_no regression guard + Tier 1 structured        │
+│     pattern + Tier 2 CJK+ASCII subsequence + Tier 3 Jaccard)    │
+│     with 2-phase dispatch. Per-instance kwargs (trigger_terms / │
+│     station_patterns / axis_label_default) make it work across  │
+│     non-GISBOT subsystems. Canonical (X,Y,Z) axis rewrite +     │
+│     machine-readable reason codes → §6.4.1 UNMATCHED subsection.│
 │                                                                 │
 │  3. CODE GENERATION (Jinja2)                                      │
 │     CAD_SPEC.md → codegen/gen_*.py → params.py + build_all.py   │
@@ -143,6 +151,15 @@ Labeled PNG — with leader lines and component names
 │     inheritance + per-build resolver coverage report.            │
 │     v2.8.2: F1+F3 disc_arms flange (full-thickness arms +        │
 │     chamfer/fillet) + GLB consolidator (per-face → per-part).    │
+│     v2.9: six-step granularity enforcement chain — walker →      │
+│     parse_envelopes → PartQuery.spec_envelope_granularity →      │
+│     JinjaPrimitiveAdapter REJECTS station_constraint envelopes,  │
+│     falling through to lookup_std_part_dims instead of sizing    │
+│     individual purchased parts as the full station bounding box. │
+│     Vendor STEP auto-synthesizer (adapters/parts/                │
+│     vendor_synthesizer.py) warms ~/.cad-spec-gen/step_cache/     │
+│     on first use — fresh projects route Maxon/LEMO/ATI BOM rows  │
+│     to real geometry without hand-crafted parts_library.yaml.    │
 │  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
