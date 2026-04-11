@@ -168,6 +168,8 @@ _AXIS_LABEL_BOX_MAP: dict[str, tuple[int, int, int]] = {
     "W×D×H": (0, 1, 2),
     "长×宽×高": (0, 1, 2),   # length=X, width=Y, height=Z (position-0 is X regardless)
     "L×W×H": (0, 1, 2),
+    # Qualified directional variants (cutting-plane coordinates, etc.)
+    "切向宽×径向深×轴向高": (0, 1, 2),  # tangential-W × radial-D × axial-H
     # Swapped orders
     "深×宽×高": (1, 0, 2),   # raw[0]=depth→Y, raw[1]=width→X, raw[2]=height→Z
     "宽×高×深": (0, 2, 1),   # raw[0]=width→X, raw[1]=height→Z, raw[2]=depth→Y
@@ -185,9 +187,21 @@ def _canonicalize_box_axes(
     Returns None when the label is not in _AXIS_LABEL_BOX_MAP — the caller
     must surface this as UNMATCHED with reason='unrecognized_axis_label'
     rather than silently defaulting.
+
+    Prefix-match fallback: if the full normalized label is not found but it
+    begins with a known key followed by a Chinese/ASCII comma (「，」/「,」),
+    the known-key portion is used. This handles parenthetical annotations like
+    「宽×深×高，含储罐延伸」 that appear in real design docs.
     """
     label_norm = re.sub(r"\s+", "", label or "")
     order = _AXIS_LABEL_BOX_MAP.get(label_norm)
+    if order is None:
+        # Prefix-match: strip trailing annotation after first 「，」or 「,」
+        for sep in ("，", ","):
+            prefix, _, rest = label_norm.partition(sep)
+            if rest and prefix in _AXIS_LABEL_BOX_MAP:
+                order = _AXIS_LABEL_BOX_MAP[prefix]
+                break
     if order is None:
         return None
     return (

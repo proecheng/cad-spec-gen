@@ -915,12 +915,19 @@ def cmd_spec(args):
 
     # Deploy spec artifacts from output/ to cad/ so codegen can read them
     _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
-    _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
-    if not _cad_sub and args.subsystem:
-        # Directory doesn't exist yet — create it so deploy can proceed
-        _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+    _out_dir_override = getattr(args, "out_dir", None)
+    if _out_dir_override and args.subsystem:
+        # --out-dir supplied: redirect all writes away from cad/<subsystem>/
+        _cad_sub = os.path.join(_out_dir_override, args.subsystem)
         os.makedirs(_cad_sub, exist_ok=True)
-        log.info("  Created: %s", _cad_sub)
+        log.info("  --out-dir: redirecting subsystem output to %s", _cad_sub)
+    else:
+        _cad_sub = get_subsystem_dir(args.subsystem) if args.subsystem else None
+        if not _cad_sub and args.subsystem:
+            # Directory doesn't exist yet — create it so deploy can proceed
+            _cad_sub = os.path.join(PROJECT_ROOT, "cad", args.subsystem)
+            os.makedirs(_cad_sub, exist_ok=True)
+            log.info("  Created: %s", _cad_sub)
     if _cad_sub and os.path.isdir(_output_sub):
         for _fname in ("CAD_SPEC.md", "DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
             _src = os.path.join(_output_sub, _fname)
@@ -2223,6 +2230,13 @@ def main():
     p_spec.add_argument("--supplements", default=None,
                         help="JSON string of Agent-collected supplements, e.g. '{\"B3\":\"4xM4\",\"D2\":\"__AUTO__\"}'. "
                              "Written to user_supplements.json then spec is generated.")
+    p_spec.add_argument(
+        "--out-dir",
+        type=str,
+        default=None,
+        help="Override subsystem output root (default: cad/<subsystem>/). "
+             "Used by tests to redirect writes away from pinned subsystem dirs.",
+    )
 
     # codegen
     p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
