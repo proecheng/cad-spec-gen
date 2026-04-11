@@ -1300,13 +1300,38 @@ def _match_name_to_bom(name: str, bom_data,
     return None
 
 
-def _find_nearest_assembly(context: str, bom_data) -> Optional[str]:
-    """Find nearest assembly part_no from preceding text context."""
+def _find_nearest_assembly(
+    context: str,
+    bom_data,
+    bom_pno_prefixes: "tuple[str, ...] | None" = None,
+) -> "Optional[str]":
+    """Find nearest assembly part_no from preceding text context.
+
+    Tier 0 fallback used by both the legacy P2 regex block and the new
+    SectionWalker. Prefixes are derived from BOM data when not supplied
+    so the regex generalizes beyond GIS-EE-NNN to arbitrary XYZ-ABC-NNN
+    subsystems. Fall-back strategies:
+      1. Regex scan for explicit {prefix}-NNN in context → use last match
+      2. First-4-char substring match of BOM name in context → use that pno
+    """
     if not bom_data:
         return None
-    pnos = re.findall(r"([A-Z]+-[A-Z]+-\d{3})", context)
-    if pnos:
-        return pnos[-1]
+
+    # Auto-derive prefix set from BOM when caller doesn't supply one.
+    if bom_pno_prefixes is None:
+        prefix_set: "set[str]" = set()
+        for assy in bom_data.get("assemblies", []):
+            pno = assy.get("part_no", "")
+            if "-" in pno:
+                prefix_set.add(pno.rsplit("-", 1)[0])
+        bom_pno_prefixes = tuple(sorted(prefix_set))
+
+    if bom_pno_prefixes:
+        alternation = "|".join(re.escape(p) for p in bom_pno_prefixes)
+        pnos = re.findall(fr"(?:{alternation})-\d+", context)
+        if pnos:
+            return pnos[-1]
+
     for assy in bom_data.get("assemblies", []):
         name = assy.get("name", "")
         if name and len(name) >= 4 and name[:4] in context:
