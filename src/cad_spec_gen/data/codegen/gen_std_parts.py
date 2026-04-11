@@ -56,15 +56,28 @@ def _safe_module_name(part_no: str) -> str:
 
 
 def _envelope_to_spec_envelope(env):
-    """Convert parse_envelopes() output tuple to the PartQuery field.
+    """Convert parse_envelopes() output entry to the PartQuery spec_envelope
+    tuple.
 
-    parse_envelopes returns dict[part_no: (w, d, h)]. PartQuery.spec_envelope
-    is the same tuple. This function exists so we have one place to document
-    the convention.
+    Input shape: {"dims": (w, d, h), "granularity": str}  (new dict form)
+                 OR (w, d, h)                              (legacy bare tuple)
+    Output: (w, d, h) or None
     """
     if env is None:
         return None
-    return tuple(env)
+    dims = env.get("dims") if isinstance(env, dict) else env
+    if dims is None:
+        return None
+    return dims
+
+
+def _envelope_to_granularity(env) -> str:
+    """Extract granularity from a parse_envelopes() entry.
+    Backward-compat: bare tuples (legacy format) default to part_envelope.
+    """
+    if isinstance(env, dict):
+        return env.get("granularity") or "part_envelope"
+    return "part_envelope"
 
 
 def _emit_module_source(part, mod_name: str, category: str, result) -> str:
@@ -124,8 +137,17 @@ def {func_name}() -> cq.Workplane:
 '''
 
     elif result.kind == "step_import":
-        # Resolve the step path at IMPORT time from the module's location,
-        # so generated files are relocatable with the project root.
+        # Resolve the step path at IMPORT time. Project-relative paths
+        # anchor on the generated module's location so the project stays
+        # relocatable; absolute paths (e.g. shared cache hits) are used
+        # verbatim.
+        _step_path = result.step_path or ""
+        if os.path.isabs(_step_path):
+            path_resolver_line = f'    _step_path = {_step_path!r}'
+        else:
+            path_resolver_line = (
+                f'    _step_path = os.path.join(_here, "..", "..", {_step_path!r})'
+            )
         func_block = f'''
 
 def {func_name}() -> cq.Workplane:
@@ -135,7 +157,7 @@ def {func_name}() -> cq.Workplane:
     """
     import os
     _here = os.path.dirname(os.path.abspath(__file__))
-    _step_path = os.path.join(_here, "..", "..", {result.step_path!r})
+{path_resolver_line}
     _step_path = os.path.normpath(_step_path)
     if not os.path.isfile(_step_path):
         raise FileNotFoundError(
@@ -264,6 +286,7 @@ def generate_std_part_files(
             category=category,
             make_buy=p.get("make_buy", ""),
             spec_envelope=_envelope_to_spec_envelope(env),
+            spec_envelope_granularity=_envelope_to_granularity(env),
             project_root=project_root,
         )
 

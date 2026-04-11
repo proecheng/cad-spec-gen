@@ -23,6 +23,34 @@ _PROJECT_ROOT = str(Path(__file__).parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+# Spec 1: make the cad_spec_gen package importable in repo-checkout mode.
+# hatch_build.py publishes it as an installed package for wheel users;
+# repo-checkout users need src/ on sys.path BEFORE the repo root so the
+# package at src/cad_spec_gen/ wins over the top-level cad_spec_gen.py script.
+#
+# When cad-spec-gen is pip-installed in editable mode, pip writes a .pth
+# file that puts src/ into sys.path automatically — but AFTER site-packages
+# which comes AFTER our _PROJECT_ROOT insertion above. That means the
+# top-level cad_spec_gen.py script would shadow the src/cad_spec_gen/
+# package. To fix this, we force _SRC to position 0 by removing any
+# existing occurrence first (a simple `if _SRC not in sys.path: insert`
+# check would skip the reinsertion when .pth already put it deeper in
+# the list).
+_SRC = str(Path(__file__).parent.parent / "src")
+while _SRC in sys.path:
+    sys.path.remove(_SRC)
+sys.path.insert(0, _SRC)
+
+try:
+    from cad_spec_gen.parts_routing import (
+        GeomInfo, route, discover_templates, locate_builtin_templates_dir,
+    )
+    _PARTS_ROUTING_AVAILABLE = True
+except ImportError as _exc:
+    _PARTS_ROUTING_AVAILABLE = False
+    import logging as _log
+    _log.getLogger(__name__).debug("parts_routing unavailable: %s", _exc)
+
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -239,7 +267,10 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
     # Parse §6.4 envelope dimensions (most accurate source)
     from codegen.gen_assembly import parse_envelopes
-    envelopes = parse_envelopes(spec_path)
+    envelopes_raw = parse_envelopes(spec_path)
+    # Legacy callers expect bare tuples: unwrap the new dict shape.
+    envelopes = {pno: (e["dims"] if isinstance(e, dict) else e)
+                 for pno, e in envelopes_raw.items()}
 
     for p in parts:
         # Only generate for custom-made leaf parts
@@ -259,6 +290,34 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
         envelope = envelopes.get(p["part_no"])
         geom = _guess_geometry(p["name_cn"], p["material"], envelope=envelope)
+
+        # Spec 1: log routing preview (dormant integration; emission unchanged).
+        if _PARTS_ROUTING_AVAILABLE:
+            try:
+                _geom = GeomInfo(
+                    type=geom.get("type", "unknown"),
+                    envelope_w=float(geom.get("envelope_w") or 0),
+                    envelope_d=float(geom.get("envelope_d") or 0),
+                    envelope_h=float(geom.get("envelope_h") or 0),
+                    extras={k: v for k, v in geom.items()
+                            if k not in {"type", "envelope_w", "envelope_d", "envelope_h"}},
+                )
+                _tier1 = locate_builtin_templates_dir()
+                _search = [_tier1] if _tier1 else []
+                _templates = discover_templates(_search)
+                _decision = route(p["name_cn"] or "", _geom, _templates)
+                _tpl = _decision.template.name if _decision.template else "fallback"
+                # Spec 1: print to stdout so the preview is observable during
+                # standalone gen_parts runs. gen_parts.py does not configure
+                # logging.basicConfig, so log.info() is silently dropped; use
+                # print() to match the rest of gen_parts.py's status output style.
+                print(
+                    f"  [routing preview] {p['name_cn']} -> "
+                    f"{_decision.outcome} ({_tpl})"
+                )
+            except Exception as _err:
+                # Don't crash gen_parts on routing preview failure — diagnostic only.
+                print(f"  [routing preview] {p['name_cn']} -> failed: {_err}")
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA

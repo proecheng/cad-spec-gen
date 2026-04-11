@@ -1,6 +1,6 @@
 {
   "name": "cad-spec-gen",
-  "version": "2.9.1",
+  "version": "2.9.2",
   "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → constraint declaration → code generation → assembly validation (GATE-3.5) → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",

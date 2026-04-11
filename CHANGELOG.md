@@ -6,6 +6,47 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.9.2] — 2026-04-12
+
+**Theme:** 渲染层回归覆盖 + 打包 mirror drift 安全网 + 历史 mirror 同步。Test-only patch release — no production code changes beyond one marker registration. 覆盖 v2.9.0 / v2.9.1 期间明确暴露但一直没有自动化测试的三个技术债区：渲染数学层、打包副本 drift、Blender 真实环境 smoke。
+
+See [`RELEASE_v2.9.2.md`](RELEASE_v2.9.2.md) for the full release notes.
+
+### Added
+
+- **`tests/test_data_dir_sync.py`** — Item 4 Path B 安全网。`ast.parse()` 读取 `hatch_build.py` 的 `_PIPELINE_TOOLS` / `COPY_DIRS` / `TOP_LEVEL_FILES` 常量，自动派生 47 个 `(root, src/cad_spec_gen/data/)` 同步对并参数化为独立 case。若 root 源文件被修改但 mirror 未同步，测试 fail 并打印 `cp ... && git add ...` 修复命令。另含 `test_python_tools_has_no_stray_files`（反向哨兵：data/ 下不应有 `_PIPELINE_TOOLS` 外的 .py 文件）和 `test_sync_pair_count_is_nontrivial`（健康检查）。长期方案（v2.10）是把 `data/python_tools/**` 和 `data/codegen/**` 加入 `.gitignore` 并改为 build-time 生成。
+
+- **`tests/test_render_camera_math.py`** — Item 3 Tier 1：`_resolve_camera_coords` 球坐标→笛卡尔数学的 6 个 case。覆盖 0°/90° 轴对齐 / elevation 90° 正上方 / bounding_radius 缺失时 fallback 到 300 / 已预设 location 的幂等性 / 多相机独立解析。
+
+- **`tests/test_view_key.py`** — Item 3 Tier 1：`extract_view_key` 和 `view_sort_key` 的 9 个 case。覆盖时间戳剥离（`V3_side_elevation_20260411_1712.png` → `V3`）/ V10 两位数 / rc 提供的 camera 字典优先 / V1 < V2 < V10 数字序（不是 V1 < V10 < V2 字符串序）/ 未知文件 tier fallback。
+
+- **`tests/test_material_presets.py`** — Item 3 Tier 1：`MATERIAL_PRESETS` 结构契约的 6 个 case。条目数 ≥ 15 / 每条必含 color+metallic+roughness+appearance / RGBA 4-tuple 在 [0,1] / PBR 参数范围 / appearance 非空字符串 / v2.3 dedup 回归（模块级不应再有 `_PRESET_APPEARANCE` 副本字典）。
+
+- **`tests/test_render_3d_structure.py`** — Item 3 Tier 1：`_get_bounding_sphere` v2.9.0 AABB 中心 fix 的 5 个结构性断言（源码字符串检查，不 mock bpy）。文件存在 / `ast.parse()` 通过 / 顶部仍 import bpy+mathutils / 函数体必含 `min(xs)` / `max(xs)` 不含 `sum(xs)` / 半径仍用半对角线公式。
+
+- **`tests/test_render_3d_blender_smoke.py`** — Item 3 Tier 2：render_3d.py 在**真实 Blender 4.2 进程**内的 import smoke（1 个 case）。用 `blender --background --python-expr "import render_3d; print('RENDER3D_OK')"` 启动 headless Blender，断言哨兵字符串出现。覆盖 bpy API 漂移 / 模块级 bpy 调用 / mathutils 导入路径变更等"离线 pytest 完全看不到"的回归。标记为 `@pytest.mark.blender`，默认跳过，`cad_paths.get_blender_path()` 找不到时自动 skip（CI 无 Blender 保持绿色）。~3 秒完成，不渲染像素。
+
+- **`pyproject.toml` 新增 pytest marker `blender`** — 注册 `blender: real Blender headless smoke tests (v2.9.2+); auto-skip if Blender missing`，并更新 `slow` 描述为 `packaging/wheel-build tests` 以消歧。两个 marker 现在职责分明 —— `slow` 专管 wheel 构建，`blender` 专管真实 Blender 环境。
+
+### Changed
+
+- **`src/cad_spec_gen/data/`** 下 8 个文件的历史 drift 追赶入库：`data/codegen/gen_{assembly,params,parts,std_parts}.py` + `data/python_tools/{cad_spec_extractors,cad_spec_gen,draw_three_view,drawing}.py`。这些 mirror 自 v2.9.0 以来就处于"内容和 root 一致但未入 HEAD"的状态，`python -m build --wheel` 跑完后 git 就会冒出假 `M` 标记。本次 commit 一次性追平。
+- **`src/cad_spec_gen/data/`** 新增 3 个历史漏 track 的文件入库：`data/parts_library.default.yaml`（v2.8.0 引入的 `TOP_LEVEL_FILES` 没跟着 commit mirror）+ `data/python_tools/cad_spec_section_walker.py`（v2.9.0 新增的 walker 模块漏了 mirror）+ `data/templates/parts/`（v2.9.0 parts library 引入的新目录漏了 mirror）。这些原本只在 build 时生成，现在进 HEAD 让 editable install 和 git clone 一次就能拿到完整树。
+
+### Validation
+
+- **478 passed / 3 skipped / 2 deselected** non-slow non-blender 套（v2.9.1 基线 401 + 本次新增 77，零回归），31.97 秒
+- **1 blender case 通过** `tests/test_render_3d_blender_smoke.py`（~3 秒）在真实 Blender 4.2.16 LTS 内验证 render_3d.py 可 import
+- **51 drift case 全通过** `tests/test_data_dir_sync.py` 证实所有 mirror 与 root 字节一致
+
+### Files
+
+- New: `tests/test_data_dir_sync.py`, `tests/test_render_camera_math.py`, `tests/test_view_key.py`, `tests/test_material_presets.py`, `tests/test_render_3d_structure.py`, `tests/test_render_3d_blender_smoke.py`, `RELEASE_v2.9.2.md`, `src/cad_spec_gen/data/parts_library.default.yaml`, `src/cad_spec_gen/data/python_tools/cad_spec_section_walker.py`, `src/cad_spec_gen/data/templates/parts/*.py`
+- Modified: `pyproject.toml` (version + marker), `README.md` (Latest marker), `CHANGELOG.md`, `src/cad_spec_gen/data/codegen/gen_{assembly,params,parts,std_parts}.py`, `src/cad_spec_gen/data/python_tools/{cad_spec_extractors,cad_spec_gen,draw_three_view,drawing}.py`
+- Version metadata: `pyproject.toml`, `src/cad_spec_gen/__init__.py`, `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`
+
+---
+
 ## [2.9.1] — 2026-04-11
 
 **Theme:** End-to-end regression-hardening after a full real-document pipeline test on the GISBOT end-effector design doc. Four skill bugs fixed; no feature work.

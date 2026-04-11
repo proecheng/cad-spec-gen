@@ -180,7 +180,9 @@ def parse_assembly_params(spec_path: str) -> list:
         # Fallback 2: derive from §6.4 envelope — use half of largest cylindrical diameter
         try:
             from codegen.gen_assembly import parse_envelopes
-            envs = parse_envelopes(spec_path)
+            envs_raw = parse_envelopes(spec_path)
+            envs = {pno: (e["dims"] if isinstance(e, dict) else e)
+                    for pno, e in envs_raw.items()}
             if envs:
                 max_dia = max((w for w, d, h in envs.values() if abs(w - d) < 0.1), default=None)
                 if max_dia:

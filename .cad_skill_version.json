@@ -1,7 +1,7 @@
 {
   "skill": "cad-spec-gen",
-  "version": "2.9.1",
-  "installed_at": "2026-04-11T17:30:00.000000",
+  "version": "2.9.2",
+  "installed_at": "2026-04-12T10:00:00.000000",
   "lang": "zh",
   "files": {
     "cad_pipeline.py": "bb5d283078462fce7c44ba4e262dcdd0",

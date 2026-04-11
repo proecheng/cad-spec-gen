@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cad-spec-gen"
-version = "2.9.1"
+version = "2.9.2"
 description = "CAD pipeline skill: design doc → structured spec → feature extraction → code generation → assembly validation → 2D drawings (GB/T section views) → 3D renders → photorealistic images (4 backends v2.7)"
 readme = "README.md"
 license = "MIT"
@@ -70,6 +70,7 @@ env = [
 markers = [
     "fast: unit tests, <100ms each",
     "integration: full-chain tests",
-    "slow: Blender or packaging tests, run on main/nightly only",
+    "slow: packaging/wheel-build tests, run on main/nightly only",
+    "blender: real Blender headless smoke tests (v2.9.2+); auto-skip if Blender missing",
 ]
 testpaths = ["tests"]
