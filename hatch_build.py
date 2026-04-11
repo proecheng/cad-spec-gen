@@ -51,6 +51,12 @@ COPY_DIRS = {
     "templates": "templates",
 }
 
+# Spec 1 Phase 5: top-level files shipped as data payload inside the wheel.
+# These land at src/cad_spec_gen/data/<basename> at build time.
+TOP_LEVEL_FILES = {
+    "parts_library.default.yaml": "parts_library.default.yaml",
+}
+
 # Command files (zh from .claude/commands/, en hand-written in data/commands/en/)
 COMMAND_SOURCE = ".claude/commands"
 
@@ -99,3 +105,12 @@ class CustomBuildHook(BuildHookInterface):
         sys_prompt = root / "system_prompt.md"
         if sys_prompt.exists():
             shutil.copy2(sys_prompt, data_dir / "system_prompt.md")
+
+        # --- Spec 1 Phase 5: copy top-level data files (parts_library.default.yaml, etc.) ---
+        for src_name, dest_rel in TOP_LEVEL_FILES.items():
+            src_path = root / src_name
+            if not src_path.exists():
+                continue
+            dest_path = data_dir / dest_rel
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, dest_path)

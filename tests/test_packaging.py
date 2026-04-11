@@ -17,3 +17,10 @@ def test_pyproject_has_cad_lib_entry_point():
 def test_pyproject_has_pytest_env_pinned():
     content = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "PYTHONHASHSEED=0" in content, "PYTHONHASHSEED not pinned"
+
+
+def test_hatch_build_ships_parts_library_default_yaml():
+    content = (_REPO_ROOT / "hatch_build.py").read_text(encoding="utf-8")
+    # Look for any reference to parts_library.default.yaml being shipped
+    assert "parts_library.default.yaml" in content, \
+        "hatch_build.py does not ship parts_library.default.yaml"
