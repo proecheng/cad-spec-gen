@@ -112,3 +112,18 @@ def test_cad_lib_list_textures_shows_spec2_message(capsys):
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Spec 2" in captured.out or "not available" in captured.out.lower()
+
+
+def test_cad_lib_which_template_existing(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["which", "template", "l_bracket"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "l_bracket" in captured.out
+    assert "builtin" in captured.out.lower() or "tier 1" in captured.out.lower()
+
+
+def test_cad_lib_which_template_missing(capsys):
+    from cad_spec_gen.cad_lib import main
+    exit_code = main(["which", "template", "nonexistent_template"])
+    assert exit_code != 0

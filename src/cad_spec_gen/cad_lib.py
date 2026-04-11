@@ -366,7 +366,44 @@ def cmd_list(args) -> int:
 
 
 def cmd_which(args) -> int:
-    raise NotImplementedError("cmd_which — implemented in Task 23")
+    """Show resolution chain for an asset."""
+    if args.kind != "template":
+        print(f"'which {args.kind}' is not available in Spec 1.")
+        return 0
+
+    if not _validate_name(args.name):
+        print(f"Invalid template name: {args.name!r} (must match [a-z0-9_]{{1,64}})",
+              file=sys.stderr)
+        return 2
+
+    try:
+        from cad_spec_gen.parts_routing import (
+            discover_templates, locate_builtin_templates_dir,
+        )
+    except ImportError as e:
+        print(f"Error: cannot import parts_routing: {e}", file=sys.stderr)
+        return 1
+
+    tier1 = locate_builtin_templates_dir()
+    if tier1 is None:
+        print("No builtin templates directory found.", file=sys.stderr)
+        return 1
+
+    templates = discover_templates([tier1])
+    match = next((t for t in templates if t.name == args.name), None)
+
+    if match is None:
+        print(f"Template {args.name!r} not found.")
+        print(f"Searched: {tier1}")
+        return 1
+
+    print(f"Template: {match.name}")
+    print(f"  Tier:      {match.tier}")
+    print(f"  Category:  {match.category}")
+    print(f"  Priority:  {match.priority}")
+    print(f"  Keywords:  {', '.join(match.keywords)}")
+    print(f"  Source:    {match.source_path}")
+    return 0
 
 
 def cmd_validate(args) -> int:
