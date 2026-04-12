@@ -59,3 +59,60 @@ def test_parse_nonexistent_file_returns_empty():
     from adapters.solidworks.sw_material_bridge import parse_sldmat
     result = parse_sldmat(Path("/nonexistent/fake.sldmat"))
     assert result == []
+
+
+# ─── Task 3: build_bundle + load_sw_material_bundle 测试 ───────────────────
+
+
+def test_build_bundle_type_keywords():
+    """bundle.type_keywords 包含 SW classification 到 material_type 的关键词。"""
+    from adapters.solidworks.sw_material_bridge import parse_sldmat, build_bundle
+    materials = parse_sldmat(FIXTURE_SLDMAT)
+    bundle = build_bundle(materials)
+    # "Steel" classification → "steel" type 的关键词应包含 "Carbon Steel"
+    assert "steel" in bundle.type_keywords
+    assert any("Carbon Steel" in kw for kw in bundle.type_keywords["steel"])
+    # "Aluminum Alloys" → "al"
+    assert "al" in bundle.type_keywords
+    assert any("6061" in kw for kw in bundle.type_keywords["al"])
+
+
+def test_build_bundle_preset_keywords():
+    """bundle.preset_keywords 将材质名映射到已有 preset key。"""
+    from adapters.solidworks.sw_material_bridge import parse_sldmat, build_bundle
+    materials = parse_sldmat(FIXTURE_SLDMAT)
+    bundle = build_bundle(materials)
+    # Steel 材质 → "dark_steel" preset
+    steel_presets = [v for k, v in bundle.preset_keywords.items()
+                     if "Carbon Steel" in k]
+    assert steel_presets and steel_presets[0] == "dark_steel"
+    # Aluminum 材质 → "brushed_aluminum" preset
+    al_presets = [v for k, v in bundle.preset_keywords.items()
+                  if "6061" in k]
+    assert al_presets and al_presets[0] == "brushed_aluminum"
+
+
+def test_build_bundle_preset_values_in_allowed_set():
+    """bundle.preset_keywords 的所有值必须属于已有 MATERIAL_PRESETS key 集合。"""
+    from adapters.solidworks.sw_material_bridge import parse_sldmat, build_bundle
+    from render_config import MATERIAL_PRESETS
+    materials = parse_sldmat(FIXTURE_SLDMAT)
+    bundle = build_bundle(materials)
+    for preset_key in bundle.preset_keywords.values():
+        assert preset_key in MATERIAL_PRESETS, (
+            f"preset_keywords 值 '{preset_key}' 不在 MATERIAL_PRESETS 中"
+        )
+
+
+def test_load_sw_material_bundle_non_windows(monkeypatch):
+    """非 Windows 平台返回 None。"""
+    from adapters.solidworks import sw_material_bridge
+    # 清缓存
+    sw_material_bridge._cached_bundle = None
+    sw_material_bridge._BUNDLE_LOADED = False
+    monkeypatch.setattr(sys, "platform", "linux")
+    result = sw_material_bridge.load_sw_material_bundle()
+    assert result is None
+    # 还原
+    sw_material_bridge._cached_bundle = None
+    sw_material_bridge._BUNDLE_LOADED = False
