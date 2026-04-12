@@ -69,8 +69,8 @@ Phase 1    Phase 2    Phase 3    Phase 4    Phase 5    Phase 6
         │         → 下游 JinjaPrimitiveAdapter 拒绝把
         │         station_constraint 用作单件尺寸。
         │         返回 (envelopes, WalkerReport) 元组，WalkerReport
-        │         包含 UNMATCHED 列表 + 统计 + feature flag 状态。
-        │         CAD_SPEC_WALKER_ENABLED=0 可回退到旧 regex 块。
+        │         包含 UNMATCHED 列表 + 统计。
+        │         Walker 是唯一的 P2 提取路径（v2.10.0 移除 legacy regex fallback）。
         │         → §6.4 零件包络尺寸（增加 粒度 / 理由 / 轴向标签 /
         │           置信度 审计列 + §6.4.1 UNMATCHED 子节）
         │

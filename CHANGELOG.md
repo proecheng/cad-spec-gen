@@ -6,6 +6,43 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.10.0] — 2026-04-12
+
+**Theme:** data/ mirror 根治 + legacy P2 regex 清除。结构性清理：mirror 文件从 git tracking 移除，改由 dev_sync.py + pre-commit hook 同步；v2.9.0 遗留的 `_legacy_p2_regex_block` 和 `CAD_SPEC_WALKER_ENABLED` feature flag 正式移除。
+
+See [`RELEASE_v2.10.0.md`](RELEASE_v2.10.0.md) for the full release notes.
+
+### Removed
+- **`_legacy_p2_regex_block()`** 函数从 `cad_spec_extractors.py` 移除（~50 行）。v2.9.0 引入的 section-header walker 已经过三个版本真实文档验证，不再保留 regex fallback。
+- **`CAD_SPEC_WALKER_ENABLED`** 环境变量 feature flag 移除。`import os` 随之删除。P2 分支从三路简化为二路：walker 可用则使用，否则跳过并 log.warning。
+- **`src/cad_spec_gen/data/` 下 56 个 mirror 文件**从 git tracking 移除（`git rm --cached`）。涉及 `python_tools/`、`codegen/`、`config/`、`templates/`、`commands/zh/`、`knowledge/*_zh.md`、`system_prompt.md`、`parts_library.default.yaml`。
+
+### Added
+- **`scripts/dev_sync.py`** — 用 `ast.parse()` 从 `hatch_build.py` 提取常量列表，MD5 幂等同步 root 源文件到 `data/`。提供 `sync(root)` API 和 CLI 入口（有变更 exit 1，无变更 exit 0）。
+- **`.pre-commit-config.yaml`** — local hook，每次 commit 前自动跑 `dev_sync.py`。`always_run: true`，不依赖文件变更检测。
+
+### Changed
+- **`tests/test_data_dir_sync.py`** 从 v2.9.2 的 git drift 检测重写为 dev_sync.py 正确性验证。session-scope fixture 跑一次 `sync()`，59 个参数化 case（新增 `commands_zh`、`knowledge_zh`、`system_prompt` 三个分类）共享结果。
+- **`.github/workflows/tests.yml`** — `test` 和 `regression` 两个 job 的 pytest 步骤前各加 `python scripts/dev_sync.py || true`。
+- **`.gitignore`** — 追加 10 条 data/ mirror 忽略规则。
+
+### Validation
+- **488 passed / 3 skipped** 全套测试（零回归）
+- **59 sync case 全通过** `tests/test_data_dir_sync.py`（从 v2.9.2 的 51 扩展到 59）
+- `git status` 在 commit 后干净——无假 `M` 标记
+
+### Migration notes
+- `CAD_SPEC_WALKER_ENABLED=0` 环境变量不再生效。如果之前设置过，可以安全移除。
+- 开发者 `git pull` 后，已被 `git rm --cached` 的 mirror 文件仍在磁盘上但被 `.gitignore` 忽略。首次 clone 的新开发者需要 `pip install pre-commit && pre-commit install`，或手动跑 `python scripts/dev_sync.py`。
+
+### Files
+- New: `scripts/dev_sync.py`, `.pre-commit-config.yaml`
+- Modified: `cad_spec_extractors.py`, `tests/test_data_dir_sync.py`, `tests/test_envelope_prose_regex.py`, `.github/workflows/tests.yml`, `.gitignore`, `pyproject.toml`, `CHANGELOG.md`, `README.md`
+- Version metadata: `pyproject.toml`, `src/cad_spec_gen/__init__.py`, `skill.json`, `src/cad_spec_gen/data/skill.json`, `.cad_skill_version.json`
+- Removed from tracking (git rm --cached): 56 files under `src/cad_spec_gen/data/`
+
+---
+
 ## [2.9.2] — 2026-04-12
 
 **Theme:** 渲染层回归覆盖 + 打包 mirror drift 安全网 + 历史 mirror 同步。Test-only patch release — no production code changes beyond one marker registration. 覆盖 v2.9.0 / v2.9.1 期间明确暴露但一直没有自动化测试的三个技术债区：渲染数学层、打包副本 drift、Blender 真实环境 smoke。
