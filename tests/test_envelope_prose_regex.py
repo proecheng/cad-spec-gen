@@ -147,28 +147,25 @@ def test_extract_part_envelopes_regex_finds_real_design_doc_envelopes():
     total = len(box_hits) + len(cyl_hits)
     assert total == 6, f"Expected 6 total envelope hits (4 box + 2 cyl), got {total}"
 
-    # Also verify the source file itself contains both regex patterns
-    extractor_src = (_REPO_ROOT / "cad_spec_extractors.py").read_text(encoding="utf-8", errors="replace")
-    assert "模块包络尺寸(?:\\*\\*)?[：:]" in extractor_src, \
-        "cad_spec_extractors.py P2 regex is missing the markdown bold fix"
-    assert "[ΦφØ∅]" in extractor_src, \
-        "cad_spec_extractors.py P2 regex is missing the cylinder form"
+    # 注意: legacy P2 regex 已在 v2.9.2+ 清除，源文件中不再包含这些模式。
+    # 上面的正则匹配测试已验证模式本身正确，无需再检查源码包含。
 
 
 def test_known_limitation_documented():
-    """The P2 block comment must explicitly document the
-    _find_nearest_assembly limitation so future maintainers know this
-    is a partial fix, not a complete one.
+    """v2.9.0 引入 section-header walker 后，legacy P2 regex block 已移除。
+    此测试现在验证 walker 已就位且源文件不再包含遗留代码。
     """
     src = (_REPO_ROOT / "cad_spec_extractors.py").read_text(
         encoding="utf-8", errors="replace"
     )
-    assert "KNOWN LIMITATION" in src, \
-        "cad_spec_extractors.py must document the _find_nearest_assembly limitation"
-    assert "_find_nearest_assembly" in src, \
-        "Documentation must name the function with the limitation"
-    assert "section-header walker" in src or "follow-up spec" in src, \
-        "Documentation must reference the deferred fix"
+    # walker 取代了 legacy regex — 确认 walker 路径存在
+    assert "SectionWalker" in src, \
+        "cad_spec_extractors.py 应使用 SectionWalker 进行 P2 提取"
+    # 确认 legacy 代码已清除
+    assert "_legacy_p2_regex_block" not in src, \
+        "遗留的 _legacy_p2_regex_block 函数应已被移除"
+    assert "_WALKER_ENABLED" not in src, \
+        "遗留的 _WALKER_ENABLED feature flag 应已被移除"
 
 
 def test_find_nearest_assembly_uses_bom_derived_prefixes():
