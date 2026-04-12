@@ -336,3 +336,9 @@ def reset_all_sw_caches() -> None:
         _reset_material_cache()
     except ImportError:
         pass
+
+    try:
+        from cad_pipeline import _reset_preset_keywords_cache
+        _reset_preset_keywords_cache()
+    except ImportError:
+        pass
