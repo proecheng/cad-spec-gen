@@ -41,6 +41,9 @@ jobs:
         run: pip install bd_warehouse
         continue-on-error: true  # bd_warehouse may fail to install on old Python
 
+      - name: Sync data/ mirrors
+        run: python scripts/dev_sync.py || true
+
       - name: Run tests (Linux / macOS)
         if: runner.os != 'Windows'
         run: pytest tests/ -v --tb=short
@@ -75,6 +78,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest jinja2 pyyaml cadquery ezdxf
+
+      - name: Sync data/ mirrors
+        run: python scripts/dev_sync.py || true
 
       - name: Run parts_resolver unit tests with kill switch
         env:
