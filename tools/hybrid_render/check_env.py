@@ -153,6 +153,23 @@ def detect_environment():
     else:
         level = 1
 
+    # ─── 增强源检测（不影响 level） ───
+    enhancements = {}
+    try:
+        from adapters.solidworks.sw_detect import detect_solidworks
+        sw = detect_solidworks()
+        enhancements["solidworks"] = {
+            "ok": sw.installed and (sw.version_year or 0) >= 2020,
+            "version": sw.version,
+            "path_a": (sw.version_year or 0) >= 2020,
+            "path_b": (sw.version_year or 0) >= 2024 and sw.com_available,
+            "pywin32": sw.pywin32_available,
+            "materials": len(sw.sldmat_paths),
+        }
+    except ImportError:
+        enhancements["solidworks"] = {"ok": False}
+    result["enhancements"] = enhancements
+
     result["level"] = level
     return result
 
@@ -237,6 +254,27 @@ def print_report(result):
     print("  Level 3 CAD:     STEP + DXF + PNG三视图")
     print("  Level 2 IMPORT:  手动导入已有GLB到Blender渲染")
     print("  Level 1 MINIMAL: 仅生成prompt文本，手动粘贴到Gemini/ChatGPT")
+
+    # 增强源
+    enhancements = result.get("enhancements", {})
+    sw_enh = enhancements.get("solidworks", {})
+    print()
+    print("  增强源（可选，不影响能力等级）")
+    print("  " + "-" * 56)
+    if sw_enh.get("ok"):
+        sw_ver = sw_enh.get("version", "?")
+        path_a = "材质 ✓" if sw_enh.get("path_a") else "材质 ✗"
+        if sw_enh.get("path_b"):
+            path_b = "Toolbox ✓"
+        elif sw_enh.get("pywin32"):
+            path_b = "Toolbox ✗ (版本 < 2024)"
+        else:
+            path_b = "Toolbox ✗ (pywin32 未安装)"
+        print(f"  SolidWorks    [OK]    {sw_ver} — {path_a} / {path_b}")
+    else:
+        print("  SolidWorks    [  ]    未检测到安装")
+        print("                        已有 SolidWorks 许可？安装后可自动集成材质库和标准件。")
+    print("  " + "-" * 56)
 
     # Next steps
     print()
