@@ -433,6 +433,47 @@ def _enrich_render_config_materials(sub_dir):
                      if not isinstance(c, str) and "material" in c))
 
 
+# 材质 preset 推断关键词路由（从 BOM material 文本推导 render preset）
+_MAT_PRESET = {
+    "铝": "brushed_aluminum", "Al": "brushed_aluminum",
+    "钢": "stainless_304", "SUS": "stainless_304",
+    "PEEK": "peek_amber",
+    "橡胶": "black_rubber", "硅橡胶": "black_rubber",
+    "塑料": "white_nylon", "尼龙": "white_nylon",
+    "铜": "copper",
+}
+
+_preset_keywords_merged = None
+
+
+def get_material_preset_keywords():
+    """返回基础 + SW 扩展的 preset 关键词路由。首次调用时合并，缓存结果。
+
+    无 SW 时返回值与 _MAT_PRESET 内容一致。
+    """
+    global _preset_keywords_merged
+    if _preset_keywords_merged is not None:
+        return _preset_keywords_merged
+    _preset_keywords_merged = dict(_MAT_PRESET)
+    if sys.platform == "win32":
+        try:
+            from adapters.solidworks.sw_material_bridge import load_sw_material_bundle
+            bundle = load_sw_material_bundle()
+            if bundle:
+                for k, v in bundle.preset_keywords.items():
+                    if k not in _preset_keywords_merged:
+                        _preset_keywords_merged[k] = v
+        except ImportError:
+            pass
+    return _preset_keywords_merged
+
+
+def _reset_preset_keywords_cache():
+    """测试用：重置缓存。"""
+    global _preset_keywords_merged
+    _preset_keywords_merged = None
+
+
 def _gen_render_config_from_bom(sub_dir, spec_path):
     """Auto-generate render_config.json materials+components from BOM.
 
@@ -456,16 +497,6 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
     components = rc.setdefault("components", {})
     materials = rc.setdefault("materials", {})
     changed = False
-
-    # Material preset inference from BOM material text
-    _MAT_PRESET = {
-        "铝": "brushed_aluminum", "Al": "brushed_aluminum",
-        "钢": "stainless_304", "SUS": "stainless_304",
-        "PEEK": "peek_amber",
-        "橡胶": "black_rubber", "硅橡胶": "black_rubber",
-        "塑料": "white_nylon", "尼龙": "white_nylon",
-        "铜": "copper",
-    }
 
     for assy in assemblies:
         pno = assy["part_no"]
@@ -499,7 +530,7 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                     preset = "brushed_aluminum"
                     for child in children:
                         mat_text = child.get("material", "")
-                        for keyword, p_name in _MAT_PRESET.items():
+                        for keyword, p_name in get_material_preset_keywords().items():
                             if keyword in mat_text:
                                 preset = p_name
                                 break
@@ -526,7 +557,7 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
         preset = "brushed_aluminum"
         for child in children:
             mat_text = child.get("material", "")
-            for keyword, p_name in _MAT_PRESET.items():
+            for keyword, p_name in get_material_preset_keywords().items():
                 if keyword in mat_text:
                     preset = p_name
                     break
@@ -583,7 +614,7 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                     if comp_ref not in materials and mat_key is None:
                         mat_text = matched_part.get("material", "")
                         preset = "brushed_aluminum"
-                        for keyword, p_name in _MAT_PRESET.items():
+                        for keyword, p_name in get_material_preset_keywords().items():
                             if keyword in mat_text:
                                 preset = p_name
                                 break
