@@ -11,6 +11,7 @@ CAD Spec 默认值与完整性检查
 """
 
 import re
+import sys
 
 # ─── 标准默认值 ──────────────────────────────────────────────────────────
 
@@ -448,11 +449,46 @@ MATERIAL_TYPE_KEYWORDS = {
                "Shore", "rubber", "silicone"],
 }
 
+_merged_keywords = None
+
+
+def get_material_type_keywords():
+    """返回基础 + SW 扩展的关键词路由表。首次调用时合并，缓存结果。
+
+    无 SW 时返回值与 MATERIAL_TYPE_KEYWORDS 内容一致。
+    """
+    global _merged_keywords
+    if _merged_keywords is not None:
+        return _merged_keywords
+    _merged_keywords = {k: list(v) for k, v in MATERIAL_TYPE_KEYWORDS.items()}
+    if sys.platform == "win32":
+        try:
+            from adapters.solidworks.sw_material_bridge import load_sw_material_bundle
+            bundle = load_sw_material_bundle()
+            if bundle:
+                for mtype, kws in bundle.type_keywords.items():
+                    if mtype in _merged_keywords:
+                        existing = {kw.lower() for kw in _merged_keywords[mtype]}
+                        for kw in kws:
+                            if kw.lower() not in existing:
+                                _merged_keywords[mtype].append(kw)
+                    else:
+                        _merged_keywords[mtype] = list(kws)
+        except ImportError:
+            pass
+    return _merged_keywords
+
+
+def _reset_material_cache():
+    """测试用：重置缓存。"""
+    global _merged_keywords
+    _merged_keywords = None
+
 
 def classify_material_type(material: str):
     """从 BOM material 字段推断 material_type。
 
-    遍历 MATERIAL_TYPE_KEYWORDS 查找关键词匹配。
+    遍历 get_material_type_keywords() 查找关键词匹配。
     无匹配时返回 None（不静默 fallback）。
 
     Returns:
@@ -460,7 +496,7 @@ def classify_material_type(material: str):
     """
     if not material:
         return None
-    for mtype, keywords in MATERIAL_TYPE_KEYWORDS.items():
+    for mtype, keywords in get_material_type_keywords().items():
         if any(kw.lower() in material.lower() for kw in keywords):
             return mtype
     return None
