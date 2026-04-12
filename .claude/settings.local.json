@@ -1,22 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "mcp__filesystem__directory_tree",
-      "Bash(python -c \":*)",
-      "Bash(find D:/cad-skill/cad/end_effector/ -maxdepth 2 -name *.glb -o -name *.step -o -name *.png -o -name *.jpg)",
-      "Bash(find D:/cad-skill -name *.png)",
-      "Bash(for f:*)",
-      "Bash(do diff:*)",
-      "Bash(echo \"$f SAME\")",
-      "Bash(echo \"$f DIFFER\")",
-      "Bash(done)",
-      "Bash(mkdir -p ~/.claude/commands)",
-      "Bash(cp D:/cad-skill/.claude/commands/*.md ~/.claude/commands/)",
-      "Read(//c/Users/admin/.claude/**)",
-      "Bash(echo \"HOME=$HOME\")",
-      "Read(//d/cad-skill/$HOME/.claude/**)",
-      "Bash(echo \"USERPROFILE=$USERPROFILE\")",
-      "Read(//d/cad-skill/$USERPROFILE/.claude/**)"
+      "Bash(git clone:*)",
+      "Bash(cp -r temp_clone/* temp_clone/.* .)",
+      "Bash(rm -rf temp_clone)",
+      "Bash(rm -rf ~/.claude/commands/cad-*.md ~/.claude/commands/mechdesign.md)",
+      "Bash(mkdir -p ~/.claude/skills/cad-help ~/.claude/skills/cad-spec ~/.claude/skills/cad-codegen ~/.claude/skills/cad-enhance ~/.claude/skills/mechdesign)",
+      "Bash(/d/Python312/python.exe:*)",
+      "Read(//c/Users/procheng/.claude/**)",
+      "Bash(ls /c/Users/procheng/.claude/plugins/*/hooks.json)",
+      "Bash(/c/Users/procheng/AppData/Local/Microsoft/WindowsApps/python3 --version)",
+      "Bash(/d/Python312/python --version)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('hooks',{}\\), indent=2\\)\\)\")",
+      "Bash(gh release create v2.2.0 --title 'v2.2.0 — Auto-Annotation Engine + Generality Overhaul' --notes ':*)",
+      "Bash(python:*)"
     ]
   }
 }
