@@ -42,7 +42,10 @@ jobs:
         continue-on-error: true  # bd_warehouse may fail to install on old Python
 
       - name: Sync data/ mirrors
-        run: python scripts/dev_sync.py || true
+        run: |
+          python scripts/dev_sync.py
+          rc=$?
+          if [ $rc -gt 1 ]; then exit $rc; fi
 
       - name: Run tests (Linux / macOS)
         if: runner.os != 'Windows'
@@ -80,7 +83,10 @@ jobs:
           pip install pytest jinja2 pyyaml cadquery ezdxf
 
       - name: Sync data/ mirrors
-        run: python scripts/dev_sync.py || true
+        run: |
+          python scripts/dev_sync.py
+          rc=$?
+          if [ $rc -gt 1 ]; then exit $rc; fi
 
       - name: Run parts_resolver unit tests with kill switch
         env:

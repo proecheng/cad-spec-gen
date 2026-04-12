@@ -23,7 +23,7 @@ See [`RELEASE_v2.10.0.md`](RELEASE_v2.10.0.md) for the full release notes.
 
 ### Changed
 - **`tests/test_data_dir_sync.py`** 从 v2.9.2 的 git drift 检测重写为 dev_sync.py 正确性验证。session-scope fixture 跑一次 `sync()`，59 个参数化 case（新增 `commands_zh`、`knowledge_zh`、`system_prompt` 三个分类）共享结果。
-- **`.github/workflows/tests.yml`** — `test` 和 `regression` 两个 job 的 pytest 步骤前各加 `python scripts/dev_sync.py || true`。
+- **`.github/workflows/tests.yml`** — `test` 和 `regression` 两个 job 的 pytest 步骤前各加 `python scripts/dev_sync.py`（exit 0/1 正常，exit 2+ 失败）。
 - **`.gitignore`** — 追加 10 条 data/ mirror 忽略规则。
 
 ### Validation

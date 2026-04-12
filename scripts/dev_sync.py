@@ -94,19 +94,41 @@ def _sync_file(src: Path, dst: Path) -> bool:
 
 
 def _sync_dir(src_dir: Path, dst_dir: Path) -> list[Path]:
-    """递归同步目录，返回已更新文件列表。"""
+    """递归同步目录，返回已更新文件列表。
+
+    与 hatch_build.py 行为对齐：先同步所有源文件，再删除目标目录中
+    源目录已不存在的陈旧文件（hatch_build 用 rmtree+copytree，
+    这里用增量同步+陈旧清理，效果一致但更精确）。
+    """
     updated: list[Path] = []
     if not src_dir.is_dir():
         return updated
+
+    # 收集源文件的相对路径集合，用于后续陈旧检测
+    src_rels: set[Path] = set()
     for src_file in sorted(src_dir.rglob("*")):
         if not src_file.is_file():
             continue
         if "__pycache__" in src_file.parts or src_file.suffix in (".pyc", ".pyo"):
             continue
         rel = src_file.relative_to(src_dir)
+        src_rels.add(rel)
         dst_file = dst_dir / rel
         if _sync_file(src_file, dst_file):
             updated.append(dst_file)
+
+    # 删除目标目录中源目录已不存在的陈旧文件
+    if dst_dir.is_dir():
+        for dst_file in sorted(dst_dir.rglob("*")):
+            if not dst_file.is_file():
+                continue
+            if "__pycache__" in dst_file.parts or dst_file.suffix in (".pyc", ".pyo"):
+                continue
+            rel = dst_file.relative_to(dst_dir)
+            if rel not in src_rels:
+                dst_file.unlink()
+                updated.append(dst_file)
+
     return updated
 
 

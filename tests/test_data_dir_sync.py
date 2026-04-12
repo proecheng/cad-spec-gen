@@ -107,7 +107,7 @@ def _collect_sync_pairs():
                 continue
             if "__pycache__" in src_file.parts:
                 continue
-            if src_file.suffix in (".pyc",):
+            if src_file.suffix in (".pyc", ".pyo"):
                 continue
             rel = src_file.relative_to(src_dir)
             dst_file = dst_dir / rel
