@@ -69,6 +69,16 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
         # 记录为已持有
         _held_locks.add(lock_path_str)
 
+        # 持锁后写入当前 PID 供下个尝试者诊断（spec 要求）
+        # 用 seek(0)+truncate 保证清掉 bootstrap 写入的旧值
+        try:
+            fh.seek(0)
+            fh.truncate()
+            fh.write(str(os.getpid()))
+            fh.flush()
+        except OSError as e:
+            log.debug("写入 PID 异常（忽略）: %s", e)
+
         try:
             yield
         finally:
