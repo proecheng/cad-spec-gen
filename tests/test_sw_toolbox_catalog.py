@@ -421,7 +421,10 @@ class TestLoadToolboxIndex:
         return Path(__file__).parent / "fixtures" / "fake_toolbox"
 
     def test_load_rebuilds_when_cache_missing(self, fake_toolbox, tmp_path):
-        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index, SCHEMA_VERSION
+        from adapters.solidworks.sw_toolbox_catalog import (
+            load_toolbox_index,
+            SCHEMA_VERSION,
+        )
 
         cache = tmp_path / "idx.json"
         assert not cache.exists()
@@ -444,15 +447,22 @@ class TestLoadToolboxIndex:
         assert idx2["scan_time"] == "sentinel-cached"  # 来自缓存
 
     def test_load_rebuilds_on_schema_bump(self, fake_toolbox, tmp_path):
-        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index, SCHEMA_VERSION
+        from adapters.solidworks.sw_toolbox_catalog import (
+            load_toolbox_index,
+            SCHEMA_VERSION,
+        )
 
         cache = tmp_path / "idx.json"
-        cache.write_text(json.dumps({
-            "schema_version": 0,  # 旧版本
-            "scan_time": "old",
-            "toolbox_fingerprint": "unavailable",
-            "standards": {},
-        }))
+        cache.write_text(
+            json.dumps(
+                {
+                    "schema_version": 0,  # 旧版本
+                    "scan_time": "old",
+                    "toolbox_fingerprint": "unavailable",
+                    "standards": {},
+                }
+            )
+        )
         idx = load_toolbox_index(cache, fake_toolbox)
         assert idx["schema_version"] == SCHEMA_VERSION
         assert idx["scan_time"] != "old"
@@ -478,6 +488,7 @@ class TestValidateSldprtPath:
 
     def test_valid_child_path_returns_true(self, tmp_path):
         from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+
         toolbox = tmp_path / "toolbox"
         toolbox.mkdir()
         sldprt = toolbox / "GB" / "bolts" / "hex.sldprt"
@@ -487,6 +498,7 @@ class TestValidateSldprtPath:
 
     def test_path_outside_toolbox_returns_false(self, tmp_path):
         from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+
         toolbox = tmp_path / "toolbox"
         toolbox.mkdir()
         outside = tmp_path / "evil.sldprt"
@@ -496,6 +508,7 @@ class TestValidateSldprtPath:
     def test_path_traversal_rejected(self, tmp_path):
         """恶意索引含 ../../etc/passwd 应被拒绝。"""
         from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+
         toolbox = tmp_path / "toolbox"
         toolbox.mkdir()
         traversal = str(toolbox / ".." / "outside.sldprt")
@@ -512,13 +525,16 @@ class TestMatchToolboxPart:
     @pytest.fixture
     def idx(self, fake_toolbox):
         from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+
         return build_toolbox_index(fake_toolbox)
 
     def test_match_exact_hex_bolt(self, idx):
         from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+
         query_tokens = [("hex", 1.0), ("bolt", 1.0)]
         result = match_toolbox_part(
-            idx, query_tokens,
+            idx,
+            query_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
             min_score=0.30,
@@ -531,10 +547,12 @@ class TestMatchToolboxPart:
     def test_match_part_no_weight_dominates(self, idx):
         """part_no 权重 2.0 应该能把弱匹配推到阈值之上。"""
         from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+
         # 仅 part_no token 命中（"bolt"），name_cn 无命中
         query_tokens = [("bolt", 2.0)]
         result = match_toolbox_part(
-            idx, query_tokens,
+            idx,
+            query_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
             min_score=0.30,
@@ -544,9 +562,11 @@ class TestMatchToolboxPart:
     def test_match_below_min_score_returns_none(self, idx):
         """决策 #3: 低于 min_score 返回 None → miss。"""
         from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+
         query_tokens = [("completely", 1.0), ("unrelated", 1.0)]
         result = match_toolbox_part(
-            idx, query_tokens,
+            idx,
+            query_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
             min_score=0.30,
@@ -556,10 +576,12 @@ class TestMatchToolboxPart:
     def test_match_respects_subcategory_whitelist(self, idx):
         """只在 spec 指定的 subcategories 里搜。"""
         from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+
         query_tokens = [("hex", 1.0), ("nut", 1.0)]
         # 限定只搜 bolts and studs, 应不会返回 nuts 下的东西
         result = match_toolbox_part(
-            idx, query_tokens,
+            idx,
+            query_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
             min_score=0.30,
@@ -593,7 +615,10 @@ class TestMakeIndexEnvelope:
 
     def test_envelope_has_required_keys(self):
         """_make_index_envelope 返回结构包含所有必需键。"""
-        from adapters.solidworks.sw_toolbox_catalog import _make_index_envelope, SCHEMA_VERSION
+        from adapters.solidworks.sw_toolbox_catalog import (
+            _make_index_envelope,
+            SCHEMA_VERSION,
+        )
 
         env = _make_index_envelope({}, "abc123")
         assert env["schema_version"] == SCHEMA_VERSION
@@ -612,7 +637,10 @@ class TestMakeIndexEnvelope:
 
     def test_build_index_uses_envelope_structure(self, tmp_path):
         """build_toolbox_index 返回 dict 结构与 _make_index_envelope 一致。"""
-        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index, SCHEMA_VERSION
+        from adapters.solidworks.sw_toolbox_catalog import (
+            build_toolbox_index,
+            SCHEMA_VERSION,
+        )
 
         # 使用不存在的目录触发空索引路径
         idx = build_toolbox_index(tmp_path / "nonexistent")

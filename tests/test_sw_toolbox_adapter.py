@@ -1,4 +1,5 @@
 """SwToolboxAdapter 单元测试（v4 决策 #13/#22）。"""
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,7 @@ class TestIsAvailable:
 
     def test_non_windows_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
         monkeypatch.setattr(sys, "platform", "linux")
         a = SwToolboxAdapter()
         assert a.is_available() is False
@@ -22,6 +24,7 @@ class TestIsAvailable:
     def test_sw_not_installed_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(installed=False)
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
@@ -31,10 +34,14 @@ class TestIsAvailable:
     def test_version_below_2024_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2023, pywin32_available=True,
-            toolbox_dir="C:/fake", toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2023,
+            pywin32_available=True,
+            toolbox_dir="C:/fake",
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
@@ -43,10 +50,14 @@ class TestIsAvailable:
     def test_pywin32_missing_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=False,
-            toolbox_dir="C:/fake", toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=False,
+            toolbox_dir="C:/fake",
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
@@ -55,10 +66,14 @@ class TestIsAvailable:
     def test_toolbox_dir_missing_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir="", toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir="",
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
@@ -68,10 +83,14 @@ class TestIsAvailable:
         """v4 决策 #13: Toolbox Add-In 未启用 → False。"""
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir="C:/fake", toolbox_addin_enabled=False,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir="C:/fake",
+            toolbox_addin_enabled=False,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
@@ -81,10 +100,14 @@ class TestIsAvailable:
         """v4 决策 #22: SwComSession 熔断 → False。"""
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect, sw_com_session
+
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(tmp_path), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         sw_com_session.reset_session()
@@ -96,11 +119,15 @@ class TestIsAvailable:
     def test_all_checks_pass_returns_true(self, monkeypatch, tmp_path):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect, sw_com_session
+
         sw_detect._reset_cache()
         sw_com_session.reset_session()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(tmp_path), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
@@ -110,9 +137,12 @@ class TestIsAvailable:
 class TestCanResolve:
     def test_can_resolve_always_true(self):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
         a = SwToolboxAdapter()
+
         class Q:
             pass
+
         assert a.can_resolve(Q()) is True
 
 
@@ -127,11 +157,15 @@ class TestResolve:
     def setup_sw_available(self, monkeypatch, fake_toolbox):
         """Mock sw_detect + SwComSession 以让 is_available 返回 True。"""
         from adapters.solidworks import sw_detect, sw_com_session
+
         sw_detect._reset_cache()
         sw_com_session.reset_session()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(fake_toolbox), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(fake_toolbox),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
 
@@ -146,11 +180,14 @@ class TestResolve:
             category = "fastener"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a.resolve(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a.resolve(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result.status == "miss"
 
     def test_resolve_low_score_returns_miss(self, setup_sw_available):
@@ -164,11 +201,14 @@ class TestResolve:
 
         a = SwToolboxAdapter(config=_default_config())
         # name_cn 里的 M99×999 能抽尺寸，但 token 与 hex bolt/stud 重叠极少
-        result = a.resolve(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a.resolve(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result.status == "miss"
 
     def test_resolve_unc_returns_miss(self, setup_sw_available):
@@ -182,11 +222,14 @@ class TestResolve:
             category = "fastener"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a.resolve(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a.resolve(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result.status == "miss"
 
     def test_resolve_cache_hit_no_com(self, setup_sw_available, tmp_path, monkeypatch):
@@ -213,11 +256,14 @@ class TestResolve:
             category = "fastener"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a.resolve(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a.resolve(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result.status == "hit"
         assert result.kind == "step_import"
         assert result.adapter == "sw_toolbox"
@@ -230,7 +276,10 @@ def _default_config() -> dict:
     return {
         "min_score": 0.15,  # hex bolt 查询实际得分约 0.16（见 v4 §3.2 注释）
         "token_weights": {
-            "part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5,
+            "part_no": 2.0,
+            "name_cn": 1.0,
+            "material": 0.5,
+            "size": 1.5,
         },
         "size_patterns": {
             "fastener": {
@@ -249,27 +298,35 @@ class TestFindSldprt:
     @pytest.fixture
     def setup_sw(self, monkeypatch, tmp_path):
         from adapters.solidworks import sw_detect
+
         fake_toolbox = Path(__file__).parent / "fixtures" / "fake_toolbox"
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(fake_toolbox), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(fake_toolbox),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
 
     def test_find_sldprt_returns_match(self, setup_sw):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
         class Q:
             part_no = "GB/T 5782"
             name_cn = "M6×20 hex bolt 六角头"
             material = "钢"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a._find_sldprt(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a._find_sldprt(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result is not None
         part, score = result
         assert part.filename == "hex bolt.sldprt"
@@ -277,10 +334,12 @@ class TestFindSldprt:
     def test_find_sldprt_no_com_imports(self, setup_sw, monkeypatch):
         """_find_sldprt 不应导入/调用 win32com。"""
         import sys
+
         # 破坏 win32com.client，证明 _find_sldprt 不依赖它
         monkeypatch.setitem(sys.modules, "win32com.client", None)  # sabotage
 
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
         class Q:
             part_no = "GB/T 5782"
             name_cn = "M6×20 hex bolt 六角头"
@@ -288,11 +347,14 @@ class TestFindSldprt:
 
         a = SwToolboxAdapter(config=_default_config())
         # 应该不 raise（证明没有 import win32com）
-        result = a._find_sldprt(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a._find_sldprt(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result is not None
 
 
@@ -302,16 +364,21 @@ class TestProbeDims:
     @pytest.fixture
     def setup(self, monkeypatch, tmp_path):
         from adapters.solidworks import sw_detect, sw_com_session
+
         sw_detect._reset_cache()
         sw_com_session.reset_session()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(tmp_path), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
 
     def test_probe_dims_cache_miss_returns_none(self, setup):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
         class Q:
             part_no = "X"
             name_cn = "M6×20 hex bolt"
@@ -319,9 +386,12 @@ class TestProbeDims:
             category = "fastener"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a.probe_dims(Q(), {
-            "standard": "GB",
-            "subcategories": ["bolts and studs"],
-            "part_category": "fastener",
-        })
+        result = a.probe_dims(
+            Q(),
+            {
+                "standard": "GB",
+                "subcategories": ["bolts and studs"],
+                "part_category": "fastener",
+            },
+        )
         assert result is None

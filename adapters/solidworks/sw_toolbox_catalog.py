@@ -456,10 +456,7 @@ def _dehydrate_index(idx: dict) -> str:
     """把索引中的 SwToolboxPart 转 dict 以便 JSON 序列化。"""
     out = dict(idx)
     out["standards"] = {
-        std: {
-            sub: [asdict(p) for p in parts]
-            for sub, parts in sub_dict.items()
-        }
+        std: {sub: [asdict(p) for p in parts] for sub, parts in sub_dict.items()}
         for std, sub_dict in idx["standards"].items()
     }
     return json.dumps(out, ensure_ascii=False, indent=2)
@@ -470,8 +467,7 @@ def _rehydrate_index(cached: dict) -> dict:
     out = dict(cached)
     out["standards"] = {
         std: {
-            sub: [SwToolboxPart(**p) for p in parts]
-            for sub, parts in sub_dict.items()
+            sub: [SwToolboxPart(**p) for p in parts] for sub, parts in sub_dict.items()
         }
         for std, sub_dict in cached.get("standards", {}).items()
     }

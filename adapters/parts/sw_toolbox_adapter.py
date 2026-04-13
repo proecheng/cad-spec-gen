@@ -121,13 +121,19 @@ class SwToolboxAdapter(PartsAdapter):
         # 4. 构造加权 tokens
         weights = self.config.get("token_weights", {})
         query_tokens = sw_toolbox_catalog.build_query_tokens_weighted(
-            query, size_dict, weights,
+            query,
+            size_dict,
+            weights,
         )
 
         # 5. token overlap 打分
         min_score = self.config.get("min_score", 0.30)
         match = sw_toolbox_catalog.match_toolbox_part(
-            index, query_tokens, standards, subcategories, min_score,
+            index,
+            query_tokens,
+            standards,
+            subcategories,
+            min_score,
         )
         if match is None:
             return self._miss("token overlap below min_score")
@@ -136,12 +142,16 @@ class SwToolboxAdapter(PartsAdapter):
 
         # 6. 路径遍历防御（决策 #20）
         if not sw_toolbox_catalog._validate_sldprt_path(part.sldprt_path, toolbox_dir):
-            return self._miss("sldprt path validation failed (possible index tampering)")
+            return self._miss(
+                "sldprt path validation failed (possible index tampering)"
+            )
 
         # 7. 构造缓存 STEP 路径
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
         step_relative = (
-            Path(part.standard) / part.subcategory / (Path(part.filename).stem + ".step")
+            Path(part.standard)
+            / part.subcategory
+            / (Path(part.filename).stem + ".step")
         )
         step_abs = cache_root / step_relative
 
@@ -209,7 +219,8 @@ class SwToolboxAdapter(PartsAdapter):
         # 抽尺寸（决策 #9：失败 → None）
         size_patterns = self.config.get("size_patterns", {}).get(part_category, {})
         size_dict = sw_toolbox_catalog.extract_size_from_name(
-            getattr(query, "name_cn", ""), size_patterns,
+            getattr(query, "name_cn", ""),
+            size_patterns,
         )
         if size_dict is None:
             return None
@@ -224,10 +235,15 @@ class SwToolboxAdapter(PartsAdapter):
         # 构造加权 tokens + 打分
         weights = self.config.get("token_weights", {})
         query_tokens = sw_toolbox_catalog.build_query_tokens_weighted(
-            query, size_dict, weights,
+            query,
+            size_dict,
+            weights,
         )
         match = sw_toolbox_catalog.match_toolbox_part(
-            index, query_tokens, standards, subcategories,
+            index,
+            query_tokens,
+            standards,
+            subcategories,
             self.config.get("min_score", 0.30),
         )
         if match is None:
@@ -244,6 +260,7 @@ class SwToolboxAdapter(PartsAdapter):
     def _miss(self, reason: str):
         """构造 miss ResolveResult 并记录调试日志。"""
         from parts_resolver import ResolveResult
+
         log.debug("sw_toolbox miss: %s", reason)
         return ResolveResult(
             status="miss",
@@ -260,6 +277,7 @@ class SwToolboxAdapter(PartsAdapter):
         """
         try:
             import cadquery as cq
+
             obj = cq.importers.importStep(str(step_path))
             bb = obj.val().BoundingBox()
             return (
@@ -287,7 +305,8 @@ class SwToolboxAdapter(PartsAdapter):
             spec.get("part_category", "fastener"), {}
         )
         size_dict = sw_toolbox_catalog.extract_size_from_name(
-            getattr(query, "name_cn", ""), size_patterns,
+            getattr(query, "name_cn", ""),
+            size_patterns,
         )
         if size_dict is None:
             return None
@@ -304,10 +323,15 @@ class SwToolboxAdapter(PartsAdapter):
 
         weights = self.config.get("token_weights", {})
         query_tokens = sw_toolbox_catalog.build_query_tokens_weighted(
-            query, size_dict, weights,
+            query,
+            size_dict,
+            weights,
         )
         match = sw_toolbox_catalog.match_toolbox_part(
-            index, query_tokens, standards, spec.get("subcategories", []),
+            index,
+            query_tokens,
+            standards,
+            spec.get("subcategories", []),
             self.config.get("min_score", 0.30),
         )
         if match is None:
@@ -315,8 +339,11 @@ class SwToolboxAdapter(PartsAdapter):
 
         part, _ = match
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
-        step_abs = cache_root / part.standard / part.subcategory / (
-            Path(part.filename).stem + ".step"
+        step_abs = (
+            cache_root
+            / part.standard
+            / part.subcategory
+            / (Path(part.filename).stem + ".step")
         )
         if not step_abs.exists():
             return None  # 决策 #4: 缓存未命中 → 不触发 COM

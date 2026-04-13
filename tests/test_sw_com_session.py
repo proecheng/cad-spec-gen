@@ -3,11 +3,11 @@
 全部 mock win32com，不依赖真实 SW。
 真实 COM 测试在 tests/test_sw_toolbox_integration.py 用 @requires_solidworks。
 """
+
 from __future__ import annotations
 
 import os
 import sys
-import threading
 import unittest.mock as mock
 import pytest
 from pathlib import Path
@@ -18,8 +18,6 @@ from adapters.solidworks.sw_com_session import (
     SwComSession,
     get_session,
     reset_session,
-    MIN_STEP_FILE_SIZE,
-    STEP_MAGIC_PREFIX,
 )
 
 
@@ -83,17 +81,22 @@ class TestConvertSldprtToStep:
     def test_atomic_write_success(self, tmp_path, mock_app, monkeypatch):
         """成功路径：生成的 STEP 大小 > MIN 且以 ISO-10303 开头。"""
         from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
         reset_session()
         s = SwComSession()
         s._app = mock_app
 
         step_out = tmp_path / "out.step"
+
         def fake_saveas(path, *args, **kwargs):
             Path(path).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
             return True
+
         model = mock_app.OpenDoc6.return_value[0]
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
-            fake_saveas(path, *a, **kw), 0, 0
+            fake_saveas(path, *a, **kw),
+            0,
+            0,
         )[0]
         model.GetTitle.return_value = "hex bolt"
 
@@ -107,6 +110,7 @@ class TestConvertSldprtToStep:
 
     def test_atomic_write_rejects_small_file(self, tmp_path, mock_app):
         from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
         reset_session()
         s = SwComSession()
         s._app = mock_app
@@ -114,7 +118,9 @@ class TestConvertSldprtToStep:
         step_out = tmp_path / "out.step"
         model = mock_app.OpenDoc6.return_value[0]
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
-            Path(path).write_bytes(b"tiny"), 0, 0
+            Path(path).write_bytes(b"tiny"),
+            0,
+            0,
         )[0]
         model.GetTitle.return_value = "hex bolt"
 
@@ -127,13 +133,16 @@ class TestConvertSldprtToStep:
 
     def test_atomic_write_rejects_wrong_magic(self, tmp_path, mock_app):
         from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
         reset_session()
         s = SwComSession()
         s._app = mock_app
         step_out = tmp_path / "out.step"
         model = mock_app.OpenDoc6.return_value[0]
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
-            Path(path).write_bytes(b"BINARY_GARBAGE" + b"X" * 2000), 0, 0
+            Path(path).write_bytes(b"BINARY_GARBAGE" + b"X" * 2000),
+            0,
+            0,
         )[0]
         model.GetTitle.return_value = "hex bolt"
 
@@ -147,8 +156,11 @@ class TestConvertSldprtToStep:
     def test_circuit_breaker_trips_at_threshold(self, tmp_path, mock_app):
         """v4 决策 #6: 连续 3 次失败 → _unhealthy=True。"""
         from adapters.solidworks.sw_com_session import (
-            SwComSession, CIRCUIT_BREAKER_THRESHOLD, reset_session,
+            SwComSession,
+            CIRCUIT_BREAKER_THRESHOLD,
+            reset_session,
         )
+
         reset_session()
         s = SwComSession()
         s._app = mock_app
@@ -165,6 +177,7 @@ class TestConvertSldprtToStep:
 
     def test_success_resets_failure_counter(self, tmp_path, mock_app):
         from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
         reset_session()
         s = SwComSession()
         s._app = mock_app
@@ -172,11 +185,15 @@ class TestConvertSldprtToStep:
 
         # Success case
         model = mock_app.OpenDoc6.return_value[0]
+
         def fake_saveas(path, *a, **kw):
             Path(path).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
             return True
+
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
-            fake_saveas(path, *a, **kw), 0, 0
+            fake_saveas(path, *a, **kw),
+            0,
+            0,
         )[0]
         model.GetTitle.return_value = "x"
 

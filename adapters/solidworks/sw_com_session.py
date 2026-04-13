@@ -108,10 +108,11 @@ class SwComSession:
         # OpenDoc6
         model, errors, warnings = self._app.OpenDoc6(
             sldprt_path,
-            1,   # swDocPART
-            1,   # swOpenDocOptions_Silent
+            1,  # swDocPART
+            1,  # swOpenDocOptions_Silent
             "",
-            0, 0,
+            0,
+            0,
         )
         if errors:
             log.warning("OpenDoc6 errors: %s", errors)
@@ -121,9 +122,12 @@ class SwComSession:
             # SaveAs3 to tmp
             saved = model.Extension.SaveAs3(
                 tmp_path,
-                0, 1,
-                None, None,
-                0, 0,
+                0,
+                1,
+                None,
+                None,
+                0,
+                0,
             )
             if not saved:
                 return False
