@@ -182,6 +182,65 @@ class SwToolboxAdapter(PartsAdapter):
             metadata={"dims": dims, "match_score": score, "configuration": "<default>"},
         )
 
+    def _find_sldprt(self, query, spec: dict):
+        """匹配逻辑独立方法，供 sw-warmup --bom 复用。不触发 COM。
+
+        从 resolve() 中抽出 step 1-6（索引加载 + 尺寸提取 + token 打分 + 路径校验），
+        返回匹配结果元组，供外部调用方决定后续动作（COM 转换或其他）。
+
+        Returns:
+            (SwToolboxPart, score) — 匹配成功；或 None — 任意步骤失败。
+        """
+        from adapters.solidworks import sw_toolbox_catalog
+        from adapters.solidworks.sw_detect import detect_solidworks
+
+        info = detect_solidworks()
+        if not info.toolbox_dir:
+            return None
+        toolbox_dir = Path(info.toolbox_dir)
+
+        # 解析 spec
+        standards = spec.get("standard")
+        if isinstance(standards, str):
+            standards = [standards]
+        subcategories = spec.get("subcategories", [])
+        part_category = spec.get("part_category", "fastener")
+
+        # 抽尺寸（决策 #9：失败 → None）
+        size_patterns = self.config.get("size_patterns", {}).get(part_category, {})
+        size_dict = sw_toolbox_catalog.extract_size_from_name(
+            getattr(query, "name_cn", ""), size_patterns,
+        )
+        if size_dict is None:
+            return None
+
+        # 加载索引
+        index_path = sw_toolbox_catalog.get_toolbox_index_path(self.config)
+        try:
+            index = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_dir)
+        except Exception:
+            return None
+
+        # 构造加权 tokens + 打分
+        weights = self.config.get("token_weights", {})
+        query_tokens = sw_toolbox_catalog.build_query_tokens_weighted(
+            query, size_dict, weights,
+        )
+        match = sw_toolbox_catalog.match_toolbox_part(
+            index, query_tokens, standards, subcategories,
+            self.config.get("min_score", 0.30),
+        )
+        if match is None:
+            return None
+
+        part, score = match
+
+        # 路径遍历防御（决策 #20）
+        if not sw_toolbox_catalog._validate_sldprt_path(part.sldprt_path, toolbox_dir):
+            return None
+
+        return (part, score)
+
     def _miss(self, reason: str):
         """构造 miss ResolveResult 并记录调试日志。"""
         from parts_resolver import ResolveResult
