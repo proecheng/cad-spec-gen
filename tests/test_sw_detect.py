@@ -49,6 +49,7 @@ class TestToolboxAddinDetection:
     def test_addin_enabled_returns_false_when_winreg_import_fails(self, monkeypatch):
         """非 Windows 或 winreg 不可导入时返回 False。"""
         from adapters.solidworks.sw_detect import _check_toolbox_addin_enabled
+
         assert _check_toolbox_addin_enabled(None, 2024) is False
 
     def test_addin_enabled_returns_false_when_registry_key_missing(self, monkeypatch):
@@ -184,7 +185,9 @@ class TestCaching:
 class TestDetectImplToolboxAddinIntegration:
     """v4 决策 #13: _detect_impl 集成 toolbox_addin_enabled 字段填充。"""
 
-    def test_detect_impl_populates_toolbox_addin_enabled_field(self, tmp_path, monkeypatch):
+    def test_detect_impl_populates_toolbox_addin_enabled_field(
+        self, tmp_path, monkeypatch
+    ):
         """使用真实 tmp_path 目录树，验证 _detect_impl 正确填充 toolbox_addin_enabled。
 
         改用 tmp_path 创建真实目录，避免全局 patch Path.is_dir 导致所有路径

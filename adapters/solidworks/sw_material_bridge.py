@@ -186,41 +186,41 @@ def _parse_shaders(shaders_elem: ET.Element, mat: SwMaterial) -> None:
 
 # SW classification 名 → 管道 material_type 码
 _SW_CLASSIFICATION_TO_TYPE: dict[str, str] = {
-    "Steel":             "steel",
-    "Iron":              "steel",
-    "Aluminum Alloys":   "al",
-    "Copper Alloys":     "steel",   # 管道中 copper 归入 steel 类
-    "Titanium Alloys":   "steel",
-    "Zinc Alloys":       "steel",
-    "Nickel Alloys":     "steel",
-    "Plastics":          "nylon",
-    "Rubber":            "rubber",
-    "Other Non-metals":  "nylon",
+    "Steel": "steel",
+    "Iron": "steel",
+    "Aluminum Alloys": "al",
+    "Copper Alloys": "steel",  # 管道中 copper 归入 steel 类
+    "Titanium Alloys": "steel",
+    "Zinc Alloys": "steel",
+    "Nickel Alloys": "steel",
+    "Plastics": "nylon",
+    "Rubber": "rubber",
+    "Other Non-metals": "nylon",
 }
 
 # SW classification 名 → 管道 MATERIAL_PRESETS key
 SW_CLASSIFICATION_TO_PRESET: dict[str, str] = {
-    "Steel":             "dark_steel",
-    "Iron":              "dark_steel",
-    "Aluminum Alloys":   "brushed_aluminum",
-    "Copper Alloys":     "copper",
-    "Titanium Alloys":   "stainless_304",
-    "Zinc Alloys":       "dark_steel",
-    "Nickel Alloys":     "stainless_304",
-    "Plastics":          "white_nylon",
-    "Rubber":            "black_rubber",
-    "Other Non-metals":  "white_nylon",
+    "Steel": "dark_steel",
+    "Iron": "dark_steel",
+    "Aluminum Alloys": "brushed_aluminum",
+    "Copper Alloys": "copper",
+    "Titanium Alloys": "stainless_304",
+    "Zinc Alloys": "dark_steel",
+    "Nickel Alloys": "stainless_304",
+    "Plastics": "white_nylon",
+    "Rubber": "black_rubber",
+    "Other Non-metals": "white_nylon",
 }
 
 # SW 材质名 → 现有 MATERIAL_PROPS key（已有等价物的不重复注入 preset_keywords）
 EQUIVALENCE_MAP: dict[str, str] = {
-    "AISI 304":                     "SUS304",
-    "304 Stainless Steel":          "SUS304",
+    "AISI 304": "SUS304",
+    "304 Stainless Steel": "SUS304",
     "201 Annealed Stainless Steel": "SUS304",
-    "316L Stainless Steel":         "SUS316L",
-    "7075 Alloy":                   "7075-T6",
-    "6061 Alloy":                   "6061-T6",
-    "6063 Alloy":                   "6063",
+    "316L Stainless Steel": "SUS316L",
+    "7075 Alloy": "7075-T6",
+    "6061 Alloy": "6061-T6",
+    "6063 Alloy": "6063",
 }
 
 
@@ -327,18 +327,21 @@ def reset_all_sw_caches() -> None:
 
     try:
         from adapters.solidworks.sw_detect import _reset_cache
+
         _reset_cache()
     except ImportError:
         pass
 
     try:
         from cad_spec_defaults import _reset_material_cache
+
         _reset_material_cache()
     except ImportError:
         pass
 
     try:
         from cad_pipeline import _reset_preset_keywords_cache
+
         _reset_preset_keywords_cache()
     except ImportError:
         pass
@@ -346,6 +349,7 @@ def reset_all_sw_caches() -> None:
     # v4 决策 #15: COM session reset
     try:
         from adapters.solidworks.sw_com_session import reset_session as _reset_com
+
         _reset_com()
     except ImportError:
         pass

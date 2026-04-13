@@ -175,9 +175,12 @@ def _find_install_from_registry(winreg) -> tuple[str, int, str]:
             )
             if install_dir and Path(install_dir).is_dir():
                 # 尝试读取版本号
-                version_str = _read_registry_value(
-                    winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Version"
-                ) or ""
+                version_str = (
+                    _read_registry_value(
+                        winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Version"
+                    )
+                    or ""
+                )
                 return install_dir, year, version_str
 
     return "", 0, ""
@@ -244,9 +247,7 @@ def _check_com_available(winreg) -> bool:
         COM 组件是否可用。
     """
     try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CLASSES_ROOT, r"SldWorks.Application\CLSID"
-        )
+        key = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"SldWorks.Application\CLSID")
         winreg.CloseKey(key)
         return True
     except OSError:
@@ -287,7 +288,9 @@ def _check_toolbox_addin_enabled(winreg, version_year: int) -> bool:
 
     for subkey in candidates:
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ) as key:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ
+            ) as key:
                 i = 0
                 while True:
                     try:
@@ -325,9 +328,7 @@ def _is_toolbox_guid(name: str) -> bool:
     return any(h in lowered for h in _TOOLBOX_GUID_HINTS)
 
 
-def _read_registry_value(
-    winreg, hive, key_path: str, value_name: str
-) -> str | None:
+def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 
     同时尝试 64 位和 32 位注册表视图。
@@ -341,8 +342,10 @@ def _read_registry_value(
     Returns:
         读取到的字符串值，失败时返回 None。
     """
-    for access_flag in (winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
-                        winreg.KEY_READ | winreg.KEY_WOW64_32KEY):
+    for access_flag in (
+        winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        winreg.KEY_READ | winreg.KEY_WOW64_32KEY,
+    ):
         try:
             key = winreg.OpenKey(hive, key_path, 0, access_flag)
             try:
