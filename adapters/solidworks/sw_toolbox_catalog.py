@@ -225,12 +225,18 @@ def validate_size_patterns(patterns: dict) -> None:
     无法中断正在运行的 C 级 re.search；必须用子进程隔离（#19 Windows 适配）。
 
     Args:
-        patterns: size_patterns 配置
+        patterns: size_patterns 配置（必须是 dict；非 dict 立即 raise RuntimeError）
 
     Raises:
         re.error: 正则语法错误
-        RuntimeError: 检测到疑似 ReDoS 模式（子进程超时）
+        RuntimeError: patterns 非 dict / 检测到疑似 ReDoS 模式（子进程超时）
     """
+    if not isinstance(patterns, dict):
+        raise RuntimeError(
+            f"size_patterns 必须是 dict，实际类型 {type(patterns).__name__}; "
+            f"检查 yaml 配置 solidworks_toolbox.size_patterns 段"
+        )
+
     for category, field_patterns in patterns.items():
         if not isinstance(field_patterns, dict):
             continue

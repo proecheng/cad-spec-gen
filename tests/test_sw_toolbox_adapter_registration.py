@@ -42,3 +42,25 @@ class TestSwToolboxRegistration:
         assert sw_adapter is not None
         # 现阶段 default yaml 无 solidworks_toolbox 段，config 应为 {}
         assert sw_adapter.config == {}
+
+    def test_sw_toolbox_rejects_malformed_size_patterns(self, tmp_path, monkeypatch):
+        """yaml size_patterns 非 dict 时，adapter 注册被拒绝但管道继续。"""
+        from parts_resolver import default_resolver
+
+        # monkeypatch load_registry 返回带恶意 size_patterns 的配置
+        def fake_load_registry(*args, **kwargs):
+            return {
+                "solidworks_toolbox": {
+                    "size_patterns": "malformed_should_be_dict",  # 非 dict
+                },
+                "mappings": [],
+            }
+
+        monkeypatch.setattr("parts_resolver.load_registry", fake_load_registry)
+
+        # 不应抛异常，应静默不注册 sw_toolbox
+        resolver = default_resolver(project_root=str(tmp_path))
+        adapter_names = [a.name for a in resolver.adapters]
+        assert "sw_toolbox" not in adapter_names
+        # 其他 adapter 应正常注册（管道继续）
+        assert "jinja_primitive" in adapter_names
