@@ -48,7 +48,7 @@ MIN_STEP_FILE_SIZE = 1024
 STEP_MAGIC_PREFIX = b"ISO-10303"
 
 
-def _com_dispatch(prog_id: str):
+def _com_dispatch(prog_id: str) -> object:
     """lazy import win32com.client.Dispatch（单元测试可 monkeypatch 此函数）。
 
     Args:
@@ -109,7 +109,9 @@ class SwComSession:
                     "Add-Ins 勾选 SOLIDWORKS Toolbox Library"
                 )
             self._app = app
-            self._last_used_ts = time.time()
+            # 注意：_last_used_ts 只在 convert_sldprt_to_step 成功时更新
+            # （threading model doc 规则 6 I-2 语义）。start 不赋值，保持
+            # 初值 0.0 直到第一次成功产出 STEP。
         except Exception:
             self._unhealthy = True
             self._app = None
