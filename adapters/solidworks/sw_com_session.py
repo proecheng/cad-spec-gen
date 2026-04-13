@@ -48,6 +48,24 @@ MIN_STEP_FILE_SIZE = 1024
 STEP_MAGIC_PREFIX = b"ISO-10303"
 
 
+def _com_dispatch(prog_id: str):
+    """lazy import win32com.client.Dispatch（单元测试可 monkeypatch 此函数）。
+
+    Args:
+        prog_id: 例如 "SldWorks.Application"
+
+    Returns:
+        win32com Dispatch 对象
+
+    Raises:
+        ImportError: pywin32 未安装
+        pywin32 com_error: SW 未安装或启动失败
+    """
+    from win32com.client import Dispatch  # type: ignore[import-not-found]
+
+    return Dispatch(prog_id)
+
+
 class SwComSession:
     """COM session 唯一 source of truth（v4 决策 #22）。
 
@@ -65,6 +83,37 @@ class SwComSession:
     def is_healthy(self) -> bool:
         """熔断状态查询。"""
         return not self._unhealthy
+
+    def _start_locked(self) -> None:
+        """冷启动（v4 决策 #10）。必须在持 self._lock 的上下文内调用。
+
+        流程：
+        1. Dispatch("SldWorks.Application")
+        2. app.Visible = False, UserControl = False（避免弹窗）
+        3. app.LoadAddIn("SOLIDWORKS Toolbox")
+        4. 任何步骤失败 → self._unhealthy=True，抛异常
+
+        时间上限由调用方保证（Part 2c SW-B0 spike 补课后决定实现手段）。
+        """
+        assert self._lock.locked(), "_start_locked 必须在持锁上下文内调用"
+
+        try:
+            app = _com_dispatch("SldWorks.Application")
+            app.Visible = False
+            app.UserControl = False
+            result = app.LoadAddIn("SOLIDWORKS Toolbox")
+            if not result:
+                raise RuntimeError(
+                    "LoadAddIn('SOLIDWORKS Toolbox') 返回 0 — "
+                    "Toolbox Add-In 可能未安装；请在 SolidWorks Tools → "
+                    "Add-Ins 勾选 SOLIDWORKS Toolbox Library"
+                )
+            self._app = app
+            self._last_used_ts = time.time()
+        except Exception:
+            self._unhealthy = True
+            self._app = None
+            raise
 
     def convert_sldprt_to_step(
         self,
