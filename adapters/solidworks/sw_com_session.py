@@ -124,6 +124,11 @@ class SwComSession:
         必须在持 self._lock 的上下文内调用。
         shutdown 失败被吞掉（视为进程已死），_start_locked 负责重建。
         start 失败会让 _unhealthy=True 冒泡。
+
+        注意：`_convert_count` 跨 idle shutdown 持久化——idle 释放
+        SW 进程不重置计数。所以"49 次 convert → idle 释放 → 下次 convert
+        重新 start → count 涨到 50 → 再下次 convert 触发 restart"是预期
+        路径，会比未 idle 场景多一次 restart 开销，可接受。
         """
         if not self._lock.locked():
             raise RuntimeError("_maybe_restart_locked 必须在持 self._lock 的上下文内调用")

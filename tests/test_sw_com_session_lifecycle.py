@@ -222,3 +222,24 @@ class TestIdleShutdown:
             sess.convert_sldprt_to_step(str(sldprt), str(step_out))
 
         app.ExitApp.assert_not_called()
+
+    def test_no_idle_shutdown_when_last_used_ts_is_zero(self, tmp_path):
+        """I-2 边界: session start 但还没成功 convert（_last_used_ts==0.0）时跳过 idle 判定，不应触发 shutdown。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        app = mock.MagicMock()
+        app.LoadAddIn.return_value = 1
+        sess._app = app
+        sess._last_used_ts = 0.0  # 还没成功产出过 STEP
+
+        with mock.patch.object(sw_com_session, "_com_dispatch", mock.MagicMock()):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        # _last_used_ts==0.0 → 跳过 idle 判定 → 不 ExitApp 不 Dispatch
+        app.ExitApp.assert_not_called()
