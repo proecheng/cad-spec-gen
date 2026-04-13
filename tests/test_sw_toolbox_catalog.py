@@ -502,6 +502,92 @@ class TestValidateSldprtPath:
         assert _validate_sldprt_path(traversal, toolbox) is False
 
 
+class TestMatchToolboxPart:
+    """v4 决策 #12: part_no 权重 2.0，name_cn 1.0，material 0.5，size 1.5。"""
+
+    @pytest.fixture
+    def fake_toolbox(self):
+        return Path(__file__).parent / "fixtures" / "fake_toolbox"
+
+    @pytest.fixture
+    def idx(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+        return build_toolbox_index(fake_toolbox)
+
+    def test_match_exact_hex_bolt(self, idx):
+        from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+        query_tokens = [("hex", 1.0), ("bolt", 1.0)]
+        result = match_toolbox_part(
+            idx, query_tokens,
+            standards=["GB"],
+            subcategories=["bolts and studs"],
+            min_score=0.30,
+        )
+        assert result is not None
+        part, score = result
+        assert part.filename == "hex bolt.sldprt"
+        assert score > 0.30
+
+    def test_match_part_no_weight_dominates(self, idx):
+        """part_no 权重 2.0 应该能把弱匹配推到阈值之上。"""
+        from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+        # 仅 part_no token 命中（"bolt"），name_cn 无命中
+        query_tokens = [("bolt", 2.0)]
+        result = match_toolbox_part(
+            idx, query_tokens,
+            standards=["GB"],
+            subcategories=["bolts and studs"],
+            min_score=0.30,
+        )
+        assert result is not None
+
+    def test_match_below_min_score_returns_none(self, idx):
+        """决策 #3: 低于 min_score 返回 None → miss。"""
+        from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+        query_tokens = [("completely", 1.0), ("unrelated", 1.0)]
+        result = match_toolbox_part(
+            idx, query_tokens,
+            standards=["GB"],
+            subcategories=["bolts and studs"],
+            min_score=0.30,
+        )
+        assert result is None
+
+    def test_match_respects_subcategory_whitelist(self, idx):
+        """只在 spec 指定的 subcategories 里搜。"""
+        from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
+        query_tokens = [("hex", 1.0), ("nut", 1.0)]
+        # 限定只搜 bolts and studs, 应不会返回 nuts 下的东西
+        result = match_toolbox_part(
+            idx, query_tokens,
+            standards=["GB"],
+            subcategories=["bolts and studs"],
+            min_score=0.30,
+        )
+        if result:
+            part, _ = result
+            assert part.subcategory == "bolts and studs"
+
+    def test_build_query_tokens_weighted(self):
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = "GB/T 70.1"
+            name_cn = "M6×20 内六角螺钉"
+            material = "钢"
+
+        weights = {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        size_dict = {"size": "M6", "length": "20"}
+
+        tokens_weighted = build_query_tokens_weighted(Q(), size_dict, weights)
+        # 每个 token 是 (str, float) tuple
+        assert all(isinstance(t, tuple) and len(t) == 2 for t in tokens_weighted)
+        # part_no 里的 token 权重应为 2.0
+        part_no_tokens = {t for t, w in tokens_weighted if w == 2.0}
+        # "gb" 或 "70" 应属 part_no
+        assert any(k in part_no_tokens for k in ["gb", "70", "1"])
+
+
 class TestMakeIndexEnvelope:
     """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""
 

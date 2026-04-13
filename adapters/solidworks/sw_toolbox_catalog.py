@@ -523,6 +523,92 @@ def _validate_sldprt_path(sldprt_path: str, toolbox_dir: Path) -> bool:
         return False
 
 
+def build_query_tokens_weighted(
+    query,
+    size_dict: Optional[dict],
+    weights: dict,
+) -> list[tuple[str, float]]:
+    """构造加权 query tokens（v4 决策 #12）。
+
+    weights 示例: {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+
+    同一 token 出现在多个字段时取最大权重（不累加），确保 dedup 后 dict() 不会覆盖高权重。
+
+    Args:
+        query: 含 part_no / name_cn / material 属性的对象（缺失属性回退空字符串）
+        size_dict: 尺寸 dict，如 {"size": "M6", "length": "20"}，None 时跳过
+        weights: 字段权重配置
+
+    Returns:
+        [(token, weight), ...] —— 同一 token 出现在多个字段时取最大权重
+    """
+    collected: dict[str, float] = {}
+
+    def add(tokens: list[str], w: float) -> None:
+        for t in tokens:
+            if t not in collected or collected[t] < w:
+                collected[t] = w
+
+    add(tokenize(getattr(query, "part_no", "")), weights.get("part_no", 1.0))
+    add(tokenize(getattr(query, "name_cn", "")), weights.get("name_cn", 1.0))
+    add(tokenize(getattr(query, "material", "")), weights.get("material", 0.5))
+
+    if size_dict:
+        for value in size_dict.values():
+            add(tokenize(str(value)), weights.get("size", 1.5))
+
+    return [(t, w) for t, w in collected.items()]
+
+
+def match_toolbox_part(
+    index: dict,
+    query_tokens_weighted: list[tuple[str, float]],
+    standards: list[str],
+    subcategories: list[str],
+    min_score: float = 0.30,
+) -> Optional[tuple[SwToolboxPart, float]]:
+    """加权 token overlap 打分（v4 决策 #3/#12/#18）。
+
+    score = Σ(命中 token 的权重) / Σ(query token 总权重)
+
+    Args:
+        index: build/load_toolbox_index 返回的 dict
+        query_tokens_weighted: [(token, weight), ...]
+        standards: 候选标准白名单（如 ["GB"]）
+        subcategories: 候选子分类白名单
+        min_score: 最低命中分数（低于此值返回 None）
+
+    Returns:
+        (part, score) 或 None（低于 min_score）
+    """
+    if not query_tokens_weighted:
+        return None
+
+    total_weight = sum(w for _, w in query_tokens_weighted)
+    if total_weight == 0:
+        return None
+
+    query_map = dict(query_tokens_weighted)
+
+    best: Optional[tuple[SwToolboxPart, float]] = None
+    for std_name, sub_dict in index.get("standards", {}).items():
+        if std_name not in standards:
+            continue
+        for sub_name, parts in sub_dict.items():
+            if sub_name not in subcategories:
+                continue
+            for part in parts:
+                part_token_set = set(part.tokens)
+                hit_weight = sum(w for t, w in query_map.items() if t in part_token_set)
+                score = hit_weight / total_weight
+                if best is None or score > best[1]:
+                    best = (part, score)
+
+    if best and best[1] >= min_score:
+        return best
+    return None
+
+
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, str]]:
     """从 BOM name_cn 正则抽尺寸（v4 §1.3, 决策 #9）。
 
