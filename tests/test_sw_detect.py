@@ -36,6 +36,12 @@ class TestSwInfoDataclass:
         a.sldmat_paths.append("/fake")
         assert b.sldmat_paths == []
 
+    def test_sw_info_has_toolbox_addin_enabled_field_default_false(self):
+        """v4 决策 #13: SwInfo 新增 toolbox_addin_enabled 字段，默认 False。"""
+        info = SwInfo()
+        assert hasattr(info, "toolbox_addin_enabled")
+        assert info.toolbox_addin_enabled is False
+
 
 class TestNonWindows:
     """非 Windows 平台的短路行为。"""

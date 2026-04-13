@@ -59,6 +59,9 @@ class SwInfo:
     pywin32_available: bool = False
     """pywin32 (win32com) 是否可导入"""
 
+    toolbox_addin_enabled: bool = False
+    """Toolbox Add-In 是否在 SW Tools → Add-Ins 里启用（v4 决策 #13）"""
+
 
 # 进程级缓存
 _cached_info: Optional[SwInfo] = None
