@@ -831,6 +831,12 @@ pytest tests/test_sw_toolbox_catalog.py::TestValidateSizePatterns -v
 
 - [ ] **Step 36:** 在 catalog 添加 ReDoS 防御实现：
 
+> **📌 Update 2026-04-13 (实施中发现)**: plan 原定用 `threading.Thread + join(timeout)` 实现
+> ReDoS 超时检测，但实测在 CPython 上对 `re` 模块**完全无效**（GIL 阻塞 C 扩展期间
+> `join(timeout)` 不起作用）。已改用 `subprocess.run(..., timeout=...)` 方案——子进程
+> 有独立 GIL 可被 OS 强制 kill。具体见 commit 15692a0 + spec reviewer 的独立验证。
+> Step 36 的代码块**仅作原始设计记录**，实际实施以 `sw_toolbox_catalog.py` 为准。
+
 ```python
 # v4 决策 #19: ReDoS 对抗样本池
 REDOS_PROBE_INPUTS = (
