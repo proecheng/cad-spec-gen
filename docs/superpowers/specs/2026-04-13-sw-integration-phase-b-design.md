@@ -1,9 +1,13 @@
 # Phase SW-B — SolidWorks Toolbox COM Adapter 设计规格
 
-> 版本: v2.0 — 2026-04-13（五角色联审修订版）
+> 版本: v3.0 — 2026-04-13（四维度联审修订版）
 > 状态: 待实施
 > 前置: Phase SW-A 已完成（`sw_detect.py` / `sw_material_bridge.py` 已合入 main）
 > 参考: `docs/design/solidworks-integration-plan.md` §4.4、§5、§8、§11
+>
+> **v3 修订重点**：数据流一致性（source_tag / metadata / warnings / _SKIP_CATEGORIES）、
+> 函数命名一致性（`Sw` 前缀下沉）、无硬编码（cache 覆盖链 + 环境变量）、
+> 与既有 skill 全面融合（Path.home 强制使用、yaml 浅覆盖警告、职责边界明确）
 
 ---
 
@@ -38,6 +42,25 @@ coverage = (命中非 jinja_primitive adapter 的 BOM 行数) / (总 BOM 行数)
 - 不解决 SW Toolbox 之外的 sldprt 转换
 - 不做 PDM Vault 集成
 
+### 1.4 `_SKIP_CATEGORIES` 语义澄清（v3 新增）
+
+**既有约束**：`parts_resolver.py:42` 定义 `_SKIP_CATEGORIES = {"fastener", "cable"}`，codegen 阶段对这两个类别**不生成 `std_*.py` 代码**（它们不属于 BOM 中的"主零件"范畴）。
+
+**Phase SW-B 的价值定位**：SW Toolbox 对 fastener 的匹配（§3.1 规则链）**仍然有意义**，但产出**不经 codegen**：
+
+| 消费点 | 用途 | 是否经 codegen |
+|--------|------|---------------|
+| `PartsResolver.resolve()` 命中 `sw_toolbox` | 供 `coverage_report` 统计、覆盖率指标（§1.2） | ❌ |
+| `PartsResolver.probe_dims()` 返回 (w,d,h) | 供 Phase 1 envelope backfill | ❌ |
+| 生成的 STEP 文件本身 | 供 Phase 3 装配 `cq.importers.importStep()` 精准加载 | ❌（直接文件消费） |
+| `std_*.py` Python 模块生成 | fastener/cable 跳过，其他类别生成 `make_std_*()` | ✅ |
+
+换言之，**SW Toolbox 对 fastener 的"命中"等价于"为装配构建提供精准几何文件"而非"生成代码"**。非 fastener/cable 类别（bearing、housing、shaft 等）的命中才会走 codegen 生成 Python 模块。
+
+**对 §9.3 覆盖率 regression 测试的影响**：必须在**两个层面**验证：
+1. **resolver 层**：`coverage_report()` 中 `solidworks_toolbox` 命中数 ≥ 11/15
+2. **codegen 层**：非 fastener/cable 类别命中的 `std_*.py` 被生成，fastener 命中记入 resolver 统计但不产代码（预期行为）
+
 ---
 
 ## 2. 关键设计决策
@@ -57,6 +80,11 @@ coverage = (命中非 jinja_primitive adapter 的 BOM 行数) / (总 BOM 行数)
 | **11** | **SW 进程内存管理** | **session 周期重启** — 每转换 N=50 个零件强制 shutdown 后重开，避免长批量时 OOM |
 | **12** | **Token 权重** | `part_no` 在 query_tokens 中权重 2.0，`name_cn` 权重 1.0，`material` 权重 0.5 — 标准号是最高权重信号 |
 | **13** | **Toolbox Add-In 启用检查** | `sw_detect` 新增 `toolbox_addin_enabled` 字段；`is_available()` 强制检查此字段；未启用时 env-check 给出明确指引 |
+| **14** | **数据类/Adapter 类名 `Sw` 前缀统一** | `ToolboxPart` (v2) → `SwToolboxPart` (v3)；`SolidWorksToolboxAdapter` (v2) → `SwToolboxAdapter` (v3) — 遵循 Phase SW-A 的 `SwInfo`/`SwMaterial`/`SwMaterialBundle` 命名风格 |
+| **15** | **缓存重置统一入口** | `sw_com_session.reset_session()` 纳入 `sw_material_bridge.reset_all_sw_caches()` 统一入口（已有此函数，直接扩展） |
+| **16** | **Cache 路径三级覆盖链** | `yaml solidworks_toolbox.cache > env CAD_SPEC_GEN_SW_TOOLBOX_CACHE > 默认 ~/.cad-spec-gen/step_cache/sw_toolbox/`；索引同理 `CAD_SPEC_GEN_SW_TOOLBOX_INDEX` |
+| **17** | **conftest 兼容强制 `Path.home()`** | 所有路径构造必须用 `Path.home()` 而非 `os.path.expanduser()` — 后者在 Windows 上不被 `monkeypatch.setattr(Path, "home", ...)` 覆盖，导致 `isolate_cad_spec_gen_home` fixture 失效 |
+| **18** | **职责边界：YAML 一级 vs token overlap 二级** | YAML `keyword_contains` 做一级过滤（是否 GB 零件）；adapter `match_toolbox_part` **只在已被 YAML 命中的规则内**做二级精选（具体是哪一个 sldprt） — `sw_toolbox_catalog.match_toolbox_part` 不复写 `keyword_contains` 语义 |
 
 ---
 
@@ -71,14 +99,14 @@ BOM row (part_no / name_cn / material)
 PartsResolver.resolve()  ── 按 parts_library YAML mappings first-hit-wins
     │
     ├──► 厂商 STEP (Maxon/LEMO/ATI)
-    ├──► SolidWorksToolboxAdapter (GB 标准件)
+    ├──► SwToolboxAdapter (GB 标准件)
     ├──► bd_warehouse 专用轴承/紧固件 (class 专项)
-    ├──► SolidWorksToolboxAdapter (ISO/DIN 兜底)
+    ├──► SwToolboxAdapter (ISO/DIN 兜底)
     ├──► bd_warehouse 通用 fastener/bearing
     └──► jinja_primitive (永远命中的兜底)
 ```
 
-### 3.2 `SolidWorksToolboxAdapter.resolve()` 内部流程
+### 3.2 `SwToolboxAdapter.resolve()` 内部流程
 
 ```
 1. Toolbox 索引加载
@@ -126,6 +154,21 @@ PartsResolver.resolve()  ── 按 parts_library YAML mappings first-hit-wins
 10. 任何异常 → warning + 返回 miss（绝不 raise）
 ```
 
+**`ResolveResult` 字段填充规范**（v3 补强，消除与既有 adapter 的差异）：
+
+| 字段 | SwToolboxAdapter 填充规则 |
+|------|---------------------------|
+| `status` | `"hit"` / `"miss"` |
+| `kind` | `"step_import"` (hit) / `"miss"` (miss) |
+| `adapter` | `"sw_toolbox"` |
+| `step_path` | 相对 project_root 的 STEP 路径（与 StepPoolAdapter 一致） |
+| `real_dims` | 缓存命中时读 STEP bbox；未命中时 None |
+| `source_tag` | `"sw_toolbox:GB/bolts/hex_bolt_m6.sldprt"`（便于 coverage_report 追溯到原始 sldprt） |
+| `metadata["dims"]` | 与 real_dims 同值，供 codegen 注释生成 |
+| `metadata["match_score"]` | token overlap 分数（供 dry-run 和调试） |
+| `metadata["configuration"]` | sldprt 的激活 configuration 名（Phase SW-B 默认值；留给 Phase SW-C 演进） |
+| `warnings` | 非阻断的提示：如"BOM 尺寸抽取到 M6 但 sldprt 默认 config 为 M4"、"Toolbox Add-In 响应慢" 等 |
+
 ---
 
 ## 4. 组件分解
@@ -134,9 +177,9 @@ PartsResolver.resolve()  ── 按 parts_library YAML mappings first-hit-wins
 
 | 路径 | 职责 | 规模 |
 |------|------|------|
-| `adapters/solidworks/sw_toolbox_catalog.py` | 扫描 Toolbox 目录树（仅 `*.sldprt`）+ 生成/读取索引 JSON + 索引 schema_version 校验 + token 提取 + 尺寸正则匹配 + 加权 token overlap 评分 | ~300 行 |
-| `adapters/solidworks/sw_com_session.py` | COM 会话管理：冷启动超时 90s + 单零件 30s + 熔断器（连续 3 次失败）+ 空闲超时 5 分钟自动释放 + 每 50 次转换周期重启 + Toolbox Add-In 激活 | ~250 行 |
-| `adapters/parts/sw_toolbox_adapter.py` | `SolidWorksToolboxAdapter` 实现 `PartsAdapter`；熔断状态委托给 `SwComSession` | ~300 行 |
+| `adapters/solidworks/sw_toolbox_catalog.py` | 扫描 Toolbox 目录树（仅 `*.sldprt`）+ 生成/读取索引 JSON + 索引 schema_version 校验 + token 提取 + 尺寸正则匹配 + 加权 token overlap 评分；定义 `SwToolboxPart` dataclass（决策 #14） | ~300 行 |
+| `adapters/solidworks/sw_com_session.py` | COM 会话管理：冷启动超时 90s + 单零件 30s + 熔断器（连续 3 次失败）+ 空闲超时 5 分钟自动释放 + 每 50 次转换周期重启 + Toolbox Add-In 激活；`reset_session()` 注册到 `reset_all_sw_caches()`（决策 #15） | ~250 行 |
+| `adapters/parts/sw_toolbox_adapter.py` | `SwToolboxAdapter`（决策 #14）实现 `PartsAdapter`；熔断状态委托给 `SwComSession` | ~300 行 |
 | `tests/fixtures/fake_toolbox/` | 伪造 Toolbox 目录（GB/ISO/DIN + 混入 `.xls`/`.slddrw` 验证过滤） | ~15 文件 |
 | `tests/fixtures/demo_bom.csv` | 端到端验收 BOM（≥ 15 行，覆盖率 regression baseline） | ~15 行 |
 | `tests/test_sw_toolbox_catalog.py` | catalog 单元测试（scan + match + 正则 + schema_version） | ~250 行 |
@@ -148,7 +191,8 @@ PartsResolver.resolve()  ── 按 parts_library YAML mappings first-hit-wins
 | 路径 | 改动 | 规模 |
 |------|------|------|
 | `adapters/solidworks/sw_detect.py` | 新增 `toolbox_addin_enabled` 字段 + 检测逻辑（从 `HKCU\Software\SolidWorks\AddInsStartup` 注册表读） | +30 行 |
-| `parts_resolver.py` | `default_resolver()` 注册 SW Toolbox adapter | +10 行 |
+| `adapters/solidworks/sw_material_bridge.py` | `reset_all_sw_caches()` 追加 `sw_com_session.reset_session()`（决策 #15） | +5 行 |
+| `parts_resolver.py` | `default_resolver()` 注册 SwToolboxAdapter | +10 行 |
 | `parts_library.default.yaml` | 增加 `solidworks_toolbox` 配置段 + 规则 + `size_patterns` + `token_weights` + COM 超时/周期重启参数 | +80 行 |
 | `cad_pipeline.py` | `cmd_sw_warmup()` + `sw-warmup` 子命令 + env-check 的 Toolbox 索引 & Add-In 状态报告 + coverage report 增强 | +150 行 |
 | `pyproject.toml` | `[project.optional-dependencies] solidworks = ["pywin32>=306"]` + `requires_solidworks` marker 声明 | +5 行 |
@@ -162,8 +206,29 @@ PartsResolver.resolve()  ── 按 parts_library YAML mappings first-hit-wins
 ```python
 SCHEMA_VERSION = 1   # 每次索引结构变更必须 bump；旧缓存自动重建
 
+# 决策 #16: cache 路径覆盖链 (最高 → 最低)
+CACHE_ROOT_ENV  = "CAD_SPEC_GEN_SW_TOOLBOX_CACHE"   # 环境变量覆盖
+INDEX_PATH_ENV  = "CAD_SPEC_GEN_SW_TOOLBOX_INDEX"   # 索引覆盖
+# 默认: Path.home() / ".cad-spec-gen" / "step_cache" / "sw_toolbox"
+# 决策 #17: 必须用 Path.home()，绝不用 os.path.expanduser()
+#           (后者不被 monkeypatch.setattr(Path, "home", ...) 覆盖，
+#            会击穿 conftest.isolate_cad_spec_gen_home)
+
+def get_toolbox_cache_root(config: dict) -> Path:
+    """cache 路径解析顺序（决策 #16）:
+    1. config['cache']（来自 yaml solidworks_toolbox.cache）
+    2. os.environ[CACHE_ROOT_ENV]
+    3. Path.home() / '.cad-spec-gen' / 'step_cache' / 'sw_toolbox'
+    """
+
+def get_toolbox_index_path(config: dict) -> Path:
+    """index 路径解析顺序（决策 #16）:
+    1. os.environ[INDEX_PATH_ENV]
+    2. Path.home() / '.cad-spec-gen' / 'sw_toolbox_index.json'
+    """
+
 @dataclass
-class ToolboxPart:
+class SwToolboxPart:   # ★ v3: 从 ToolboxPart 改名，遵循 Sw 前缀（决策 #14）
     standard: str           # "GB" / "ISO" / "DIN"
     subcategory: str        # "bolts and studs" / "nuts" / ...
     sldprt_path: str        # 绝对路径
@@ -178,7 +243,7 @@ def build_toolbox_index(toolbox_dir: Path) -> dict:
     {
       "schema_version": 1,
       "scan_time": "2026-04-13T...",
-      "standards": {"GB": {"bolts and studs": [ToolboxPart, ...], ...}, ...}
+      "standards": {"GB": {"bolts and studs": [SwToolboxPart, ...], ...}, ...}
     }
     """
 
@@ -195,7 +260,7 @@ def match_toolbox_part(
     standards: list[str],
     subcategories: list[str],
     min_score: float = 0.30,
-) -> Optional[tuple[ToolboxPart, float]]:
+) -> Optional[tuple[SwToolboxPart, float]]:
     """加权 token overlap。返回 (part, normalized_score) 或 None（低于 min_score）。"""
 
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict]:
@@ -295,13 +360,22 @@ class SwComSession:
 _SESSION_SINGLETON: Optional[SwComSession] = None
 def get_session() -> SwComSession: ...
 def reset_session() -> None:
-    """测试用 + 外部主动清熔断。清空 singleton + convert_count + failures。"""
+    """测试用 + 外部主动清熔断。清空 singleton + convert_count + failures。
+
+    决策 #15: 此函数必须注册到 sw_material_bridge.reset_all_sw_caches()
+    统一入口。在 reset_all_sw_caches() 内部增加一行:
+        try:
+            from adapters.solidworks.sw_com_session import reset_session as _reset_com
+            _reset_com()
+        except ImportError:
+            pass
+    """
 ```
 
 ### 5.3 `sw_toolbox_adapter.py`
 
 ```python
-class SolidWorksToolboxAdapter(PartsAdapter):
+class SwToolboxAdapter(PartsAdapter):
     name = "solidworks_toolbox"
 
     def __init__(self, project_root: str = "", config: Optional[dict] = None):
@@ -333,7 +407,7 @@ class SolidWorksToolboxAdapter(PartsAdapter):
         再跑管道获得完整 envelope。
         """
 
-    def _find_sldprt(self, query, spec) -> Optional[tuple[ToolboxPart, float]]:
+    def _find_sldprt(self, query, spec) -> Optional[tuple[SwToolboxPart, float]]:
         """匹配逻辑独立方法，供 sw-warmup --bom 复用，不触发 COM。"""
 ```
 
@@ -374,7 +448,11 @@ SolidWorks 2024: ✅ 已检测到
 solidworks_toolbox:
   enabled: auto
   standards: [GB, ISO, DIN]
-  cache: ~/.cad-spec-gen/step_cache/sw_toolbox/
+  # cache 路径解析顺序（决策 #16）:
+  #   1. 本 yaml cache 字段（留空即不覆盖）
+  #   2. 环境变量 CAD_SPEC_GEN_SW_TOOLBOX_CACHE
+  #   3. 默认 Path.home() / '.cad-spec-gen' / 'step_cache' / 'sw_toolbox'
+  # cache: ~/.cad-spec-gen/step_cache/sw_toolbox/   # 注释掉 = 走 env/默认
   min_score: 0.30
 
   # 加权 token overlap（决策 #12）
@@ -400,6 +478,7 @@ solidworks_toolbox:
     single_convert_timeout_sec: 30
     restart_every_n_converts: 50
     idle_shutdown_sec: 300
+    circuit_breaker_threshold: 3       # 决策 #6
 
 mappings:
   # [现有] 厂商 STEP
@@ -447,6 +526,55 @@ mappings:
   # [现有] bd_warehouse 通用兜底 + jinja_primitive
 ```
 
+### 6.1 ⚠️ YAML 浅覆盖陷阱（v3 新增警告）
+
+`parts_resolver._merge_registry()`（parts_resolver.py:508-537）对顶级键（`solidworks_toolbox`、`step_pool` 等）是**浅覆盖**——overlay 字典**整体替换** base 字典，**不做嵌套深度合并**。
+
+**反例**（project `parts_library.yaml` 用 `extends: default`）：
+
+```yaml
+extends: default
+solidworks_toolbox:
+  token_weights:
+    part_no: 3.0    # 只想覆盖一个权重
+```
+
+合并后实际 config：
+
+```python
+{
+    "token_weights": {"part_no": 3.0}   # ⚠️ 其他 3 个权重丢失！
+}
+```
+
+**正确做法**：project yaml 中必须**重复所有字段**：
+
+```yaml
+extends: default
+solidworks_toolbox:
+  enabled: auto
+  standards: [GB, ISO, DIN]
+  min_score: 0.30
+  token_weights:
+    part_no: 3.0
+    name_cn: 1.0
+    material: 0.5
+    size: 1.5
+  size_patterns: { ... }   # 全部照抄默认
+  com: { ... }             # 全部照抄默认
+```
+
+**未来改进**（Phase SW-C 候选）：改进 `_merge_registry()` 支持嵌套深度合并（但会影响其他顶级段的语义，需谨慎）。
+
+### 6.2 YAML `keyword_contains` vs adapter token overlap 职责边界（v3 新增，决策 #18）
+
+| 阶段 | 机制 | 职责 |
+|------|------|------|
+| 一级过滤 | `parts_resolver._match_rule()` 遍历 YAML `mappings`，对每条规则检查 `match.keyword_contains` / `category` / `make_buy` | 判定"BOM 行是否命中此规则"，即"是否属于 SW Toolbox GB 紧固件这一类" |
+| 二级精选 | `sw_toolbox_catalog.match_toolbox_part()` 在 spec 指定的 `subcategories` 白名单内做加权 token overlap | 判定"具体是哪个 sldprt 文件" |
+
+`match_toolbox_part()` **不复写** `keyword_contains` 的语义——它假设 YAML 已经帮忙过滤过了，只在候选池里挑最像的那一个。
+
 ---
 
 ## 7. `sw-warmup` 命令接口
@@ -475,7 +603,7 @@ def cmd_sw_warmup(args):
     # 3) 筛选目标零件
     #    --all:       index 全部
     #    --standard:  按 standard 过滤
-    #    --bom:       复用 SolidWorksToolboxAdapter._find_sldprt() 匹配每行
+    #    --bom:       复用 SwToolboxAdapter._find_sldprt() 匹配每行
     # 4) 过滤已缓存（除非 --overwrite）
     # 5) 进度显示:
     #    [12/330] GB/bolts/hex_bolt_m6.step  ✓  (1.2s)
@@ -485,6 +613,18 @@ def cmd_sw_warmup(args):
     # 7) 断点续跑：已缓存跳过
     # 8) 汇总: 目标 330 / 成功 328 / 失败 2 / 耗时 18m
 ```
+
+### 7.1 logging vs print 职责分工（v3 新增，融合决策 #9）
+
+与 Phase SW-A 的 `sw_material_bridge.py` 使用 `log = logging.getLogger(__name__)` 一致：
+
+| 输出类型 | 通道 | 例子 |
+|---------|------|------|
+| **交互式进度条** | `print()` → stdout | `[12/330] GB/bolts/hex_bolt_m6.step  ✓  (1.2s)` |
+| **最终汇总** | `print()` → stdout | `目标 330 / 成功 328 / 失败 2 / 耗时 18m` |
+| **warning（非阻断）** | `log.warning()` → stderr | "BOM 尺寸抽取到 M6 但 sldprt 默认 config 为 M4" |
+| **error（熔断/启动失败）** | `log.error()` + 写入 `sw_warmup_errors.log` | "COM session 冷启动超时" |
+| **debug（token 打分细节）** | `log.debug()` | 分数计算过程，默认不输出 |
 
 ---
 
@@ -703,9 +843,9 @@ SW Toolbox 命中率（满足决策 #1.2 "迁移 ≥ 8 行"）：**11/15 = 73%**
 
 ---
 
-## 附录 A — 五角色联审修订记录（v1 → v2）
+## 附录 A — 联审修订记录
 
-本节记录 v1 → v2 修订的完整映射表，便于后续审计。
+### A.1 五角色联审（v1 → v2）
 
 | # | 修订项 | 触发角色 | 严重度 | 落位章节 |
 |---|--------|---------|--------|---------|
@@ -724,3 +864,20 @@ SW Toolbox 命中率（满足决策 #1.2 "迁移 ≥ 8 行"）：**11/15 = 73%**
 | 13 | STEP Units 显式 mm | SolidWorks 操作员 / 3D 设计师 | low | §5.2 convert 流程 |
 | 14 | 熔断器状态归属明确 | 系统架构师 | low | §5.2 docstring, §5.3 |
 | 15 | Toolbox 目录过滤非 sldprt | SolidWorks 操作员 | low | §5.1, §9.2 fixture |
+
+### A.2 四维度联审（v2 → v3）
+
+| # | 修订项 | 触发维度 | 严重度 | 落位章节 |
+|---|--------|---------|--------|---------|
+| 1 | `_SKIP_CATEGORIES={fastener,cable}` 与 SW Toolbox fastener 匹配的语义冲突 | 数据流 | high | §1.4 新增 |
+| 2 | `ResolveResult` 字段填充规范（source_tag / metadata / warnings） | 数据流 | medium | §3.2 尾部新增 |
+| 3 | `ToolboxPart` (v2) → `SwToolboxPart` (v3)，遵循 Sw 前缀 | 函数一致性 | medium | §2 #14, §4.1, §5.1 |
+| 4 | `SolidWorksToolboxAdapter` (v2) → `SwToolboxAdapter` (v3)，缩写一致 | 函数一致性 | medium | §2 #14, §4.1, §5.3 |
+| 5 | `reset_session()` 融入 `reset_all_sw_caches()` 统一入口 | 函数一致性 | medium | §2 #15, §4.2, §5.2 |
+| 6 | cache 路径三级覆盖链（yaml > env > 默认） | 无硬编码 | medium | §2 #16, §5.1, §6 |
+| 7 | 新增 `CAD_SPEC_GEN_SW_TOOLBOX_CACHE` / `_INDEX` 环境变量 | 无硬编码 | medium | §5.1 常量 |
+| 8 | `circuit_breaker_threshold` yaml 化 | 无硬编码 | low | §6 yaml `com` 段 |
+| 9 | 强制使用 `Path.home()` 不用 `os.path.expanduser()`（conftest 兼容） | 融合 | high | §2 #17, §5.1 docstring |
+| 10 | YAML 浅覆盖陷阱警告 | 融合 | medium | §6.1 新增 |
+| 11 | YAML `keyword_contains` 一级过滤 vs token overlap 二级精选职责边界 | 融合 | medium | §2 #18, §6.2 新增 |
+| 12 | logging vs print 职责分工明确 | 融合 | low | §7.1 新增 |
