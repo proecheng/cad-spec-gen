@@ -342,3 +342,10 @@ def reset_all_sw_caches() -> None:
         _reset_preset_keywords_cache()
     except ImportError:
         pass
+
+    # v4 决策 #15: COM session reset
+    try:
+        from adapters.solidworks.sw_com_session import reset_session as _reset_com
+        _reset_com()
+    except ImportError:
+        pass

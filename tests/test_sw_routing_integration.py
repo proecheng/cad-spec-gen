@@ -148,3 +148,19 @@ class TestResetAllSwCaches:
         assert cad_spec_defaults._merged_keywords is None
         # 验证 cad_pipeline preset 缓存也已被清除
         assert cad_pipeline._preset_keywords_merged is None
+
+    def test_reset_all_sw_caches_includes_com_session(self, monkeypatch):
+        """v4 决策 #15: sw_com_session.reset_session() 必须被 reset_all_sw_caches 调用。"""
+        from adapters.solidworks import sw_material_bridge, sw_com_session
+
+        sw_com_session.reset_session()
+        s = sw_com_session.get_session()
+        s._consecutive_failures = 2
+        s._unhealthy = True
+
+        sw_material_bridge.reset_all_sw_caches()
+
+        s2 = sw_com_session.get_session()
+        assert s2._consecutive_failures == 0
+        assert s2._unhealthy is False
+        assert s2 is not s  # new instance
