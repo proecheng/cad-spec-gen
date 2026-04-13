@@ -21,7 +21,8 @@ import json
 import logging
 import os
 import re
-import threading
+import subprocess
+import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
@@ -92,7 +93,7 @@ def tokenize(text: str) -> list[str]:
 # v4 决策 #19: ReDoS 对抗样本池
 # ---------------------------------------------------------------------------
 
-REDOS_PROBE_INPUTS = (
+REDOS_PROBE_INPUTS: tuple[str, ...] = (
     "a" * 100,
     "M" * 50 + "6" * 50,
     "Xx" * 40,
@@ -103,52 +104,74 @@ REDOS_PROBE_INPUTS = (
     "123" * 40,
     " " * 200,
     "x" * 500,
+    # 非匹配后缀探针：触发 (a+)+$ 类灾难性回溯
+    # 原理：全 'a' 序列 + 非字母后缀 → 引擎穷举所有分组组合后整体失败
+    "a" * 25 + "!",
+    "a" * 20 + "\x00",
+    "x" * 22 + "?",
+    "M" * 20 + "#",
 )
 
-REDOS_TIMEOUT_SEC = 0.05  # 50ms 单正则单样本超时
+# CPython 的 re 模块是 C 扩展，持有 GIL 期间不让出控制权，
+# 因此 threading.join(timeout) 无法中断正在运行的 re.search。
+# 必须用独立子进程 + subprocess.TimeoutExpired 检测（决策 #19 适配 Windows）。
+REDOS_TIMEOUT_SEC = 0.5  # 每个正则所有探针总超时（含进程启动约 50ms）
 
 
-def _match_with_timeout(pattern: re.Pattern, text: str, timeout_sec: float) -> bool:
-    """用独立线程做 re.search，主线程 join 超时即视为 ReDoS。
+def _test_pattern_safe(regex: str) -> bool:
+    """在独立子进程中对所有探针运行 re.search，超时即返回 False（疑似 ReDoS）。
 
-    win32 上 signal.alarm 不可用，改用 threading 策略（决策 #19 适配 Windows）。
+    使用子进程而非线程原因：CPython re 模块为 C 扩展，持有 GIL 期间
+    threading.Thread.join(timeout) 实际上会阻塞至 C 函数返回，
+    无法实现真正的超时中断。子进程有独立 GIL，可被 OS 强制 kill。
 
     Args:
-        pattern: 已编译的正则对象
-        text: 待匹配的字符串
-        timeout_sec: 超时秒数
+        regex: 待检测的正则字符串
 
     Returns:
-        True 表示正常完成，False 表示超时（疑似 ReDoS）
+        True = 所有探针在超时内完成（正常），False = 超时（疑似 ReDoS）
+
+    Raises:
+        re.error: 正则语法错误（compile 失败时由调用方捕获）
     """
-    result = [False]
-
-    def worker():
-        try:
-            result[0] = bool(pattern.search(text))
-        except Exception:
-            result[0] = False
-
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    t.join(timeout_sec)
-    return not t.is_alive()  # True 表示正常完成, False 表示超时
+    probes_repr = repr(list(REDOS_PROBE_INPUTS))
+    code = (
+        "import re\n"
+        f"pat = re.compile({regex!r})\n"
+        f"probes = {probes_repr}\n"
+        "for p in probes:\n"
+        "    pat.search(p)\n"
+        "print('ok')\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            timeout=REDOS_TIMEOUT_SEC,
+            capture_output=True,
+            text=True,
+        )
+        return proc.returncode == 0 and "ok" in proc.stdout
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def validate_size_patterns(patterns: dict) -> None:
     """ReDoS 防御（v4 决策 #19）。
 
     对每个正则做：
-    1. re.compile() 语法校验
-    2. 用 REDOS_PROBE_INPUTS 的对抗样本做 50ms timeout 测试
-    3. 任一样本超时 → raise RuntimeError
+    1. re.compile() 语法校验（main 进程内，快速失败）
+    2. 在独立子进程中对 REDOS_PROBE_INPUTS 全量探针运行，总超时 500ms
+    3. 超时 → raise RuntimeError（调用方不得捕获后继续使用该 patterns）
+
+    实现说明：CPython re 模块为 C 扩展，持有 GIL 期间 threading.join(timeout)
+    无法中断正在运行的 C 级 re.search；必须用子进程隔离（#19 Windows 适配）。
 
     Args:
         patterns: size_patterns 配置
 
     Raises:
         re.error: 正则语法错误
-        RuntimeError: 检测到疑似 ReDoS 模式
+        RuntimeError: 检测到疑似 ReDoS 模式（子进程超时）
     """
     for category, field_patterns in patterns.items():
         if not isinstance(field_patterns, dict):
@@ -158,22 +181,20 @@ def validate_size_patterns(patterns: dict) -> None:
                 if not isinstance(regex, list):
                     continue
                 for r in regex:
-                    compiled = re.compile(r)  # raise re.error on syntax issue
-                    for probe in REDOS_PROBE_INPUTS:
-                        if not _match_with_timeout(compiled, probe, REDOS_TIMEOUT_SEC):
-                            raise RuntimeError(
-                                f"ReDoS suspected: pattern {r!r} in "
-                                f"{category}.exclude_patterns timed out on {probe[:30]!r}"
-                            )
+                    re.compile(r)  # 语法校验，raise re.error on error
+                    if not _test_pattern_safe(r):
+                        raise RuntimeError(
+                            f"ReDoS suspected: pattern {r!r} in "
+                            f"{category}.exclude_patterns timed out"
+                        )
                 continue
 
-            compiled = re.compile(regex)
-            for probe in REDOS_PROBE_INPUTS:
-                if not _match_with_timeout(compiled, probe, REDOS_TIMEOUT_SEC):
-                    raise RuntimeError(
-                        f"ReDoS suspected: pattern {regex!r} in "
-                        f"{category}.{field_name} timed out on {probe[:30]!r}"
-                    )
+            re.compile(regex)  # 语法校验，raise re.error on error
+            if not _test_pattern_safe(regex):
+                raise RuntimeError(
+                    f"ReDoS suspected: pattern {regex!r} in "
+                    f"{category}.{field_name} timed out"
+                )
 
 
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, str]]:
