@@ -139,6 +139,10 @@ class SwComSession:
             if self._unhealthy:
                 return False
 
+            # Task 3 插入位置（Part 2a 后续）: _maybe_idle_shutdown_locked() →
+            # _maybe_restart_locked()。两者会先把 self._app 清成 None，下一行的
+            # if self._app is None 分支会负责重启。顺序：unhealthy → idle → restart → start → convert。
+
             # Part 2a: _app 未初始化 → 自动触发冷启动（决策 #10）
             # 持锁调用 _start_locked（threading model 规则 5），不重新 acquire。
             if self._app is None:
