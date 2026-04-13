@@ -142,6 +142,9 @@ def _detect_impl() -> SwInfo:
     # --- 检测 COM 可用性 ---
     info.com_available = _check_com_available(winreg)
 
+    # --- 检测 Toolbox Add-In 启用状态（v4 决策 #13）---
+    info.toolbox_addin_enabled = _check_toolbox_addin_enabled(winreg, info.version_year)
+
     return info
 
 

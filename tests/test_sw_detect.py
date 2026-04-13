@@ -120,6 +120,64 @@ class TestCaching:
         _reset_cache()
 
 
+class TestDetectImplToolboxAddinIntegration:
+    """v4 决策 #13: _detect_impl 集成 toolbox_addin_enabled 字段填充。"""
+
+    def test_detect_impl_populates_toolbox_addin_enabled_field(self, monkeypatch):
+        """monkeypatch _check_toolbox_addin_enabled 返回 True，验证 _detect_impl 填充字段。"""
+        import unittest.mock as mock
+        import adapters.solidworks.sw_detect as sw_detect_mod
+
+        _reset_cache()
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        # 构造最小化 winreg mock — 让 _find_install_from_registry 返回有效路径
+        fake_install_dir = "C:/FakeSW"
+        fake_winreg = mock.MagicMock()
+        fake_winreg.HKEY_LOCAL_MACHINE = 0
+        fake_winreg.HKEY_CLASSES_ROOT = 0
+        fake_winreg.HKEY_CURRENT_USER = 0
+        fake_winreg.KEY_READ = 1
+        fake_winreg.KEY_WOW64_64KEY = 256
+        fake_winreg.KEY_WOW64_32KEY = 512
+
+        # _read_registry_value 用于读取安装目录
+        def fake_open_key(hive, path, *args, **kwargs):
+            key = mock.MagicMock()
+            return key
+
+        fake_winreg.OpenKey.side_effect = fake_open_key
+
+        def fake_query_value_ex(key, name):
+            if name == "SolidWorks Folder":
+                return (fake_install_dir, 1)
+            if name == "Version":
+                return ("30.1.0.0080", 1)
+            raise OSError("不存在")
+
+        fake_winreg.QueryValueEx.side_effect = fake_query_value_ex
+
+        # monkeypatch winreg 导入
+        monkeypatch.setitem(sys.modules, "winreg", fake_winreg)
+
+        # monkeypatch 路径检测，让 install_dir 看起来存在
+        monkeypatch.setattr("pathlib.Path.is_dir", lambda self: True)
+        monkeypatch.setattr("pathlib.Path.glob", lambda self, pat: iter([]))
+
+        # 关键：monkeypatch _check_toolbox_addin_enabled 返回 True
+        monkeypatch.setattr(
+            sw_detect_mod, "_check_toolbox_addin_enabled", lambda winreg, year: True
+        )
+        # monkeypatch _check_com_available / _check_pywin32 避免副作用
+        monkeypatch.setattr(sw_detect_mod, "_check_com_available", lambda winreg: False)
+        monkeypatch.setattr(sw_detect_mod, "_check_pywin32", lambda: False)
+
+        result = sw_detect_mod._detect_impl()
+
+        assert result.toolbox_addin_enabled is True
+        _reset_cache()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="仅在 Windows 上执行真实检测")
 class TestRealDetection:
     """Windows 上的真实检测（CI 可跳过）。"""
