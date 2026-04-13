@@ -272,7 +272,12 @@ def print_report(result):
             else:
                 path_b = "Toolbox ✗ (Add-In 未启用)"
         elif sw_enh.get("pywin32"):
-            path_b = "Toolbox ✗ (版本 < 2024)"
+            # version < 2024 vs com_available 不可用——两种都需要 pywin32 但更细分
+            sw_version_year = int((sw_enh.get("version") or "0").split(".")[0] or 0)
+            if sw_version_year < 2024:
+                path_b = "Toolbox ✗ (版本 < 2024)"
+            else:
+                path_b = "Toolbox ✗ (COM 接口不可用)"
         else:
             path_b = "Toolbox ✗ (pywin32 未安装)"
         print(f"  SolidWorks    [OK]    {sw_ver} — {path_a} / {path_b}")
