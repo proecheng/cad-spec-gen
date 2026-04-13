@@ -61,17 +61,26 @@ def read_bom_csv(csv_path: Path) -> list[PartQuery]:
         ValueError: 缺必需列
         OSError: 文件读取失败
     """
-    with open(csv_path, encoding="utf-8") as f:
+    # encoding="utf-8-sig" 自动剥离 Excel/LibreOffice 导出 CSV 的 UTF-8 BOM
+    with open(csv_path, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
             raise ValueError(f"BOM CSV 无表头: {csv_path}")
 
         # 列名标准化（小写 + 别名映射）
         col_map: dict[str, str] = {}
+        seen_normalized: dict[str, str] = {}  # normalized → first raw key
         for raw in reader.fieldnames:
             normalized = BOM_COLUMN_ALIASES.get(raw.strip().lower())
-            if normalized:
-                col_map[raw] = normalized
+            if normalized is None:
+                continue
+            if normalized in seen_normalized:
+                log.warning(
+                    "BOM 列名 %r 与 %r 都映射到 %r，后者覆盖前者（数据可能丢失）",
+                    raw, seen_normalized[normalized], normalized,
+                )
+            seen_normalized[normalized] = raw
+            col_map[raw] = normalized
 
         # 必需列检查
         present = set(col_map.values())

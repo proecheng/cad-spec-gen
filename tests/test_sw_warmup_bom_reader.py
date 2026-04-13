@@ -79,3 +79,34 @@ class TestReadBomCsv:
         )
         with pytest.raises(ValueError, match="category"):
             read_bom_csv(csv_path)
+
+    def test_utf8_bom_stripped(self, tmp_path):
+        """Excel 导出含 UTF-8 BOM 的 CSV 应被正确解析。"""
+        from tools.sw_warmup import read_bom_csv
+
+        csv_path = tmp_path / "bom.csv"
+        # 写入 UTF-8 BOM（\xef\xbb\xbf）+ 标准 CSV 内容
+        content = "part_no,name_cn,material,category\nGIS-006,M5 螺钉,钢,fastener\n"
+        csv_path.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+
+        rows = read_bom_csv(csv_path)
+        assert len(rows) == 1
+        assert rows[0].part_no == "GIS-006"  # 第一列名未被 BOM 污染
+
+    def test_duplicate_alias_warns(self, tmp_path, caplog):
+        """若 BOM 同时含 part_no 和 部件号，应打 warning。"""
+        import logging
+        from tools.sw_warmup import read_bom_csv
+
+        csv_path = tmp_path / "bom.csv"
+        csv_path.write_text(
+            "part_no,部件号,name_cn,material,category\n"
+            "GIS-007,DUP,X,钢,fastener\n",
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="tools.sw_warmup"):
+            rows = read_bom_csv(csv_path)
+
+        assert len(rows) == 1
+        assert any("映射到" in rec.message for rec in caplog.records), \
+            f"应有重复列警告，实际日志: {[r.message for r in caplog.records]}"
