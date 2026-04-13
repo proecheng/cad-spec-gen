@@ -119,3 +119,32 @@ class TestDefaultYamlConfig:
         assert sw_gb_idx is not None, "缺少 SW Toolbox GB 规则"
         assert bd_any_idx is not None, "缺少 jinja_primitive 兜底"
         assert sw_gb_idx < bd_any_idx, "GB 规则必须在 jinja_primitive 兜底之前"
+
+    def test_iso_din_bearing_rule_before_bd_warehouse_generic(self, tmp_path):
+        """v4 §6 ordering: SW ISO/DIN bearing 必须在 bd_warehouse 通用 bearing 兜底之前。
+        否则 first-hit-wins 下 bd_warehouse {category: bearing} 抢先，SW 永不命中。
+        """
+        from parts_resolver import load_registry
+
+        reg = load_registry(str(tmp_path))
+        mappings = reg.get("mappings", [])
+        sw_iso_bearing_idx = None
+        bd_generic_bearing_idx = None
+        for i, m in enumerate(mappings):
+            if m.get("adapter") == "solidworks_toolbox":
+                spec = m.get("spec", {})
+                std = spec.get("standard")
+                # standard 可为 list 或 str
+                if isinstance(std, list) and "ISO" in std and \
+                        spec.get("part_category") == "bearing":
+                    sw_iso_bearing_idx = sw_iso_bearing_idx or i
+            if m.get("adapter") == "bd_warehouse" and \
+                    m.get("match") == {"category": "bearing"} and \
+                    bd_generic_bearing_idx is None:
+                bd_generic_bearing_idx = i
+
+        assert sw_iso_bearing_idx is not None, "缺少 SW Toolbox ISO/DIN bearing 规则"
+        assert bd_generic_bearing_idx is not None, "缺少 bd_warehouse 通用 bearing 兜底"
+        assert sw_iso_bearing_idx < bd_generic_bearing_idx, (
+            "SW ISO/DIN bearing 必须在 bd_warehouse 通用 bearing 兜底之前"
+        )

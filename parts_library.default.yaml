@@ -191,6 +191,17 @@ mappings:
     spec:
       class: SingleRowCappedDeepGrooveBallBearing
 
+  # ─── SolidWorks Toolbox — ISO/DIN bearing 兜底（v4 §6 ordering） ────
+  # 必须在 bd_warehouse generic deep-groove fallback 之前——否则 SW Toolbox
+  # 永远拿不到 bearing；first-hit-wins 下 {category: bearing} 抢先。
+  - match:
+      category: bearing
+    adapter: solidworks_toolbox
+    spec:
+      standard: [ISO, DIN]
+      subcategories: ["bearings"]
+      part_category: bearing
+
   # ─── Generic deep-groove fallback (matches any "open" bearing) ──────
   # This catches all the 6xx/6xxx/619/618 series with or without a
   # specific designation keyword. The adapter auto-extracts the size
@@ -256,7 +267,8 @@ mappings:
     spec:
       class: HexHeadScrew
 
-  # ─── SolidWorks Toolbox — ISO/DIN 兜底（v4 §6） ──────────────────────
+  # ─── SolidWorks Toolbox — ISO/DIN fastener 兜底（v4 §6） ─────────────
+  # ISO/DIN bearing 的兜底位置需在 bd_warehouse 通用 bearing 之前，见上方
   - match:
       category: fastener
     adapter: solidworks_toolbox
@@ -264,14 +276,6 @@ mappings:
       standard: [ISO, DIN]
       subcategories: ["bolts", "nuts", "screws", "washers"]
       part_category: fastener
-
-  - match:
-      category: bearing
-    adapter: solidworks_toolbox
-    spec:
-      standard: [ISO, DIN]
-      subcategories: ["bearings"]
-      part_category: bearing
 
   # ─── Everything else falls through to jinja_primitive ───────────────
   # This rule is the terminal fallback. Without it, parts that don't
