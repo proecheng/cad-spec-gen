@@ -1,10 +1,5 @@
 """sw_material_bridge 单元测试。使用生成的 fixture。"""
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 import pytest
 from pathlib import Path
 

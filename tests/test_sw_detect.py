@@ -2,10 +2,7 @@
 tests/test_sw_detect.py — SwInfo 数据类与 detect_solidworks() 的单元测试。
 """
 
-import os
 import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 

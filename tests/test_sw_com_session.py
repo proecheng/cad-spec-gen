@@ -6,13 +6,9 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest.mock as mock
 import pytest
 from pathlib import Path
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from adapters.solidworks.sw_com_session import (
     SwComSession,
