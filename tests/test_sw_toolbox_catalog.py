@@ -482,6 +482,55 @@ class TestLoadToolboxIndex:
         idx = load_toolbox_index(cache, fake_toolbox)
         assert idx["scan_time"] != "stale"  # 已重建
 
+    def test_load_filters_tampered_paths_on_cache_hit(self, fake_toolbox, tmp_path):
+        """I-1 回归: 缓存命中路径（指纹一致）时，篡改的 sldprt_path 必须被过滤。
+
+        场景：攻击者改写 cache JSON 把某 part 的 sldprt_path 指向 toolbox 之外
+        （如 C:\\Windows\\System32\\calc.exe），但保持 fingerprint 一致。
+        load_toolbox_index 必须在返回前剔除该 part，让下游不必重复校验。
+        """
+        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index
+
+        cache = tmp_path / "idx.json"
+        # 先合法构建一次
+        idx_before = load_toolbox_index(cache, fake_toolbox)
+        parts_before = sum(
+            len(p) for sub in idx_before["standards"].values() for p in sub.values()
+        )
+        assert parts_before > 0  # 前置条件
+
+        data = json.loads(cache.read_text())
+        # 找到第一个 part，把 sldprt_path 改成 toolbox_dir 之外的路径
+        tampered = False
+        outside_path = str(tmp_path / "evil.sldprt")
+        for _, sub_dict in data["standards"].items():
+            for _, part_list in sub_dict.items():
+                if part_list:
+                    part_list[0]["sldprt_path"] = outside_path
+                    tampered = True
+                    break
+            if tampered:
+                break
+        assert tampered
+        cache.write_text(json.dumps(data))
+
+        # reload — fingerprint 仍一致，走 cache hit 分支
+        idx_after = load_toolbox_index(cache, fake_toolbox)
+        parts_after = sum(
+            len(p) for sub in idx_after["standards"].values() for p in sub.values()
+        )
+        # 被篡改的那个 part 必须被过滤掉
+        assert parts_after == parts_before - 1
+
+        # 任何 part 的 sldprt_path 都不应再指向 outside
+        all_paths = [
+            p.sldprt_path
+            for sub in idx_after["standards"].values()
+            for parts in sub.values()
+            for p in parts
+        ]
+        assert outside_path not in all_paths
+
 
 class TestValidateSldprtPath:
     """v4 决策 #20: sldprt_path 必须是 toolbox_dir 的真子路径。"""

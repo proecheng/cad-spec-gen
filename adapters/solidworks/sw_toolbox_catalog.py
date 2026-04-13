@@ -437,7 +437,10 @@ def load_toolbox_index(cache_path: Path, toolbox_dir: Path) -> dict:
 
     if rebuild_reason is None:
         # 缓存有效：反序列化 SwToolboxPart 对象
-        return _rehydrate_index(cached)
+        # I-1: 信任边界上移——cache hit 路径的 sldprt_path 来自磁盘 JSON，
+        # 可能被篡改；在返回前统一过滤非 toolbox_dir 子路径的 part，
+        # 让下游 resolve/_find_sldprt/sw-warmup 可以直接信任 index。
+        return _filter_tampered_paths(_rehydrate_index(cached), toolbox_dir)
 
     # 重建
     log.info("toolbox 索引重建: %s", rebuild_reason)
@@ -460,6 +463,31 @@ def _dehydrate_index(idx: dict) -> str:
         for std, sub_dict in idx["standards"].items()
     }
     return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+def _filter_tampered_paths(idx: dict, toolbox_dir: Path) -> dict:
+    """I-1 信任边界上移: 过滤 sldprt_path 非 toolbox_dir 子路径的 part。
+
+    仅用于 cache hit 路径——build_toolbox_index 的扫描结果天然都在 toolbox_dir 下，
+    但反序列化自磁盘 JSON 的路径可能被攻击者篡改指向任意位置。
+    被过滤的 part 会由 _validate_sldprt_path 内部 log.error 记录。
+
+    Args:
+        idx: 已 rehydrate 的索引 dict
+        toolbox_dir: Toolbox 根目录（信任边界）
+
+    Returns:
+        新的 dict（不修改入参），standards 下只保留合法子路径 part。
+    """
+    out = dict(idx)
+    out["standards"] = {
+        std: {
+            sub: [p for p in parts if _validate_sldprt_path(p.sldprt_path, toolbox_dir)]
+            for sub, parts in sub_dict.items()
+        }
+        for std, sub_dict in idx.get("standards", {}).items()
+    }
+    return out
 
 
 def _rehydrate_index(cached: dict) -> dict:
