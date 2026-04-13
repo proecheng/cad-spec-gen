@@ -43,6 +43,43 @@ class TestSwInfoDataclass:
         assert info.toolbox_addin_enabled is False
 
 
+class TestToolboxAddinDetection:
+    """v4 决策 #13: Toolbox Add-In 启用检测 — 从注册表读取。"""
+
+    def test_addin_enabled_returns_false_when_winreg_import_fails(self, monkeypatch):
+        """非 Windows 或 winreg 不可导入时返回 False。"""
+        from adapters.solidworks.sw_detect import _check_toolbox_addin_enabled
+        assert _check_toolbox_addin_enabled(None, 2024) is False
+
+    def test_addin_enabled_returns_false_when_registry_key_missing(self, monkeypatch):
+        """注册表路径不存在 → False。"""
+        import unittest.mock as mock
+        from adapters.solidworks.sw_detect import _check_toolbox_addin_enabled
+
+        fake_winreg = mock.MagicMock()
+        fake_winreg.OpenKey.side_effect = FileNotFoundError
+        fake_winreg.HKEY_CURRENT_USER = 0
+
+        assert _check_toolbox_addin_enabled(fake_winreg, 2024) is False
+
+    def test_addin_enabled_returns_true_when_flag_value_is_1(self):
+        """注册表 AddInsStartup 下有 Toolbox GUID 值为 1 → True。"""
+        import unittest.mock as mock
+        from adapters.solidworks.sw_detect import _check_toolbox_addin_enabled
+
+        fake_winreg = mock.MagicMock()
+        fake_winreg.HKEY_CURRENT_USER = 0
+        fake_winreg.KEY_READ = 0
+        fake_key = mock.MagicMock()
+        fake_winreg.OpenKey.return_value.__enter__.return_value = fake_key
+        fake_winreg.EnumValue.side_effect = [
+            ("{BBF84E59-...}", 1, 4),  # any Toolbox-like GUID, value=1
+            OSError,  # no more
+        ]
+
+        assert _check_toolbox_addin_enabled(fake_winreg, 2024) is True
+
+
 class TestNonWindows:
     """非 Windows 平台的短路行为。"""
 

@@ -264,6 +264,56 @@ def _check_pywin32() -> bool:
         return False
 
 
+def _check_toolbox_addin_enabled(winreg, version_year: int) -> bool:
+    """检查 SolidWorks Toolbox Add-In 是否启用（v4 决策 #13）。
+
+    路径: HKCU\\Software\\SolidWorks\\AddInsStartup
+          下遍历所有值；值 1 表示启用，值 0 表示禁用。
+          Toolbox 的 Add-In GUID 在 SW 各版本间稳定。
+
+    任何异常（winreg 不可用、路径缺失、读值失败）→ False。
+    """
+    if winreg is None:
+        return False
+
+    # 多个可能的注册表路径（SW 版本间略有差异）
+    candidates = [
+        r"Software\SolidWorks\AddInsStartup",
+        rf"Software\SolidWorks\SOLIDWORKS {version_year}\AddInsStartup",
+    ]
+
+    for subkey in candidates:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ) as key:
+                i = 0
+                while True:
+                    try:
+                        name, value, _ = winreg.EnumValue(key, i)
+                    except OSError:
+                        break
+                    # Toolbox Add-In 的 GUID 特征字符串（保守匹配）
+                    if "toolbox" in name.lower() or _is_toolbox_guid(name):
+                        if int(value) == 1:
+                            return True
+                    i += 1
+        except (OSError, FileNotFoundError):
+            continue
+
+    return False
+
+
+# Toolbox Add-In 已知 GUID 前缀（保守识别，避免硬编码单一 GUID）
+_TOOLBOX_GUID_HINTS = (
+    "bbf84e59",  # SW Toolbox Library 常见 GUID 前缀
+)
+
+
+def _is_toolbox_guid(name: str) -> bool:
+    """粗略识别注册表值名是否 Toolbox Add-In GUID（v4 决策 #13）。"""
+    lowered = name.lower()
+    return any(h in lowered for h in _TOOLBOX_GUID_HINTS)
+
+
 def _read_registry_value(
     winreg, hive, key_path: str, value_name: str
 ) -> str | None:
