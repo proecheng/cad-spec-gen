@@ -575,6 +575,22 @@ def default_resolver(
         if logger:
             logger(f"  [resolver] BdWarehouseAdapter unavailable: {e}")
 
+    # Phase SW-B Part 2a — SwToolboxAdapter (opt-in via yaml config +
+    # runtime is_available() self-report)
+    try:
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        resolver.register_adapter(SwToolboxAdapter(
+            project_root=project_root,
+            config=registry.get("solidworks_toolbox", {}),
+        ))
+    except ImportError as e:
+        if logger:
+            logger(f"  [resolver] SwToolboxAdapter unavailable: {e}")
+    except RuntimeError as e:
+        # validate_size_patterns 拒绝恶意 yaml → 不注册但管道继续
+        if logger:
+            logger(f"  [resolver] SwToolboxAdapter config rejected: {e}")
+
     # Phase B — StepPoolAdapter (not yet implemented)
     try:
         from adapters.parts.step_pool_adapter import StepPoolAdapter
