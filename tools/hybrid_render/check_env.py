@@ -165,6 +165,7 @@ def detect_environment():
             "path_b": (sw.version_year or 0) >= 2024 and sw.com_available,
             "pywin32": sw.pywin32_available,
             "materials": len(sw.sldmat_paths),
+            "toolbox_addin_enabled": sw.toolbox_addin_enabled,  # Part 2a 决策 #13
         }
     except ImportError:
         enhancements["solidworks"] = {"ok": False}
@@ -265,12 +266,23 @@ def print_report(result):
         sw_ver = sw_enh.get("version", "?")
         path_a = "材质 ✓" if sw_enh.get("path_a") else "材质 ✗"
         if sw_enh.get("path_b"):
-            path_b = "Toolbox ✓"
+            # Path B 细分：pywin32 + Toolbox Add-In 两个前置条件
+            if sw_enh.get("toolbox_addin_enabled"):
+                path_b = "Toolbox ✓"
+            else:
+                path_b = "Toolbox ✗ (Add-In 未启用)"
         elif sw_enh.get("pywin32"):
             path_b = "Toolbox ✗ (版本 < 2024)"
         else:
             path_b = "Toolbox ✗ (pywin32 未安装)"
         print(f"  SolidWorks    [OK]    {sw_ver} — {path_a} / {path_b}")
+
+        # 决策 #13: Add-In 未启用时给出明确勾选指引
+        if sw_enh.get("path_b") and not sw_enh.get("toolbox_addin_enabled"):
+            print("                        启用 Toolbox Library：")
+            print("                          SolidWorks → Tools → Add-Ins →")
+            print("                          勾选 'SOLIDWORKS Toolbox Library'")
+            print("                          （可同时勾选右侧 Startup 自动加载）")
     else:
         print("  SolidWorks    [  ]    未检测到安装")
         print("                        已有 SolidWorks 许可？安装后可自动集成材质库和标准件。")
