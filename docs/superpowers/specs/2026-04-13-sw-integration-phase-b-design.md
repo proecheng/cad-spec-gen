@@ -1,13 +1,17 @@
 # Phase SW-B — SolidWorks Toolbox COM Adapter 设计规格
 
-> 版本: v3.0 — 2026-04-13（四维度联审修订版）
+> 版本: v4.0 — 2026-04-13（对抗性审查修订版）
 > 状态: 待实施
 > 前置: Phase SW-A 已完成（`sw_detect.py` / `sw_material_bridge.py` 已合入 main）
 > 参考: `docs/design/solidworks-integration-plan.md` §4.4、§5、§8、§11
 >
-> **v3 修订重点**：数据流一致性（source_tag / metadata / warnings / _SKIP_CATEGORIES）、
-> 函数命名一致性（`Sw` 前缀下沉）、无硬编码（cache 覆盖链 + 环境变量）、
-> 与既有 skill 全面融合（Path.home 强制使用、yaml 浅覆盖警告、职责边界明确）
+> **v4 修订重点**（基于红队/SRE/QA/成本效益 四角色对抗性审查，18 项发现）：
+> - 安全：ReDoS 防御 / 路径遍历防御 / 索引 fingerprint 完整性
+> - 可观测性：sw-inspect 单行诊断 / coverage_report 健康状态
+> - 健壮性：多 resolver + COM singleton lock / atomic write 强化 / config validation
+> - 成本：真实 BOM 覆盖率验证 / 冷启动延迟预算 / 既有装配验证回归 / ROI 熔断机制
+>
+> v3 修订已内化（数据流、函数命名、无硬编码、融合）详见附录 A.2
 
 ---
 
@@ -85,6 +89,21 @@ coverage = (命中非 jinja_primitive adapter 的 BOM 行数) / (总 BOM 行数)
 | **16** | **Cache 路径三级覆盖链** | `yaml solidworks_toolbox.cache > env CAD_SPEC_GEN_SW_TOOLBOX_CACHE > 默认 ~/.cad-spec-gen/step_cache/sw_toolbox/`；索引同理 `CAD_SPEC_GEN_SW_TOOLBOX_INDEX` |
 | **17** | **conftest 兼容强制 `Path.home()`** | 所有路径构造必须用 `Path.home()` 而非 `os.path.expanduser()` — 后者在 Windows 上不被 `monkeypatch.setattr(Path, "home", ...)` 覆盖，导致 `isolate_cad_spec_gen_home` fixture 失效 |
 | **18** | **职责边界：YAML 一级 vs token overlap 二级** | YAML `keyword_contains` 做一级过滤（是否 GB 零件）；adapter `match_toolbox_part` **只在已被 YAML 命中的规则内**做二级精选（具体是哪一个 sldprt） — `sw_toolbox_catalog.match_toolbox_part` 不复写 `keyword_contains` 语义 |
+| **19** | **ReDoS 防御**（红队 #1） | `size_patterns` 的正则在**配置加载时**用 `re.compile()` + `regex.DEBUG` 编译；用 10 个预置对抗样本做 10ms timeout 预验证；超时则拒绝加载并报错（fail-fast） |
+| **20** | **sldprt 路径遍历防御**（红队 #2） | `match_toolbox_part` 返回结果前必须校验 `Path(sldprt_path).resolve().is_relative_to(Path(sw_detect.toolbox_dir).resolve())`；非真子路径 → 视为索引篡改，返回 miss + error log |
+| **21** | **索引 JSON fingerprint 完整性校验**（红队 #3） | 索引加 `toolbox_fingerprint` 字段（SHA1 of sorted list of `(relative_path, size, mtime)`）；加载时重新计算并对比；不匹配 → 重建（除 schema_version 外新增触发条件） |
+| **22** | **多 resolver / 多线程 COM 保护**（QA #8） | `SwComSession` 在单进程内是 singleton 且 **COM 调用不线程安全**；`convert_sldprt_to_step()` 全方法用 `threading.Lock` 保护；文档明确"多线程管道需等待锁，不做并发 COM"；单进程多 resolver **共享同一 session**（不为每个 resolver 各开一个） |
+| **23** | **atomic write 强化**（QA #9） | STEP 写入流程: `open(tmp, 'wb')` → `f.write()` → `f.flush()` → `os.fsync(f.fileno())` → close → 校验 `tmp.stat().st_size > MIN_STEP_SIZE (1024 bytes)` + STEP header 起始为 `ISO-10303` → `os.replace(tmp, final)`；任一步失败 → 删除 tmp + miss |
+| **24** | **config validation**（QA #10） | `solidworks_toolbox` 段加载时校验: `circuit_breaker_threshold ∈ [2, 20]`, `restart_every_n_converts ∈ [10, 500]`, `cold_start_timeout_sec ∈ [30, 300]`, `single_convert_timeout_sec ∈ [5, 120]`, `min_score ∈ [0.05, 1.0]`, `token_weights.*` 所有值 > 0；越界 → 加载失败 + 打印所有违规项 |
+| **25** | **中文/特殊字符路径 encoding**（QA #11） | `SwComSession.convert_sldprt_to_step()` 入口对 `sldprt_path` / `step_out` 做 `os.fspath()` + `str()` 转换并断言为 Python `str` 类型；win32com 自动做 str→BSTR (UTF-16) 转换，**不手动 encode** |
+| **26** | **sw-warmup 进程锁**（QA #12） | `sw-warmup` 启动时用 `msvcrt.locking()`（Windows）在 `~/.cad-spec-gen/sw_warmup.lock` 取独占锁；已有进程持锁 → 打印 "另一个 sw-warmup 进程运行中 (PID X)" 后 exit 1 |
+| **27** | **sw-inspect 单行诊断命令**（SRE #5） | 新增 `cad_pipeline.py sw-inspect --bom X.csv --row N` 对单行做全链路诊断，输出：匹配的 YAML 规则 / 每个候选 sldprt 的 token 打分 / 缓存命中检查 / COM 健康状态 / 最终 ResolveResult |
+| **28** | **coverage_report 健康状态**（SRE #6） | `coverage_report()` 增加 adapter 健康状态列：`sw_toolbox: 8 hits (HEALTHY)` / `sw_toolbox: 0 hits (UNAVAILABLE - circuit breaker tripped 14:23:05)` |
+| **29** | **真实 BOM 覆盖率验证**（成本 #14） | SW-B9 验收新增强制项：用**≥ 1 个真实项目 BOM**（优先 ≥ 100 行）跑覆盖率，记录结果；`demo_bom.csv` 73% 不再作为唯一基准 |
+| **30** | **冷启动延迟预算**（成本 #15） | 按需路径首次冷启动延迟预算 ≤ 300s 为**可接受上限**；超过 → resolver 打 warning 建议预热；spec §8 矩阵新增此情景 |
+| **31** | **既有装配验证回归 gate**（成本 #16） | SW-B9 验收新增**硬门**：在启用 SW Toolbox 前后跑既有项目的装配验证 / clash detection 测试集，**通过数不可降**；若出现新 false positive（如 Toolbox 真实六角头几何触发 clash）→ 该 BOM 行 metadata 标注 `geometry_envelope_upgrade=True`，clash tolerance 相应放宽 |
+| **32** | **min_score 校准**（成本 #17） | SW-B8 增加子任务：在扩充后的 `demo_bom.csv` 上输出所有候选的 token 打分分布直方图，选择**阈值** = max(噪声均值 + 2σ, 0.30)；最终值写回 yaml `min_score` 默认 |
+| **33** | **ROI 熔断机制**（成本 #18） | SW-B9 验收：若真实 BOM 覆盖率 < **55%** → 降级交付范围（砍 ISO/DIN 兜底规则，仅保留 GB 高优先级），进入 Phase SW-C 重新评估 |
 
 ---
 
@@ -243,15 +262,32 @@ def build_toolbox_index(toolbox_dir: Path) -> dict:
     {
       "schema_version": 1,
       "scan_time": "2026-04-13T...",
+      "toolbox_fingerprint": "sha1_hex",  # ★ v4 决策 #21
       "standards": {"GB": {"bolts and studs": [SwToolboxPart, ...], ...}, ...}
     }
+
+    fingerprint = sha1(sorted [(relative_path, size, mtime_int)] of 所有 *.sldprt)
     """
+
+def _compute_toolbox_fingerprint(toolbox_dir: Path) -> str:
+    """计算 Toolbox 目录指纹。扫描过程中若 os.walk 遇到 PermissionError
+    → retry 一次（QA #13），仍失败返回 'unavailable'（导致每次 load 都重建）。"""
 
 def load_toolbox_index(cache_path: Path, toolbox_dir: Path) -> dict:
     """读缓存；以下情况重建：
     1. 缓存文件不存在
     2. cache["schema_version"] != SCHEMA_VERSION
-    3. cache mtime < toolbox_dir mtime
+    3. cache["toolbox_fingerprint"] != _compute_toolbox_fingerprint(toolbox_dir)  # ★ 决策 #21
+    4. cache mtime < toolbox_dir mtime（容错性二次校验）
+
+    rebuild 时记录 diff 到 ~/.cad-spec-gen/sw_toolbox_index_history.log（SRE #7）:
+    "2026-04-13T10:00: rebuild — added 12 parts, removed 3 parts, fingerprint a1b2→c3d4"
+    """
+
+def _validate_sldprt_path(sldprt_path: str, toolbox_dir: Path) -> bool:
+    """★ v4 决策 #20: 路径遍历防御。
+    sldprt_path.resolve() 必须是 toolbox_dir.resolve() 的真子路径。
+    失败 → error log + 返回 False（调用方返回 miss）。
     """
 
 def match_toolbox_part(
@@ -262,6 +298,21 @@ def match_toolbox_part(
     min_score: float = 0.30,
 ) -> Optional[tuple[SwToolboxPart, float]]:
     """加权 token overlap。返回 (part, normalized_score) 或 None（低于 min_score）。"""
+
+REDOS_PROBE_INPUTS = [
+    "a" * 100, "M" * 50 + "6" * 50, "Xx" * 40,
+    "6205" * 30, "a" + "b" * 80 + "c", "M6×" * 40,
+    "!!!" * 50, "123" * 40, " " * 200, "x" * 500,
+]  # ★ v4 决策 #19: 对抗样本池
+
+def validate_size_patterns(patterns: dict) -> None:
+    """★ v4 决策 #19: ReDoS 防御。
+    配置加载时执行：
+    1. re.compile() 每个正则 — 失败即 raise
+    2. 对每个正则用 REDOS_PROBE_INPUTS 里 10 个样本做匹配测试
+    3. 每次 re.match 放 signal.alarm(10ms) 保护（Unix）或 threading.Timer (Windows)
+    4. 任一匹配超时 → raise ConfigError(f"Pattern '{p}' suspected ReDoS")
+    """
 
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict]:
     """正则抽尺寸。
@@ -294,6 +345,9 @@ IDLE_SHUTDOWN_SEC = 300              # 空闲超时
 RESTART_EVERY_N_CONVERTS = 50        # 决策 #11
 CIRCUIT_BREAKER_THRESHOLD = 3        # 决策 #6
 
+MIN_STEP_FILE_SIZE = 1024   # ★ v4 决策 #23: 小于此视为损坏
+STEP_MAGIC_PREFIX = b"ISO-10303"   # AP214 header 前缀
+
 class SwComSession:
     """COM session 唯一 source of truth。熔断状态、session 生命周期、
     Toolbox Add-In 激活都归此类。
@@ -304,6 +358,9 @@ class SwComSession:
 
     每转换 RESTART_EVERY_N_CONVERTS 个零件强制 shutdown + restart（决策 #11），
     规避 SW 进程内存泄漏。
+
+    ★ v4 决策 #22: COM 接口非线程安全。convert_sldprt_to_step() 全方法
+       用 self._lock 保护。单进程多 resolver 共享同一 session。
     """
 
     def __init__(self) -> None:
@@ -312,6 +369,7 @@ class SwComSession:
         self._consecutive_failures = 0      # 熔断计数
         self._unhealthy = False
         self._last_used_ts = 0.0
+        self._lock = threading.Lock()       # ★ v4 决策 #22
 
     def start(self) -> None:
         """冷启动：
@@ -334,6 +392,18 @@ class SwComSession:
         连续 3 次失败触发熔断（self._unhealthy=True）。
         每 50 个成功转换后触发 session restart。
 
+        ★ v4 决策 #22: 全方法包 self._lock.acquire/release（COM 非线程安全）。
+        ★ v4 决策 #25: 入口对 sldprt_path / step_out 调 os.fspath() 确保
+           是 Python str；不手动 encode（win32com 自动做 UTF-16 BSTR 转换）。
+        ★ v4 决策 #23: atomic write 强化。实际写入流程：
+            tmp = step_out + ".tmp"
+            SaveAs3(tmp, ...)                   # COM 写 tmp
+            with open(tmp, 'rb') as f:
+                header = f.read(16)
+                if len(header) < MIN_STEP_FILE_SIZE or not header.startswith(STEP_MAGIC_PREFIX):
+                    raise ValueError("STEP 产物完整性校验失败")
+            os.replace(tmp, step_out)           # atomic rename
+
         STEP 导出具体 COM 调用：
             swApp.OpenDoc6(sldprt_path,
                            swDocPART=1,
@@ -341,10 +411,10 @@ class SwComSession:
                            configuration="",
                            errors, warnings)
             model.Extension.SaveAs3(
-                step_out,
-                version=0,     # 0 = current
+                tmp_path,
+                version=0,
                 options=swSaveAsOptions_Silent,
-                exportData=...  # AP214 + mm
+                exportData=...  # AP214 + mm（显式 Units 参数）
                 errors, warnings
             )
             swApp.CloseDoc(title)
@@ -596,6 +666,9 @@ cad_pipeline.py sw-warmup --standard GB --overwrite
 **核心流程**：
 ```python
 def cmd_sw_warmup(args):
+    # ★ v4 决策 #26: 进程锁防止并发
+    # 0) 取 ~/.cad-spec-gen/sw_warmup.lock 独占锁 (msvcrt.locking on Windows)
+    #    持锁失败 → print("另一个 sw-warmup 进程运行中 (PID X)") + exit 1
     # 1) 检查前置: sw_detect.installed + version_year≥2024
     #              + pywin32_available + toolbox_addin_enabled
     #    任一失败 → exit 1 + 清晰指引（区分是 SW 未装/Add-In 未启用/pywin32 缺失）
@@ -612,6 +685,7 @@ def cmd_sw_warmup(args):
     # 6) 失败累入 ~/.cad-spec-gen/sw_warmup_errors.log（带时间戳）
     # 7) 断点续跑：已缓存跳过
     # 8) 汇总: 目标 330 / 成功 328 / 失败 2 / 耗时 18m
+    # 9) 释放进程锁
 ```
 
 ### 7.1 logging vs print 职责分工（v3 新增，融合决策 #9）
@@ -625,6 +699,78 @@ def cmd_sw_warmup(args):
 | **warning（非阻断）** | `log.warning()` → stderr | "BOM 尺寸抽取到 M6 但 sldprt 默认 config 为 M4" |
 | **error（熔断/启动失败）** | `log.error()` + 写入 `sw_warmup_errors.log` | "COM session 冷启动超时" |
 | **debug（token 打分细节）** | `log.debug()` | 分数计算过程，默认不输出 |
+
+### 7.2 `sw-inspect` 单行诊断命令（v4 新增，决策 #27）
+
+```bash
+cad_pipeline.py sw-inspect --bom subsystem/claw/bom.csv --row 5
+
+输出示例：
+========================================
+BOM Row 5:
+  part_no: GIS-DEMO-003
+  name_cn: GB/T 70.1 M4×10 内六角圆柱头螺钉
+  material: 钢
+  category: fastener
+
+[1] YAML rule match 检查（按 first-hit-wins 顺序）：
+    rule #0 (Maxon ECX 22L):           ✗ keyword_contains 不匹配
+    rule #1 (GB fastener):             ✓ 命中 (category=fastener, 含 "GB/T")
+    → 进入 SwToolboxAdapter.resolve()
+
+[2] 尺寸抽取：
+    size_patterns.fastener.size  → 'M4' ✓
+    size_patterns.fastener.length → '10' ✓
+    extracted: {size: M4, length: 10}
+
+[3] Token overlap 打分（在 GB/['bolts and studs',...] 候选池）：
+    候选 #1: GB/bolts and studs/hex_bolt.sldprt
+      tokens: [hex, bolt] | score: 0.18
+    候选 #2: GB/screws/socket_head_cap_screw.sldprt
+      tokens: [socket, head, cap, screw, m, 内, 六角, 圆柱, 头] | score: 0.62  ← max
+    候选 #3: GB/screws/slotted_cheese_head_screw.sldprt
+      tokens: [slotted, cheese, head, screw] | score: 0.25
+    选中 #2 (score 0.62 ≥ min_score 0.30)
+
+[4] 缓存检查：
+    期望: ~/.cad-spec-gen/step_cache/sw_toolbox/GB/screws/socket_head_cap_screw.step
+    状态: 已存在 (3.2 KB, 修改于 2026-04-12)
+    → 不触发 COM
+
+[5] COM 健康状态：
+    session: HEALTHY (circuit_breaker=0/3, converts_done=42/50)
+
+[6] 最终 ResolveResult:
+    status="hit", kind="step_import"
+    step_path="step_cache/sw_toolbox/GB/screws/socket_head_cap_screw.step"
+    real_dims=(7, 7, 10)
+    source_tag="sw_toolbox:GB/screws/socket_head_cap_screw.sldprt"
+========================================
+```
+
+### 7.3 coverage_report 健康状态扩展（v4 新增，决策 #28）
+
+```
+resolver coverage:
+  step_pool         4  GIS-DEMO-015, ...
+  sw_toolbox       11  GIS-DEMO-001, GIS-DEMO-002, ... [HEALTHY, 11 COM converts, 0 circuit-breakers]
+  bd_warehouse      0                                    [AVAILABLE]
+  jinja_primitive   0                                    [FALLBACK]
+  ──────────────────────────────────
+  Total: 15 parts | Library hits: 15 (100%)
+
+  ★ SW Toolbox 来源明细（v4 可选详细输出，--verbose 启用）：
+    GB/bolts and studs/hex bolt.sldprt          → GIS-DEMO-006
+    GB/screws/socket head cap screw.sldprt      → GIS-DEMO-001, GIS-DEMO-003
+    ...
+```
+
+熔断触发时的输出：
+```
+  sw_toolbox        0    [UNAVAILABLE - circuit breaker tripped 14:23:05, 3 consecutive COM failures]
+                         建议: cad_pipeline.py sw-inspect --row N 诊断单行；
+                               或 reset_all_sw_caches() 清熔断后重试
+```
 
 ---
 
@@ -651,6 +797,16 @@ def cmd_sw_warmup(args):
 | COM session 空闲 5 分钟 | 自动 shutdown 释放 | 下次 resolve 冷启动 |
 | **STEP 导出单位错误（非 mm）** | SaveAs3 显式传 `units=mm`；SW doc property 异常时仍强制 mm | 几何单位正确 |
 | `probe_dims()` 首跑缓存未命中 | 返回 None → Phase 1 envelope backfill 退化（§1.3 已知限制） | 建议用户 sw-warmup 预热 |
+| **yaml 含 ReDoS 正则**（决策 #19） | 配置加载时 fail-fast + raise ConfigError | 管道启动即失败，明示 yaml 错误 |
+| **sldprt_path 非 toolbox_dir 子路径**（决策 #20） | error log "索引篡改疑似" + 返回 miss | 单零件降级；多个命中视为索引损坏 → 清缓存自动重建 |
+| **索引 fingerprint 不匹配**（决策 #21） | 静默重建 + 记 history log | 透明 |
+| **多线程并发 COM 调用**（决策 #22） | 第二个线程等待 self._lock 释放 | 串行化，不并发 |
+| **STEP 产物大小 < 1 KB 或 magic 不对**（决策 #23） | 删除 tmp + miss + warning | 单零件降级 |
+| **yaml config 越界**（决策 #24） | 加载失败 + 打印所有违规 | 管道启动即失败 |
+| **并发 sw-warmup**（决策 #26） | 第二个进程 exit 1 + 明示 PID | 保护独立性 |
+| **冷启动 > 300s 预算**（决策 #30） | resolver warning "冷启动超预算，建议预热" | 继续运行 |
+| **SW Toolbox 几何触发既有装配 clash false positive**（决策 #31） | metadata 标 `geometry_envelope_upgrade=True` + clash tolerance 放宽 | 兼容既有验证 |
+| **真实 BOM 覆盖率 < 55%**（决策 #33） | SW-B9 验收 ROI 熔断：降级为仅 GB 规则 | 避免过度投入 |
 
 **核心不变量**：
 1. 任何 SW 异常绝不阻断管道
@@ -795,9 +951,9 @@ SW Toolbox 命中率（满足决策 #1.2 "迁移 ≥ 8 行"）：**11/15 = 73%**
 | SW-B5 | `sw_toolbox_adapter.py` — `resolve()` + `probe_dims()` + `_find_sldprt()` + 缓存命中/未命中 + 更完整 mock 测试 | B4 | — |
 | SW-B6 | `parts_resolver.py` 注册 + `parts_library.default.yaml` 规则（GB 高优先级 + ISO/DIN 兜底 + `token_weights` + `size_patterns` + `com`） | B5 | — |
 | SW-B7 | `cad_pipeline.py` 新增 `sw-warmup` 子命令（`--standard`/`--bom`/`--all`/`--dry-run`/`--overwrite`）+ env-check 增强 | B6 | — |
-| SW-B8 | `demo_bom.csv` 扩到 ≥ 15 行 + `test_sw_toolbox_integration.py` 端到端 mocked 测试 + 覆盖率 regression 测试 | B6 | 与 B7 并行 |
-| SW-B9 | `@requires_solidworks` 真实 COM 测试 + 开发机验收：demo_bom.csv 覆盖率满足 ≥ 73% + session 周期重启实测 | B7, B8 | — |
-| SW-B10 | `pyproject.toml` 新增 `solidworks` optional-deps + `requires_solidworks` marker + coverage report 格式化输出 `solidworks_toolbox` 命中 + 文档更新 | B9 | — |
+| SW-B8 | `demo_bom.csv` 扩到 ≥ 15 行 + `test_sw_toolbox_integration.py` 端到端 mocked 测试 + 覆盖率 regression 测试 + **min_score 校准子任务**（决策 #32：输出打分分布直方图 → 选阈值 = max(噪声均值 + 2σ, 0.30)） | B6 | 与 B7 并行 |
+| SW-B9 | `@requires_solidworks` 真实 COM 测试 + 开发机验收：**(a)** demo_bom.csv 覆盖率满足 ≥ 73%；**(b)** 用 ≥ 1 个真实项目 BOM（≥ 100 行）验证（决策 #29）；**(c)** session 周期重启实测；**(d)** 既有装配验证回归 gate（决策 #31）；**(e)** ROI 熔断检查（决策 #33）：若真实 BOM 覆盖率 < 55% 降级范围 | B7, B8 | — |
+| SW-B10 | `pyproject.toml` 新增 `solidworks` optional-deps + `requires_solidworks` marker + coverage report 健康状态格式化（决策 #28）+ `sw-inspect` 子命令实现（决策 #27） + 文档更新 | B9 | — |
 
 **每步验收标准**：每步对应 pytest 命令，所有测试绿才能进下一步。
 
@@ -881,3 +1037,28 @@ SW Toolbox 命中率（满足决策 #1.2 "迁移 ≥ 8 行"）：**11/15 = 73%**
 | 10 | YAML 浅覆盖陷阱警告 | 融合 | medium | §6.1 新增 |
 | 11 | YAML `keyword_contains` 一级过滤 vs token overlap 二级精选职责边界 | 融合 | medium | §2 #18, §6.2 新增 |
 | 12 | logging vs print 职责分工明确 | 融合 | low | §7.1 新增 |
+
+### A.3 对抗性审查（v3 → v4）
+
+四角色对抗性评审：红队安全分析师 / 未来接盘 SRE（凌晨 3 点 debug） / QA 混沌工程师 / 成本效益怀疑论者。
+
+| # | 修订项 | 触发角色 | 严重度 | 落位决策 / 章节 |
+|---|--------|---------|--------|--------------|
+| 1 | ReDoS 正则注入防御 | 红队 | high | 决策 #19, §5.1 `validate_size_patterns` |
+| 2 | sldprt 路径遍历防御 | 红队 | high | 决策 #20, §5.1 `_validate_sldprt_path` |
+| 3 | 索引 JSON fingerprint 完整性 | 红队 | medium | 决策 #21, §5.1 |
+| 4 | 多 resolver + COM singleton 锁 | QA | high | 决策 #22, §5.2 `self._lock` |
+| 5 | atomic write 强化（fsync + magic 校验） | QA | high | 决策 #23, §5.2 convert 流程 |
+| 6 | yaml config validation | QA | medium | 决策 #24 |
+| 7 | 中文/特殊字符 encoding | QA | medium | 决策 #25 |
+| 8 | sw-warmup 进程锁 | QA | medium | 决策 #26, §7 step 0 |
+| 9 | sw-inspect 单行诊断 | SRE | high | 决策 #27, §7.2 |
+| 10 | coverage_report 健康状态 | SRE | medium | 决策 #28, §7.3 |
+| 11 | 索引 rebuild diff history | SRE | low | §5.1 `load_toolbox_index` docstring |
+| 12 | 真实 BOM 覆盖率验证 | 成本 | high | 决策 #29, SW-B9 (b) |
+| 13 | 冷启动延迟预算 | 成本 | high | 决策 #30, §8 矩阵 |
+| 14 | 既有装配验证回归 gate | 成本 | high | 决策 #31, SW-B9 (d) |
+| 15 | min_score 校准 | 成本 | medium | 决策 #32, SW-B8 子任务 |
+| 16 | ROI 熔断机制 | 成本 | medium | 决策 #33, SW-B9 (e) |
+| 17 | Toolbox 扫描时目录被修改 retry | QA | low | §5.1 `_compute_toolbox_fingerprint` retry |
+| 18 | 环境变量劫持（低风险） | 红队 | low | 既有模式，文档警示即可 |
