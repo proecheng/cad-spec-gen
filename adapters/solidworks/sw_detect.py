@@ -296,8 +296,11 @@ def _check_toolbox_addin_enabled(winreg, version_year: int) -> bool:
                         break
                     # Toolbox Add-In 的 GUID 特征字符串（保守匹配）
                     if "toolbox" in name.lower() or _is_toolbox_guid(name):
-                        if int(value) == 1:
-                            return True
+                        try:
+                            if int(value) == 1:
+                                return True
+                        except (TypeError, ValueError):
+                            pass  # 非预期类型（字符串/None）→ 视为未启用，继续枚举
                     i += 1
         except (OSError, FileNotFoundError):
             continue
