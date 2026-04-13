@@ -1,12 +1,25 @@
 """
 adapters/solidworks/sw_com_session.py — SolidWorks COM 会话管理。
 
-实现 v4 决策 #6/#10/#11/#22/#23/#25：
-- 熔断器（连续 3 次失败触发）
-- 冷启动超时 90s / 单零件 30s / 空闲 300s / 每 50 次重启
-- threading.Lock 保护 COM 调用（非线程安全）
-- atomic write（fsync + MIN_STEP_FILE_SIZE + ISO-10303 magic bytes）
-- encoding 透传（os.fspath + str 断言）
+====== Part 1 / Part 2 交付边界 ======
+Part 1 交付（本文件）：
+- `SwComSession` 骨架 + `_lock` 保护 + 熔断器（连续 3 次失败）
+- `convert_sldprt_to_step` 假设 `self._app` 已设置；atomic write + 大小/magic 校验
+- `get_session` / `reset_session` singleton 管理
+- 生命周期常量定义（COLD_START_TIMEOUT_SEC 等）
+
+Part 2 将实现（SW-B9 真实 COM 验收时）：
+- `start()` 方法 — 实际启动 SW + LoadAddIn Toolbox + 赋值 self._app
+  （受 COLD_START_TIMEOUT_SEC 保护）
+- `_maybe_restart()` — `_convert_count >= RESTART_EVERY_N_CONVERTS` 时 shutdown+start
+- 空闲自动 shutdown — `time.time() - _last_used_ts >= IDLE_SHUTDOWN_SEC`
+- `SINGLE_CONVERT_TIMEOUT_SEC` 与 `convert_sldprt_to_step` 的挂靠（可能用 threading 超时中断或 subprocess 超时）
+
+Part 1 单元测试通过直接赋值 `session._app = mock_app` 绕过 `start()`，
+生产环境用 Part 1 的 session **不会**真正启动 SW —— resolve 的 cache miss 分支
+会在 `_do_convert` 看到 `self._app is None` 后返回 False。
+
+实施 v4 决策 #6/#22/#23/#25（Part 1）+ #10/#11（Part 2）。
 
 不在此模块硬依赖 win32com（runtime import）。
 """
@@ -22,7 +35,8 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# v4 决策 #10/#11/#6
+# v4 决策 #10/#11 行为契约常量 — Part 2 SW-B9 真实 COM 实现时引用
+# Part 1 仅定义，不执行对应生命周期逻辑
 COLD_START_TIMEOUT_SEC = 90
 SINGLE_CONVERT_TIMEOUT_SEC = 30
 IDLE_SHUTDOWN_SEC = 300
@@ -99,7 +113,10 @@ class SwComSession:
     def _do_convert(self, sldprt_path: str, step_out: str) -> bool:
         """实际 COM 调用 + atomic write（v4 决策 #23）。"""
         if self._app is None:
-            log.warning("SwComSession._app is None; 必须先 start()")
+            log.warning(
+                "SwComSession._app 未初始化；Part 2 需要实现 start() 方法来启动真实 SW。"
+                "Part 1 仅单元测试通过 mock 赋值 _app 使用。"
+            )
             return False
 
         tmp_path = step_out + ".tmp"
