@@ -1,5 +1,7 @@
 """sw_material_bridge 单元测试。使用生成的 fixture。"""
 
+import sys
+
 import pytest
 from pathlib import Path
 
