@@ -1,8 +1,11 @@
 """sw_toolbox_catalog 单元测试（v4 决策 #14/#18/#19/#20/#21/#12）。"""
 from __future__ import annotations
 
-import json
-import subprocess
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -155,7 +158,6 @@ class TestValidateSizePatterns:
         validate_size_patterns(patterns)
 
     def test_redos_pattern_rejected(self):
-        import re
         from adapters.solidworks.sw_toolbox_catalog import validate_size_patterns
         # Classic ReDoS: nested quantifier on alternation
         patterns = {
@@ -236,3 +238,85 @@ class TestExtractSizeDefensive:
         # 不应抛 TypeError
         result = extract_size_from_name("M6×20 螺钉", patterns)
         assert result == {"size": "M6", "length": "20"}
+
+
+class TestToolboxFingerprint:
+    """v4 决策 #21: 索引完整性校验 + 决策 #17 Path.home 兼容。"""
+
+    @pytest.fixture
+    def fake_toolbox(self):
+        return Path(__file__).parent / "fixtures" / "fake_toolbox"
+
+    def test_fingerprint_stable_on_repeat(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+        fp1 = _compute_toolbox_fingerprint(fake_toolbox)
+        fp2 = _compute_toolbox_fingerprint(fake_toolbox)
+        assert fp1 == fp2
+        assert len(fp1) == 40  # SHA1 hex
+
+    def test_fingerprint_changes_when_file_added(self, fake_toolbox, tmp_path):
+        import shutil
+        from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+        # 将 fixture 复制到 tmp_path 再添加文件
+        target = tmp_path / "fake_toolbox"
+        shutil.copytree(fake_toolbox, target)
+        fp_before = _compute_toolbox_fingerprint(target)
+
+        (target / "GB" / "new_part.sldprt").write_bytes(b"")
+        fp_after = _compute_toolbox_fingerprint(target)
+        assert fp_before != fp_after
+
+    def test_fingerprint_missing_dir_returns_unavailable(self, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+        fp = _compute_toolbox_fingerprint(tmp_path / "does-not-exist")
+        assert fp == "unavailable"
+
+
+class TestBuildToolboxIndex:
+    """v4 §5.1: 仅接受 .sldprt，过滤 .xls/.slddrw/.sldlfp/.xml。"""
+
+    @pytest.fixture
+    def fake_toolbox(self):
+        return Path(__file__).parent / "fixtures" / "fake_toolbox"
+
+    def test_index_has_schema_version(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index, SCHEMA_VERSION
+        idx = build_toolbox_index(fake_toolbox)
+        assert idx["schema_version"] == SCHEMA_VERSION
+
+    def test_index_has_fingerprint(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+        idx = build_toolbox_index(fake_toolbox)
+        assert "toolbox_fingerprint" in idx
+        assert len(idx["toolbox_fingerprint"]) == 40
+
+    def test_index_filters_non_sldprt(self, fake_toolbox):
+        """决策 §5.1: sizes.xls / sample.slddrw / catalog.xml 必须被过滤。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+        idx = build_toolbox_index(fake_toolbox)
+        flat_paths = []
+        for std in idx["standards"].values():
+            for sub in std.values():
+                for p in sub:
+                    flat_paths.append(p.filename)
+        assert not any(f.endswith(".xls") for f in flat_paths)
+        assert not any(f.endswith(".slddrw") for f in flat_paths)
+        assert not any(f.endswith(".xml") for f in flat_paths)
+        # 所有入库的都是 sldprt
+        assert all(f.endswith(".sldprt") for f in flat_paths)
+
+    def test_index_populates_gb_bolts(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+        idx = build_toolbox_index(fake_toolbox)
+        assert "GB" in idx["standards"]
+        assert "bolts and studs" in idx["standards"]["GB"]
+        bolts = idx["standards"]["GB"]["bolts and studs"]
+        filenames = {p.filename for p in bolts}
+        assert "hex bolt.sldprt" in filenames
+        assert "stud.sldprt" in filenames
+
+    def test_index_populates_iso_and_din(self, fake_toolbox):
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+        idx = build_toolbox_index(fake_toolbox)
+        assert "ISO" in idx["standards"]
+        assert "DIN" in idx["standards"]
