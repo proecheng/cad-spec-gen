@@ -41,7 +41,72 @@ bd_warehouse:
 partcad:
   enabled: false
 
+# ═══════════════════════════════════════════════════════════════════════
+# SolidWorks Toolbox integration (Phase SW-B, opt-in + runtime self-report)
+# ═══════════════════════════════════════════════════════════════════════
+# `enabled: auto` — adapter runs `is_available()` to self-report; no user
+# action required. When SW is absent, this section is silently ignored.
+#
+# Cache path resolution order (决策 #16):
+#   1. This yaml's `cache` field (leave unset to skip)
+#   2. Env var CAD_SPEC_GEN_SW_TOOLBOX_CACHE
+#   3. Default: Path.home() / '.cad-spec-gen' / 'step_cache' / 'sw_toolbox'
+#
+# ⚠️ 浅覆盖陷阱（v3）：project-level parts_library.yaml 若 `extends: default`
+# 并只想覆盖单字段，必须把本段完整重抄一遍，否则未覆盖字段会丢失。
+solidworks_toolbox:
+  enabled: auto
+  standards: [GB, ISO, DIN]
+  # cache: ~/.cad-spec-gen/step_cache/sw_toolbox/   # 默认注释掉
+  min_score: 0.30
+
+  # 加权 token overlap（决策 #12）
+  token_weights:
+    part_no: 2.0        # 标准号最高权重
+    name_cn: 1.0
+    material: 0.5
+    size: 1.5           # 从 name_cn 抽出的 M6/6205 等
+
+  # 尺寸正则（仅公制 M 螺纹和基本轴承，决策 §1.3）
+  size_patterns:
+    fastener:
+      size: '[Mm](\d+(?:\.\d+)?)'
+      length: '[×xX*\-\s](\d+(?:\.\d+)?)'
+      exclude_patterns: ['UN[CFEF]', '\bTr\d', '\bG\d/', '\bNPT']
+    bearing:
+      model: '\b(\d{4,5})\b'
+
+  # COM 超时/重启（决策 #10、#11，可按机型调整）
+  com:
+    cold_start_timeout_sec: 90
+    single_convert_timeout_sec: 30
+    restart_every_n_converts: 50
+    idle_shutdown_sec: 300
+    circuit_breaker_threshold: 3
+
 mappings:
+  # ─── SolidWorks Toolbox — GB 高优先级（v4 §6） ──────────────────────
+  # GB/T 国标紧固件和轴承走 SW Toolbox（1818 个标准件 sldprt），仅在
+  # `is_available()` 全通过时生效（SW 装了 + Toolbox Add-In 启用）。
+  - match:
+      category: fastener
+      keyword_contains: ["GB/T", "国标", "GB "]
+    adapter: solidworks_toolbox
+    spec:
+      standard: GB
+      subcategories: ["bolts and studs", "nuts", "screws",
+                      "washers and rings", "pins", "rivets"]
+      part_category: fastener
+
+  - match:
+      category: bearing
+      keyword_contains: ["GB/T", "国标", "深沟球", "圆柱滚子", "推力"]
+    adapter: solidworks_toolbox
+    spec:
+      standard: GB
+      subcategories: ["bearing"]
+      part_category: bearing
+
   # ─── Vendor STEP files (skill-shipped, auto-synthesized to cache) ───
   # These rules match by substring against name_cn so they are reusable
   # across projects without depending on project-specific part_nos. The
@@ -190,6 +255,23 @@ mappings:
     adapter: bd_warehouse
     spec:
       class: HexHeadScrew
+
+  # ─── SolidWorks Toolbox — ISO/DIN 兜底（v4 §6） ──────────────────────
+  - match:
+      category: fastener
+    adapter: solidworks_toolbox
+    spec:
+      standard: [ISO, DIN]
+      subcategories: ["bolts", "nuts", "screws", "washers"]
+      part_category: fastener
+
+  - match:
+      category: bearing
+    adapter: solidworks_toolbox
+    spec:
+      standard: [ISO, DIN]
+      subcategories: ["bearings"]
+      part_category: bearing
 
   # ─── Everything else falls through to jinja_primitive ───────────────
   # This rule is the terminal fallback. Without it, parts that don't

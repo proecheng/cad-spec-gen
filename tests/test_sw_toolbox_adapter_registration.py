@@ -31,8 +31,7 @@ class TestSwToolboxRegistration:
             assert names.index("sw_toolbox") > names.index("bd_warehouse")
 
     def test_sw_toolbox_receives_config_from_yaml(self, tmp_path):
-        """yaml `solidworks_toolbox:` 段应作为 config 传入 SwToolboxAdapter。
-        当前 default yaml 还没有该段（Task 6 才加），故 config 应为 {}。"""
+        """yaml `solidworks_toolbox:` 段应作为 config 传入 SwToolboxAdapter。"""
         from parts_resolver import default_resolver
 
         resolver = default_resolver(project_root=str(tmp_path))
@@ -40,8 +39,8 @@ class TestSwToolboxRegistration:
             (a for a in resolver.adapters if a.name == "sw_toolbox"), None
         )
         assert sw_adapter is not None
-        # 现阶段 default yaml 无 solidworks_toolbox 段，config 应为 {}
-        assert sw_adapter.config == {}
+        # default yaml 应至少含 min_score 字段（Task 6 已加 solidworks_toolbox 段）
+        assert sw_adapter.config.get("min_score") == 0.30
 
     def test_sw_toolbox_rejects_malformed_size_patterns(self, tmp_path, monkeypatch):
         """yaml size_patterns 非 dict 时，adapter 注册被拒绝但管道继续。"""
@@ -64,3 +63,59 @@ class TestSwToolboxRegistration:
         assert "sw_toolbox" not in adapter_names
         # 其他 adapter 应正常注册（管道继续）
         assert "jinja_primitive" in adapter_names
+
+
+class TestDefaultYamlConfig:
+    """v4 §6: parts_library.default.yaml 的 solidworks_toolbox 段内容。"""
+
+    def test_default_yaml_provides_solidworks_toolbox_section(self, tmp_path):
+        from parts_resolver import default_resolver
+
+        resolver = default_resolver(project_root=str(tmp_path))
+        sw_adapter = next(a for a in resolver.adapters if a.name == "sw_toolbox")
+        cfg = sw_adapter.config
+
+        assert cfg.get("enabled") == "auto"
+        assert set(cfg.get("standards", [])) >= {"GB", "ISO", "DIN"}
+        assert cfg.get("min_score") == 0.30
+
+        # token_weights 四字段齐全（决策 #12）
+        weights = cfg.get("token_weights", {})
+        assert weights == {
+            "part_no": 2.0,
+            "name_cn": 1.0,
+            "material": 0.5,
+            "size": 1.5,
+        }
+
+        # size_patterns 两个类别齐全（决策 #9 + §1.3）
+        sp = cfg.get("size_patterns", {})
+        assert "fastener" in sp
+        assert "bearing" in sp
+        # fastener 含 exclude_patterns 防 UNC/Tr/G/NPT
+        assert any("UN" in p for p in sp["fastener"].get("exclude_patterns", []))
+
+        # com 超时常量可覆盖
+        com_cfg = cfg.get("com", {})
+        assert com_cfg.get("cold_start_timeout_sec") == 90
+        assert com_cfg.get("restart_every_n_converts") == 50
+
+    def test_default_yaml_has_gb_fastener_rule_before_generic_fallback(self, tmp_path):
+        """YAML mapping: GB 高优先级规则必须在 jinja_primitive 兜底之前。"""
+        from parts_resolver import load_registry
+
+        reg = load_registry(str(tmp_path))
+        mappings = reg.get("mappings", [])
+        sw_gb_idx = None
+        bd_any_idx = None
+        for i, m in enumerate(mappings):
+            if m.get("adapter") == "solidworks_toolbox":
+                keywords = m.get("match", {}).get("keyword_contains", [])
+                if any("GB" in k for k in keywords) and sw_gb_idx is None:
+                    sw_gb_idx = i
+            if m.get("adapter") == "jinja_primitive" and bd_any_idx is None:
+                bd_any_idx = i
+
+        assert sw_gb_idx is not None, "缺少 SW Toolbox GB 规则"
+        assert bd_any_idx is not None, "缺少 jinja_primitive 兜底"
+        assert sw_gb_idx < bd_any_idx, "GB 规则必须在 jinja_primitive 兜底之前"
