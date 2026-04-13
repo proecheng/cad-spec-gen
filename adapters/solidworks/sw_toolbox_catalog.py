@@ -176,7 +176,7 @@ def validate_size_patterns(patterns: dict) -> None:
                     )
 
 
-def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict]:
+def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, str]]:
     """从 BOM name_cn 正则抽尺寸（v4 §1.3, 决策 #9）。
 
     返回:
