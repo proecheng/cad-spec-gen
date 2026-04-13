@@ -59,7 +59,7 @@ class SwToolboxPart:
 # 停用词：英语常用连接词 + Toolbox 子目录里的粘合词
 # ---------------------------------------------------------------------------
 
-STOP_WORDS: frozenset = frozenset({
+STOP_WORDS: frozenset[str] = frozenset({
     "and", "for", "with", "the", "of", "type",
     "a", "an", "in", "on", "to", "by",
 })
