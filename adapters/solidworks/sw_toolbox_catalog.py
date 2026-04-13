@@ -496,6 +496,33 @@ def _append_history_log(reason: str) -> None:
         pass  # 日志失败不阻断
 
 
+def _validate_sldprt_path(sldprt_path: str, toolbox_dir: Path) -> bool:
+    """路径遍历防御（v4 决策 #20）。
+
+    sldprt_path.resolve() 必须是 toolbox_dir.resolve() 的真子路径。
+    任何 resolve 异常 → False。
+
+    Args:
+        sldprt_path: 待验证的 .sldprt 文件路径字符串
+        toolbox_dir: Toolbox 根目录（信任边界）
+
+    Returns:
+        True 表示 sldprt_path 是 toolbox_dir 的合法子路径，False 表示疑似路径遍历攻击
+    """
+    try:
+        sld = Path(sldprt_path).resolve()
+        root = Path(toolbox_dir).resolve()
+        sld.relative_to(root)  # 若非子路径则抛 ValueError
+        return True
+    except (ValueError, OSError, RuntimeError):
+        log.error(
+            "索引篡改疑似: sldprt_path 非 toolbox_dir 子路径: %s vs %s",
+            sldprt_path,
+            toolbox_dir,
+        )
+        return False
+
+
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, str]]:
     """从 BOM name_cn 正则抽尺寸（v4 §1.3, 决策 #9）。
 

@@ -473,6 +473,35 @@ class TestLoadToolboxIndex:
         assert idx["scan_time"] != "stale"  # 已重建
 
 
+class TestValidateSldprtPath:
+    """v4 决策 #20: sldprt_path 必须是 toolbox_dir 的真子路径。"""
+
+    def test_valid_child_path_returns_true(self, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+        toolbox = tmp_path / "toolbox"
+        toolbox.mkdir()
+        sldprt = toolbox / "GB" / "bolts" / "hex.sldprt"
+        sldprt.parent.mkdir(parents=True)
+        sldprt.write_bytes(b"")
+        assert _validate_sldprt_path(str(sldprt), toolbox) is True
+
+    def test_path_outside_toolbox_returns_false(self, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+        toolbox = tmp_path / "toolbox"
+        toolbox.mkdir()
+        outside = tmp_path / "evil.sldprt"
+        outside.write_bytes(b"")
+        assert _validate_sldprt_path(str(outside), toolbox) is False
+
+    def test_path_traversal_rejected(self, tmp_path):
+        """恶意索引含 ../../etc/passwd 应被拒绝。"""
+        from adapters.solidworks.sw_toolbox_catalog import _validate_sldprt_path
+        toolbox = tmp_path / "toolbox"
+        toolbox.mkdir()
+        traversal = str(toolbox / ".." / "outside.sldprt")
+        assert _validate_sldprt_path(traversal, toolbox) is False
+
+
 class TestMakeIndexEnvelope:
     """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""
 
