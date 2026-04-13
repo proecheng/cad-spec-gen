@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -410,3 +411,97 @@ class TestPathResolution:
         monkeypatch.setenv("HOME", "/should/not/be/used")
         result = get_toolbox_cache_root({})
         assert str(result).startswith(str(tmp_path))
+
+
+class TestLoadToolboxIndex:
+    """v4 决策 #21: schema_version 或 fingerprint 不匹配自动重建。"""
+
+    @pytest.fixture
+    def fake_toolbox(self):
+        return Path(__file__).parent / "fixtures" / "fake_toolbox"
+
+    def test_load_rebuilds_when_cache_missing(self, fake_toolbox, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index, SCHEMA_VERSION
+
+        cache = tmp_path / "idx.json"
+        assert not cache.exists()
+        idx = load_toolbox_index(cache, fake_toolbox)
+        assert cache.exists()
+        assert idx["schema_version"] == SCHEMA_VERSION
+
+    def test_load_uses_cache_when_fresh(self, fake_toolbox, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index
+
+        cache = tmp_path / "idx.json"
+        # 第一次调用：构建
+        load_toolbox_index(cache, fake_toolbox)
+        # 篡改 scan_time 以检测缓存是否被复用
+        data = json.loads(cache.read_text())
+        data["scan_time"] = "sentinel-cached"
+        cache.write_text(json.dumps(data))
+
+        idx2 = load_toolbox_index(cache, fake_toolbox)
+        assert idx2["scan_time"] == "sentinel-cached"  # 来自缓存
+
+    def test_load_rebuilds_on_schema_bump(self, fake_toolbox, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index, SCHEMA_VERSION
+
+        cache = tmp_path / "idx.json"
+        cache.write_text(json.dumps({
+            "schema_version": 0,  # 旧版本
+            "scan_time": "old",
+            "toolbox_fingerprint": "unavailable",
+            "standards": {},
+        }))
+        idx = load_toolbox_index(cache, fake_toolbox)
+        assert idx["schema_version"] == SCHEMA_VERSION
+        assert idx["scan_time"] != "old"
+
+    def test_load_rebuilds_on_fingerprint_mismatch(self, fake_toolbox, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import load_toolbox_index
+
+        cache = tmp_path / "idx.json"
+        # 先构建一次
+        load_toolbox_index(cache, fake_toolbox)
+        # 破坏缓存中的 fingerprint
+        data = json.loads(cache.read_text())
+        data["toolbox_fingerprint"] = "0" * 40
+        data["scan_time"] = "stale"
+        cache.write_text(json.dumps(data))
+
+        idx = load_toolbox_index(cache, fake_toolbox)
+        assert idx["scan_time"] != "stale"  # 已重建
+
+
+class TestMakeIndexEnvelope:
+    """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""
+
+    def test_envelope_has_required_keys(self):
+        """_make_index_envelope 返回结构包含所有必需键。"""
+        from adapters.solidworks.sw_toolbox_catalog import _make_index_envelope, SCHEMA_VERSION
+
+        env = _make_index_envelope({}, "abc123")
+        assert env["schema_version"] == SCHEMA_VERSION
+        assert "scan_time" in env
+        assert env["toolbox_fingerprint"] == "abc123"
+        assert env["standards"] == {}
+
+    def test_empty_index_consistent_with_envelope(self):
+        """Minor #4: _empty_index 使用 _make_index_envelope 后结构一致。"""
+        from adapters.solidworks.sw_toolbox_catalog import _empty_index, SCHEMA_VERSION
+
+        idx = _empty_index()
+        assert idx["schema_version"] == SCHEMA_VERSION
+        assert idx["toolbox_fingerprint"] == "unavailable"
+        assert idx["standards"] == {}
+
+    def test_build_index_uses_envelope_structure(self, tmp_path):
+        """build_toolbox_index 返回 dict 结构与 _make_index_envelope 一致。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index, SCHEMA_VERSION
+
+        # 使用不存在的目录触发空索引路径
+        idx = build_toolbox_index(tmp_path / "nonexistent")
+        assert idx["schema_version"] == SCHEMA_VERSION
+        assert "scan_time" in idx
+        assert "toolbox_fingerprint" in idx
+        assert "standards" in idx

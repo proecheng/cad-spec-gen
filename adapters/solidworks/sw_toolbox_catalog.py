@@ -294,6 +294,35 @@ def _compute_toolbox_fingerprint(toolbox_dir: Path) -> str:
     return "unavailable"
 
 
+def _make_index_envelope(
+    standards: dict[str, dict[str, list[SwToolboxPart]]],
+    fingerprint: str,
+) -> dict:
+    """构建索引 dict 信封（Minor #5 去重辅助函数）。
+
+    统一 build_toolbox_index 与 _empty_index 的返回结构，避免两处重复定义。
+
+    Args:
+        standards: 已扫描的标准分类表（可为空 dict）
+        fingerprint: Toolbox 指纹（SHA1 hex 或 "unavailable"）
+
+    Returns:
+        dict:
+            schema_version: int
+            scan_time: ISO 时间戳（UTC）
+            toolbox_fingerprint: str
+            standards: dict
+    """
+    from datetime import datetime, timezone
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "toolbox_fingerprint": fingerprint,
+        "standards": standards,
+    }
+
+
 def build_toolbox_index(toolbox_dir: Path) -> dict:
     """扫描 Toolbox 目录 → 索引 dict（v4 §5.1 + 决策 #21）。
 
@@ -314,14 +343,12 @@ def build_toolbox_index(toolbox_dir: Path) -> dict:
             toolbox_fingerprint: SHA1 hex
             standards: {standard: {subcategory: [SwToolboxPart, ...]}}
     """
-    from datetime import datetime, timezone
-
     toolbox_dir = Path(toolbox_dir)
     standards: dict[str, dict[str, list[SwToolboxPart]]] = {}
 
     if not toolbox_dir.exists():
         log.warning("Toolbox dir does not exist: %s", toolbox_dir)
-        return _empty_index(toolbox_dir)
+        return _empty_index()
 
     for std_dir in toolbox_dir.iterdir():
         if not std_dir.is_dir():
@@ -353,31 +380,120 @@ def build_toolbox_index(toolbox_dir: Path) -> dict:
         if std_entry:
             standards[std_name] = std_entry
 
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "scan_time": datetime.now(timezone.utc).isoformat(),
-        "toolbox_fingerprint": _compute_toolbox_fingerprint(toolbox_dir),
-        "standards": standards,
-    }
+    return _make_index_envelope(standards, _compute_toolbox_fingerprint(toolbox_dir))
 
 
-def _empty_index(toolbox_dir: Path) -> dict:
+def _empty_index() -> dict:
     """返回空索引 dict（目录不存在时使用）。
 
-    Args:
-        toolbox_dir: Toolbox 根目录路径（仅用于日志，不写入结果）
+    Minor #4: 不再接受 toolbox_dir 参数（该参数未被使用），
+    改为直接调用 _make_index_envelope({}, "unavailable")。
 
     Returns:
         包含空 standards 的索引 dict
     """
+    return _make_index_envelope({}, "unavailable")
+
+
+def load_toolbox_index(cache_path: Path, toolbox_dir: Path) -> dict:
+    """读缓存；自动重建条件（v4 决策 #21）：
+
+    1. 缓存文件不存在
+    2. cache['schema_version'] != SCHEMA_VERSION
+    3. cache['toolbox_fingerprint'] != _compute_toolbox_fingerprint(toolbox_dir)
+
+    重建时追加事件到 ~/.cad-spec-gen/sw_toolbox_index_history.log（SRE #7）。
+
+    Args:
+        cache_path: 索引 JSON 文件路径
+        toolbox_dir: Toolbox 根目录（用于重新扫描及指纹比对）
+
+    Returns:
+        索引 dict（含 SwToolboxPart 对象）
+    """
+    cache_path = Path(cache_path)
+    toolbox_dir = Path(toolbox_dir)
+
+    cached = None
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("toolbox index 缓存损坏，将重建: %s", e)
+            cached = None
+
+    rebuild_reason = None
+    if cached is None:
+        rebuild_reason = "missing or corrupt"
+    elif cached.get("schema_version") != SCHEMA_VERSION:
+        rebuild_reason = (
+            f"schema_version bump {cached.get('schema_version')} -> {SCHEMA_VERSION}"
+        )
+    else:
+        current_fp = _compute_toolbox_fingerprint(toolbox_dir)
+        cached_fp = cached.get("toolbox_fingerprint", "")
+        if current_fp != cached_fp and current_fp != "unavailable":
+            rebuild_reason = f"fingerprint mismatch {cached_fp[:8]}->{current_fp[:8]}"
+
+    if rebuild_reason is None:
+        # 缓存有效：反序列化 SwToolboxPart 对象
+        return _rehydrate_index(cached)
+
+    # 重建
+    log.info("toolbox 索引重建: %s", rebuild_reason)
+    _append_history_log(rebuild_reason)
+
+    new_idx = build_toolbox_index(toolbox_dir)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(_dehydrate_index(new_idx), encoding="utf-8")
+    except OSError as e:
+        log.warning("toolbox 索引缓存写入失败（非致命）: %s", e)
+    return new_idx
+
+
+def _dehydrate_index(idx: dict) -> str:
+    """把索引中的 SwToolboxPart 转 dict 以便 JSON 序列化。"""
+    out = dict(idx)
+    out["standards"] = {
+        std: {
+            sub: [asdict(p) for p in parts]
+            for sub, parts in sub_dict.items()
+        }
+        for std, sub_dict in idx["standards"].items()
+    }
+    return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+def _rehydrate_index(cached: dict) -> dict:
+    """把 JSON dict 转回含 SwToolboxPart 的索引 dict。"""
+    out = dict(cached)
+    out["standards"] = {
+        std: {
+            sub: [SwToolboxPart(**p) for p in parts]
+            for sub, parts in sub_dict.items()
+        }
+        for std, sub_dict in cached.get("standards", {}).items()
+    }
+    return out
+
+
+def _append_history_log(reason: str) -> None:
+    """追加索引 rebuild 事件到 history log（SRE #7）。
+
+    日志路径: ~/.cad-spec-gen/sw_toolbox_index_history.log
+    写入失败不阻断 load_toolbox_index 的正常返回。
+    """
     from datetime import datetime, timezone
 
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "scan_time": datetime.now(timezone.utc).isoformat(),
-        "toolbox_fingerprint": "unavailable",
-        "standards": {},
-    }
+    log_path = Path.home() / ".cad-spec-gen" / "sw_toolbox_index_history.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            ts = datetime.now(timezone.utc).isoformat()
+            f.write(f"{ts}: rebuild — {reason}\n")
+    except OSError:
+        pass  # 日志失败不阻断
 
 
 def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, str]]:
