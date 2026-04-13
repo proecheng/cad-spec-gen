@@ -63,7 +63,6 @@ packages = ["src/cad_spec_gen"]
 path = "hatch_build.py"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
 env = [
     "PYTHONHASHSEED=0",
     "PYTHONIOENCODING=utf-8",
