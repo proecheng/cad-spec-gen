@@ -295,6 +295,11 @@ def _check_toolbox_addin_enabled(winreg, version_year: int) -> bool:
                     except OSError:
                         break
                     # Toolbox Add-In 的 GUID 特征字符串（保守匹配）
+                    # I-3: AddInsStartup 下合法 value name 必为 `{GUID}` 形状；
+                    # 用 startswith("{") 守卫防止第三方 Add-In 的友好名误中 "toolbox" 子串。
+                    if not name.startswith("{"):
+                        i += 1
+                        continue
                     if "toolbox" in name.lower() or _is_toolbox_guid(name):
                         try:
                             if int(value) == 1:

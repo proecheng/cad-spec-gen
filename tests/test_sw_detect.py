@@ -117,6 +117,29 @@ class TestToolboxAddinDetection:
         ]
         assert _check_toolbox_addin_enabled(fake_winreg, 2024) is False
 
+    def test_addin_enabled_ignores_non_guid_friendly_name(self):
+        """I-3 回归: 第三方 Add-In 用友好名（非 GUID 形状）注册且含 'toolbox' 字样时，
+        不应误判为 SW 自带 Toolbox 启用。
+
+        注册表 AddInsStartup 下的合法值名都是 `{GUID}` 形状；任何不以 `{` 开头的
+        value name 一律视为第三方/手写配置，排除在 Toolbox 识别范围外。
+        """
+        import unittest.mock as mock
+        from adapters.solidworks.sw_detect import _check_toolbox_addin_enabled
+
+        fake_winreg = mock.MagicMock()
+        fake_winreg.HKEY_CURRENT_USER = 0
+        fake_winreg.KEY_READ = 0
+        fake_key = mock.MagicMock()
+        fake_winreg.OpenKey.return_value.__enter__.return_value = fake_key
+        # 友好名 "MyToolboxPro" — 含 "toolbox" 子串但不是 GUID 形状，应被拒
+        fake_winreg.EnumValue.side_effect = [
+            ("MyToolboxPro", 1, 4),
+            OSError,  # 第一个 subkey 枚举结束
+            OSError,  # 第二个 subkey 枚举结束
+        ]
+        assert _check_toolbox_addin_enabled(fake_winreg, 2024) is False
+
 
 class TestNonWindows:
     """非 Windows 平台的短路行为。"""
