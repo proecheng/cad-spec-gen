@@ -146,6 +146,47 @@ class TestCanResolve:
         assert a.can_resolve(Q()) is True
 
 
+class TestInitValidatesSizePatterns:
+    """I-2 回归: __init__ 必须调用 validate_size_patterns 挡下恶意 config（决策 #19）。"""
+
+    def test_init_rejects_redos_pattern_in_config(self):
+        """含 catastrophic backtracking 正则的 config 应在构造阶段被拒。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+        bad_config = {
+            "size_patterns": {
+                "fastener": {
+                    "diameter": r"(a+)+$",  # 典型 ReDoS 模式
+                }
+            }
+        }
+        with pytest.raises(RuntimeError, match="ReDoS suspected"):
+            SwToolboxAdapter(config=bad_config)
+
+    def test_init_accepts_safe_patterns(self):
+        """合法正则不应触发异常。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+        safe_config = {
+            "size_patterns": {
+                "fastener": {
+                    "diameter": r"M(\d+(?:\.\d+)?)",
+                    "length": r"x(\d+)",
+                }
+            }
+        }
+        a = SwToolboxAdapter(config=safe_config)
+        assert a.config is safe_config
+
+    def test_init_tolerates_empty_config(self):
+        """空/缺失 size_patterns 不应触发校验异常。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+        SwToolboxAdapter()
+        SwToolboxAdapter(config={})
+        SwToolboxAdapter(config={"size_patterns": {}})
+
+
 class TestResolve:
     """主编排流程（v4 §3.2）。"""
 

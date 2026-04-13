@@ -28,6 +28,15 @@ class SwToolboxAdapter(PartsAdapter):
         self.project_root = project_root
         self.config = config or {}
 
+        # I-2: 决策 #19 ReDoS 防御必须在配置进入子系统的唯一入口挂钩，
+        # 否则 catalog 下游 extract_size_from_name 会对恶意 pattern 运行 re.search。
+        # 空 size_patterns 时校验为 no-op，不影响默认构造路径。
+        size_patterns = self.config.get("size_patterns", {})
+        if size_patterns:
+            from adapters.solidworks.sw_toolbox_catalog import validate_size_patterns
+
+            validate_size_patterns(size_patterns)
+
     def is_available(self) -> bool:
         """v4 §5.3: 6 项检查全通过。
 
