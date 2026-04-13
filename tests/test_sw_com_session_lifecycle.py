@@ -72,3 +72,51 @@ class TestStartLocked:
 
         assert sess._unhealthy is True
         assert sess._app is None
+
+
+class TestConvertAutoStart:
+    """convert 入口发现 _app is None 时自动触发 _start_locked。"""
+
+    def test_convert_triggers_start_when_app_none(self, tmp_path):
+        """首次 convert 应自动冷启动。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        fake_app = mock.MagicMock()
+        fake_app.LoadAddIn.return_value = 1
+        # 让 _do_convert 走完但直接返回 False（不关心几何）
+        # 触发路径关键：start 被调用 → _app 被赋值
+        dispatch_mock = mock.MagicMock(return_value=fake_app)
+
+        with mock.patch.object(sw_com_session, "_com_dispatch", dispatch_mock):
+            # _do_convert 在 OpenDoc6 上会进一步操作 fake_app，我们只关心 start 被触发
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        dispatch_mock.assert_called_once_with("SldWorks.Application")
+        assert sess._app is fake_app
+
+    def test_convert_does_not_restart_when_already_running(self, tmp_path):
+        """_app 已初始化时不应重新调用 Dispatch。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        fake_app = mock.MagicMock()
+        fake_app.LoadAddIn.return_value = 1
+        sess._app = fake_app  # 模拟已启动
+
+        dispatch_mock = mock.MagicMock()
+        with mock.patch.object(sw_com_session, "_com_dispatch", dispatch_mock):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        dispatch_mock.assert_not_called()

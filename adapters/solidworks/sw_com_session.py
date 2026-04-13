@@ -139,6 +139,15 @@ class SwComSession:
             if self._unhealthy:
                 return False
 
+            # Part 2a: _app 未初始化 → 自动触发冷启动（决策 #10）
+            # 持锁调用 _start_locked（threading model 规则 5），不重新 acquire。
+            if self._app is None:
+                try:
+                    self._start_locked()
+                except Exception as e:
+                    log.warning("COM 冷启动失败: %s", e)
+                    return False
+
             success = False
             try:
                 success = self._do_convert(sldprt_path, step_out)
