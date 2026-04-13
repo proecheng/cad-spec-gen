@@ -7,15 +7,93 @@ acquire_warmup_lock(lock_path) context manager 给单元测试单独覆盖。
 from __future__ import annotations
 
 import contextlib
+import csv
 import logging
 import os
 from pathlib import Path
 from typing import Iterator
 
+from parts_resolver import PartQuery
+
 log = logging.getLogger(__name__)
 
 # 全局状态：追踪当前进程已持有的锁（同进程内防止重复 acquire）
 _held_locks: set[str] = set()
+
+
+# 列名别名表（值为标准化后的字段名，键为 BOM CSV 中可能出现的列名小写）
+BOM_COLUMN_ALIASES = {
+    "part_no": "part_no",
+    "partno": "part_no",
+    "部件号": "part_no",
+    "零件号": "part_no",
+    "name_cn": "name_cn",
+    "namecn": "name_cn",
+    "名称": "name_cn",
+    "中文名": "name_cn",
+    "material": "material",
+    "材料": "material",
+    "材质": "material",
+    "category": "category",
+    "类别": "category",
+    "分类": "category",
+    "make_buy": "make_buy",
+    "makebuy": "make_buy",
+    "外购自制": "make_buy",
+}
+
+REQUIRED_BOM_FIELDS = ("part_no", "name_cn", "material", "category")
+
+
+def read_bom_csv(csv_path: Path) -> list[PartQuery]:
+    """读取 BOM CSV 并返回 PartQuery 列表（spec §7）。
+
+    支持中英文列名别名（见 BOM_COLUMN_ALIASES），大小写不敏感。
+    缺必需列时抛 ValueError；可选列 make_buy 缺失时填空字符串。
+
+    Args:
+        csv_path: BOM CSV 文件路径，UTF-8 编码
+
+    Returns:
+        PartQuery 列表，每行一个
+
+    Raises:
+        ValueError: 缺必需列
+        OSError: 文件读取失败
+    """
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"BOM CSV 无表头: {csv_path}")
+
+        # 列名标准化（小写 + 别名映射）
+        col_map: dict[str, str] = {}
+        for raw in reader.fieldnames:
+            normalized = BOM_COLUMN_ALIASES.get(raw.strip().lower())
+            if normalized:
+                col_map[raw] = normalized
+
+        # 必需列检查
+        present = set(col_map.values())
+        missing = [f for f in REQUIRED_BOM_FIELDS if f not in present]
+        if missing:
+            raise ValueError(
+                f"BOM CSV 缺必需列: {missing}（已识别: {sorted(present)}）"
+            )
+
+        rows: list[PartQuery] = []
+        for raw_row in reader:
+            mapped = {col_map[k]: v for k, v in raw_row.items() if k in col_map}
+            rows.append(
+                PartQuery(
+                    part_no=mapped.get("part_no", "").strip(),
+                    name_cn=mapped.get("name_cn", "").strip(),
+                    material=mapped.get("material", "").strip(),
+                    category=mapped.get("category", "").strip(),
+                    make_buy=mapped.get("make_buy", "").strip(),
+                )
+            )
+        return rows
 
 
 @contextlib.contextmanager
