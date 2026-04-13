@@ -120,3 +120,55 @@ class TestConvertAutoStart:
             sess.convert_sldprt_to_step(str(sldprt), str(step_out))
 
         dispatch_mock.assert_not_called()
+
+
+class TestMaybeRestart:
+    """_convert_count 达 RESTART_EVERY_N_CONVERTS 时 shutdown + restart。"""
+
+    def test_restart_fires_at_threshold(self, tmp_path, monkeypatch):
+        """convert_count=50 时下次 convert 入口应先 shutdown 再 start。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        old_app = mock.MagicMock()
+        new_app = mock.MagicMock()
+        new_app.LoadAddIn.return_value = 1
+        sess._app = old_app
+        sess._convert_count = sw_com_session.RESTART_EVERY_N_CONVERTS  # 触发阈值
+
+        dispatch_mock = mock.MagicMock(return_value=new_app)
+        with mock.patch.object(sw_com_session, "_com_dispatch", dispatch_mock):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        # old_app 被 ExitApp 过
+        old_app.ExitApp.assert_called_once()
+        # 重新 Dispatch 产出了 new_app
+        dispatch_mock.assert_called_once_with("SldWorks.Application")
+        assert sess._app is new_app
+        # _convert_count 重置
+        assert sess._convert_count <= 1  # 可能 +1（看 _do_convert 是否成功）
+
+    def test_no_restart_below_threshold(self, tmp_path):
+        """count 未达阈值时不触发 restart。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        app = mock.MagicMock()
+        app.LoadAddIn.return_value = 1
+        sess._app = app
+        sess._convert_count = sw_com_session.RESTART_EVERY_N_CONVERTS - 1
+
+        with mock.patch.object(sw_com_session, "_com_dispatch", mock.MagicMock()):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        app.ExitApp.assert_not_called()

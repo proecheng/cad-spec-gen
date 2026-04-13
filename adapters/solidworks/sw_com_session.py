@@ -117,6 +117,27 @@ class SwComSession:
             self._app = None
             raise
 
+    def _maybe_restart_locked(self) -> None:
+        """若已达 RESTART_EVERY_N_CONVERTS 次，先 shutdown 再 start。
+
+        必须在持 self._lock 的上下文内调用。
+        shutdown 失败被吞掉（视为进程已死），_start_locked 负责重建。
+        start 失败会让 _unhealthy=True 冒泡。
+        """
+        assert self._lock.locked()
+
+        if self._convert_count < RESTART_EVERY_N_CONVERTS:
+            return
+
+        log.info(
+            "触发 COM session 周期重启 (count=%d，阈值 %d)",
+            self._convert_count,
+            RESTART_EVERY_N_CONVERTS,
+        )
+        self._shutdown_locked()
+        self._start_locked()
+        self._convert_count = 0
+
     def convert_sldprt_to_step(
         self,
         sldprt_path,
@@ -139,11 +160,17 @@ class SwComSession:
             if self._unhealthy:
                 return False
 
-            # Task 3 插入位置（Part 2a 后续）: _maybe_idle_shutdown_locked() →
-            # _maybe_restart_locked()。两者会先把 self._app 清成 None，下一行的
-            # if self._app is None 分支会负责重启。顺序：unhealthy → idle → restart → start → convert。
+            # Task 4 插入位置（Part 2a 后续）: _maybe_idle_shutdown_locked()
+            # 将在 restart 检查之前调用——idle 已 shutdown 时 restart 判断无意义。
 
-            # Part 2a: _app 未初始化 → 自动触发冷启动（决策 #10）
+            # Part 2a Task 3: 周期强制重启（决策 #11）
+            try:
+                self._maybe_restart_locked()
+            except Exception as e:
+                log.warning("COM 周期重启失败: %s", e)
+                return False
+
+            # Part 2a Task 2: _app 未初始化 → 自动触发冷启动（决策 #10）
             # 持锁调用 _start_locked（threading model 规则 5），不重新 acquire。
             if self._app is None:
                 try:
@@ -242,15 +269,20 @@ class SwComSession:
             header = f.read(16)
         return header.startswith(STEP_MAGIC_PREFIX)
 
+    def _shutdown_locked(self) -> None:
+        """实际 shutdown 逻辑，假设已持 self._lock。"""
+        if self._app is not None:
+            try:
+                self._app.ExitApp()
+            except Exception as e:
+                # reviewer Minor M-3: shutdown COM 异常记 debug 供 Part 2 排查
+                log.debug("COM ExitApp 异常（忽略）: %s", e)
+            self._app = None
+
     def shutdown(self) -> None:
-        """释放 SW COM session。"""
+        """外部入口：acquire self._lock 后 shutdown。"""
         with self._lock:
-            if self._app is not None:
-                try:
-                    self._app.ExitApp()
-                except Exception:
-                    pass
-                self._app = None
+            self._shutdown_locked()
 
 
 # 进程级 singleton
