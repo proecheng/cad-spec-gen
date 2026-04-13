@@ -4,6 +4,8 @@
 
 COM 接口非线程安全（v4 决策 #22）。Part 1 用 `self._lock` 全方法包裹 `convert_sldprt_to_step`，避免两个线程同时调 COM。Part 2 要加入 `start()` / `_maybe_restart()` / idle shutdown，锁粒度若处理不当会死锁。
 
+关键常量（定义在 `adapters/solidworks/sw_com_session.py` 顶部）：`RESTART_EVERY_N_CONVERTS = 50`（决策 #11），`IDLE_SHUTDOWN_SEC = 300`（5 分钟），`COLD_START_TIMEOUT_SEC = 90`，`SINGLE_CONVERT_TIMEOUT_SEC = 30`，`CIRCUIT_BREAKER_THRESHOLD = 3`。
+
 ## 状态转换
 
 ```
@@ -30,12 +32,15 @@ COM 接口非线程安全（v4 决策 #22）。Part 1 用 `self._lock` 全方法
 
 ## 锁粒度规则
 
-1. **`_lock` 是 session 内状态的唯一锁**。`_SINGLETON_LOCK` 是模块级锁，只保护 singleton 实例化。
+1. **`_lock` 是 `threading.Lock()`（非重入，非 `RLock`），保护 session 内的所有状态**。`_SINGLETON_LOCK` 是模块级锁，只保护 singleton 实例化。选 `Lock` 而非 `RLock` 是刻意的——强制所有持锁方法走 `_*_locked` 命名约定的单一入口，杜绝同一线程内嵌套 acquire 的隐患。
 2. **持 `_lock` 的操作 → 可以调 COM**。不持锁调 COM = race。
-3. **持 `_lock` 时禁止 acquire `_SINGLETON_LOCK`**（避免嵌套死锁；singleton 在 convert 内部不会被重建）。
-4. **所有可能触发 `start()` 的入口必须已经持 `_lock`**：convert 内若发现 `_app is None` 走 `_start_locked()`，不重新 acquire。
-5. **idle shutdown 不能阻塞 convert**：采用 opportunistic 模型——每次 convert 入口检查 `time.time() - _last_used_ts >= IDLE_SHUTDOWN_SEC`，命中则先 shutdown 再 start，全程在同一 `_lock` 里。不引入后台线程。
-6. **restart 同样 in-band**：`convert` 成功后计数，达到 `RESTART_EVERY_N_CONVERTS` 时在下一次 convert 入口先触发 restart。
+3. **`_unhealthy=True` 后 session 进入死态**——所有 `convert_sldprt_to_step` 调用立即返回 False，`_maybe_restart_locked` 也不再尝试重启。恢复路径只有 `reset_session()`：该方法会先 `shutdown()` 再清空 singleton，下次 `get_session()` 会返回一个崭新的 `SwComSession`（`_unhealthy=False`）。
+4. **持 `_lock` 时禁止 acquire `_SINGLETON_LOCK`**（避免嵌套死锁；singleton 在 convert 内部不会被重建）。
+5. **所有可能触发 `start()` 的入口必须已经持 `_lock`**：convert 内若发现 `_app is None` 走 `_start_locked()`，不重新 acquire。
+6. **idle shutdown 不能阻塞 convert**：采用 opportunistic 模型——每次 convert 入口检查 `time.time() - _last_used_ts >= IDLE_SHUTDOWN_SEC`，命中则先 shutdown 再 start，全程在同一 `_lock` 里。不引入后台线程。
+   
+   `_last_used_ts` 的语义是"**上次成功 convert 的时间戳**"（在 `convert_sldprt_to_step` 成功分支里更新）。选择"成功时更新"而非"入口时更新"，是因为我们要测量的是"距上次产出 STEP 多久"——失败的 convert 不算产出活动，不应推迟 idle 释放。`_last_used_ts == 0.0` 时（session 还没成功转换过任何一个零件）跳过 idle 判定。
+7. **restart 同样 in-band**：`convert` 成功后计数，达到 `RESTART_EVERY_N_CONVERTS` 时在下一次 convert 入口先触发 restart。
 
 ## 为什么不引入后台线程做 idle shutdown？
 
