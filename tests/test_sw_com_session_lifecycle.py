@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import unittest.mock as mock
 
 import pytest
@@ -165,6 +166,54 @@ class TestMaybeRestart:
         app.LoadAddIn.return_value = 1
         sess._app = app
         sess._convert_count = sw_com_session.RESTART_EVERY_N_CONVERTS - 1
+
+        with mock.patch.object(sw_com_session, "_com_dispatch", mock.MagicMock()):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        app.ExitApp.assert_not_called()
+
+
+class TestIdleShutdown:
+    """convert 入口若发现距上次 convert 超过 IDLE_SHUTDOWN_SEC，先 shutdown 再 start。"""
+
+    def test_idle_shutdown_triggers_restart(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        old_app = mock.MagicMock()
+        new_app = mock.MagicMock()
+        new_app.LoadAddIn.return_value = 1
+        sess._app = old_app
+        # 上次 convert 是 IDLE_SHUTDOWN_SEC + 1 秒之前
+        sess._last_used_ts = time.time() - (sw_com_session.IDLE_SHUTDOWN_SEC + 1)
+
+        dispatch_mock = mock.MagicMock(return_value=new_app)
+        with mock.patch.object(sw_com_session, "_com_dispatch", dispatch_mock):
+            sldprt = tmp_path / "fake.sldprt"
+            sldprt.write_bytes(b"")
+            step_out = tmp_path / "out.step"
+            sess.convert_sldprt_to_step(str(sldprt), str(step_out))
+
+        old_app.ExitApp.assert_called_once()
+        dispatch_mock.assert_called_once()
+        assert sess._app is new_app
+
+    def test_no_idle_shutdown_within_window(self, tmp_path):
+        """最近有 convert 活动 → 不触发 idle shutdown。"""
+        from adapters.solidworks import sw_com_session
+
+        sw_com_session.reset_session()
+        sess = sw_com_session.get_session()
+
+        app = mock.MagicMock()
+        app.LoadAddIn.return_value = 1
+        sess._app = app
+        sess._last_used_ts = time.time()  # 刚用过
 
         with mock.patch.object(sw_com_session, "_com_dispatch", mock.MagicMock()):
             sldprt = tmp_path / "fake.sldprt"

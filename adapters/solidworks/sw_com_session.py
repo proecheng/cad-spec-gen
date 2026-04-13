@@ -140,6 +140,30 @@ class SwComSession:
         self._start_locked()
         self._convert_count = 0
 
+    def _maybe_idle_shutdown_locked(self) -> None:
+        """若距上次 convert 已超 IDLE_SHUTDOWN_SEC，shutdown 释放 SW。
+        必须在持 self._lock 的上下文内调用。下次 convert 会重新 start。
+
+        _app is None 或 _last_used_ts==0 时 no-op（还没用过或已释放）。
+        """
+        if not self._lock.locked():
+            raise RuntimeError(
+                "_maybe_idle_shutdown_locked 必须在持 self._lock 的上下文内调用"
+            )
+
+        if self._app is None:
+            return
+        if self._last_used_ts == 0.0:
+            return
+        if time.time() - self._last_used_ts < IDLE_SHUTDOWN_SEC:
+            return
+
+        log.info(
+            "idle shutdown（距上次 convert %.0f 秒）",
+            time.time() - self._last_used_ts,
+        )
+        self._shutdown_locked()
+
     def convert_sldprt_to_step(
         self,
         sldprt_path,
@@ -162,8 +186,9 @@ class SwComSession:
             if self._unhealthy:
                 return False
 
-            # Task 4 插入位置（Part 2a 后续）: _maybe_idle_shutdown_locked()
-            # 将在 restart 检查之前调用——idle 已 shutdown 时 restart 判断无意义。
+            # Part 2a Task 4: idle shutdown（threading model 规则 6）
+            # 先于 restart 检查 —— idle 已 shutdown 时 restart 判断无意义。
+            self._maybe_idle_shutdown_locked()
 
             # Part 2a Task 3: 周期强制重启（决策 #11）
             try:
