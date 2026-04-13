@@ -17,13 +17,13 @@ adapters/solidworks/sw_toolbox_catalog.py — Toolbox 目录扫描 + 索引 + �
 from __future__ import annotations
 
 import hashlib
-import json  # noqa: F401 — Task 5 load_toolbox_index/save 使用
+import json
 import logging
-import os  # noqa: F401 — Task 5 cache 路径处理使用
+import os
 import re
 import subprocess
 import sys
-from dataclasses import asdict, dataclass, field  # noqa: F401 — asdict 在 Task 5 序列化使用
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +34,39 @@ SCHEMA_VERSION = 1
 
 CACHE_ROOT_ENV = "CAD_SPEC_GEN_SW_TOOLBOX_CACHE"
 INDEX_PATH_ENV = "CAD_SPEC_GEN_SW_TOOLBOX_INDEX"
+
+
+def get_toolbox_cache_root(config: dict) -> Path:
+    """cache 路径解析（v4 决策 #16/#17）。
+
+    优先级: config['cache'] > env CAD_SPEC_GEN_SW_TOOLBOX_CACHE > 默认。
+
+    默认: Path.home() / '.cad-spec-gen' / 'step_cache' / 'sw_toolbox'
+    ⚠️ 必须 Path.home()，不用 os.path.expanduser（后者不被 conftest monkeypatch 覆盖）。
+    """
+    yaml_cache = config.get("cache") if config else None
+    if yaml_cache:
+        return Path(yaml_cache)
+
+    env_cache = os.environ.get(CACHE_ROOT_ENV)
+    if env_cache:
+        return Path(env_cache)
+
+    return Path.home() / ".cad-spec-gen" / "step_cache" / "sw_toolbox"
+
+
+def get_toolbox_index_path(config: dict) -> Path:
+    """索引路径解析（v4 决策 #16/#17）。
+
+    优先级: env CAD_SPEC_GEN_SW_TOOLBOX_INDEX > 默认。
+
+    默认: Path.home() / '.cad-spec-gen' / 'sw_toolbox_index.json'
+    """
+    env_idx = os.environ.get(INDEX_PATH_ENV)
+    if env_idx:
+        return Path(env_idx)
+
+    return Path.home() / ".cad-spec-gen" / "sw_toolbox_index.json"
 
 
 @dataclass

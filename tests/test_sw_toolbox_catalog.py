@@ -364,3 +364,49 @@ class TestBuildToolboxIndex:
         idx = build_toolbox_index(fake_toolbox)
         assert "ISO" in idx["standards"]
         assert "DIN" in idx["standards"]
+
+
+class TestPathResolution:
+    """v4 决策 #16: yaml > env > 默认；决策 #17: 必须用 Path.home。"""
+
+    def test_cache_root_from_yaml_config(self, tmp_path, monkeypatch):
+        """yaml config.cache 优先级最高。"""
+        from adapters.solidworks.sw_toolbox_catalog import get_toolbox_cache_root
+
+        monkeypatch.setenv("CAD_SPEC_GEN_SW_TOOLBOX_CACHE", str(tmp_path / "env_cache"))
+        result = get_toolbox_cache_root({"cache": str(tmp_path / "yaml_cache")})
+        assert result == Path(tmp_path / "yaml_cache")
+
+    def test_cache_root_from_env_when_no_yaml(self, tmp_path, monkeypatch):
+        from adapters.solidworks.sw_toolbox_catalog import get_toolbox_cache_root
+
+        monkeypatch.setenv("CAD_SPEC_GEN_SW_TOOLBOX_CACHE", str(tmp_path / "env_cache"))
+        result = get_toolbox_cache_root({})
+        assert result == Path(tmp_path / "env_cache")
+
+    def test_cache_root_default_uses_path_home(self, monkeypatch, tmp_path):
+        """v4 决策 #17: 默认路径必须通过 Path.home()。"""
+        from adapters.solidworks.sw_toolbox_catalog import get_toolbox_cache_root
+
+        monkeypatch.delenv("CAD_SPEC_GEN_SW_TOOLBOX_CACHE", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        result = get_toolbox_cache_root({})
+        assert result == tmp_path / ".cad-spec-gen" / "step_cache" / "sw_toolbox"
+
+    def test_index_path_default_uses_path_home(self, monkeypatch, tmp_path):
+        from adapters.solidworks.sw_toolbox_catalog import get_toolbox_index_path
+
+        monkeypatch.delenv("CAD_SPEC_GEN_SW_TOOLBOX_INDEX", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        result = get_toolbox_index_path({})
+        assert result == tmp_path / ".cad-spec-gen" / "sw_toolbox_index.json"
+
+    def test_does_not_use_expanduser(self, monkeypatch, tmp_path):
+        """反例: 使用 os.path.expanduser 会在 conftest monkey 下失效。"""
+        from adapters.solidworks.sw_toolbox_catalog import get_toolbox_cache_root
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.delenv("CAD_SPEC_GEN_SW_TOOLBOX_CACHE", raising=False)
+        monkeypatch.setenv("HOME", "/should/not/be/used")
+        result = get_toolbox_cache_root({})
+        assert str(result).startswith(str(tmp_path))
