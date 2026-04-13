@@ -60,10 +60,22 @@ class SwToolboxPart:
 # 停用词：英语常用连接词 + Toolbox 子目录里的粘合词
 # ---------------------------------------------------------------------------
 
-STOP_WORDS: frozenset[str] = frozenset({
-    "and", "for", "with", "the", "of", "type",
-    "a", "an", "in", "on", "to", "by",
-})
+STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "and",
+        "for",
+        "with",
+        "the",
+        "of",
+        "type",
+        "a",
+        "an",
+        "in",
+        "on",
+        "to",
+        "by",
+    }
+)
 
 
 def tokenize(text: str) -> list[str]:
@@ -293,13 +305,15 @@ def build_toolbox_index(toolbox_dir: Path) -> dict:
                 if not sldprt.is_file():
                     continue
                 tokens = tokenize(sldprt.stem) + tokenize(sub_name)
-                parts.append(SwToolboxPart(
-                    standard=std_name,
-                    subcategory=sub_name,
-                    sldprt_path=str(sldprt.resolve()),
-                    filename=sldprt.name,
-                    tokens=list(dict.fromkeys(tokens)),  # 去重保序
-                ))
+                parts.append(
+                    SwToolboxPart(
+                        standard=std_name,
+                        subcategory=sub_name,
+                        sldprt_path=str(sldprt.resolve()),
+                        filename=sldprt.name,
+                        tokens=list(dict.fromkeys(tokens)),  # 去重保序
+                    )
+                )
             if parts:
                 std_entry[sub_name] = parts
 
@@ -324,6 +338,7 @@ def _empty_index(toolbox_dir: Path) -> dict:
         包含空 standards 的索引 dict
     """
     from datetime import datetime, timezone
+
     return {
         "schema_version": SCHEMA_VERSION,
         "scan_time": datetime.now(timezone.utc).isoformat(),

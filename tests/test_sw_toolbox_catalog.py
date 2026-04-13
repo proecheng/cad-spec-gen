@@ -1,4 +1,5 @@
 """sw_toolbox_catalog 单元测试（v4 决策 #14/#18/#19/#20/#21/#12）。"""
+
 from __future__ import annotations
 
 import os
@@ -44,21 +45,25 @@ class TestTokenize:
 
     def test_tokenize_ascii_lowercase(self):
         from adapters.solidworks.sw_toolbox_catalog import tokenize
+
         assert tokenize("Hex Bolt") == ["hex", "bolt"]
 
     def test_tokenize_drops_stop_words(self):
         from adapters.solidworks.sw_toolbox_catalog import tokenize
+
         result = tokenize("bolts and studs")
         assert "and" not in result
         assert "bolts" in result and "studs" in result
 
     def test_tokenize_splits_underscore_and_hyphen(self):
         from adapters.solidworks.sw_toolbox_catalog import tokenize
+
         assert tokenize("socket_head-cap screw") == ["socket", "head", "cap", "screw"]
 
     def test_tokenize_handles_cjk(self):
         """中英文混合："""
         from adapters.solidworks.sw_toolbox_catalog import tokenize
+
         result = tokenize("六角 hex bolt")
         assert "hex" in result
         assert "bolt" in result
@@ -67,6 +72,7 @@ class TestTokenize:
 
     def test_tokenize_empty_returns_empty(self):
         from adapters.solidworks.sw_toolbox_catalog import tokenize
+
         assert tokenize("") == []
         assert tokenize("   ") == []
 
@@ -89,57 +95,73 @@ class TestExtractSize:
 
     def test_fastener_m6x20_multiplication_sign(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
-        result = extract_size_from_name("M6×20 内六角螺钉", default_patterns["fastener"])
+
+        result = extract_size_from_name(
+            "M6×20 内六角螺钉", default_patterns["fastener"]
+        )
         assert result == {"size": "M6", "length": "20"}
 
     def test_fastener_m6x20_ascii_x(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("M6x20 hex bolt", default_patterns["fastener"])
         assert result == {"size": "M6", "length": "20"}
 
     def test_fastener_m6_hyphen_20(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("M6-20 螺钉", default_patterns["fastener"])
         assert result == {"size": "M6", "length": "20"}
 
     def test_fastener_decimal_thread(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("M6.5×20", default_patterns["fastener"])
         assert result == {"size": "M6.5", "length": "20"}
 
     def test_fastener_unc_returns_none(self, default_patterns):
         """v4 §1.3: UNC 范围外 → None。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
-        result = extract_size_from_name("1/4-20 UNC hex bolt", default_patterns["fastener"])
+
+        result = extract_size_from_name(
+            "1/4-20 UNC hex bolt", default_patterns["fastener"]
+        )
         assert result is None
 
     def test_fastener_trapezoidal_returns_none(self, default_patterns):
         """v4 §1.3: 梯形螺纹范围外 → None。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("Tr16×2 丝杠", default_patterns["fastener"])
         assert result is None
 
     def test_fastener_pipe_thread_returns_none(self, default_patterns):
         """v4 §1.3: 管螺纹范围外 → None。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("G1/2 接头", default_patterns["fastener"])
         assert result is None
 
     def test_fastener_no_size_returns_none(self, default_patterns):
         """v4 决策 #9: 抽不到尺寸 → None → 调用方 miss。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("非标件定制", default_patterns["fastener"])
         assert result is None
 
     def test_bearing_6205(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
         result = extract_size_from_name("深沟球轴承 6205", default_patterns["bearing"])
         assert result == {"model": "6205"}
 
     def test_bearing_suffix_preserved_only_base(self, default_patterns):
         """v4 §1.3 已知限制: 6205-2RS 只抽 6205。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
-        result = extract_size_from_name("深沟球轴承 6205-2RS", default_patterns["bearing"])
+
+        result = extract_size_from_name(
+            "深沟球轴承 6205-2RS", default_patterns["bearing"]
+        )
         assert result == {"model": "6205"}
 
 
@@ -148,6 +170,7 @@ class TestValidateSizePatterns:
 
     def test_valid_patterns_pass(self):
         from adapters.solidworks.sw_toolbox_catalog import validate_size_patterns
+
         patterns = {
             "fastener": {
                 "size": r"[Mm](\d+(?:\.\d+)?)",
@@ -159,6 +182,7 @@ class TestValidateSizePatterns:
 
     def test_redos_pattern_rejected(self):
         from adapters.solidworks.sw_toolbox_catalog import validate_size_patterns
+
         # Classic ReDoS: nested quantifier on alternation
         patterns = {
             "fastener": {
@@ -167,16 +191,21 @@ class TestValidateSizePatterns:
         }
         with pytest.raises((RuntimeError, ValueError)) as exc_info:
             validate_size_patterns(patterns)
-        assert "ReDoS" in str(exc_info.value) or "timeout" in str(exc_info.value).lower()
+        assert (
+            "ReDoS" in str(exc_info.value) or "timeout" in str(exc_info.value).lower()
+        )
 
     def test_malformed_regex_rejected(self):
         import re
         from adapters.solidworks.sw_toolbox_catalog import validate_size_patterns
+
         patterns = {"fastener": {"size": r"[unclosed"}}
         with pytest.raises((re.error, ValueError)):
             validate_size_patterns(patterns)
 
-    def test_subprocess_launch_failure_raises_runtime_error_not_redos(self, monkeypatch):
+    def test_subprocess_launch_failure_raises_runtime_error_not_redos(
+        self, monkeypatch
+    ):
         """I2: subprocess 启动失败（FileNotFoundError）应抛 RuntimeError 含 '启动失败'。
         关键点：不应是 validate_size_patterns 发出的 "ReDoS suspected" 消息，
         而是 _test_pattern_safe 本身抛出的环境错误（消息含 '启动失败'）。"""
@@ -194,7 +223,9 @@ class TestValidateSizePatterns:
         # 必须含 '启动失败' 说明是环境错误，不是 ReDoS suspected
         assert "启动失败" in msg, f"消息应含 '启动失败'，实际: {msg!r}"
         # 不应含 'suspected'（validate_size_patterns 的 ReDoS 误报关键词）
-        assert "suspected" not in msg.lower(), f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+        assert "suspected" not in msg.lower(), (
+            f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+        )
 
     def test_subprocess_nonzero_exit_raises_runtime_error_not_redos(self, monkeypatch):
         """I2: 子进程以非零返回码退出（segfault / AV kill 等）应抛 RuntimeError 含
@@ -217,7 +248,9 @@ class TestValidateSizePatterns:
         # 必须含 '异常退出' 说明是环境错误，不是 ReDoS suspected
         assert "异常退出" in msg, f"消息应含 '异常退出'，实际: {msg!r}"
         # 不应含 'suspected'（validate_size_patterns 的 ReDoS 误报关键词）
-        assert "suspected" not in msg.lower(), f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+        assert "suspected" not in msg.lower(), (
+            f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+        )
 
 
 class TestExtractSizeDefensive:
@@ -231,9 +264,9 @@ class TestExtractSizeDefensive:
         patterns = {
             "size": r"[Mm](\d+(?:\.\d+)?)",
             "length": r"[×xX*\-\s](\d+(?:\.\d+)?)",
-            "exclude_patterns": [r"UNC", r"\bTr\d"],   # 标准的 list 键
-            "other_meta": [1, 2, 3],                    # 假设 yaml 多余键
-            "version": {"nested": "dict"},              # 嵌套 dict 也跳过
+            "exclude_patterns": [r"UNC", r"\bTr\d"],  # 标准的 list 键
+            "other_meta": [1, 2, 3],  # 假设 yaml 多余键
+            "version": {"nested": "dict"},  # 嵌套 dict 也跳过
         }
         # 不应抛 TypeError
         result = extract_size_from_name("M6×20 螺钉", patterns)
@@ -249,6 +282,7 @@ class TestToolboxFingerprint:
 
     def test_fingerprint_stable_on_repeat(self, fake_toolbox):
         from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+
         fp1 = _compute_toolbox_fingerprint(fake_toolbox)
         fp2 = _compute_toolbox_fingerprint(fake_toolbox)
         assert fp1 == fp2
@@ -257,6 +291,7 @@ class TestToolboxFingerprint:
     def test_fingerprint_changes_when_file_added(self, fake_toolbox, tmp_path):
         import shutil
         from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+
         # 将 fixture 复制到 tmp_path 再添加文件
         target = tmp_path / "fake_toolbox"
         shutil.copytree(fake_toolbox, target)
@@ -268,6 +303,7 @@ class TestToolboxFingerprint:
 
     def test_fingerprint_missing_dir_returns_unavailable(self, tmp_path):
         from adapters.solidworks.sw_toolbox_catalog import _compute_toolbox_fingerprint
+
         fp = _compute_toolbox_fingerprint(tmp_path / "does-not-exist")
         assert fp == "unavailable"
 
@@ -280,12 +316,17 @@ class TestBuildToolboxIndex:
         return Path(__file__).parent / "fixtures" / "fake_toolbox"
 
     def test_index_has_schema_version(self, fake_toolbox):
-        from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index, SCHEMA_VERSION
+        from adapters.solidworks.sw_toolbox_catalog import (
+            build_toolbox_index,
+            SCHEMA_VERSION,
+        )
+
         idx = build_toolbox_index(fake_toolbox)
         assert idx["schema_version"] == SCHEMA_VERSION
 
     def test_index_has_fingerprint(self, fake_toolbox):
         from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+
         idx = build_toolbox_index(fake_toolbox)
         assert "toolbox_fingerprint" in idx
         assert len(idx["toolbox_fingerprint"]) == 40
@@ -293,6 +334,7 @@ class TestBuildToolboxIndex:
     def test_index_filters_non_sldprt(self, fake_toolbox):
         """决策 §5.1: sizes.xls / sample.slddrw / catalog.xml 必须被过滤。"""
         from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+
         idx = build_toolbox_index(fake_toolbox)
         flat_paths = []
         for std in idx["standards"].values():
@@ -307,6 +349,7 @@ class TestBuildToolboxIndex:
 
     def test_index_populates_gb_bolts(self, fake_toolbox):
         from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+
         idx = build_toolbox_index(fake_toolbox)
         assert "GB" in idx["standards"]
         assert "bolts and studs" in idx["standards"]["GB"]
@@ -317,6 +360,7 @@ class TestBuildToolboxIndex:
 
     def test_index_populates_iso_and_din(self, fake_toolbox):
         from adapters.solidworks.sw_toolbox_catalog import build_toolbox_index
+
         idx = build_toolbox_index(fake_toolbox)
         assert "ISO" in idx["standards"]
         assert "DIN" in idx["standards"]
