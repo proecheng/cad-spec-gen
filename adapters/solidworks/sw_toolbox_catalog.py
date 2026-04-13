@@ -129,9 +129,13 @@ def _test_pattern_safe(regex: str) -> bool:
         regex: 待检测的正则字符串
 
     Returns:
-        True = 所有探针在超时内完成（正常），False = 超时（疑似 ReDoS）
+        True: 子进程在 timeout 内正常完成（无 ReDoS）
+        False: 子进程 timeout 被 OS kill（疑似 ReDoS）
 
     Raises:
+        RuntimeError: 子进程启动失败（FileNotFoundError / PermissionError / OSError）
+            或子进程以非零返回码异常退出（segfault / AV kill 等）——这是环境错误，
+            不是 ReDoS，调用方应区别对待。
         re.error: 正则语法错误（compile 失败时由调用方捕获）
     """
     probes_repr = repr(list(REDOS_PROBE_INPUTS))
@@ -150,9 +154,18 @@ def _test_pattern_safe(regex: str) -> bool:
             capture_output=True,
             text=True,
         )
-        return proc.returncode == 0 and "ok" in proc.stdout
     except subprocess.TimeoutExpired:
-        return False
+        return False  # 真正的 ReDoS —— 超时被 OS kill
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        raise RuntimeError(f"ReDoS validator subprocess 启动失败: {e}") from e
+
+    if proc.returncode != 0:
+        # 子进程以非零码退出（segfault / re.error / AV kill 等）
+        raise RuntimeError(
+            f"ReDoS validator subprocess 异常退出 (rc={proc.returncode}): "
+            f"stderr={proc.stderr.strip()!r}"
+        )
+    return "ok" in proc.stdout
 
 
 def validate_size_patterns(patterns: dict) -> None:
@@ -224,8 +237,8 @@ def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, s
 
     result = {}
     for field_name, pat in patterns.items():
-        if field_name == "exclude_patterns":
-            continue
+        if not isinstance(pat, str):
+            continue  # 跳过 exclude_patterns (list) 或任何非 str 配置键
         m = re.search(pat, name_cn)
         if m:
             value = m.group(1) if m.groups() else m.group(0)

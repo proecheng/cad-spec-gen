@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from adapters.solidworks.sw_toolbox_catalog import (
     SwToolboxPart,
@@ -171,3 +173,66 @@ class TestValidateSizePatterns:
         patterns = {"fastener": {"size": r"[unclosed"}}
         with pytest.raises((re.error, ValueError)):
             validate_size_patterns(patterns)
+
+    def test_subprocess_launch_failure_raises_runtime_error_not_redos(self, monkeypatch):
+        """I2: subprocess 启动失败（FileNotFoundError）应抛 RuntimeError 含 '启动失败'。
+        关键点：不应是 validate_size_patterns 发出的 "ReDoS suspected" 消息，
+        而是 _test_pattern_safe 本身抛出的环境错误（消息含 '启动失败'）。"""
+        from adapters.solidworks.sw_toolbox_catalog import _test_pattern_safe
+        import adapters.solidworks.sw_toolbox_catalog as catalog_mod
+
+        monkeypatch.setattr(
+            catalog_mod.subprocess,
+            "run",
+            MagicMock(side_effect=FileNotFoundError("python not found")),
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            _test_pattern_safe(r"\d+")
+        msg = str(exc_info.value)
+        # 必须含 '启动失败' 说明是环境错误，不是 ReDoS suspected
+        assert "启动失败" in msg, f"消息应含 '启动失败'，实际: {msg!r}"
+        # 不应含 'suspected'（validate_size_patterns 的 ReDoS 误报关键词）
+        assert "suspected" not in msg.lower(), f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+
+    def test_subprocess_nonzero_exit_raises_runtime_error_not_redos(self, monkeypatch):
+        """I2: 子进程以非零返回码退出（segfault / AV kill 等）应抛 RuntimeError 含
+        '异常退出'，不能被误报为 "ReDoS suspected"。"""
+        from adapters.solidworks.sw_toolbox_catalog import _test_pattern_safe
+        import adapters.solidworks.sw_toolbox_catalog as catalog_mod
+
+        fake_result = MagicMock()
+        fake_result.returncode = 1
+        fake_result.stdout = ""
+        fake_result.stderr = "Segmentation fault"
+        monkeypatch.setattr(
+            catalog_mod.subprocess,
+            "run",
+            MagicMock(return_value=fake_result),
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            _test_pattern_safe(r"\d+")
+        msg = str(exc_info.value)
+        # 必须含 '异常退出' 说明是环境错误，不是 ReDoS suspected
+        assert "异常退出" in msg, f"消息应含 '异常退出'，实际: {msg!r}"
+        # 不应含 'suspected'（validate_size_patterns 的 ReDoS 误报关键词）
+        assert "suspected" not in msg.lower(), f"不应含 'suspected'（ReDoS 误报），实际: {msg!r}"
+
+
+class TestExtractSizeDefensive:
+    """M5: 类型守卫 — yaml 有非 str 键时不崩溃。"""
+
+    def test_extra_non_str_key_does_not_crash(self):
+        """patterns 里有 list 类型的额外键（如改名后的 exclude 或元数据键），
+        extract_size_from_name 应静默跳过而非抛 TypeError。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        patterns = {
+            "size": r"[Mm](\d+(?:\.\d+)?)",
+            "length": r"[×xX*\-\s](\d+(?:\.\d+)?)",
+            "exclude_patterns": [r"UNC", r"\bTr\d"],   # 标准的 list 键
+            "other_meta": [1, 2, 3],                    # 假设 yaml 多余键
+            "version": {"nested": "dict"},              # 嵌套 dict 也跳过
+        }
+        # 不应抛 TypeError
+        result = extract_size_from_name("M6×20 螺钉", patterns)
+        assert result == {"size": "M6", "length": "20"}
