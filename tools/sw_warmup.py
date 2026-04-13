@@ -189,3 +189,189 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             _held_locks.discard(lock_path_str)
     finally:
         fh.close()
+
+
+def _default_lock_path() -> Path:
+    """默认锁文件位置 ~/.cad-spec-gen/sw_warmup.lock。"""
+    return Path.home() / ".cad-spec-gen" / "sw_warmup.lock"
+
+
+def _default_error_log_path() -> Path:
+    """默认错误日志位置 ~/.cad-spec-gen/sw_warmup_errors.log。"""
+    return Path.home() / ".cad-spec-gen" / "sw_warmup_errors.log"
+
+
+def _print_preflight_failure(reason: str) -> None:
+    """前置检查失败的统一打印格式。"""
+    print(f"[sw-warmup] 前置检查失败：{reason}")
+
+
+def _check_preflight() -> tuple[bool, str]:
+    """前置检查。返回 (ok, reason)。"""
+    from adapters.solidworks.sw_detect import detect_solidworks
+
+    info = detect_solidworks()
+    if not info.installed:
+        return False, "未检测到 SolidWorks 安装；本命令需要本机已装 SolidWorks ≥2024"
+    if (info.version_year or 0) < 2024:
+        return False, f"SolidWorks 版本 {info.version_year} < 2024；请升级"
+    if not info.pywin32_available:
+        return False, "pywin32 未安装；请运行 `pip install pywin32`"
+    if not info.toolbox_dir:
+        return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
+    if not info.toolbox_addin_enabled:
+        return False, (
+            "Toolbox Add-In 未启用；请在 SolidWorks → Tools → Add-Ins → "
+            "勾选 'SOLIDWORKS Toolbox Library'"
+        )
+    return True, ""
+
+
+def run_sw_warmup(args) -> int:
+    """sw-warmup 主入口（v4 §7）。
+
+    Returns:
+        0 成功 / 1 部分失败 / 2 前置失败
+    """
+    try:
+        with acquire_warmup_lock(_default_lock_path()):
+            return _run_warmup_locked(args)
+    except RuntimeError as e:
+        print(f"[sw-warmup] {e}")
+        return 1
+
+
+def _select_targets_by_standard(index: dict, standards_csv: str | None) -> list:
+    """按 --standard / --all 选 sldprt 候选。返回 [SwToolboxPart] 列表。
+
+    standards_csv 为 None 时返回全部（--all 路径）；非 None 时按逗号切分大写后过滤。
+    """
+    from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
+
+    standards_filter: set[str] | None = None
+    if standards_csv:
+        standards_filter = {s.strip().upper() for s in standards_csv.split(",")}
+
+    targets: list[SwToolboxPart] = []
+    for std_name, sub_dict in index.get("standards", {}).items():
+        if standards_filter is not None and std_name.upper() not in standards_filter:
+            continue
+        for parts in sub_dict.values():
+            targets.extend(parts)
+    return targets
+
+
+def _convert_one(part, cache_root: Path, session, overwrite: bool) -> tuple[bool, float, str]:
+    """调用 session 转换单个 part；返回 (success, elapsed_sec, message)。"""
+    import time
+
+    step_relative = (
+        Path(part.standard) / part.subcategory
+        / (Path(part.filename).stem + ".step")
+    )
+    step_abs = cache_root / step_relative
+
+    if step_abs.exists() and not overwrite:
+        return True, 0.0, "已缓存"
+
+    t0 = time.monotonic()
+    ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs))
+    elapsed = time.monotonic() - t0
+    return ok, elapsed, ("OK" if ok else "FAIL")
+
+
+def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
+    """读 BOM → 复用 SwToolboxAdapter._find_sldprt 找匹配 sldprt。
+    返回 {part_no: SwToolboxPart}（找不到的行被跳过 + warning）。
+    """
+    from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+    queries = read_bom_csv(bom_path)
+    adapter = SwToolboxAdapter(config=registry.get("solidworks_toolbox", {}))
+    out: dict = {}
+    for q in queries:
+        spec = {"standard": ["GB", "ISO", "DIN"], "part_category": q.category}
+        match = adapter._find_sldprt(q, spec)
+        if match is None:
+            log.warning("BOM 行未匹配到 sldprt: %s (%s)", q.part_no, q.name_cn)
+            continue
+        part, _score = match
+        out[q.part_no] = part
+    return out
+
+
+def _run_warmup_locked(args) -> int:
+    """实际 warmup 流程，已持进程锁。"""
+    from adapters.solidworks import sw_toolbox_catalog
+    from adapters.solidworks.sw_com_session import get_session
+    from adapters.solidworks.sw_detect import detect_solidworks
+    from parts_resolver import load_registry
+
+    ok, reason = _check_preflight()
+    if not ok:
+        _print_preflight_failure(reason)
+        return 2
+
+    info = detect_solidworks()
+    toolbox_dir = Path(info.toolbox_dir)
+    cache_root = sw_toolbox_catalog.get_toolbox_cache_root()
+    index_path = sw_toolbox_catalog.get_toolbox_index_path()
+    index = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_dir)
+    registry = load_registry()
+
+    # 默认 --standard GB（若三个目标参数都缺）
+    if not args.all and not args.standard and not args.bom:
+        args.standard = "GB"
+
+    if args.bom:
+        bom_targets = _resolve_bom_targets(Path(args.bom), registry)
+        targets = list(bom_targets.values())
+    elif args.all:
+        targets = _select_targets_by_standard(index, None)
+    else:
+        targets = _select_targets_by_standard(index, args.standard)
+
+    print(f"[sw-warmup] 目标 {len(targets)} 个 sldprt")
+
+    if args.dry_run:
+        print("[sw-warmup] DRY-RUN 模式，不调 COM；以上即转换计划")
+        for p in targets[:20]:
+            print(f"  - {p.standard}/{p.subcategory}/{p.filename}")
+        if len(targets) > 20:
+            print(f"  ...（其余 {len(targets) - 20} 个）")
+        return 0
+
+    session = get_session()
+    success = 0
+    failed = 0
+    error_log = _default_error_log_path()
+    error_log.parent.mkdir(parents=True, exist_ok=True)
+
+    import time
+    from datetime import datetime, timezone
+
+    t_start = time.monotonic()
+    for i, part in enumerate(targets, start=1):
+        ok, elapsed, msg = _convert_one(part, cache_root, session, args.overwrite)
+        symbol = "✓" if ok else "✗"
+        print(
+            f"[{i}/{len(targets)}] {part.standard}/{part.subcategory}/"
+            f"{Path(part.filename).stem}.step  {symbol}  ({elapsed:.1f}s {msg})"
+        )
+        if ok:
+            success += 1
+        else:
+            failed += 1
+            with open(error_log, "a", encoding="utf-8") as f:
+                ts = datetime.now(timezone.utc).isoformat()
+                f.write(
+                    f"{ts}\t{part.standard}/{part.subcategory}/{part.filename}"
+                    f"\t{msg}\n"
+                )
+
+    t_total = time.monotonic() - t_start
+    print(
+        f"[sw-warmup] 汇总: 目标 {len(targets)} / 成功 {success} / "
+        f"失败 {failed} / 耗时 {t_total / 60:.1f}m"
+    )
+    return 0 if failed == 0 else 1
