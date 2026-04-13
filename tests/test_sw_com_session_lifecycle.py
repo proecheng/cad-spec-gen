@@ -150,8 +150,9 @@ class TestMaybeRestart:
         # 重新 Dispatch 产出了 new_app
         dispatch_mock.assert_called_once_with("SldWorks.Application")
         assert sess._app is new_app
-        # _convert_count 重置
-        assert sess._convert_count <= 1  # 可能 +1（看 _do_convert 是否成功）
+        # _convert_count 重置为 0；_do_convert 因 mock 不返回 OpenDoc6 三元组而失败，
+        # 失败分支不增 count，所以精确等于 0
+        assert sess._convert_count == 0
 
     def test_no_restart_below_threshold(self, tmp_path):
         """count 未达阈值时不触发 restart。"""

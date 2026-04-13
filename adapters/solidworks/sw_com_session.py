@@ -95,7 +95,8 @@ class SwComSession:
 
         时间上限由调用方保证（Part 2c SW-B0 spike 补课后决定实现手段）。
         """
-        assert self._lock.locked(), "_start_locked 必须在持锁上下文内调用"
+        if not self._lock.locked():
+            raise RuntimeError("_start_locked 必须在持 self._lock 的上下文内调用")
 
         try:
             app = _com_dispatch("SldWorks.Application")
@@ -124,7 +125,8 @@ class SwComSession:
         shutdown 失败被吞掉（视为进程已死），_start_locked 负责重建。
         start 失败会让 _unhealthy=True 冒泡。
         """
-        assert self._lock.locked()
+        if not self._lock.locked():
+            raise RuntimeError("_maybe_restart_locked 必须在持 self._lock 的上下文内调用")
 
         if self._convert_count < RESTART_EVERY_N_CONVERTS:
             return
