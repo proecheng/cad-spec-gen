@@ -639,6 +639,11 @@ class TestMatchToolboxPart:
             part, _ = result
             assert part.subcategory == "bolts and studs"
 
+
+
+class TestBuildQueryTokensWeighted:
+    """build_query_tokens_weighted 的单元测试。"""
+
     def test_build_query_tokens_weighted(self):
         from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
 
@@ -659,7 +664,7 @@ class TestMatchToolboxPart:
         assert any(k in part_no_tokens for k in ["gb", "70", "1"])
 
     def test_internal_part_no_excluded_at_zero_weight(self):
-        """part_no weight=0.0 时，内部编号 token 不应出现在结果里。"""
+        """part_no weight=0.0 时，内部编号 token 不应出现在结果里；其他字段 token 仍正常注入。"""
         from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
 
         class Q:
@@ -671,9 +676,13 @@ class TestMatchToolboxPart:
         size_dict = {"size": "M6", "length": "20"}
         tokens_weighted = build_query_tokens_weighted(Q(), size_dict, weights)
         token_names = {t for t, _ in tokens_weighted}
+        # 零权重字段的 token 不应注入
         assert "gis" not in token_names
         assert "demo" not in token_names
         assert "001" not in token_names
+        # 其他字段 token 仍应存在（name_cn / size 字段）
+        assert len(tokens_weighted) > 0
+        assert any(t in token_names for t in ["gb", "m6", "70"])
 
 
 class TestMakeIndexEnvelope:
