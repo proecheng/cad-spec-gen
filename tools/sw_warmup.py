@@ -210,7 +210,12 @@ def _print_preflight_failure(reason: str) -> None:
 
 
 def _check_preflight() -> tuple[bool, str]:
-    """前置检查。返回 (ok, reason)。"""
+    """前置检查。返回 (ok, reason)。
+
+    SW-B0 spike 实证：Toolbox Library add-in 不是 sldprt→STEP 转换的
+    必要条件。若该 add-in 未启用，仅打印 warning（见 _run_warmup_locked），
+    不阻断 warmup。
+    """
     from adapters.solidworks.sw_detect import detect_solidworks
 
     info = detect_solidworks()
@@ -222,11 +227,6 @@ def _check_preflight() -> tuple[bool, str]:
         return False, "pywin32 未安装；请运行 `pip install pywin32`"
     if not info.toolbox_dir:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
-    if not info.toolbox_addin_enabled:
-        return False, (
-            "Toolbox Add-In 未启用；请在 SolidWorks → Tools → Add-Ins → "
-            "勾选 'SOLIDWORKS Toolbox Library'"
-        )
     return True, ""
 
 
@@ -319,6 +319,11 @@ def _run_warmup_locked(args) -> int:
         return 2
 
     info = detect_solidworks()
+    if not info.toolbox_addin_enabled:
+        print(
+            "[sw-warmup] 警告：SolidWorks Toolbox Library add-in 未启用或未安装；"
+            "这对 sldprt→STEP 转换不是必要条件（SW-B0 spike 实证），继续。"
+        )
     toolbox_dir = Path(info.toolbox_dir)
     registry = load_registry()
     sw_cfg = registry.get("solidworks_toolbox", {})

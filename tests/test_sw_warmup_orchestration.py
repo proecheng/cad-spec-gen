@@ -35,27 +35,43 @@ class TestPreflight:
         assert rc == 2
         assert "未检测到" in captured.out or "未安装" in captured.out
 
-    def test_returns_2_when_addin_disabled(self, tmp_path, monkeypatch, capsys):
+    def test_addin_disabled_warns_but_continues(self, tmp_path, monkeypatch, capsys):
+        """SW-B0 spike 实证：Toolbox Library add-in 对转换非必要。
+        addin_enabled=False 不应阻断（旧行为：rc=2），应打印 warning 后继续。
+        """
         from tools import sw_warmup as mod
-        from adapters.solidworks import sw_detect
+        from adapters.solidworks import sw_detect, sw_toolbox_catalog
+        from pathlib import Path
 
         sw_detect._reset_cache()
+        fake_toolbox = Path(__file__).parent / "fixtures" / "fake_toolbox"
         fake_info = sw_detect.SwInfo(
             installed=True,
             version_year=2024,
             pywin32_available=True,
-            toolbox_dir=str(tmp_path / "toolbox"),
-            toolbox_addin_enabled=False,
+            toolbox_dir=str(fake_toolbox),
+            toolbox_addin_enabled=False,  # 关键：仍应继续
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         monkeypatch.setattr(
             mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock"
         )
+        monkeypatch.setattr(
+            sw_toolbox_catalog,
+            "get_toolbox_cache_root",
+            lambda config: tmp_path / "cache",
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog,
+            "get_toolbox_index_path",
+            lambda config: tmp_path / "idx.json",
+        )
 
-        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        rc = mod.run_sw_warmup(_make_args(standard="GB", dry_run=True))
         captured = capsys.readouterr()
-        assert rc == 2
-        assert "Add-In" in captured.out
+        # 不再是 2；dry-run + addin disabled 仍能走完 → rc=0
+        assert rc == 0
+        assert "Toolbox Library add-in 未启用" in captured.out
 
 
 class TestTargetSelection:

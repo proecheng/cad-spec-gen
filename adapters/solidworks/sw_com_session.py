@@ -87,11 +87,14 @@ class SwComSession:
     def _start_locked(self) -> None:
         """冷启动（v4 决策 #10）。必须在持 self._lock 的上下文内调用。
 
-        流程：
+        流程（SW-B0 spike 简化后）：
         1. Dispatch("SldWorks.Application")
         2. app.Visible = False, UserControl = False（避免弹窗）
-        3. app.LoadAddIn("SOLIDWORKS Toolbox")
-        4. 任何步骤失败 → self._unhealthy=True，抛异常
+
+        **不再调用 LoadAddIn("SOLIDWORKS Toolbox")**：spike 证实
+        sldprt→STEP 转换仅需 OpenDoc6 + Extension.SaveAs3，与 Toolbox
+        Library UI add-in 无关。该 add-in 在无 DLL 机器上 LoadAddIn 返回
+        非 1，之前会阻塞整个 warmup；现在直接略过，减少启动 I/O。
 
         时间上限由调用方保证（Part 2c SW-B0 spike 补课后决定实现手段）。
         """
@@ -102,13 +105,6 @@ class SwComSession:
             app = _com_dispatch("SldWorks.Application")
             app.Visible = False
             app.UserControl = False
-            result = app.LoadAddIn("SOLIDWORKS Toolbox")
-            if not result:
-                raise RuntimeError(
-                    "LoadAddIn('SOLIDWORKS Toolbox') 返回 0 — "
-                    "Toolbox Add-In 可能未安装；请在 SolidWorks Tools → "
-                    "Add-Ins 勾选 SOLIDWORKS Toolbox Library"
-                )
             self._app = app
             # 注意：_last_used_ts 只在 convert_sldprt_to_step 成功时更新
             # （threading model doc 规则 6 I-2 语义）。start 不赋值，保持
