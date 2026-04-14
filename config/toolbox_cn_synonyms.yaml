@@ -1,0 +1,44 @@
+# 中英文同义词表 — SW Toolbox 紧固件/轴承匹配
+# 格式: cn_morpheme (子串) -> [英文 token 列表]
+# 匹配方式: 对 tokenize 产出的每个 CJK token，用 str.contains 子串匹配
+# 注入权重: 与触发它的原 token 权重相同
+#
+# 维护规范: 仅新增常见通用标准件词根，避免商标/厂商专用词
+# 新增记录需同步 tests/test_toolbox_cn_synonyms.py
+
+fasteners:
+  螺钉: [screw]
+  螺栓: [bolt, screw]
+  螺母: [nut]
+  垫圈: [washer]
+  平垫圈: [plain, washer]
+  弹簧垫圈: [spring, washer, lock]
+  内六角: [hex, socket]
+  六角: [hex]
+  圆柱头: [cap, head, cylinder]
+  盘头: [pan, head]
+  沉头: [flat, countersunk, head]
+  十字: [phillips, cross]
+  一字: [slotted]
+  自攻: [tapping, self]
+  无头: [set]
+  紧定: [set]
+
+bearings:
+  轴承: [bearing]
+  深沟球: [deep, groove, ball]
+  圆锥滚子: [tapered, roller]
+  圆柱滚子: [cylindrical, roller]
+  推力: [thrust]
+  滚针: [needle]
+
+pins_keys:
+  销: [pin]
+  圆柱销: [dowel, pin, cylindrical]
+  弹簧销: [spring, pin]
+  开口销: [cotter, pin, split]
+  平键: [flat, key]
+  半圆键: [woodruff, key]
+
+misc:
+  碟形: [belleville, disc]
