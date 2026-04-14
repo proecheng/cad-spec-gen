@@ -48,3 +48,31 @@ class TestExtractFastenersSection:
         md = tmp_path / "no_s3.md"
         md.write_text("# no section 3 here\n## 1. foo\n", encoding="utf-8")
         assert extract_fasteners(md) == []
+
+
+class TestExtractBomTree:
+    def test_parses_section_5_skips_assembly_rows(self, tmp_path):
+        """加粗总成行（**GIS-EE-001**）被跳过，只保留 leaf 零件。"""
+        from tools.cad_spec_bom_extractor import extract_bom_tree
+
+        md = tmp_path / "spec.md"
+        md.write_text(SAMPLE_MD, encoding="utf-8")
+
+        rows = extract_bom_tree(md)
+        # SAMPLE_MD §5 有 1 加粗总成 + 3 零件 = 应返回 3 零件
+        part_nos = [r["part_no"] for r in rows]
+        assert "GIS-EE-001" not in part_nos  # 总成跳过
+        assert "GIS-EE-001-01" in part_nos
+        assert "GIS-EE-001-04" in part_nos
+        assert "GIS-EE-001-05" in part_nos
+
+    def test_extracts_make_buy(self, tmp_path):
+        from tools.cad_spec_bom_extractor import extract_bom_tree
+
+        md = tmp_path / "spec.md"
+        md.write_text(SAMPLE_MD, encoding="utf-8")
+
+        rows = extract_bom_tree(md)
+        row_by_pn = {r["part_no"]: r for r in rows}
+        assert row_by_pn["GIS-EE-001-01"]["make_buy"] == "自制"
+        assert row_by_pn["GIS-EE-001-04"]["make_buy"] == "外购"

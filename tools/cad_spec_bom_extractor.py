@@ -59,3 +59,32 @@ def extract_fasteners(md_path: Path) -> list[dict[str, Any]]:
             qty = 1
         out.append({"location": r[0], "spec": r[1], "qty": qty})
     return out
+
+
+def _is_assembly_row(cells: list[str]) -> bool:
+    """总成行以 '**' 包裹料号。"""
+    return cells[0].startswith("**") and cells[0].endswith("**")
+
+
+def extract_bom_tree(md_path: Path) -> list[dict[str, Any]]:
+    """解析 §5 BOM 树（跳过加粗总成行，只返回 leaf 零件）。"""
+    text = Path(md_path).read_text(encoding="utf-8")
+    block = _slice_section(text, SECTION_5_HEADER)
+    if not block:
+        return []
+
+    rows = _parse_markdown_table(block)
+    out = []
+    for r in rows:
+        if len(r) < 5:
+            continue
+        if _is_assembly_row(r):
+            continue
+        out.append({
+            "part_no": r[0],
+            "name_cn": r[1],
+            "material": r[2],
+            "qty_raw": r[3],
+            "make_buy": r[4],
+        })
+    return out
