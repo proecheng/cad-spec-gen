@@ -13,9 +13,20 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 pytest_plugins = ["pytester"]
+
+# 非 Windows 平台上 monkeypatch sys.platform="win32" 会让 pytester 的 inline
+# runpytest 进入 stdlib 的 Windows 分支，触发 `io._WindowsConsoleIO` AttributeError。
+# 伪装 Windows 场景的用例改为仅在真实 Windows CI 上跑；Linux CI 仍覆盖真正的
+# "非 Windows 平台" skip reason 分支（test_marker_non_windows_skipped）。
+_win_only = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="pytester inline runpytest 对 sys.platform 的 monkeypatch 会触发 io._WindowsConsoleIO AttributeError",
+)
 
 
 @pytest.fixture
@@ -99,6 +110,7 @@ class TestRequiresSolidworksMarker:
         result = pytester.runpytest("-v", "-rs")
         result.assert_outcomes(passed=1, skipped=0)
 
+    @_win_only
     def test_marker_satisfied_runs_normally(
         self, pytester_with_hook, mock_sw_detect, monkeypatch
     ):
@@ -140,6 +152,7 @@ class TestRequiresSolidworksMarker:
         result.assert_outcomes(passed=0, skipped=1)
         result.stdout.fnmatch_lines(["*非 Windows 平台*"])
 
+    @_win_only
     def test_marker_missing_pywin32_skipped(
         self, pytester_with_hook, mock_sw_detect, monkeypatch
     ):
@@ -161,6 +174,7 @@ class TestRequiresSolidworksMarker:
         result.assert_outcomes(passed=0, skipped=1)
         result.stdout.fnmatch_lines(["*pywin32 缺*"])
 
+    @_win_only
     def test_marker_sw_not_installed_skipped(
         self, pytester_with_hook, mock_sw_detect, monkeypatch
     ):
