@@ -90,14 +90,16 @@ def extract_bom_tree(md_path: Path) -> list[dict[str, Any]]:
     return out
 
 
+# dict 顺序 = 匹配优先级；具体类别（nut/washer/bearing/pin/key）必须先于泛用 fastener
+# 避免 "内六角螺母" 因先命中 fastener 的 "内六角" 而被误分类。
 CATEGORY_KEYWORDS = {
-    "fastener": ["螺钉", "螺栓", "紧定", "内六角螺", "socket head"],
-    "bearing": ["轴承", "bearing"],
-    "washer": ["垫圈", "washer", "碟形弹簧"],
     "nut": ["螺母", "nut"],
-    "screw": [],  # screw 同 fastener，保留占位
+    "washer": ["垫圈", "washer", "碟形弹簧"],
+    "bearing": ["轴承", "bearing"],
     "pin": ["销", "pin"],
     "key": ["键 ", "key"],
+    "fastener": ["螺钉", "螺栓", "紧定", "内六角", "socket head"],
+    "screw": [],  # screw 同 fastener，保留占位
 }
 
 STANDARD_CATEGORIES = {"fastener", "bearing", "washer", "nut", "screw", "pin", "key"}

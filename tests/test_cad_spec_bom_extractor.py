@@ -89,6 +89,10 @@ class TestClassifyAndFilter:
         assert classify_category("M6 六角螺母") == "nut"
         assert classify_category("Maxon ECX 电机") == "other"
         assert classify_category("法兰本体") == "other"
+        # 新增：GISBOT §3 简写格式
+        assert classify_category("M6×12 内六角 12.9级") == "fastener"
+        # 新增：nut 关键词必须优先于 fastener 识别
+        assert classify_category("内六角螺母 M8") == "nut"
 
     def test_filter_standard_only(self):
         """过滤到 category∈{fastener, bearing, washer, nut, screw, pin, key} 且 make_buy∈{外购, 标准}。"""
