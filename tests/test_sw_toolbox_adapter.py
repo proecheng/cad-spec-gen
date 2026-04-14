@@ -120,6 +120,10 @@ class TestIsAvailable:
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect, sw_com_session
 
+        # is_available() 第一项检查是 sys.platform == "win32"；Linux CI runner 上
+        # 必须先把平台改成 win32，后续 mock 才有意义（其余 TestIsAvailable 用例
+        # 都期望 False，平台短路"碰巧 OK"，唯独这条期望 True 的必须 mock 平台）。
+        monkeypatch.setattr(sys, "platform", "win32")
         sw_detect._reset_cache()
         sw_com_session.reset_session()
         fake_info = sw_detect.SwInfo(
