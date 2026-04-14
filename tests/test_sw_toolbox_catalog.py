@@ -684,6 +684,37 @@ class TestBuildQueryTokensWeighted:
         assert len(tokens_weighted) > 0
         assert any(t in token_names for t in ["gb", "m6", "70"])
 
+    def test_plural_pairs_expand_ascii_screw(self):
+        """'screw' 应该自动注入 'screws'（相同权重）。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = ""
+            name_cn = "ISO 4762 M5×16 hex socket cap screw"
+            material = ""
+
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        tokens_weighted = build_query_tokens_weighted(Q(), {"size": "M5"}, weights)
+        token_map = dict(tokens_weighted)
+        assert "screw" in token_map
+        assert "screws" in token_map
+        assert token_map["screws"] == token_map["screw"]  # 相同权重
+
+    def test_plural_pairs_expand_ascii_nut(self):
+        """'nut' 应该自动注入 'nuts'。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = ""
+            name_cn = "ISO 4032 M5 hex nut"
+            material = ""
+
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        tokens_weighted = build_query_tokens_weighted(Q(), {"size": "M5"}, weights)
+        token_map = dict(tokens_weighted)
+        assert "nut" in token_map
+        assert "nuts" in token_map
+
 
 class TestMakeIndexEnvelope:
     """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""

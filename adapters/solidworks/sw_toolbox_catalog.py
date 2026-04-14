@@ -112,6 +112,52 @@ STOP_WORDS: frozenset[str] = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# 单/复数互扩展对（处理 ASCII 零件名里 screw/screws 不一致问题）
+# ---------------------------------------------------------------------------
+
+PLURAL_PAIRS: dict[str, str] = {
+    "screw": "screws",
+    "screws": "screw",
+    "bolt": "bolts",
+    "bolts": "bolt",
+    "nut": "nuts",
+    "nuts": "nut",
+    "washer": "washers",
+    "washers": "washer",
+    "bearing": "bearings",
+    "bearings": "bearing",
+}
+
+
+def _expand_plural_pairs(
+    tokens_weighted: list[tuple[str, float]],
+) -> list[tuple[str, float]]:
+    """对 tokens_weighted 里出现在 PLURAL_PAIRS 里的 token，注入其对应形式（同权重）。
+
+    例：'screw' w=1.0 → 同时注入 'screws' w=1.0。
+    若目标 token 已存在，取 max 权重（与 expand_cn_synonyms 行为一致）。
+
+    Args:
+        tokens_weighted: [(token, weight), ...]
+
+    Returns:
+        扩展后的 [(token, weight), ...]
+    """
+    collected: dict[str, float] = {}
+    for tok, w in tokens_weighted:
+        if tok not in collected or collected[tok] < w:
+            collected[tok] = w
+
+    for tok, w in tokens_weighted:
+        partner = PLURAL_PAIRS.get(tok)
+        if partner is not None:
+            if partner not in collected or collected[partner] < w:
+                collected[partner] = w
+
+    return list(collected.items())
+
+
 DEFAULT_CN_SYNONYMS_PATH = Path(__file__).parent.parent.parent / "config" / "toolbox_cn_synonyms.yaml"
 
 
@@ -655,6 +701,8 @@ def build_query_tokens_weighted(
     collected: dict[str, float] = {}
 
     def add(tokens: list[str], w: float) -> None:
+        if w <= 0.0:
+            return  # 不注入零权重字段的 token
         for t in tokens:
             if t not in collected or collected[t] < w:
                 collected[t] = w
@@ -669,7 +717,8 @@ def build_query_tokens_weighted(
 
     base = [(t, w) for t, w in collected.items()]
     synonyms = load_cn_synonyms()
-    return expand_cn_synonyms(base, synonyms)
+    expanded = expand_cn_synonyms(base, synonyms)
+    return _expand_plural_pairs(expanded)
 
 
 def match_toolbox_part(
