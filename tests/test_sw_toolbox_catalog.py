@@ -715,6 +715,41 @@ class TestBuildQueryTokensWeighted:
         assert "nut" in token_map
         assert "nuts" in token_map
 
+    def test_plural_pairs_expand_plural_to_singular(self):
+        """复数形式（'screws'）应自动注入单数（'screw'），双向对称。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = ""
+            name_cn = "ISO 1207 M3 slotted cheese head screws"
+            material = ""
+
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.0, "size": 1.5}
+        tokens_weighted = build_query_tokens_weighted(Q(), {"size": "M3"}, weights)
+        token_map = dict(tokens_weighted)
+        assert "screws" in token_map
+        assert "screw" in token_map
+        assert token_map["screw"] == token_map["screws"]  # 权重对称
+
+    def test_plural_pairs_expand_cn_synonym_injected_token(self):
+        """中文同义词扩展注入的英文 token 也应触发单/复数扩展。
+
+        pipeline: 螺钉（CJK）→ expand_cn_synonyms → screw（英文）→ PLURAL_PAIRS → screws
+        """
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = ""
+            name_cn = "GB/T 70.1 M6×20 内六角圆柱头螺钉"
+            material = ""
+
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.0, "size": 1.5}
+        tokens_weighted = build_query_tokens_weighted(Q(), {"size": "M6"}, weights)
+        token_map = dict(tokens_weighted)
+        # 螺钉 → screw（同义词），screw → screws（PLURAL_PAIRS）
+        assert "screw" in token_map
+        assert "screws" in token_map
+
 
 class TestMakeIndexEnvelope:
     """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""
