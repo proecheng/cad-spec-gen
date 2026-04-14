@@ -72,5 +72,6 @@ markers = [
     "integration: full-chain tests",
     "slow: packaging/wheel-build tests, run on main/nightly only",
     "blender: real Blender headless smoke tests (v2.9.2+); auto-skip if Blender missing",
+    "real_subprocess: 真 subprocess / 真 IO 集成测试，无需真实 SolidWorks，默认 pytest 不跑；需 -m real_subprocess",
 ]
 testpaths = ["tests"]
