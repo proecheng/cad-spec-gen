@@ -1,0 +1,16 @@
+part_no,name_cn,material,make_buy,category
+GIS-DEMO-001,GB/T 70.1 M6×20 内六角圆柱头螺钉,钢,标准,fastener
+GIS-DEMO-002,GB/T 276 深沟球轴承 6205,GCr15,标准,bearing
+GIS-DEMO-003,GB/T 70.1 M4×10 内六角圆柱头螺钉,钢,标准,fastener
+GIS-DEMO-004,GB/T 6170 M6 六角螺母,钢,标准,fastener
+GIS-DEMO-005,GB/T 97.1 6 平垫圈,钢,标准,fastener
+GIS-DEMO-006,GB/T 5782 M8×25 六角头螺栓,钢,标准,fastener
+GIS-DEMO-007,GB/T 276 深沟球轴承 6204,GCr15,标准,bearing
+GIS-DEMO-008,GB/T 297 圆锥滚子轴承 30205,GCr15,标准,bearing
+GIS-DEMO-009,ISO 4762 M5×16 hex socket cap screw,steel,standard,fastener
+GIS-DEMO-010,ISO 4032 M5 hex nut,steel,standard,fastener
+GIS-DEMO-011,DIN 912 M3×8 cap screw,steel,standard,fastener
+GIS-DEMO-012,1/4-20 UNC hex bolt,steel,standard,fastener
+GIS-DEMO-013,Tr16×2 梯形螺纹丝杠,40Cr,外购,fastener
+GIS-DEMO-014,非标异形件定制壳体,7075-T6,自制,housing
+GIS-DEMO-015,Maxon ECX SPEED 22L 减速电机,-,外购,motor
