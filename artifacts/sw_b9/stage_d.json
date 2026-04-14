@@ -1,0 +1,9 @@
+{
+  "before_passed": 40,
+  "after_passed": 40,
+  "before_failed_tests": [],
+  "after_failed_tests": [],
+  "regression_detected": false,
+  "pass": true,
+  "schema_version": 1
+}

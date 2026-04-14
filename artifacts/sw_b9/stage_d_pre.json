@@ -1,0 +1,10 @@
+{
+  "sw_toolbox_consumers": [
+    "mapping[0]:{'category': 'fastener', 'keyword_contains': ['GB/T', '国标', 'GB ']}",
+    "mapping[1]:{'category': 'bearing', 'keyword_contains': ['GB/T', '国标', '深沟球', '圆柱滚子', '推力']}",
+    "mapping[10]:{'category': 'bearing'}",
+    "mapping[20]:{'category': 'fastener'}"
+  ],
+  "has_consumer": true,
+  "schema_version": 1
+}

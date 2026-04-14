@@ -1,0 +1,9 @@
+{
+  "convert_count": 0,
+  "success_count": 0,
+  "all_steps_valid": false,
+  "pass": false,
+  "reason": "matched 数不足（需 8），实际 2",
+  "note": "subprocess-per-convert 模型下 Stage C 不再有显式 restart 步骤",
+  "schema_version": 1
+}

@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "pass": false,
+  "d_skipped": false,
+  "stages": {
+    "stage_0": {
+      "toolbox_root": "C:\\SolidWorks Data\\browser",
+      "index_size": 1844,
+      "min_score_recommended": 0.3,
+      "min_score_used": 0.3,
+      "rebuild_forced": true,
+      "calibration_stdout_tail": "Inch/bearings/thrust ball bearing2_ai.sldprt\n\n─── 直方图 ───\n  [0.0-0.1) top1=  2 other=  4  ██████\n  [0.1-0.2) top1=  4 other= 13  █████████████████\n  [0.2-0.3) top1=  7 other= 13  ████████████████████\n  [0.3-0.4) top1=  2 other=  0  ██\n  [0.4-0.5) top1=  0 other=  0  \n  [0.5-0.6) top1=  0 other=  0  \n  [0.6-0.7) top1=  0 other=  0  \n  [0.7-0.8) top1=  0 other=  0  \n  [0.8-0.9) top1=  0 other=  0  \n  [0.9-1.0) top1=  0 other=  0  \n\n推荐 min_score: 0.33\n  (noise_mean=0.167, noise_std=0.081, 下界 0.30)\n",
+      "pass": true,
+      "schema_version": 1
+    },
+    "stage_0_5": {
+      "cn_token_hit_rate": 0.8666666666666667,
+      "total_rows": 15,
+      "hit_rows": 13,
+      "pass": true,
+      "schema_version": 1
+    },
+    "stage_a": {
+      "total_rows": 15,
+      "standard_rows": 15,
+      "matched": 2,
+      "matched_list": [
+        {
+          "part_no": "GIS-DEMO-002",
+          "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+          "score": 0.3125
+        },
+        {
+          "part_no": "GIS-DEMO-007",
+          "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+          "score": 0.3125
+        }
+      ],
+      "coverage": 0.13333333333333333,
+      "target": 0.73,
+      "pass": false,
+      "unmatched_rows": [
+        "GIS-DEMO-001",
+        "GIS-DEMO-003",
+        "GIS-DEMO-004",
+        "GIS-DEMO-005",
+        "GIS-DEMO-006",
+        "GIS-DEMO-008",
+        "GIS-DEMO-009",
+        "GIS-DEMO-010",
+        "GIS-DEMO-011",
+        "GIS-DEMO-012",
+        "GIS-DEMO-013",
+        "GIS-DEMO-014",
+        "GIS-DEMO-015"
+      ],
+      "excluded_rows": [],
+      "schema_version": 1
+    },
+    "stage_b": {
+      "total_rows": 58,
+      "standard_rows": 13,
+      "matched": 0,
+      "coverage": 0.0,
+      "sample_size_below_100": true,
+      "note": "B1: below ≥100 threshold, informational only",
+      "excluded_rows": [
+        "FAST-008",
+        "GIS-EE-001-01",
+        "GIS-EE-001-02",
+        "GIS-EE-001-03",
+        "GIS-EE-001-05",
+        "GIS-EE-001-06",
+        "GIS-EE-001-08",
+        "GIS-EE-001-09",
+        "GIS-EE-001-10",
+        "GIS-EE-001-11",
+        "GIS-EE-002-01",
+        "GIS-EE-002-02",
+        "GIS-EE-002-03",
+        "GIS-EE-002-04",
+        "GIS-EE-002-05",
+        "GIS-EE-003-01",
+        "GIS-EE-003-02",
+        "GIS-EE-003-03",
+        "GIS-EE-003-04",
+        "GIS-EE-003-05",
+        "GIS-EE-003-06",
+        "GIS-EE-003-07",
+        "GIS-EE-003-08",
+        "GIS-EE-003-09",
+        "GIS-EE-004-01",
+        "GIS-EE-004-02",
+        "GIS-EE-004-03",
+        "GIS-EE-004-04",
+        "GIS-EE-004-05",
+        "GIS-EE-004-06",
+        "GIS-EE-004-07",
+        "GIS-EE-004-08",
+        "GIS-EE-004-09",
+        "GIS-EE-004-10",
+        "GIS-EE-004-12",
+        "GIS-EE-004-13",
+        "GIS-EE-005-01",
+        "GIS-EE-005-02",
+        "GIS-EE-005-03",
+        "GIS-EE-006-01",
+        "GIS-EE-006-02",
+        "GIS-EE-006-03",
+        "GIS-EE-006-04",
+        "GIS-EE-006-05",
+        "GIS-EE-006-06"
+      ],
+      "pass": "informational",
+      "schema_version": 1
+    },
+    "stage_d_pre": {
+      "sw_toolbox_consumers": [
+        "mapping[0]:{'category': 'fastener', 'keyword_contains': ['GB/T', '国标', 'GB ']}",
+        "mapping[1]:{'category': 'bearing', 'keyword_contains': ['GB/T', '国标', '深沟球', '圆柱滚子', '推力']}",
+        "mapping[10]:{'category': 'bearing'}",
+        "mapping[20]:{'category': 'fastener'}"
+      ],
+      "has_consumer": true,
+      "schema_version": 1
+    },
+    "stage_c": {
+      "convert_count": 0,
+      "success_count": 0,
+      "all_steps_valid": false,
+      "pass": false,
+      "reason": "matched 数不足（需 8），实际 2",
+      "note": "subprocess-per-convert 模型下 Stage C 不再有显式 restart 步骤",
+      "schema_version": 1
+    },
+    "stage_d": {
+      "before_passed": 40,
+      "after_passed": 40,
+      "before_failed_tests": [],
+      "after_failed_tests": [],
+      "regression_detected": false,
+      "pass": true,
+      "schema_version": 1,
+      "skipped": false
+    },
+    "stage_e": {
+      "real_bom_coverage": 0.0,
+      "threshold": 0.55,
+      "decision": "downgrade_gb_only",
+      "actions_required": [
+        "下一轮 Phase SW-C 砍 ISO/DIN 兜底规则",
+        "仅保留 GB 高优先级匹配路径",
+        "重新审视 Toolbox backend 的 ROI"
+      ],
+      "schema_version": 1
+    }
+  }
+}

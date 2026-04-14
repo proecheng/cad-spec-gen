@@ -1,0 +1,268 @@
+bd_warehouse:
+  enabled: true
+mappings:
+- adapter: sw_toolbox
+  match:
+    category: fastener
+    keyword_contains:
+    - GB/T
+    - 国标
+    - 'GB '
+  spec:
+    part_category: fastener
+    standard: GB
+    subcategories:
+    - bolts and studs
+    - nuts
+    - screws
+    - washers and rings
+    - pins
+    - rivets
+- adapter: sw_toolbox
+  match:
+    category: bearing
+    keyword_contains:
+    - GB/T
+    - 国标
+    - 深沟球
+    - 圆柱滚子
+    - 推力
+  spec:
+    part_category: bearing
+    standard: GB
+    subcategories:
+    - bearing
+- adapter: step_pool
+  match:
+    keyword_contains:
+    - ECX SPEED 22L
+    - ECX22L
+    - ECX 22L
+    - ecx_22l
+  spec:
+    file: maxon/ecx_22l.step
+    synthesizer: maxon_ecx_22l
+- adapter: step_pool
+  match:
+    keyword_contains:
+    - GP22C
+    - GP 22C
+    - gp22c
+  spec:
+    file: maxon/gp22c.step
+    synthesizer: maxon_gp22c
+- adapter: step_pool
+  match:
+    keyword_contains:
+    - FGG.0B.307
+    - FGG 0B 307
+    - EGG.0B.307
+    - EGG 0B 307
+    - FGG.0B
+    - EGG.0B
+    - LEMO 0B
+  spec:
+    file: lemo/fgg_0b_307.step
+    synthesizer: lemo_fgg_0b_307
+- adapter: step_pool
+  match:
+    keyword_contains:
+    - Nano17
+    - Nano 17
+    - ATI Nano
+    - TWAE-03
+  spec:
+    file: ati/nano17.step
+    synthesizer: ati_nano17
+- adapter: bd_warehouse
+  match:
+    category: bearing
+    name_contains:
+    - NU
+    - NJ
+    - NUP
+    - cylindrical roller
+    - 圆柱滚子
+  spec:
+    class: SingleRowCylindricalRollerBearing
+- adapter: bd_warehouse
+  match:
+    category: bearing
+    name_contains:
+    - '30'
+    - '32'
+    - tapered
+    - tapered roller
+    - 圆锥滚子
+  spec:
+    class: SingleRowTaperedRollerBearing
+- adapter: bd_warehouse
+  match:
+    category: bearing
+    name_contains:
+    - '7200'
+    - '7201'
+    - '7202'
+    - '7203'
+    - '7204'
+    - '7205'
+    - '7300'
+    - '7301'
+    - '7302'
+    - '7303'
+    - '7304'
+    - angular contact
+    - 角接触
+  spec:
+    class: SingleRowAngularContactBallBearing
+- adapter: bd_warehouse
+  match:
+    category: bearing
+    name_contains:
+    - ZZ
+    - 2RS
+    - 2Z
+    - 2RZ
+    - sealed
+    - shielded
+    - 密封
+    - 防尘
+  spec:
+    class: SingleRowCappedDeepGrooveBallBearing
+- adapter: sw_toolbox
+  match:
+    category: bearing
+  spec:
+    part_category: bearing
+    standard:
+    - ISO
+    - DIN
+    subcategories:
+    - bearings
+- adapter: bd_warehouse
+  match:
+    category: bearing
+  spec:
+    class: SingleRowDeepGrooveBallBearing
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 内六角
+    - socket head
+    - cap screw
+    - allen
+  spec:
+    class: SocketHeadCapScrew
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    material_contains:
+    - 内六角
+    - socket
+    - ISO4762
+    - DIN912
+  spec:
+    class: SocketHeadCapScrew
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 沉头
+    - 埋头
+    - countersunk
+    - flat head
+  spec:
+    class: CounterSunkScrew
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 圆头
+    - button head
+    - dome
+  spec:
+    class: ButtonHeadScrew
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 紧定
+    - set screw
+    - grub
+  spec:
+    class: SetScrew
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 螺母
+    - nut
+  spec:
+    class: HexNut
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    name_contains:
+    - 平垫圈
+    - washer
+    - 垫圈
+  spec:
+    class: PlainWasher
+- adapter: bd_warehouse
+  match:
+    category: fastener
+    material_contains:
+    - 六角头
+    - hex head
+    - ISO4014
+    - DIN931
+  spec:
+    class: HexHeadScrew
+- adapter: sw_toolbox
+  match:
+    category: fastener
+  spec:
+    part_category: fastener
+    standard:
+    - ISO
+    - DIN
+    subcategories:
+    - bolts
+    - nuts
+    - screws
+    - washers
+- adapter: jinja_primitive
+  match:
+    any: true
+partcad:
+  enabled: false
+solidworks_toolbox:
+  com:
+    circuit_breaker_threshold: 3
+    single_convert_timeout_sec: 30
+  enabled: auto
+  min_score: 0.3
+  size_patterns:
+    bearing:
+      model: \b(\d{4,5})\b
+    fastener:
+      exclude_patterns:
+      - UN[CFEF]
+      - \bTr\d
+      - \bG\d/
+      - \bNPT
+      length: '[×xX*\-\s](\d+(?:\.\d+)?)'
+      size: '[Mm](\d+(?:\.\d+)?)'
+  standards:
+  - GB
+  - ISO
+  - DIN
+  token_weights:
+    material: 0.5
+    name_cn: 1.0
+    part_no: 2.0
+    size: 1.5
+step_pool:
+  root: std_parts/
+version: 1

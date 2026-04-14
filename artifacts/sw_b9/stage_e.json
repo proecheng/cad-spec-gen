@@ -1,0 +1,11 @@
+{
+  "real_bom_coverage": 0.0,
+  "threshold": 0.55,
+  "decision": "downgrade_gb_only",
+  "actions_required": [
+    "下一轮 Phase SW-C 砍 ISO/DIN 兜底规则",
+    "仅保留 GB 高优先级匹配路径",
+    "重新审视 Toolbox backend 的 ROI"
+  ],
+  "schema_version": 1
+}

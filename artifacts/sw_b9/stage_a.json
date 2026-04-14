@@ -1,0 +1,37 @@
+{
+  "total_rows": 15,
+  "standard_rows": 15,
+  "matched": 2,
+  "matched_list": [
+    {
+      "part_no": "GIS-DEMO-002",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+      "score": 0.3125
+    },
+    {
+      "part_no": "GIS-DEMO-007",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+      "score": 0.3125
+    }
+  ],
+  "coverage": 0.13333333333333333,
+  "target": 0.73,
+  "pass": false,
+  "unmatched_rows": [
+    "GIS-DEMO-001",
+    "GIS-DEMO-003",
+    "GIS-DEMO-004",
+    "GIS-DEMO-005",
+    "GIS-DEMO-006",
+    "GIS-DEMO-008",
+    "GIS-DEMO-009",
+    "GIS-DEMO-010",
+    "GIS-DEMO-011",
+    "GIS-DEMO-012",
+    "GIS-DEMO-013",
+    "GIS-DEMO-014",
+    "GIS-DEMO-015"
+  ],
+  "excluded_rows": [],
+  "schema_version": 1
+}
