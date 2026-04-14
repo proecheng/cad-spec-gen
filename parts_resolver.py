@@ -30,8 +30,6 @@ from __future__ import annotations
 
 import fnmatch
 import os
-import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional
@@ -489,7 +487,7 @@ def load_registry(
 
         default_data = _load_yaml(default_path)
         if default_data is None:
-            log(f"  [resolver] failed to load default registry; using project only")
+            log("  [resolver] failed to load default registry; using project only")
             log(f"  [resolver] loaded registry from {project_path}")
             return project_data
 
