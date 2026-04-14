@@ -77,7 +77,9 @@ def read_bom_csv(csv_path: Path) -> list[PartQuery]:
             if normalized in seen_normalized:
                 log.warning(
                     "BOM 列名 %r 与 %r 都映射到 %r，后者覆盖前者（数据可能丢失）",
-                    raw, seen_normalized[normalized], normalized,
+                    raw,
+                    seen_normalized[normalized],
+                    normalized,
                 )
             seen_normalized[normalized] = raw
             col_map[raw] = normalized
@@ -261,13 +263,14 @@ def _select_targets_by_standard(index: dict, standards_csv: str | None) -> list:
     return targets
 
 
-def _convert_one(part, cache_root: Path, session, overwrite: bool) -> tuple[bool, float, str]:
+def _convert_one(
+    part, cache_root: Path, session, overwrite: bool
+) -> tuple[bool, float, str]:
     """调用 session 转换单个 part；返回 (success, elapsed_sec, message)。"""
     import time
 
     step_relative = (
-        Path(part.standard) / part.subcategory
-        / (Path(part.filename).stem + ".step")
+        Path(part.standard) / part.subcategory / (Path(part.filename).stem + ".step")
     )
     step_abs = cache_root / step_relative
 
@@ -296,6 +299,8 @@ def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
             log.warning("BOM 行未匹配到 sldprt: %s (%s)", q.part_no, q.name_cn)
             continue
         part, _score = match
+        if q.part_no in out:
+            log.warning("BOM 重复 part_no 覆盖: %s（后者生效）", q.part_no)
         out[q.part_no] = part
     return out
 
@@ -314,14 +319,16 @@ def _run_warmup_locked(args) -> int:
 
     info = detect_solidworks()
     toolbox_dir = Path(info.toolbox_dir)
-    cache_root = sw_toolbox_catalog.get_toolbox_cache_root()
-    index_path = sw_toolbox_catalog.get_toolbox_index_path()
-    index = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_dir)
     registry = load_registry()
+    sw_cfg = registry.get("solidworks_toolbox", {})
+    cache_root = sw_toolbox_catalog.get_toolbox_cache_root(sw_cfg)
+    index_path = sw_toolbox_catalog.get_toolbox_index_path(sw_cfg)
+    index = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_dir)
 
-    # 默认 --standard GB（若三个目标参数都缺）
+    # 默认 --standard GB（若三个目标参数都缺），不污染 caller 的 args
+    selected_standard = args.standard
     if not args.all and not args.standard and not args.bom:
-        args.standard = "GB"
+        selected_standard = "GB"
 
     if args.bom:
         bom_targets = _resolve_bom_targets(Path(args.bom), registry)
@@ -329,7 +336,7 @@ def _run_warmup_locked(args) -> int:
     elif args.all:
         targets = _select_targets_by_standard(index, None)
     else:
-        targets = _select_targets_by_standard(index, args.standard)
+        targets = _select_targets_by_standard(index, selected_standard)
 
     print(f"[sw-warmup] 目标 {len(targets)} 个 sldprt")
 
@@ -365,8 +372,7 @@ def _run_warmup_locked(args) -> int:
             with open(error_log, "a", encoding="utf-8") as f:
                 ts = datetime.now(timezone.utc).isoformat()
                 f.write(
-                    f"{ts}\t{part.standard}/{part.subcategory}/{part.filename}"
-                    f"\t{msg}\n"
+                    f"{ts}\t{part.standard}/{part.subcategory}/{part.filename}\t{msg}\n"
                 )
 
     t_total = time.monotonic() - t_start

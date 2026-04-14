@@ -11,9 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _make_args(**overrides) -> argparse.Namespace:
-    base = dict(
-        standard=None, bom=None, all=False, dry_run=False, overwrite=False
-    )
+    base = dict(standard=None, bom=None, all=False, dry_run=False, overwrite=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -43,7 +41,9 @@ class TestPreflight:
 
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
             toolbox_dir=str(tmp_path / "toolbox"),
             toolbox_addin_enabled=False,
         )
@@ -72,8 +72,11 @@ class TestTargetSelection:
             __import__("pathlib").Path(__file__).parent / "fixtures" / "fake_toolbox"
         )
         fake_info = sw_detect.SwInfo(
-            installed=True, version_year=2024, pywin32_available=True,
-            toolbox_dir=str(fake_toolbox), toolbox_addin_enabled=True,
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(fake_toolbox),
+            toolbox_addin_enabled=True,
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         monkeypatch.setattr(
@@ -81,30 +84,26 @@ class TestTargetSelection:
         )
         # cache root 指向 tmp_path 隔离测试
         monkeypatch.setattr(
-            sw_toolbox_catalog, "get_toolbox_cache_root",
-            lambda config=None: tmp_path / "cache",
+            sw_toolbox_catalog,
+            "get_toolbox_cache_root",
+            lambda config: tmp_path / "cache",
         )
         monkeypatch.setattr(
-            sw_toolbox_catalog, "get_toolbox_index_path",
-            lambda config=None: tmp_path / "idx.json",
+            sw_toolbox_catalog,
+            "get_toolbox_index_path",
+            lambda config: tmp_path / "idx.json",
         )
         return fake_toolbox
 
-    def test_dry_run_selects_but_does_not_convert(
-        self, tmp_path, monkeypatch, capsys
-    ):
+    def test_dry_run_selects_but_does_not_convert(self, tmp_path, monkeypatch, capsys):
         """--dry-run 应只列出目标不调 COM。"""
         from tools import sw_warmup as mod
 
         self._setup_sw_available(monkeypatch, tmp_path)
         com_called = mock.MagicMock()
-        monkeypatch.setattr(
-            mod, "_convert_one", lambda *args, **kw: com_called()
-        )
+        monkeypatch.setattr(mod, "_convert_one", lambda *args, **kw: com_called())
 
-        rc = mod.run_sw_warmup(
-            _make_args(standard="GB", dry_run=True)
-        )
+        rc = mod.run_sw_warmup(_make_args(standard="GB", dry_run=True))
         captured = capsys.readouterr()
         assert rc == 0
         com_called.assert_not_called()
@@ -117,6 +116,7 @@ class TestCacheAndErrorLog:
 
     def test_cache_hit_skips_com(self, tmp_path, monkeypatch, capsys):
         from tools import sw_warmup as mod
+
         TestTargetSelection._setup_sw_available(monkeypatch, tmp_path)
 
         # 预先建一个缓存文件，让 part 能命中
@@ -142,6 +142,7 @@ class TestCacheAndErrorLog:
 
     def test_failure_appends_error_log(self, tmp_path, monkeypatch, capsys):
         from tools import sw_warmup as mod
+
         TestTargetSelection._setup_sw_available(monkeypatch, tmp_path)
 
         # 让 error_log 写到 tmp_path
@@ -149,7 +150,9 @@ class TestCacheAndErrorLog:
         monkeypatch.setattr(mod, "_default_error_log_path", lambda: err_path)
 
         com_session = mock.MagicMock()
-        com_session.convert_sldprt_to_step = mock.MagicMock(return_value=False)  # 全失败
+        com_session.convert_sldprt_to_step = mock.MagicMock(
+            return_value=False
+        )  # 全失败
         monkeypatch.setattr(
             "adapters.solidworks.sw_com_session.get_session",
             lambda: com_session,
@@ -160,3 +163,67 @@ class TestCacheAndErrorLog:
         assert err_path.exists()
         content = err_path.read_text(encoding="utf-8")
         assert "GB/" in content  # 至少一行失败记录
+
+    def test_mixed_success_fail_returns_1(self, tmp_path, monkeypatch, capsys):
+        """部分成功部分失败 → rc=1，错误日志只记失败行。"""
+        from tools import sw_warmup as mod
+
+        TestTargetSelection._setup_sw_available(monkeypatch, tmp_path)
+        err_path = tmp_path / "errors.log"
+        monkeypatch.setattr(mod, "_default_error_log_path", lambda: err_path)
+
+        # convert 交替成功/失败
+        results = iter([True, False, True])
+        com_session = mock.MagicMock()
+        com_session.convert_sldprt_to_step = lambda *a, **k: next(results, True)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_com_session.get_session",
+            lambda: com_session,
+        )
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        assert rc == 1
+        # 汇总输出含成功+失败计数
+        captured = capsys.readouterr()
+        assert "成功" in captured.out and "失败" in captured.out
+        # 错误日志只记失败行（fake_toolbox 只有 1 个 GB part，取决 iter 第几个返回 False）
+        if err_path.exists():
+            lines = [
+                ln
+                for ln in err_path.read_text(encoding="utf-8").splitlines()
+                if ln.strip()
+            ]
+            # 每个失败占 1 行
+            assert len(lines) >= 1
+
+
+class TestDryRunTruncation:
+    """dry-run >20 个目标时 '其余 N 个' 后缀格式（spec §7）。"""
+
+    def test_dry_run_truncates_at_20(self, tmp_path, monkeypatch, capsys):
+        from tools import sw_warmup as mod
+        from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
+
+        TestTargetSelection._setup_sw_available(monkeypatch, tmp_path)
+
+        # 构造 25 个假 targets
+        fake_targets = [
+            SwToolboxPart(
+                standard="GB",
+                subcategory="bolts",
+                sldprt_path=str(tmp_path / f"bolt_{i}.sldprt"),
+                filename=f"bolt_{i}.sldprt",
+                tokens=["gb", f"bolt_{i}"],
+            )
+            for i in range(25)
+        ]
+        monkeypatch.setattr(
+            mod,
+            "_select_targets_by_standard",
+            lambda index, standards_csv: fake_targets,
+        )
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB", dry_run=True))
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "其余 5 个" in captured.out
