@@ -707,7 +707,8 @@ def match_toolbox_part(
         if std_name not in standards:
             continue
         for sub_name, parts in sub_dict.items():
-            if sub_name not in subcategories:
+            # 空列表 = 不过滤子分类（全量搜索）
+            if subcategories and sub_name not in subcategories:
                 continue
             for part in parts:
                 part_token_set = set(part.tokens)
