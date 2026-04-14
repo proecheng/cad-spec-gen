@@ -92,14 +92,19 @@ class TestEndToEndMatchWithSynonyms:
     """端到端：BOM name_cn 中文 → Toolbox 英文零件命中。"""
 
     def test_gb_70_1_m6_20_hits_socket_head_cap_screw(self):
-        """GB/T 70.1 M6×20 内六角圆柱头螺钉 匹配 'socket head cap screw' sldprt。"""
+        """GB/T 70.1 M6×20 内六角圆柱头螺钉 匹配 'hexagon socket head cap screws' sldprt。
+
+        注：SW-C 起同义词表补充了 hexagon/复数，query token 增多，
+        min_score 随之从 0.30 调整为 0.25（端到端命中语义不变）。
+        fake_index 文件名同步更新为更贴近真实 toolbox 的 hexagon 前缀形式。
+        """
         from adapters.solidworks.sw_toolbox_catalog import (
             SwToolboxPart,
             build_query_tokens_weighted,
             match_toolbox_part,
         )
 
-        # 伪造含一条 GB 内六角圆柱头螺钉 M6 的索引
+        # 伪造含一条 GB 内六角圆柱头螺钉 M6 的索引（文件名贴近真实 toolbox）
         fake_index = {
             "standards": {
                 "GB": {
@@ -107,9 +112,9 @@ class TestEndToEndMatchWithSynonyms:
                         SwToolboxPart(
                             standard="GB",
                             subcategory="bolts and studs",
-                            sldprt_path="/fake/GB/socket head cap screw_gb.sldprt",
-                            filename="socket head cap screw_gb.sldprt",
-                            tokens=["socket", "head", "cap", "screw", "m6", "gb"],
+                            sldprt_path="/fake/GB/hexagon socket head cap screws gb.sldprt",
+                            filename="hexagon socket head cap screws gb.sldprt",
+                            tokens=["hexagon", "socket", "head", "cap", "screws", "gb"],
                         ),
                     ]
                 }
@@ -124,21 +129,69 @@ class TestEndToEndMatchWithSynonyms:
         weights = {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
         q_tokens = build_query_tokens_weighted(Query(), {"size": "M6"}, weights)
 
-        # 验证扩展确实注入了 'socket' 和 'screw'
+        # 验证扩展确实注入了 'socket'、'screw'、'hexagon'
         q_map = dict(q_tokens)
         assert "socket" in q_map
         assert "screw" in q_map
         assert "hex" in q_map
+        assert "hexagon" in q_map
 
-        # 端到端匹配
+        # 端到端匹配（min_score=0.25，反映 query token 增多后的实际打分范围）
         result = match_toolbox_part(
             fake_index,
             q_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
-            min_score=0.30,
+            min_score=0.25,
         )
         assert result is not None
         part, score = result
-        assert part.filename == "socket head cap screw_gb.sldprt"
-        assert score >= 0.30
+        assert part.filename == "hexagon socket head cap screws gb.sldprt"
+        assert score >= 0.25
+
+
+class TestNewSynonyms:
+    """SW-C: 验证 hexagon + 六角头 + 复数形式。"""
+
+    def _expand(self, name_cn, synonyms):
+        from adapters.solidworks.sw_toolbox_catalog import tokenize, expand_cn_synonyms
+        base = [(t, 1.0) for t in tokenize(name_cn)]
+        expanded = expand_cn_synonyms(base, synonyms)
+        return {t for t, _ in expanded}
+
+    def test_neiliujiao_expands_to_hexagon(self):
+        """内六角 → hexagon（toolbox 文件用 hexagon，不只是 hex）。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms
+        syns = load_cn_synonyms()
+        tokens = self._expand("内六角圆柱头螺钉", syns)
+        assert "hexagon" in tokens
+
+    def test_liujiaotou_expands_to_head(self):
+        """六角头 → hexagon + head（匹配 hexagon head bolts）。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms
+        syns = load_cn_synonyms()
+        tokens = self._expand("六角头螺栓", syns)
+        assert "hexagon" in tokens
+        assert "head" in tokens
+
+    def test_luomu_expands_to_nuts(self):
+        """螺母 → nut + nuts（toolbox 有 'nuts' token）。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms
+        syns = load_cn_synonyms()
+        tokens = self._expand("六角螺母", syns)
+        assert "nut" in tokens
+        assert "nuts" in tokens
+
+    def test_dianjuan_expands_to_washers(self):
+        """垫圈 → washer + washers。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms
+        syns = load_cn_synonyms()
+        tokens = self._expand("平垫圈", syns)
+        assert "washers" in tokens
+
+    def test_zhoucheng_expands_to_bearings(self):
+        """轴承 → bearing + bearings。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms
+        syns = load_cn_synonyms()
+        tokens = self._expand("深沟球轴承", syns)
+        assert "bearings" in tokens

@@ -8,13 +8,14 @@
 
 fasteners:
   螺钉: [screw]
-  螺栓: [bolt, screw]
-  螺母: [nut]
-  垫圈: [washer]
-  平垫圈: [plain, washer]
-  弹簧垫圈: [spring, washer, lock]
-  内六角: [hex, socket]
-  六角: [hex]
+  螺栓: [bolt, bolts, screw, screws]
+  螺母: [nut, nuts]
+  垫圈: [washer, washers]
+  平垫圈: [plain, washer, washers]
+  弹簧垫圈: [spring, washer, washers, lock]
+  内六角: [hex, socket, hexagon]
+  六角头: [hexagon, head]
+  六角: [hex, hexagon]
   圆柱头: [cap, head, cylinder]
   盘头: [pan, head]
   沉头: [flat, countersunk, head]
@@ -25,7 +26,7 @@ fasteners:
   紧定: [set]
 
 bearings:
-  轴承: [bearing]
+  轴承: [bearing, bearings]
   深沟球: [deep, groove, ball]
   圆锥滚子: [tapered, roller]
   圆柱滚子: [cylindrical, roller]
