@@ -86,3 +86,59 @@ class TestExpandCnSynonyms:
         from adapters.solidworks.sw_toolbox_catalog import expand_cn_synonyms
 
         assert expand_cn_synonyms([], {"螺钉": ["screw"]}) == []
+
+
+class TestEndToEndMatchWithSynonyms:
+    """端到端：BOM name_cn 中文 → Toolbox 英文零件命中。"""
+
+    def test_gb_70_1_m6_20_hits_socket_head_cap_screw(self):
+        """GB/T 70.1 M6×20 内六角圆柱头螺钉 匹配 'socket head cap screw' sldprt。"""
+        from adapters.solidworks.sw_toolbox_catalog import (
+            SwToolboxPart,
+            build_query_tokens_weighted,
+            match_toolbox_part,
+        )
+
+        # 伪造含一条 GB 内六角圆柱头螺钉 M6 的索引
+        fake_index = {
+            "standards": {
+                "GB": {
+                    "bolts and studs": [
+                        SwToolboxPart(
+                            standard="GB",
+                            subcategory="bolts and studs",
+                            sldprt_path="/fake/GB/socket head cap screw_gb.sldprt",
+                            filename="socket head cap screw_gb.sldprt",
+                            tokens=["socket", "head", "cap", "screw", "m6", "gb"],
+                        ),
+                    ]
+                }
+            }
+        }
+
+        class Query:
+            part_no = "GIS-DEMO-001"
+            name_cn = "GB/T 70.1 M6×20 内六角圆柱头螺钉"
+            material = "钢"
+
+        weights = {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        q_tokens = build_query_tokens_weighted(Query(), {"size": "M6"}, weights)
+
+        # 验证扩展确实注入了 'socket' 和 'screw'
+        q_map = dict(q_tokens)
+        assert "socket" in q_map
+        assert "screw" in q_map
+        assert "hex" in q_map
+
+        # 端到端匹配
+        result = match_toolbox_part(
+            fake_index,
+            q_tokens,
+            standards=["GB"],
+            subcategories=["bolts and studs"],
+            min_score=0.30,
+        )
+        assert result is not None
+        part, score = result
+        assert part.filename == "socket head cap screw_gb.sldprt"
+        assert score >= 0.30

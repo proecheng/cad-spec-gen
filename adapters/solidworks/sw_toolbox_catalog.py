@@ -667,7 +667,9 @@ def build_query_tokens_weighted(
         for value in size_dict.values():
             add(tokenize(str(value)), weights.get("size", 1.5))
 
-    return [(t, w) for t, w in collected.items()]
+    base = [(t, w) for t, w in collected.items()]
+    synonyms = load_cn_synonyms()
+    return expand_cn_synonyms(base, synonyms)
 
 
 def match_toolbox_part(
