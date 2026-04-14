@@ -21,6 +21,12 @@ log = logging.getLogger(__name__)
 _held_locks: set[str] = set()
 
 
+# 锁定的字节范围常量 — acquire 与 release 必须对齐同一 range，
+# 否则 msvcrt release 成 no-op 导致句柄泄漏（Part 2b review I-3）。
+_LOCK_OFFSET = 0
+_LOCK_NBYTES = 1
+
+
 # 列名别名表（值为标准化后的字段名，键为 BOM CSV 中可能出现的列名小写）
 BOM_COLUMN_ALIASES = {
     "part_no": "part_no",
@@ -140,7 +146,13 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             import msvcrt
 
             try:
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                # msvcrt.locking 锁的是"从当前位置起 N 字节"。"a+" 模式 open
+                # 后 file position 默认在 EOF，锁会落在未知 offset；而释放路径
+                # 已 seek 到 _LOCK_OFFSET 锁定 _LOCK_NBYTES 字节。acquire 与
+                # release 必须对齐同一 byte range，否则 release 成 no-op 导致
+                # 锁句柄泄漏。修 Part 2b final review I-3。
+                fh.seek(_LOCK_OFFSET)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, _LOCK_NBYTES)
             except OSError as e:
                 fh.close()
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
@@ -176,8 +188,8 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
                 import msvcrt
 
                 try:
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    fh.seek(_LOCK_OFFSET)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, _LOCK_NBYTES)
                 except OSError as e:
                     log.debug("释放 msvcrt 锁异常（忽略）: %s", e)
             else:
