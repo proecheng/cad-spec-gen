@@ -658,6 +658,23 @@ class TestMatchToolboxPart:
         # "gb" 或 "70" 应属 part_no
         assert any(k in part_no_tokens for k in ["gb", "70", "1"])
 
+    def test_internal_part_no_excluded_at_zero_weight(self):
+        """part_no weight=0.0 时，内部编号 token 不应出现在结果里。"""
+        from adapters.solidworks.sw_toolbox_catalog import build_query_tokens_weighted
+
+        class Q:
+            part_no = "GIS-DEMO-001"
+            name_cn = "GB/T 70.1 M6×20 内六角圆柱头螺钉"
+            material = "钢"
+
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        size_dict = {"size": "M6", "length": "20"}
+        tokens_weighted = build_query_tokens_weighted(Q(), size_dict, weights)
+        token_names = {t for t, _ in tokens_weighted}
+        assert "gis" not in token_names
+        assert "demo" not in token_names
+        assert "001" not in token_names
+
 
 class TestMakeIndexEnvelope:
     """Minor #5: _make_index_envelope 去重 _empty_index 与 build_toolbox_index 返回结构。"""
