@@ -1,0 +1,2 @@
+{"schema_version": 1, "pre_restart_count": 5, "post_restart_count": 3,
+ "all_steps_valid": true, "restart_duration_s": 6.2, "pass": true}

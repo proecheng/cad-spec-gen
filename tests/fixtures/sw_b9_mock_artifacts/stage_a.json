@@ -1,0 +1,4 @@
+{"schema_version": 1, "total_rows": 15, "standard_rows": 15,
+ "matched": 12, "coverage": 0.80, "target": 0.73, "pass": true,
+ "unmatched_rows": ["GIS-DEMO-013", "GIS-DEMO-014", "GIS-DEMO-015"],
+ "excluded_rows": []}

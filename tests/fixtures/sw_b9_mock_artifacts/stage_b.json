@@ -1,0 +1,4 @@
+{"schema_version": 1, "total_rows": 58, "standard_rows": 22,
+ "matched": 14, "coverage": 0.636, "sample_size_below_100": true,
+ "note": "B1: below ≥100 threshold, informational only",
+ "excluded_rows": [], "pass": "informational"}
