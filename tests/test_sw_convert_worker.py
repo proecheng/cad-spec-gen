@@ -9,8 +9,6 @@ import os
 import sys
 import unittest.mock as mock
 
-import pytest  # noqa: F401  # pytest fixtures 由 pytest 框架注入，ruff 误报 unused
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -117,3 +115,38 @@ class TestWorkerConvert:
         rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
         assert rc == 4
         assert "Dispatch failed" in capsys.readouterr().err
+
+    def test_opendoc6_null_model_returns_2(self, monkeypatch, capsys):
+        """OpenDoc6 errors==0 但返回 null model → 仍 exit 2（分支独立于 errors!=0）。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+
+        # err_var.value 保持 0；但 OpenDoc6 返回 None 表示加载失败
+        fake_app.OpenDoc6.return_value = None
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
+        assert rc == 2
+        assert "model=NULL" in capsys.readouterr().err
+
+    def test_saveas3_saved_true_but_errors_returns_3(self, monkeypatch, capsys):
+        """SaveAs3 返回 True 但 err2.value!=0（SW 部分保存带错误码）→ exit 3。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+
+        model = mock.MagicMock()
+        fake_app.OpenDoc6.return_value = model
+
+        def saveas_sets_error(tmp_path, version, options, d1, d2, err_v, warn_v):
+            # SaveAs3 签名里 err_v 是第 6 个位置参数（index 5），写 errors
+            err_v.value = 4  # 随意非零值
+            return True  # saved=True
+
+        model.Extension.SaveAs3.side_effect = saveas_sets_error
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
+        assert rc == 3
+        assert "errors=4" in capsys.readouterr().err
