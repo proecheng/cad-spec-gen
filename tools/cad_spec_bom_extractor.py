@@ -88,3 +88,97 @@ def extract_bom_tree(md_path: Path) -> list[dict[str, Any]]:
             "make_buy": r[4],
         })
     return out
+
+
+CATEGORY_KEYWORDS = {
+    "fastener": ["螺钉", "螺栓", "紧定", "内六角螺", "socket head"],
+    "bearing": ["轴承", "bearing"],
+    "washer": ["垫圈", "washer", "碟形弹簧"],
+    "nut": ["螺母", "nut"],
+    "screw": [],  # screw 同 fastener，保留占位
+    "pin": ["销", "pin"],
+    "key": ["键 ", "key"],
+}
+
+STANDARD_CATEGORIES = {"fastener", "bearing", "washer", "nut", "screw", "pin", "key"}
+STANDARD_MAKE_BUY = {"外购", "标准", "外购标准件"}
+
+
+def classify_category(name_cn: str) -> str:
+    """按关键词识别 category；任何都不命中返回 'other'。"""
+    for cat, kws in CATEGORY_KEYWORDS.items():
+        for kw in kws:
+            if kw in name_cn:
+                return cat
+    return "other"
+
+
+def filter_standard_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """按 category + make_buy 过滤。返回 (kept, excluded)。"""
+    kept, excluded = [], []
+    for r in rows:
+        cat = r.get("category") or classify_category(r.get("name_cn", ""))
+        mb = r.get("make_buy", "")
+        if cat in STANDARD_CATEGORIES and mb in STANDARD_MAKE_BUY:
+            r["category"] = cat
+            kept.append(r)
+        else:
+            r["category"] = cat
+            excluded.append(r)
+    return kept, excluded
+
+
+def write_bom_csv(rows: list[dict[str, Any]], csv_path: Path) -> None:
+    """写 CSV，字段对齐 tests/fixtures/sw_warmup_demo_bom.csv schema。"""
+    fieldnames = ["part_no", "name_cn", "material", "make_buy", "category"]
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in fieldnames})
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="CAD_SPEC.md → BOM CSV 抽取器")
+    parser.add_argument("--input", required=True, help="CAD_SPEC.md 路径")
+    parser.add_argument("--output", required=True, help="输出 CSV 路径")
+    parser.add_argument("--output-excluded", help="被排除行的 CSV（可选）")
+    args = parser.parse_args()
+
+    in_path = Path(args.input)
+    out_path = Path(args.output)
+
+    fasteners = extract_fasteners(in_path)
+    # §3 紧固件清单没有 part_no，用 location 占位
+    fastener_rows = [
+        {
+            "part_no": f"FAST-{i:03d}",
+            "name_cn": f["spec"],
+            "material": "",
+            "make_buy": "外购",
+            "category": classify_category(f["spec"]),
+        }
+        for i, f in enumerate(fasteners, 1)
+    ]
+
+    bom_rows = extract_bom_tree(in_path)
+    for r in bom_rows:
+        r["category"] = classify_category(r.get("name_cn", ""))
+
+    all_rows = fastener_rows + bom_rows
+    kept, excluded = filter_standard_rows(all_rows)
+
+    write_bom_csv(kept, out_path)
+    if args.output_excluded:
+        write_bom_csv(excluded, Path(args.output_excluded))
+
+    print(f"total={len(all_rows)} kept={len(kept)} excluded={len(excluded)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

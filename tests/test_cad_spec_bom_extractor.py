@@ -76,3 +76,44 @@ class TestExtractBomTree:
         row_by_pn = {r["part_no"]: r for r in rows}
         assert row_by_pn["GIS-EE-001-01"]["make_buy"] == "自制"
         assert row_by_pn["GIS-EE-001-04"]["make_buy"] == "外购"
+
+
+class TestClassifyAndFilter:
+    def test_classify_category_by_keywords(self):
+        """按 name_cn 关键词判定 category。"""
+        from tools.cad_spec_bom_extractor import classify_category
+
+        assert classify_category("M6×20 内六角螺钉") == "fastener"
+        assert classify_category("深沟球轴承 6205") == "bearing"
+        assert classify_category("碟形弹簧垫圈") == "washer"
+        assert classify_category("M6 六角螺母") == "nut"
+        assert classify_category("Maxon ECX 电机") == "other"
+        assert classify_category("法兰本体") == "other"
+
+    def test_filter_standard_only(self):
+        """过滤到 category∈{fastener, bearing, washer, nut, screw, pin, key} 且 make_buy∈{外购, 标准}。"""
+        from tools.cad_spec_bom_extractor import filter_standard_rows
+
+        rows = [
+            {"part_no": "A", "name_cn": "M6 内六角螺钉", "make_buy": "外购", "category": "fastener"},
+            {"part_no": "B", "name_cn": "法兰本体", "make_buy": "自制", "category": "other"},
+            {"part_no": "C", "name_cn": "轴承 6205", "make_buy": "外购", "category": "bearing"},
+            {"part_no": "D", "name_cn": "非标电机", "make_buy": "外购", "category": "other"},
+        ]
+        kept, excluded = filter_standard_rows(rows)
+        assert [r["part_no"] for r in kept] == ["A", "C"]
+        assert [r["part_no"] for r in excluded] == ["B", "D"]
+
+
+class TestWriteCsv:
+    def test_writes_expected_columns(self, tmp_path):
+        from tools.cad_spec_bom_extractor import write_bom_csv
+
+        rows = [{"part_no": "P1", "name_cn": "M6 螺钉", "material": "钢",
+                 "make_buy": "外购", "category": "fastener"}]
+        csv_path = tmp_path / "out.csv"
+        write_bom_csv(rows, csv_path)
+
+        content = csv_path.read_text(encoding="utf-8")
+        assert "part_no,name_cn,material,make_buy,category" in content
+        assert "P1,M6 螺钉,钢,外购,fastener" in content
