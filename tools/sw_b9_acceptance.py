@@ -125,6 +125,114 @@ def stage_0_5_token_health(
     return result
 
 
+def _measure_coverage(
+    bom_csv: Path,
+    min_score: float,
+    standards: list[str] | None = None,
+) -> dict[str, Any]:
+    """测量 BOM 覆盖率（不做真 STEP 转换）。复用 sw_warmup.read_bom_csv + SwToolboxAdapter.find_sldprt。"""
+    from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+    from parts_resolver import load_registry
+    from tools.sw_warmup import read_bom_csv
+
+    registry = load_registry()
+    sw_cfg = registry.get("solidworks_toolbox", {})
+    if min_score is not None:
+        sw_cfg = {**sw_cfg, "min_score": min_score}
+    if standards:
+        sw_cfg = {**sw_cfg, "standards": standards}
+
+    adapter = SwToolboxAdapter(config=sw_cfg)
+    queries = read_bom_csv(bom_csv)
+
+    matched: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    std_list = standards or ["GB", "ISO", "DIN"]
+    for q in queries:
+        spec = {"standard": std_list, "part_category": q.category}
+        m = adapter.find_sldprt(q, spec)
+        if m is not None:
+            part, score = m
+            matched.append({"part_no": q.part_no, "sldprt": part.sldprt_path, "score": score})
+        else:
+            unmatched.append(q.part_no)
+
+    total = len(matched) + len(unmatched)
+    return {
+        "total": total,
+        "matched_count": len(matched),
+        "matched": matched,
+        "unmatched": unmatched,
+        "coverage": len(matched) / total if total else 0.0,
+    }
+
+
+def stage_a_demo_coverage(
+    demo_bom: Path, min_score: float, artifacts_dir: Path,
+) -> dict[str, Any]:
+    """demo_bom.csv 覆盖率（分母 = 15 行，全标准件）。目标 ≥ 73%。"""
+    cov = _measure_coverage(demo_bom, min_score)
+    result = {
+        "total_rows": cov["total"],
+        "standard_rows": cov["total"],  # demo 全标准件
+        "matched": cov["matched_count"],
+        "matched_list": cov["matched"],  # 给 Stage C 用
+        "coverage": cov["coverage"],
+        "target": 0.73,
+        "pass": cov["coverage"] >= 0.73,
+        "unmatched_rows": cov["unmatched"],
+        "excluded_rows": [],
+    }
+    _dump(artifacts_dir, "stage_a.json", result)
+    return result
+
+
+def stage_b_gisbot_coverage(
+    real_bom_spec: Path, min_score: float, artifacts_dir: Path,
+) -> dict[str, Any]:
+    """GISBOT CAD_SPEC → 过滤 → 覆盖率。informational，不判 pass/fail。"""
+    from tools.cad_spec_bom_extractor import (
+        extract_bom_tree, extract_fasteners, filter_standard_rows,
+        classify_category, write_bom_csv,
+    )
+
+    fasteners = extract_fasteners(real_bom_spec)
+    fastener_rows = [
+        {
+            "part_no": f"FAST-{i:03d}",
+            "name_cn": f["spec"],
+            "material": "",
+            "make_buy": "外购",
+            "category": classify_category(f["spec"]),
+        }
+        for i, f in enumerate(fasteners, 1)
+    ]
+    bom_rows = extract_bom_tree(real_bom_spec)
+    for r in bom_rows:
+        r["category"] = classify_category(r.get("name_cn", ""))
+    all_rows = fastener_rows + bom_rows
+    kept, excluded = filter_standard_rows(all_rows)
+
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    kept_csv = artifacts_dir / "stage_b_extracted_bom.csv"
+    write_bom_csv(kept, kept_csv)
+
+    cov = _measure_coverage(kept_csv, min_score)
+
+    result = {
+        "total_rows": len(all_rows),
+        "standard_rows": len(kept),
+        "matched": cov["matched_count"],
+        "coverage": cov["coverage"],
+        "sample_size_below_100": len(all_rows) < 100,
+        "note": "B1: below ≥100 threshold, informational only",
+        "excluded_rows": [r["part_no"] for r in excluded],
+        "pass": "informational",
+    }
+    _dump(artifacts_dir, "stage_b.json", result)
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="SW-B9 真跑验收编排")
     parser.add_argument("--toolbox-root", default="C:/SolidWorks Data/browser")
@@ -145,13 +253,15 @@ def main() -> int:
     demo_bom = Path(args.demo_bom)
 
     try:
-        stage_0_preflight(
+        preflight = stage_0_preflight(
             toolbox_root, demo_bom, artifacts_dir,
             rebuild_index=not args.no_rebuild_index,
         )
         stage_0_5_token_health(demo_bom, artifacts_dir, toolbox_root)
-        # Task 10 起补 Stage A/B/D-pre/C/D/E
-        log.info("Stage 0 + 0.5 完成，后续 stage 在 Task 10+ 实现")
+        min_score = preflight.get("min_score_used", 0.30)
+        stage_a_demo_coverage(demo_bom, min_score, artifacts_dir)
+        stage_b_gisbot_coverage(Path(args.real_bom_spec), min_score, artifacts_dir)
+        log.info("Stage 0 + 0.5 + A + B 完成，后续 stage 在 Task 11 实现")
         return 0
     except Exception:
         log.error("编排失败:\n%s", traceback.format_exc())
