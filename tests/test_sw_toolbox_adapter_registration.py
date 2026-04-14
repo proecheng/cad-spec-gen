@@ -95,10 +95,10 @@ class TestDefaultYamlConfig:
         # fastener 含 exclude_patterns 防 UNC/Tr/G/NPT
         assert any("UN" in p for p in sp["fastener"].get("exclude_patterns", []))
 
-        # com 超时常量可覆盖
+        # com subprocess 超时 + 熔断阈值（Part 2c P0 后剩下的两项）
         com_cfg = cfg.get("com", {})
-        assert com_cfg.get("cold_start_timeout_sec") == 90
-        assert com_cfg.get("restart_every_n_converts") == 50
+        assert com_cfg.get("single_convert_timeout_sec") == 30
+        assert com_cfg.get("circuit_breaker_threshold") == 3
 
     def test_default_yaml_has_gb_fastener_rule_before_generic_fallback(self, tmp_path):
         """YAML mapping: GB 高优先级规则必须在 jinja_primitive 兜底之前。"""

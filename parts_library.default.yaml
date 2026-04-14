@@ -76,12 +76,11 @@ solidworks_toolbox:
     bearing:
       model: '\b(\d{4,5})\b'
 
-  # COM 超时/重启（决策 #10、#11，可按机型调整）
+  # COM subprocess 超时 + 熔断（Part 2c P0 后配置瘦身）
+  # cold_start / restart / idle_shutdown 在 subprocess-per-convert 模型下
+  # 已不存在——每次 convert 是独立冷启，父进程不持久 COM 状态。
   com:
-    cold_start_timeout_sec: 90
     single_convert_timeout_sec: 30
-    restart_every_n_converts: 50
-    idle_shutdown_sec: 300
     circuit_breaker_threshold: 3
 
 mappings:
