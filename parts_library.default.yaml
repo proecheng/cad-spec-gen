@@ -91,7 +91,7 @@ mappings:
   - match:
       category: fastener
       keyword_contains: ["GB/T", "国标", "GB "]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bolts and studs", "nuts", "screws",
@@ -101,7 +101,7 @@ mappings:
   - match:
       category: bearing
       keyword_contains: ["GB/T", "国标", "深沟球", "圆柱滚子", "推力"]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bearing"]
@@ -196,7 +196,7 @@ mappings:
   # 永远拿不到 bearing；first-hit-wins 下 {category: bearing} 抢先。
   - match:
       category: bearing
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bearings"]
@@ -271,7 +271,7 @@ mappings:
   # ISO/DIN bearing 的兜底位置需在 bd_warehouse 通用 bearing 之前，见上方
   - match:
       category: fastener
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bolts", "nuts", "screws", "washers"]

@@ -10,28 +10,23 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 DEMO_BOM = Path(__file__).parent / "fixtures" / "sw_warmup_demo_bom.csv"
 FAKE_TOOLBOX = Path(__file__).parent / "fixtures" / "fake_toolbox"
 
 
-def test_bom_resolves_with_mocked_com(monkeypatch, tmp_path):
-    """加载 demo_bom.csv → 经 PartsResolver → 验证 sw_toolbox 可用且 mocking 有效。
+@pytest.fixture
+def sw_available(monkeypatch, tmp_path):
+    """Mock 让 SwToolboxAdapter.is_available() = True 且 cache 在 tmp_path。"""
+    from adapters.solidworks import sw_com_session, sw_detect, sw_toolbox_catalog
 
-    注意：parts_library.default.yaml 的 mappings 使用 adapter: solidworks_toolbox，
-    但 SwToolboxAdapter.name = "sw_toolbox"（v4 决策 #14 改名），导致当前状态下
-    不会匹配到 sw_toolbox。本测试验证的是 mocking 链路完整（如果有匹配规则）。
-    """
-    from adapters.solidworks import sw_detect, sw_toolbox_catalog, sw_com_session
-    from tools.sw_warmup import read_bom_csv
-    from parts_resolver import default_resolver
-
-    # Mock sys.platform 为 win32 以通过平台检查
+    # 非 Windows CI 下 is_available 首关 sys.platform != 'win32' 会直接 False
     monkeypatch.setattr(sys, "platform", "win32")
 
     sw_detect._reset_cache()
-    # 若 sw_com_session 有 reset_session 则用，否则跳过
     reset_fn = getattr(sw_com_session, "reset_session", None)
     if callable(reset_fn):
         reset_fn()
@@ -56,31 +51,41 @@ def test_bom_resolves_with_mocked_com(monkeypatch, tmp_path):
     )
 
     def fake_convert(self, sldprt_path, step_out):
-        P = Path
-        P(step_out).parent.mkdir(parents=True, exist_ok=True)
-        P(step_out).write_bytes(b"ISO-10303-21 fake" + b"\x00" * 2000)
+        Path(step_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(step_out).write_bytes(b"ISO-10303-21 fake" + b"\x00" * 2000)
         return True
 
     monkeypatch.setattr(
         sw_com_session.SwComSession, "convert_sldprt_to_step", fake_convert
     )
+    return tmp_path
+
+
+def test_bom_resolves_with_mocked_com(sw_available):
+    """加载 demo_bom.csv → 经 PartsResolver → 至少 1 行命中 sw_toolbox。
+
+    fake_toolbox 只含少数 GB sldprt 且命名语言受限，这里测试环境放宽 min_score
+    到 0.05（生产默认 0.30）以让中文 BOM 和英/中 fake 部件能产生至少 1 次命中，
+    证端到端链路（BOM → resolver → SW adapter → mocked COM → cache 写入）打通。
+    """
+    from parts_resolver import default_resolver
+    from tools.sw_warmup import read_bom_csv
 
     queries = read_bom_csv(DEMO_BOM)
     assert len(queries) == 15
 
-    # 验证 SwToolboxAdapter 在 mock 后能够 is_available()
-    from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+    resolver = default_resolver(project_root=str(sw_available))
+    # 放宽阈值：fake fixture token 稀疏，仅为验证链路
+    sw_adapter = next(
+        (a for a in resolver.adapters if a.name == "sw_toolbox"), None
+    )
+    assert sw_adapter is not None, "SwToolboxAdapter 未注册"
+    sw_adapter.config["min_score"] = 0.05
 
-    adapter = SwToolboxAdapter(project_root=str(tmp_path), config={})
-    assert adapter.is_available(), "SwToolboxAdapter 应在 mock win32 平台后变为可用"
-
-    # 加载 resolver 并验证流程完整
-    resolver = default_resolver(project_root=str(tmp_path))
-
-    # 虽然当前 parts_library.yaml 映射不会命中 sw_toolbox（名字不匹配），
-    # 但 BOM 应该能加载并通过其他适配器解析
+    sw_hits = 0
     for q in queries:
         result = resolver.resolve(q)
-        assert result.status in ("hit", "fallback", "miss"), (
-            f"{q.part_no} resolve 应返回有效状态，得到 {result.status}"
-        )
+        if result.adapter == "sw_toolbox" and result.status == "hit":
+            sw_hits += 1
+
+    assert sw_hits >= 1, "至少 1 行应命中 sw_toolbox（fake_toolbox 几何有限）"

@@ -439,9 +439,9 @@ class TestLoadToolboxIndex:
         # 第一次调用：构建
         load_toolbox_index(cache, fake_toolbox)
         # 篡改 scan_time 以检测缓存是否被复用
-        data = json.loads(cache.read_text())
+        data = json.loads(cache.read_text(encoding="utf-8"))
         data["scan_time"] = "sentinel-cached"
-        cache.write_text(json.dumps(data))
+        cache.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
         idx2 = load_toolbox_index(cache, fake_toolbox)
         assert idx2["scan_time"] == "sentinel-cached"  # 来自缓存
@@ -474,10 +474,10 @@ class TestLoadToolboxIndex:
         # 先构建一次
         load_toolbox_index(cache, fake_toolbox)
         # 破坏缓存中的 fingerprint
-        data = json.loads(cache.read_text())
+        data = json.loads(cache.read_text(encoding="utf-8"))
         data["toolbox_fingerprint"] = "0" * 40
         data["scan_time"] = "stale"
-        cache.write_text(json.dumps(data))
+        cache.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
         idx = load_toolbox_index(cache, fake_toolbox)
         assert idx["scan_time"] != "stale"  # 已重建
@@ -499,7 +499,7 @@ class TestLoadToolboxIndex:
         )
         assert parts_before > 0  # 前置条件
 
-        data = json.loads(cache.read_text())
+        data = json.loads(cache.read_text(encoding="utf-8"))
         # 找到第一个 part，把 sldprt_path 改成 toolbox_dir 之外的路径
         tampered = False
         outside_path = str(tmp_path / "evil.sldprt")
@@ -512,7 +512,7 @@ class TestLoadToolboxIndex:
             if tampered:
                 break
         assert tampered
-        cache.write_text(json.dumps(data))
+        cache.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
         # reload — fingerprint 仍一致，走 cache hit 分支
         idx_after = load_toolbox_index(cache, fake_toolbox)

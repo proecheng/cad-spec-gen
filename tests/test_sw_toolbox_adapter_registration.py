@@ -109,7 +109,7 @@ class TestDefaultYamlConfig:
         sw_gb_idx = None
         bd_any_idx = None
         for i, m in enumerate(mappings):
-            if m.get("adapter") == "solidworks_toolbox":
+            if m.get("adapter") == "sw_toolbox":
                 keywords = m.get("match", {}).get("keyword_contains", [])
                 if any("GB" in k for k in keywords) and sw_gb_idx is None:
                     sw_gb_idx = i
@@ -131,7 +131,7 @@ class TestDefaultYamlConfig:
         sw_iso_bearing_idx = None
         bd_generic_bearing_idx = None
         for i, m in enumerate(mappings):
-            if m.get("adapter") == "solidworks_toolbox":
+            if m.get("adapter") == "sw_toolbox":
                 spec = m.get("spec", {})
                 std = spec.get("standard")
                 # standard 可为 list 或 str
