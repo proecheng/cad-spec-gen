@@ -18,7 +18,7 @@ class TestLoadCnSynonyms:
         synonyms = load_cn_synonyms()
         assert isinstance(synonyms, dict)
         assert "螺钉" in synonyms
-        assert synonyms["螺钉"] == ["screw"]
+        assert synonyms["螺钉"] == ["screw", "screws"]
         assert "深沟球" in synonyms
         assert synonyms["深沟球"] == ["deep", "groove", "ball"]
 
@@ -94,9 +94,8 @@ class TestEndToEndMatchWithSynonyms:
     def test_gb_70_1_m6_20_hits_socket_head_cap_screw(self):
         """GB/T 70.1 M6×20 内六角圆柱头螺钉 匹配 'hexagon socket head cap screws' sldprt。
 
-        注：SW-C 起同义词表补充了 hexagon/复数，query token 增多，
-        min_score 随之从 0.30 调整为 0.25（端到端命中语义不变）。
-        fake_index 文件名同步更新为更贴近真实 toolbox 的 hexagon 前缀形式。
+        fake_index 文件名为真实 toolbox 的 hexagon 前缀形式（SW-C 同义词表补充后）。
+        权重使用生产配置（part_no: 0.0），内部 ID token 不注入。
         """
         from adapters.solidworks.sw_toolbox_catalog import (
             SwToolboxPart,
@@ -126,28 +125,31 @@ class TestEndToEndMatchWithSynonyms:
             name_cn = "GB/T 70.1 M6×20 内六角圆柱头螺钉"
             material = "钢"
 
-        weights = {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+        weights = {"part_no": 0.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
         q_tokens = build_query_tokens_weighted(Query(), {"size": "M6"}, weights)
 
-        # 验证扩展确实注入了 'socket'、'screw'、'hexagon'
+        # 内部 ID token 不应注入（part_no=0.0 生产配置）
         q_map = dict(q_tokens)
+        assert "gis" not in q_map
+        assert "demo" not in q_map
+        # 同义词扩展已注入关键匹配 token
         assert "socket" in q_map
         assert "screw" in q_map
         assert "hex" in q_map
         assert "hexagon" in q_map
 
-        # 端到端匹配（min_score=0.25，反映 query token 增多后的实际打分范围）
+        # 端到端匹配（生产阈值 0.30）
         result = match_toolbox_part(
             fake_index,
             q_tokens,
             standards=["GB"],
             subcategories=["bolts and studs"],
-            min_score=0.25,
+            min_score=0.30,
         )
         assert result is not None
         part, score = result
         assert part.filename == "hexagon socket head cap screws gb.sldprt"
-        assert score >= 0.25
+        assert score >= 0.30
 
 
 class TestNewSynonyms:

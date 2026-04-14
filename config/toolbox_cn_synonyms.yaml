@@ -7,7 +7,7 @@
 # 新增记录需同步 tests/test_toolbox_cn_synonyms.py
 
 fasteners:
-  螺钉: [screw]
+  螺钉: [screw, screws]
   螺栓: [bolt, bolts, screw, screws]
   螺母: [nut, nuts]
   垫圈: [washer, washers]
