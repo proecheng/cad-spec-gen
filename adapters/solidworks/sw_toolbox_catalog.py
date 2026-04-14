@@ -151,6 +151,46 @@ def load_cn_synonyms(path: Optional[Path] = None) -> dict[str, list[str]]:
     return _load_cn_synonyms_from_path(path)
 
 
+def expand_cn_synonyms(
+    tokens_weighted: list[tuple[str, float]],
+    synonyms: dict[str, list[str]],
+) -> list[tuple[str, float]]:
+    """对每个 CJK token 做子串同义词匹配，注入对等英文 token（同权重）。
+
+    规则：
+    - 只对含 CJK 字符的 token 做子串扫描（ASCII token 原样透传）
+    - 同一英文 token 被多源注入时取最大权重（与 build_query_tokens_weighted 一致）
+    - 原 CJK token 保留（不删除），扩展只做添加
+
+    Args:
+        tokens_weighted: tokenize + 加权后的 [(token, weight), ...]
+        synonyms: load_cn_synonyms 返回的 {cn_morpheme: [en_tokens]}
+
+    Returns:
+        扩展后的 [(token, weight), ...]
+    """
+    if not tokens_weighted or not synonyms:
+        return list(tokens_weighted)
+
+    collected: dict[str, float] = {}
+    for tok, w in tokens_weighted:
+        if tok not in collected or collected[tok] < w:
+            collected[tok] = w
+
+    for tok, w in tokens_weighted:
+        # 仅对 CJK token 做子串扫描（包含 \u4e00-\u9fff 字符即判定）
+        has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in tok)
+        if not has_cjk:
+            continue
+        for cn_key, en_tokens in synonyms.items():
+            if cn_key in tok:
+                for en in en_tokens:
+                    if en not in collected or collected[en] < w:
+                        collected[en] = w
+
+    return list(collected.items())
+
+
 def tokenize(text: str) -> list[str]:
     """拆分文本为小写 token 列表（v4 决策 #18）。
 
