@@ -131,7 +131,9 @@ class SwComSession:
         路径，会比未 idle 场景多一次 restart 开销，可接受。
         """
         if not self._lock.locked():
-            raise RuntimeError("_maybe_restart_locked 必须在持 self._lock 的上下文内调用")
+            raise RuntimeError(
+                "_maybe_restart_locked 必须在持 self._lock 的上下文内调用"
+            )
 
         if self._convert_count < RESTART_EVERY_N_CONVERTS:
             return
@@ -234,7 +236,12 @@ class SwComSession:
             return success
 
     def _do_convert(self, sldprt_path: str, step_out: str) -> bool:
-        """实际 COM 调用 + atomic write（v4 决策 #23）。"""
+        """实际 COM 调用 + atomic write（v4 决策 #23）。
+
+        OpenDoc6 / SaveAs3 的 OUT 参数必须以 VARIANT BYREF I4 传递，否则
+        pywin32 late-bind 会抛 DISP_E_TYPEMISMATCH / DISP_E_PARAMNOTOPTIONAL
+        （SW-B0 spike 实证；见 scripts/sw_spike_h1_convert.py）。
+        """
         if self._app is None:
             log.warning(
                 "SwComSession._app 未初始化；Part 2 需要实现 start() 方法来启动真实 SW。"
@@ -245,31 +252,50 @@ class SwComSession:
         tmp_path = step_out + ".tmp"
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
 
-        # OpenDoc6
-        model, errors, warnings = self._app.OpenDoc6(
+        import pythoncom
+        from win32com.client import VARIANT
+
+        # OpenDoc6: IN (name, type, options, config) + OUT (errors, warnings)
+        err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        model = self._app.OpenDoc6(
             sldprt_path,
             1,  # swDocPART
             1,  # swOpenDocOptions_Silent
             "",
-            0,
-            0,
+            err_var,
+            warn_var,
         )
-        if errors:
-            log.warning("OpenDoc6 errors: %s", errors)
+        if err_var.value:
+            log.warning(
+                "OpenDoc6 errors: %s (warnings: %s)",
+                err_var.value,
+                warn_var.value,
+            )
+            return False
+        if model is None:
+            log.warning("OpenDoc6 returned None model for %s", sldprt_path)
             return False
 
         try:
-            # SaveAs3 to tmp
+            # SaveAs3: IN (name, version, options) + 两个可选 IDispatch* +
+            # OUT (errors, warnings)。IDispatch* 可选空位必须用 VT_DISPATCH/None。
+            export_var = VARIANT(pythoncom.VT_DISPATCH, None)
+            advanced_var = VARIANT(pythoncom.VT_DISPATCH, None)
+            err2_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            warn2_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
             saved = model.Extension.SaveAs3(
                 tmp_path,
                 0,
                 1,
-                None,
-                None,
-                0,
-                0,
+                export_var,
+                advanced_var,
+                err2_var,
+                warn2_var,
             )
             if not saved:
+                if err2_var.value:
+                    log.warning("SaveAs3 errors: %s", err2_var.value)
                 return False
 
             # Validate tmp

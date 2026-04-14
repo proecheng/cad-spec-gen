@@ -72,9 +72,13 @@ class TestConvertSldprtToStep:
 
     @pytest.fixture
     def mock_app(self):
-        """Mock win32com Dispatch 对象 + OpenDoc6/SaveAs3/CloseDoc。"""
+        """Mock win32com Dispatch 对象 + OpenDoc6/SaveAs3/CloseDoc。
+
+        OpenDoc6 新签名：返回单个 model（OUT 参数通过 VARIANT BYREF 写回调用方，
+        在 mock 场景下 mock 无副作用 → VARIANT.value 维持 0，等价 errors=0）。
+        """
         app = mock.MagicMock()
-        app.OpenDoc6 = mock.MagicMock(return_value=(mock.MagicMock(), 0, 0))
+        app.OpenDoc6 = mock.MagicMock(return_value=mock.MagicMock())
         app.CloseDoc = mock.MagicMock()
         return app
 
@@ -92,7 +96,7 @@ class TestConvertSldprtToStep:
             Path(path).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
             return True
 
-        model = mock_app.OpenDoc6.return_value[0]
+        model = mock_app.OpenDoc6.return_value
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
             fake_saveas(path, *a, **kw),
             0,
@@ -116,7 +120,7 @@ class TestConvertSldprtToStep:
         s._app = mock_app
 
         step_out = tmp_path / "out.step"
-        model = mock_app.OpenDoc6.return_value[0]
+        model = mock_app.OpenDoc6.return_value
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
             Path(path).write_bytes(b"tiny"),
             0,
@@ -138,7 +142,7 @@ class TestConvertSldprtToStep:
         s = SwComSession()
         s._app = mock_app
         step_out = tmp_path / "out.step"
-        model = mock_app.OpenDoc6.return_value[0]
+        model = mock_app.OpenDoc6.return_value
         model.Extension.SaveAs3.side_effect = lambda path, *a, **kw: (
             Path(path).write_bytes(b"BINARY_GARBAGE" + b"X" * 2000),
             0,
@@ -184,7 +188,7 @@ class TestConvertSldprtToStep:
         s._consecutive_failures = 2
 
         # Success case
-        model = mock_app.OpenDoc6.return_value[0]
+        model = mock_app.OpenDoc6.return_value
 
         def fake_saveas(path, *a, **kw):
             Path(path).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
