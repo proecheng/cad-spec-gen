@@ -227,3 +227,17 @@ class TestDryRunTruncation:
         captured = capsys.readouterr()
         assert rc == 0
         assert "其余 5 个" in captured.out
+
+
+class TestCadPipelineSubcommand:
+    """cad_pipeline.py 注册了 sw-warmup 子命令。"""
+
+    def test_cmd_sw_warmup_exists(self):
+        """cad_pipeline 应导出 cmd_sw_warmup，且其能调用 run_sw_warmup。"""
+        import importlib.util
+
+        cad_path = os.path.join(os.path.dirname(__file__), "..", "cad_pipeline.py")
+        spec = importlib.util.spec_from_file_location("cad_pipeline_mod", cad_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert hasattr(mod, "cmd_sw_warmup"), "cad_pipeline 应导出 cmd_sw_warmup"

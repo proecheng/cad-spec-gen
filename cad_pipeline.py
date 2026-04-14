@@ -45,8 +45,12 @@ if hasattr(sys.stderr, "reconfigure"):
 import time
 
 from cad_paths import (
-    SKILL_ROOT, PROJECT_ROOT, get_blender_path, get_subsystem_dir,
-    get_output_dir, get_gemini_script,
+    SKILL_ROOT,
+    PROJECT_ROOT,
+    get_blender_path,
+    get_subsystem_dir,
+    get_output_dir,
+    get_gemini_script,
 )
 
 log = logging.getLogger("cad_pipeline")
@@ -72,6 +76,7 @@ def _deploy_tool_modules(sub_dir: str):
     Only copies if source is newer or target is missing (scaffold-safe).
     """
     import shutil
+
     tool_files = [
         "drawing.py",
         "draw_three_view.py",
@@ -106,15 +111,18 @@ def _resolve_camera_coords(rc):
     cartesian, no subsystem-specific logic.
     """
     import math as _m
+
     br = rc.get("subsystem", {}).get("bounding_radius_mm", 0)
     if not br:
         # Auto-derive from §6.4 envelopes if available
         spec_path = os.path.join(
             get_subsystem_dir(rc.get("subsystem", {}).get("name", "")) or "",
-            "CAD_SPEC.md")
+            "CAD_SPEC.md",
+        )
         if os.path.isfile(spec_path):
             try:
                 from codegen.gen_assembly import parse_envelopes
+
                 envs = parse_envelopes(spec_path)
                 if envs:
                     br = max(max(e) for e in envs.values()) * 1.5
@@ -209,14 +217,20 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None
     t0 = time.time()
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-            encoding="utf-8", errors="replace",
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
         )
         elapsed = time.time() - t0
         if result.returncode in warn_codes:
             log.warning(
                 "  WARN %s (exit %d, %.1fs) — continuing",
-                label, result.returncode, elapsed,
+                label,
+                result.returncode,
+                elapsed,
             )
             # Surface a short stderr tail so the warning is actionable,
             # but do not treat as failure.
@@ -243,6 +257,7 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None
 # ═════════════════════════════════════════════════════════════════════════════
 # Commands
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def _resolve_review_json(args):
     """Locate DESIGN_REVIEW.json for a subsystem (output_dir/cad_subdir/)."""
@@ -285,7 +300,9 @@ def _show_review_summary(review_json_path):
     log.info("=" * 60)
     log.info("  设计审查结果 (Design Review)")
     log.info("=" * 60)
-    log.info("  CRITICAL: %d | WARNING: %d | INFO: %d | OK: %d", c, w, info_count, ok_count)
+    log.info(
+        "  CRITICAL: %d | WARNING: %d | INFO: %d | OK: %d", c, w, info_count, ok_count
+    )
     if af > 0:
         log.info("  可自动补全: %d 项", af)
     log.info("  详见: %s", review_md)
@@ -311,7 +328,9 @@ def _show_review_summary(review_json_path):
         elif severity == "INFO":
             log.info("  [INFO]     %s: %s", label, msg)
     log.info("=" * 60)
-    auto_fill_items = [item.get("id", "") for item in items if item.get("auto_fill") == "是"]
+    auto_fill_items = [
+        item.get("id", "") for item in items if item.get("auto_fill") == "是"
+    ]
     return c, w, af, auto_fill_items
 
 
@@ -321,8 +340,9 @@ def _infer_assembly_layers(review_json_path):
     # Try cad/ path too
     if not os.path.isfile(spec_path):
         # output/end_effector/DESIGN_REVIEW.json -> cad/end_effector/CAD_SPEC.md
-        spec_path = spec_path.replace(os.sep + "output" + os.sep,
-                                      os.sep + "cad" + os.sep)
+        spec_path = spec_path.replace(
+            os.sep + "output" + os.sep, os.sep + "cad" + os.sep
+        )
     if not os.path.isfile(spec_path):
         return None
     lines = open(spec_path, encoding="utf-8", errors="replace").readlines()
@@ -335,7 +355,12 @@ def _infer_assembly_layers(review_json_path):
             continue
         if in_bom and line.startswith("## "):
             break
-        if in_bom and line.startswith("| ") and "---" not in line and "料号" not in line:
+        if (
+            in_bom
+            and line.startswith("| ")
+            and "---" not in line
+            and "料号" not in line
+        ):
             cols = [c.strip().strip("*") for c in line.strip().split("|")[1:-1]]
             if len(cols) >= 2:
                 part_no = cols[0].strip()
@@ -350,10 +375,12 @@ def _infer_assembly_layers(review_json_path):
         if not part_no:
             continue
         # Assembly header (bold, no sub-number)
-        if part_no.count("-") <= 2 and not any(c.isdigit() for c in part_no.split("-")[-1:][0] if part_no.split("-")[-1:]):
+        if part_no.count("-") <= 2 and not any(
+            c.isdigit() for c in part_no.split("-")[-1:][0] if part_no.split("-")[-1:]
+        ):
             pass
         is_assembly = part_no.count("-") == 2  # GIS-EE-001
-        is_part = part_no.count("-") == 3       # GIS-EE-001-01
+        is_part = part_no.count("-") == 3  # GIS-EE-001-01
         if is_assembly:
             current_assembly = name
             result.append(f"1|{name}|固定|法兰螺栓|0")
@@ -428,18 +455,27 @@ def _enrich_render_config_materials(sub_dir):
     if changed:
         with open(rc_path, "w", encoding="utf-8") as f:
             json.dump(rc, f, indent=2, ensure_ascii=False)
-        log.info("  Enriched render_config.json: %d component→material links",
-                 sum(1 for c in components.values()
-                     if not isinstance(c, str) and "material" in c))
+        log.info(
+            "  Enriched render_config.json: %d component→material links",
+            sum(
+                1
+                for c in components.values()
+                if not isinstance(c, str) and "material" in c
+            ),
+        )
 
 
 # 材质 preset 推断关键词路由（从 BOM material 文本推导 render preset）
 _MAT_PRESET = {
-    "铝": "brushed_aluminum", "Al": "brushed_aluminum",
-    "钢": "stainless_304", "SUS": "stainless_304",
+    "铝": "brushed_aluminum",
+    "Al": "brushed_aluminum",
+    "钢": "stainless_304",
+    "SUS": "stainless_304",
     "PEEK": "peek_amber",
-    "橡胶": "black_rubber", "硅橡胶": "black_rubber",
-    "塑料": "white_nylon", "尼龙": "white_nylon",
+    "橡胶": "black_rubber",
+    "硅橡胶": "black_rubber",
+    "塑料": "white_nylon",
+    "尼龙": "white_nylon",
     "铜": "copper",
 }
 
@@ -458,6 +494,7 @@ def get_material_preset_keywords():
     if sys.platform == "win32":
         try:
             from adapters.solidworks.sw_material_bridge import load_sw_material_bundle
+
             bundle = load_sw_material_bundle()
             if bundle:
                 for k, v in bundle.preset_keywords.items():
@@ -524,9 +561,11 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                     mat_key = candidates[0]
                 else:
                     # Create materials entry from BOM child material field
-                    children = [p for p in parts
-                                if p["part_no"].startswith(pno + "-")
-                                and not p["is_assembly"]]
+                    children = [
+                        p
+                        for p in parts
+                        if p["part_no"].startswith(pno + "-") and not p["is_assembly"]
+                    ]
                     preset = "brushed_aluminum"
                     for child in children:
                         mat_text = child.get("material", "")
@@ -552,8 +591,11 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
         }
 
         # Infer preset from first child's material field
-        children = [p for p in parts
-                    if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
+        children = [
+            p
+            for p in parts
+            if p["part_no"].startswith(pno + "-") and not p["is_assembly"]
+        ]
         preset = "brushed_aluminum"
         for child in children:
             mat_text = child.get("material", "")
@@ -590,13 +632,20 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                 matched_part = None
                 for pno, part in all_parts.items():
                     name_lower = part["name_cn"].lower()
-                    if comp_ref in name_lower or comp_ref.replace("_", "") in name_lower:
+                    if (
+                        comp_ref in name_lower
+                        or comp_ref.replace("_", "") in name_lower
+                    ):
                         matched_part = part
                         break
                 if not matched_part:
                     # Try English-like matching (adapter → 适配)
-                    _LABEL_CN_MAP = {"adapter": "适配", "motor": "电机",
-                                     "reducer": "减速", "drive": "驱动"}
+                    _LABEL_CN_MAP = {
+                        "adapter": "适配",
+                        "motor": "电机",
+                        "reducer": "减速",
+                        "drive": "驱动",
+                    }
                     cn_keyword = _LABEL_CN_MAP.get(comp_ref, "")
                     if cn_keyword:
                         for pno, part in all_parts.items():
@@ -618,8 +667,10 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                             if keyword in mat_text:
                                 preset = p_name
                                 break
-                        materials[comp_ref] = {"preset": preset,
-                                               "label": matched_part["name_cn"]}
+                        materials[comp_ref] = {
+                            "preset": preset,
+                            "label": matched_part["name_cn"],
+                        }
                     changed = True
 
     if changed:
@@ -634,6 +685,7 @@ def _validate_render_config(rc_path):
     Returns list of warning strings (empty = valid).
     """
     import re as _re
+
     if not os.path.isfile(rc_path):
         return []
     with open(rc_path, encoding="utf-8") as f:
@@ -650,12 +702,14 @@ def _validate_render_config(rc_path):
         mat_key = comp.get("material", comp_key)
         if mat_key not in materials:
             warnings.append(
-                f"component '{comp_key}': material '{mat_key}' not in materials section")
+                f"component '{comp_key}': material '{mat_key}' not in materials section"
+            )
         # Check bom_id format
         bom_id = comp.get("bom_id", "")
-        if bom_id and not _re.match(r'^[A-Z]+-[A-Z]+-\d+', bom_id):
+        if bom_id and not _re.match(r"^[A-Z]+-[A-Z]+-\d+", bom_id):
             warnings.append(
-                f"component '{comp_key}': bom_id '{bom_id}' has unexpected format")
+                f"component '{comp_key}': bom_id '{bom_id}' has unexpected format"
+            )
 
     # Check labels reference valid components
     for view_key, label_list in rc.get("labels", {}).items():
@@ -664,8 +718,7 @@ def _validate_render_config(rc_path):
         for label in label_list:
             comp_ref = label.get("component", "")
             if comp_ref and comp_ref not in components:
-                warnings.append(
-                    f"labels.{view_key}: component '{comp_ref}' not found")
+                warnings.append(f"labels.{view_key}: component '{comp_ref}' not found")
 
     return warnings
 
@@ -680,10 +733,16 @@ def _interactive_fill_warnings(review_json_path):
     with open(review_json_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    all_items = [item for item in data.get("items", [])
-                 if item.get("verdict") in ("WARNING", "CRITICAL")]
-    info_items = [item for item in data.get("items", [])
-                  if item.get("verdict") == "INFO" and item.get("auto_fill") == "是"]
+    all_items = [
+        item
+        for item in data.get("items", [])
+        if item.get("verdict") in ("WARNING", "CRITICAL")
+    ]
+    info_items = [
+        item
+        for item in data.get("items", [])
+        if item.get("verdict") == "INFO" and item.get("auto_fill") == "是"
+    ]
     all_guide = all_items + info_items
     if not all_guide:
         return {}
@@ -698,13 +757,13 @@ def _interactive_fill_warnings(review_json_path):
         can_auto = item.get("auto_fill") == "是"
         verdict = item.get("verdict", "")
 
-        print(f"\n{'─'*60}")
+        print(f"\n{'─' * 60}")
         print(f"[{verdict}] {item_id}: {check or detail}")
         if detail and check:
             print(f"  详情: {detail}")
         if suggestion and suggestion != "—":
             print(f"  建议格式: {suggestion}")
-        print(f"{'─'*60}")
+        print(f"{'─' * 60}")
 
         if can_auto:
             print("  此项可自动补全。")
@@ -734,7 +793,11 @@ def _interactive_fill_warnings(review_json_path):
                 infer_label = "从BOM树推断装配层叠表"
             elif "D5" in item_id or "BOM缺少材质" in check:
                 # Extract part names from detail
-                parts = [p.strip() for p in detail.replace("缺失:", "").split(",") if p.strip()]
+                parts = [
+                    p.strip()
+                    for p in detail.replace("缺失:", "").split(",")
+                    if p.strip()
+                ]
                 if parts:
                     cands = _infer_material_candidates(parts[0])
                     inferred = f"{parts[0]} 材质候选: {' / '.join(cands)}"
@@ -742,12 +805,14 @@ def _interactive_fill_warnings(review_json_path):
 
             if inferred:
                 print(f"\n  推断值（{infer_label}）：")
-                print(f"  {'─'*56}")
+                print(f"  {'─' * 56}")
                 for ln in inferred.splitlines():
                     print(f"  {ln}")
-                print(f"  {'─'*56}")
+                print(f"  {'─' * 56}")
                 # Tell user where to manually edit if they want to change later
-                spec_path = review_json_path.replace("DESIGN_REVIEW.json", "CAD_SPEC.md")
+                spec_path = review_json_path.replace(
+                    "DESIGN_REVIEW.json", "CAD_SPEC.md"
+                )
                 if not os.path.isfile(spec_path):
                     spec_path = review_json_path.replace(
                         os.path.join("output", ""), os.path.join("cad", "")
@@ -865,8 +930,10 @@ def cmd_spec(args):
     if not design_doc:
         design_doc = _resolve_design_doc(args.subsystem)
     if not design_doc or not os.path.isfile(design_doc):
-        log.error("Design doc not found. Use --design-doc or ensure docs/design/%s exists",
-                  design_doc or "??-*.md")
+        log.error(
+            "Design doc not found. Use --design-doc or ensure docs/design/%s exists",
+            design_doc or "??-*.md",
+        )
         return 1
 
     spec_gen = os.path.join(SKILL_ROOT, "cad_spec_gen.py")
@@ -878,16 +945,26 @@ def cmd_spec(args):
 
     # ── Step 1: Run review-only first ──
     _spec_output_dir = os.path.join(PROJECT_ROOT, "output")
-    cmd_review = [sys.executable, spec_gen, design_doc,
-                  "--config", CONFIG_PATH,
-                  "--output-dir", _spec_output_dir,
-                  "--review-only"]
+    cmd_review = [
+        sys.executable,
+        spec_gen,
+        design_doc,
+        "--config",
+        CONFIG_PATH,
+        "--output-dir",
+        _spec_output_dir,
+        "--review-only",
+    ]
     if force_flag:
         cmd_review.append("--force")
 
     log.info("Phase 1a: 生成设计审查报告...")
-    ok, _ = _run_subprocess(cmd_review, f"review ({os.path.basename(design_doc)})",
-                            dry_run=args.dry_run, timeout=120)
+    ok, _ = _run_subprocess(
+        cmd_review,
+        f"review ({os.path.basename(design_doc)})",
+        dry_run=args.dry_run,
+        timeout=120,
+    )
     if not ok:
         return 1
 
@@ -896,7 +973,9 @@ def cmd_spec(args):
 
     # ── Step 2: Read review results ──
     review_json = _resolve_review_json(args)
-    critical, warning, auto_fill_count, auto_fill_items = _show_review_summary(review_json)
+    critical, warning, auto_fill_count, auto_fill_items = _show_review_summary(
+        review_json
+    )
 
     # ── Step 2b: Determine mode ──
     review_only = getattr(args, "review_only", False)
@@ -931,8 +1010,11 @@ def cmd_spec(args):
             log.info("请修正设计文档后重新运行，或使用 --proceed 强制生成。")
             return 1
         if warning > 0:
-            log.info("存在 %d 个 WARNING。Agent 请读取 DESIGN_REVIEW.json 逐项处理后"
-                     " 调用 spec --supplements '{}' 或 spec --auto-fill。", warning)
+            log.info(
+                "存在 %d 个 WARNING。Agent 请读取 DESIGN_REVIEW.json 逐项处理后"
+                " 调用 spec --supplements '{}' 或 spec --auto-fill。",
+                warning,
+            )
         log.info("审查报告: %s", review_json)
         return 0
 
@@ -956,23 +1038,36 @@ def cmd_spec(args):
         choice = "proceed"
     elif sup_data is not None:
         # --supplements path: carry non-AUTO entries to §10, AUTO entries trigger --auto-fill
-        supplements = {k: v for k, v in sup_data.items()
-                       if v not in ("__AUTO__", "__AUTO_FILL__")}
-        guided_auto_fill = any(v in ("__AUTO__", "__AUTO_FILL__") for v in sup_data.values())
+        supplements = {
+            k: v for k, v in sup_data.items() if v not in ("__AUTO__", "__AUTO_FILL__")
+        }
+        guided_auto_fill = any(
+            v in ("__AUTO__", "__AUTO_FILL__") for v in sup_data.values()
+        )
 
     # "auto_fill", "proceed", or post-guided_fill → generate CAD_SPEC.md
-    cmd_gen = [sys.executable, spec_gen, design_doc,
-               "--config", CONFIG_PATH,
-               "--output-dir", _spec_output_dir,
-               "--review"]
+    cmd_gen = [
+        sys.executable,
+        spec_gen,
+        design_doc,
+        "--config",
+        CONFIG_PATH,
+        "--output-dir",
+        _spec_output_dir,
+        "--review",
+    ]
     if choice == "auto_fill" or guided_auto_fill:
         cmd_gen.append("--auto-fill")
     if force_flag:
         cmd_gen.append("--force")
 
     log.info("Phase 1b: 生成 CAD_SPEC.md...")
-    ok, _ = _run_subprocess(cmd_gen, f"spec-gen ({os.path.basename(design_doc)})",
-                            dry_run=args.dry_run, timeout=120)
+    ok, _ = _run_subprocess(
+        cmd_gen,
+        f"spec-gen ({os.path.basename(design_doc)})",
+        dry_run=args.dry_run,
+        timeout=120,
+    )
     if not ok:
         return 1
 
@@ -1017,11 +1112,13 @@ def cmd_spec(args):
             else:
                 # Overwrite existing §10 section
                 import re
+
                 new_section = "\n\n## §10 用户补充数据 (User Supplements)\n\n"
                 for item_id, content in supplements.items():
                     new_section += f"### {item_id}\n\n{content}\n\n"
-                updated = re.sub(r'\n+## §10 用户补充数据.*$', new_section, existing,
-                                 flags=re.DOTALL)
+                updated = re.sub(
+                    r"\n+## §10 用户补充数据.*$", new_section, existing, flags=re.DOTALL
+                )
                 with open(spec_path, "w", encoding="utf-8", errors="replace") as _sf:
                     _sf.write(updated)
             log.info("用户补充数据已追加到 CAD_SPEC.md (%d 项)", len(supplements))
@@ -1041,7 +1138,11 @@ def cmd_codegen(args):
 
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found in %s", args.subsystem or '(none — use --subsystem)', CAD_DIR)
+        log.error(
+            "Subsystem '%s' not found in %s",
+            args.subsystem or "(none — use --subsystem)",
+            CAD_DIR,
+        )
         return 1
 
     spec_path = os.path.join(sub_dir, "CAD_SPEC.md")
@@ -1056,15 +1157,25 @@ def cmd_codegen(args):
     _deploy_tool_modules(sub_dir)
 
     # 2a: params.py
-    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_params.py"),
-           spec_path, "--mode", mode]
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "codegen", "gen_params.py"),
+        spec_path,
+        "--mode",
+        mode,
+    ]
     ok, _ = _run_subprocess(cmd, "codegen params.py", dry_run=args.dry_run)
     if not ok:
         failures += 1
 
     # 2b: build_all.py
-    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_build.py"),
-           spec_path, "--mode", mode]
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "codegen", "gen_build.py"),
+        spec_path,
+        "--mode",
+        mode,
+    ]
     ok, _ = _run_subprocess(cmd, "codegen build_all.py", dry_run=args.dry_run)
     if not ok:
         failures += 1
@@ -1074,25 +1185,46 @@ def cmd_codegen(args):
     # but still have unfilled TODO markers (coordinate-system blocks the
     # designer needs to review). That is NOT a failure for the pipeline —
     # the files are valid Python and Phase 2.5 build can proceed.
-    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
-           spec_path, "--output-dir", sub_dir, "--mode", mode]
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "codegen", "gen_parts.py"),
+        spec_path,
+        "--output-dir",
+        sub_dir,
+        "--mode",
+        mode,
+    ]
     ok, _ = _run_subprocess(
-        cmd, "codegen part scaffolds",
-        dry_run=args.dry_run, warn_exit_codes={2},
+        cmd,
+        "codegen part scaffolds",
+        dry_run=args.dry_run,
+        warn_exit_codes={2},
     )
     if not ok:
         failures += 1
 
     # 2c2: standard part simplified geometry (purchased parts)
-    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_std_parts.py"),
-           spec_path, "--output-dir", sub_dir, "--mode", mode]
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "codegen", "gen_std_parts.py"),
+        spec_path,
+        "--output-dir",
+        sub_dir,
+        "--mode",
+        mode,
+    ]
     ok, _ = _run_subprocess(cmd, "codegen std parts", dry_run=args.dry_run)
     if not ok:
         failures += 1
 
     # 2d: assembly.py
-    cmd = [sys.executable, os.path.join(SKILL_ROOT, "codegen", "gen_assembly.py"),
-           spec_path, "--mode", mode]
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "codegen", "gen_assembly.py"),
+        spec_path,
+        "--mode",
+        mode,
+    ]
     ok, _ = _run_subprocess(cmd, "codegen assembly.py", dry_run=args.dry_run)
     if not ok:
         failures += 1
@@ -1105,11 +1237,16 @@ def cmd_codegen(args):
 
     return 1 if failures else 0
 
+
 def cmd_build(args):
     """Build STEP + DXF for a subsystem."""
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found in %s", args.subsystem or '(none — use --subsystem)', CAD_DIR)
+        log.error(
+            "Subsystem '%s' not found in %s",
+            args.subsystem or "(none — use --subsystem)",
+            CAD_DIR,
+        )
         return 1
 
     build_script = os.path.join(sub_dir, "build_all.py")
@@ -1119,16 +1256,22 @@ def cmd_build(args):
 
     # ── Pre-build orientation gate ────────────────────────────────────────────
     orientation_script = os.path.join(sub_dir, "orientation_check.py")
-    if os.path.isfile(orientation_script) and not getattr(args, 'skip_orientation', False):
+    if os.path.isfile(orientation_script) and not getattr(
+        args, "skip_orientation", False
+    ):
         log.info("[Phase 3 pre-check] Running orientation_check.py ...")
         ok_orient, _ = _run_subprocess(
             [sys.executable, orientation_script],
-            "orientation_check", dry_run=args.dry_run, timeout=120
+            "orientation_check",
+            dry_run=args.dry_run,
+            timeout=120,
         )
         if not ok_orient:
-            log.error("Orientation check FAILED — aborting build. "
-                      "Fix assembly directions then re-run. "
-                      "Use --skip-orientation to bypass (not recommended).")
+            log.error(
+                "Orientation check FAILED — aborting build. "
+                "Fix assembly directions then re-run. "
+                "Use --skip-orientation to bypass (not recommended)."
+            )
             return 1
         log.info("Orientation check passed.")
     # ─────────────────────────────────────────────────────────────────────────
@@ -1141,8 +1284,9 @@ def cmd_build(args):
     if args.verbose:
         cmd.append("--verbose")
 
-    ok, elapsed = _run_subprocess(cmd, f"build_all.py ({args.subsystem})",
-                                  dry_run=args.dry_run, timeout=1200)
+    ok, elapsed = _run_subprocess(
+        cmd, f"build_all.py ({args.subsystem})", dry_run=args.dry_run, timeout=1200
+    )
     if not ok:
         return 1
 
@@ -1158,6 +1302,7 @@ def cmd_build(args):
         try:
             from codegen.consolidate_glb import consolidate_glb_file
             import glob
+
             glb_files = glob.glob(os.path.join(DEFAULT_OUTPUT, "*_assembly.glb"))
             for glb_file in glb_files:
                 consolidate_glb_file(glb_file, logger=lambda m: log.info(m))
@@ -1170,10 +1315,14 @@ def cmd_build(args):
         log.info("[Phase 3 post-build] Rendering DXF → PNG ...")
         ok_dxf, _ = _run_subprocess(
             [sys.executable, render_dxf_script],
-            "render_dxf.py (DXF → PNG)", dry_run=args.dry_run, timeout=600
+            "render_dxf.py (DXF → PNG)",
+            dry_run=args.dry_run,
+            timeout=600,
         )
         if not ok_dxf:
-            log.warning("DXF → PNG rendering failed (non-fatal, DXF files are still available)")
+            log.warning(
+                "DXF → PNG rendering failed (non-fatal, DXF files are still available)"
+            )
     else:
         log.info("No render_dxf.py in %s — skipping DXF → PNG", sub_dir)
     # ─────────────────────────────────────────────────────────────────────────
@@ -1184,10 +1333,18 @@ def cmd_build(args):
     if os.path.isfile(validator_script) and os.path.isfile(spec_in_sub):
         log.info("[Phase 3 GATE-3.5] Running assembly validation ...")
         ok_val, _ = _run_subprocess(
-            [sys.executable, validator_script, sub_dir,
-             "--spec", spec_in_sub,
-             "--output-dir", DEFAULT_OUTPUT],
-            "assembly_validator.py", dry_run=args.dry_run, timeout=120
+            [
+                sys.executable,
+                validator_script,
+                sub_dir,
+                "--spec",
+                spec_in_sub,
+                "--output-dir",
+                DEFAULT_OUTPUT,
+            ],
+            "assembly_validator.py",
+            dry_run=args.dry_run,
+            timeout=120,
         )
         if not ok_val:
             log.warning("Assembly validation failed (non-fatal)")
@@ -1205,13 +1362,20 @@ def cmd_render(args):
 
     sub_dir = get_subsystem_dir(args.subsystem)
     if not sub_dir:
-        log.error("Subsystem '%s' not found. Use --subsystem.", args.subsystem or '(none)')
+        log.error(
+            "Subsystem '%s' not found. Use --subsystem.", args.subsystem or "(none)"
+        )
         return 1
 
     # Deploy Blender render scripts if missing (look in SKILL_ROOT, then reference impl)
-    _render_scripts = ["render_3d.py", "render_exploded.py", "render_section.py",
-                       "render_label_utils.py", "render_depth_only.py",
-                       "render_config.json"]
+    _render_scripts = [
+        "render_3d.py",
+        "render_exploded.py",
+        "render_section.py",
+        "render_label_utils.py",
+        "render_depth_only.py",
+        "render_config.json",
+    ]
     for _rs in _render_scripts:
         dst = os.path.join(sub_dir, _rs)
         if os.path.isfile(dst):
@@ -1226,7 +1390,9 @@ def cmd_render(args):
                     break
         if os.path.isfile(src):
             shutil.copy2(src, dst)
-            log.info("  Deployed render script: %s → %s", _rs, os.path.basename(sub_dir))
+            log.info(
+                "  Deployed render script: %s → %s", _rs, os.path.basename(sub_dir)
+            )
 
     render_script = os.path.join(sub_dir, "render_3d.py")
     exploded_script = os.path.join(sub_dir, "render_exploded.py")
@@ -1246,7 +1412,11 @@ def cmd_render(args):
     failures = 0
     _custom_output_dir = getattr(args, "output_dir", None)
     _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    _pre_existing = set(glob.glob(os.path.join(_renders_dir_pre, "V*.png"))) if os.path.isdir(_renders_dir_pre) else set()
+    _pre_existing = (
+        set(glob.glob(os.path.join(_renders_dir_pre, "V*.png")))
+        if os.path.isdir(_renders_dir_pre)
+        else set()
+    )
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
@@ -1281,30 +1451,39 @@ def cmd_render(args):
         # Single view — dispatch by type from config
         script, extra = _script_for_view(args.view)
         cmd = [blender, "-b", "-P", script, "--"] + render_args + extra
-        ok, _ = _run_subprocess(cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200)
+        ok, _ = _run_subprocess(
+            cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200
+        )
         if not ok:
             failures += 1
     else:
         # All views — run standard first, then any exploded/section scripts present
         cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--all"]
-        ok, _ = _run_subprocess(cmd, "render standard views", dry_run=args.dry_run, timeout=1200)
+        ok, _ = _run_subprocess(
+            cmd, "render standard views", dry_run=args.dry_run, timeout=1200
+        )
         if not ok:
             failures += 1
 
         if os.path.isfile(exploded_script):
             cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
-            ok, _ = _run_subprocess(cmd, "render exploded view", dry_run=args.dry_run, timeout=600)
+            ok, _ = _run_subprocess(
+                cmd, "render exploded view", dry_run=args.dry_run, timeout=600
+            )
             if not ok:
                 failures += 1
 
         if os.path.isfile(section_script):
             cmd = [blender, "-b", "-P", section_script, "--"] + render_args
-            ok, _ = _run_subprocess(cmd, "render section view", dry_run=args.dry_run, timeout=600)
+            ok, _ = _run_subprocess(
+                cmd, "render section view", dry_run=args.dry_run, timeout=600
+            )
             if not ok:
                 failures += 1
 
     if not args.dry_run:
         import time as _time
+
         _renders_dir = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
         _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
         _new_files = sorted(_all_now - _pre_existing)
@@ -1313,7 +1492,8 @@ def cmd_render(args):
         # to avoid enhance processing the same image twice.
         if _should_timestamp(args) and len(_new_files) > 1:
             import re as _re
-            _ts_files = [f for f in _new_files if _re.search(r'_\d{8}_\d{4}\.png$', f)]
+
+            _ts_files = [f for f in _new_files if _re.search(r"_\d{8}_\d{4}\.png$", f)]
             if _ts_files:
                 _new_files = _ts_files
         if _new_files:
@@ -1327,20 +1507,30 @@ def cmd_render(args):
             manifest_path = os.path.join(_renders_dir, "render_manifest.json")
             with open(manifest_path, "w", encoding="utf-8") as _mf:
                 json.dump(manifest, _mf, indent=2)
-            log.info("Manifest written: %s (%d files%s)",
-                     manifest_path, len(_new_files),
-                     ", partial" if failures > 0 else "")
+            log.info(
+                "Manifest written: %s (%d files%s)",
+                manifest_path,
+                len(_new_files),
+                ", partial" if failures > 0 else "",
+            )
 
     return 1 if failures else 0
 
 
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
-    from enhance_prompt import build_enhance_prompt, build_labeled_prompt, extract_view_key, view_sort_key
+    from enhance_prompt import (
+        build_enhance_prompt,
+        build_labeled_prompt,
+        extract_view_key,
+        view_sort_key,
+    )
 
     # Determine backend: CLI arg > pipeline_config.json > default gemini
     _pcfg = _load_pipeline_config()
-    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get("backend", "gemini")
+    backend = getattr(args, "backend", None) or _pcfg.get("enhance", {}).get(
+        "backend", "gemini"
+    )
     log.info("Enhance backend: %s", backend)
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
@@ -1354,39 +1544,58 @@ def cmd_enhance(args):
     if backend == "comfyui":
         # Pre-flight env check — catches CPU-only, missing models, server down
         _check_result = subprocess.run(
-            [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py"), "--quiet"],
+            [
+                sys.executable,
+                os.path.join(SKILL_ROOT, "comfyui_env_check.py"),
+                "--quiet",
+            ],
             capture_output=True,
         )
         if _check_result.returncode != 0:
             subprocess.run(
                 [sys.executable, os.path.join(SKILL_ROOT, "comfyui_env_check.py")],
             )
-            log.error("ComfyUI environment check failed. Fix the issues above, then retry.")
+            log.error(
+                "ComfyUI environment check failed. Fix the issues above, then retry."
+            )
             return 1
         from comfyui_enhancer import enhance_image as _comfyui_fn
+
         _enhance_fn, _enhance_cfg_key = _comfyui_fn, "comfyui"
     elif backend == "engineering":
         # 零 AI 工程后端：Blender PBR PNG → PIL 轻量后处理 → JPG。
         # 无外部依赖（仅 Pillow），用于兜底 / 离线 / 零成本场景。
         from engineering_enhancer import enhance_image as _eng_fn
+
         _enhance_fn, _enhance_cfg_key = _eng_fn, "engineering"
     elif backend in ("fal", "fal_comfy"):
         # Pre-flight env check for fal_comfy (FAL_KEY, fal-client, depth deps, API, models)
         if backend == "fal_comfy":
             _check_result = subprocess.run(
-                [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py"), "--quiet"],
+                [
+                    sys.executable,
+                    os.path.join(SKILL_ROOT, "fal_comfy_env_check.py"),
+                    "--quiet",
+                ],
                 capture_output=True,
             )
             if _check_result.returncode != 0:
                 subprocess.run(
-                    [sys.executable, os.path.join(SKILL_ROOT, "fal_comfy_env_check.py")],
+                    [
+                        sys.executable,
+                        os.path.join(SKILL_ROOT, "fal_comfy_env_check.py"),
+                    ],
                 )
-                log.error("fal_comfy environment check failed. Fix the issues above, then retry.")
+                log.error(
+                    "fal_comfy environment check failed. Fix the issues above, then retry."
+                )
                 return 1
         else:
             # fal (Flux) backend — lightweight checks only
             if not os.environ.get("FAL_KEY"):
-                log.error("FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys")
+                log.error(
+                    "FAL_KEY environment variable not set. Get your key from https://fal.ai/dashboard/keys"
+                )
                 return 1
             try:
                 import fal_client  # noqa — validate import early
@@ -1395,15 +1604,19 @@ def cmd_enhance(args):
                 return 1
         if backend == "fal":
             from fal_enhancer import enhance_image as _fal_fn
+
             _enhance_fn, _enhance_cfg_key = _fal_fn, "fal"
         else:
             from fal_comfy_enhancer import enhance_image as _fal_comfy_fn
+
             _enhance_fn, _enhance_cfg_key = _fal_comfy_fn, "fal_comfy"
     else:
         backend = "gemini"  # normalise
         gemini_script = get_gemini_script()
         if not gemini_script:
-            log.error("gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation.")
+            log.error(
+                "gemini_gen.py not found. Set GEMINI_GEN_PATH or check installation."
+            )
             log.error("Set GEMINI_GEN_PATH env var or install gemini_gen.py")
             return 1
 
@@ -1435,6 +1648,7 @@ def cmd_enhance(args):
     if sub_dir and os.path.isfile(os.path.join(sub_dir, "params.py")):
         try:
             from prompt_data_builder import generate_prompt_data, merge_into_config
+
             _generated = generate_prompt_data(sub_dir, rc=rc)
             rc = merge_into_config(rc, _generated)
             log.info("Auto-enriched render_config from params.py")
@@ -1443,28 +1657,44 @@ def cmd_enhance(args):
 
     # Fail fast if an explicit subsystem was given but its directory doesn't exist
     if _sub_name and not sub_dir:
-        log.error("Subsystem '%s' not found. Run 'cad-init %s' first or check the name.",
-                  _sub_name, _sub_name)
+        log.error(
+            "Subsystem '%s' not found. Run 'cad-init %s' first or check the name.",
+            _sub_name,
+            _sub_name,
+        )
         return 1
 
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     manifest_path = os.path.join(render_dir, "render_manifest.json")
     if not os.path.isfile(manifest_path) and args.dir:
         # also check default location as fallback
-        _default_manifest = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+        _default_manifest = os.path.join(
+            DEFAULT_OUTPUT, "renders", "render_manifest.json"
+        )
         if os.path.isfile(_default_manifest):
             manifest_path = _default_manifest
     if os.path.isfile(manifest_path):
         with open(manifest_path, encoding="utf-8") as _mf:
             _manifest = json.load(_mf)
-        pngs = sorted([p for p in _manifest.get("files", []) if os.path.isfile(p)],
-                     key=lambda p: view_sort_key(p, rc))
-        log.info("Using manifest: %d files (subsystem=%s, ts=%s)",
-                 len(pngs), _manifest.get("subsystem", "?"), _manifest.get("timestamp", "?"))
+        pngs = sorted(
+            [p for p in _manifest.get("files", []) if os.path.isfile(p)],
+            key=lambda p: view_sort_key(p, rc),
+        )
+        log.info(
+            "Using manifest: %d files (subsystem=%s, ts=%s)",
+            len(pngs),
+            _manifest.get("subsystem", "?"),
+            _manifest.get("timestamp", "?"),
+        )
     else:
-        pngs = sorted([p for p in glob.glob(os.path.join(render_dir, "V*.png"))
-                       if "_enhanced" not in os.path.basename(p)],
-                      key=lambda p: view_sort_key(p, rc))
+        pngs = sorted(
+            [
+                p
+                for p in glob.glob(os.path.join(render_dir, "V*.png"))
+                if "_enhanced" not in os.path.basename(p)
+            ],
+            key=lambda p: view_sort_key(p, rc),
+        )
     if not pngs:
         log.error("No V*.png files found in %s", render_dir)
         return 1
@@ -1479,8 +1709,13 @@ def cmd_enhance(args):
         model_key = getattr(args, "model", None) or enhance_cfg.get("model", "")
         models = enhance_cfg.get("models", {})
         if model_key and model_key not in models:
-            log.warning("Model key '%s' not found in pipeline_config.json models dict — using as raw model ID", model_key)
-        model_id = models.get(model_key, model_key)  # fall back to raw value if not a key
+            log.warning(
+                "Model key '%s' not found in pipeline_config.json models dict — using as raw model ID",
+                model_key,
+            )
+        model_id = models.get(
+            model_key, model_key
+        )  # fall back to raw value if not a key
         if model_id:
             model_arg = ["--model", model_id]
 
@@ -1494,14 +1729,19 @@ def cmd_enhance(args):
     _seed_from_image = _enhance_cfg.get("seed_from_image", False)
     _temperature = _enhance_cfg.get("temperature")  # None = don't send
     if _ref_mode != "none" or _seed_from_image or _temperature is not None:
-        log.info("Enhance consistency: reference=%s, seed=%s, temperature=%s",
-                 _ref_mode, _seed_from_image, _temperature)
+        log.info(
+            "Enhance consistency: reference=%s, seed=%s, temperature=%s",
+            _ref_mode,
+            _seed_from_image,
+            _temperature,
+        )
 
     def _pixel_seed(image_path):
         """Deterministic seed from pixel content, ignoring file metadata.
         Returns value in INT32 range (0..2^31-1) as required by Gemini API."""
         import hashlib
         from PIL import Image as _SeedImg
+
         _im = _SeedImg.open(image_path)
         h = int(hashlib.md5(_im.tobytes()).hexdigest()[:8], 16)
         return h & 0x7FFFFFFF  # clamp to signed INT32 max
@@ -1514,6 +1754,7 @@ def cmd_enhance(args):
         """
         import tempfile as _ctf_mod
         from PIL import Image as _CImg
+
         _src_size = os.path.getsize(src_path)
         if _src_size <= 4 * 1024 * 1024:
             return None, _src_size / 1024  # under 4MB, send original
@@ -1528,9 +1769,9 @@ def cmd_enhance(args):
         """Extract saved image path from gemini_gen.py stdout."""
         for line in (stdout_text or "").split("\n"):
             if "图片已保存:" in line:
-                return line[line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                return line[line.rfind("图片已保存:") + len("图片已保存:") :].strip()
             if "已保存:" in line:
-                return line[line.rfind("已保存:") + len("已保存:"):].strip()
+                return line[line.rfind("已保存:") + len("已保存:") :].strip()
         return None
 
     def _is_render_acceptable(image_path, config=None):
@@ -1546,6 +1787,7 @@ def cmd_enhance(args):
             return False
         try:
             from PIL import Image, ImageStat
+
             im = Image.open(image_path).convert("L")
             stat = ImageStat.Stat(im)
             if stat.var[0] < gate["min_variance"]:
@@ -1562,23 +1804,32 @@ def cmd_enhance(args):
         # Quality gate: skip blank/near-empty renders
         if not _is_render_acceptable(png, rc):
             _sz = os.path.getsize(png) / 1024
-            log.warning("  SKIP %s: render appears blank (%.0fKB). "
-                        "Check BUILD output before enhancing.",
-                        os.path.basename(png), _sz)
+            log.warning(
+                "  SKIP %s: render appears blank (%.0fKB). "
+                "Check BUILD output before enhancing.",
+                os.path.basename(png),
+                _sz,
+            )
             skipped += 1
             continue
 
         # ── Set reference flag in rc for prompt building (A1 fix) ──
-        _use_ref = (_ref_mode == "v1_anchor" and hero_image
-                    and view_key != "V1" and backend == "gemini")
+        _use_ref = (
+            _ref_mode == "v1_anchor"
+            and hero_image
+            and view_key != "V1"
+            and backend == "gemini"
+        )
         rc["_has_reference"] = _use_ref
 
         # Build prompt with all placeholders filled
         try:
             prompt = build_enhance_prompt(view_key, rc, is_v1_done=v1_done)
         except FileNotFoundError:
-            prompt = ("Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
-                      "to photo-realistic quality with proper lighting and reflections.")
+            prompt = (
+                "Keep ALL geometry EXACTLY unchanged. Enhance surface materials "
+                "to photo-realistic quality with proper lighting and reflections."
+            )
 
         # Compute seed (if enabled)
         _seed = _pixel_seed(png) if _seed_from_image else None
@@ -1591,26 +1842,33 @@ def cmd_enhance(args):
             log.info("  --- prompt end ---")
             # Check for unfilled placeholders
             import re as _re
-            residual = _re.findall(r'\{[a-z_]+\}', prompt)
+
+            residual = _re.findall(r"\{[a-z_]+\}", prompt)
             if residual:
                 log.warning("  UNFILLED placeholders: %s", residual)
             if _seed is not None:
                 log.info("  [DRY-RUN] seed: %d", _seed)
             if _use_ref:
-                log.info("  [DRY-RUN] reference: (will use V1 enhanced result at runtime)")
+                log.info(
+                    "  [DRY-RUN] reference: (will use V1 enhanced result at runtime)"
+                )
             elif _ref_mode == "v1_anchor" and view_key != "V1":
                 log.info("  [DRY-RUN] reference: (pending V1 completion)")
             if getattr(args, "labeled", False) and backend == "gemini":
                 _lbl_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
                 if _lbl_prompt != prompt:
-                    log.info("  [DRY-RUN] labeled prompt (%d chars, +%d label chars)",
-                             len(_lbl_prompt), len(_lbl_prompt) - len(prompt))
+                    log.info(
+                        "  [DRY-RUN] labeled prompt (%d chars, +%d label chars)",
+                        len(_lbl_prompt),
+                        len(_lbl_prompt) - len(prompt),
+                    )
             if view_key == "V1":
                 v1_done = True
             continue
 
         # Write prompt to temp file (avoid Windows argv length limit)
         import tempfile
+
         prompt_file = None
         _compressed_tmp = None
         _ref_compressed_tmp = None  # A6: separate tracking for reference temp file
@@ -1623,18 +1881,28 @@ def cmd_enhance(args):
 
             # ── Table-driven backend (comfyui / fal / fal_comfy) ────────
             if _enhance_fn is not None:
-                log.info("  Running: enhance %s (%s, %s)",
-                         os.path.basename(png), view_key, backend)
+                log.info(
+                    "  Running: enhance %s (%s, %s)",
+                    os.path.basename(png),
+                    view_key,
+                    backend,
+                )
                 t0 = time.time()
                 try:
                     raw_path = _enhance_fn(
-                        png, prompt,
+                        png,
+                        prompt,
                         _pcfg.get("enhance", {}).get(_enhance_cfg_key, {}),
-                        view_key, rc,
+                        view_key,
+                        rc,
                     )
                 except Exception as _be:
-                    log.error("  %s enhance failed for %s: %s",
-                              backend, os.path.basename(png), _be)
+                    log.error(
+                        "  %s enhance failed for %s: %s",
+                        backend,
+                        os.path.basename(png),
+                        _be,
+                    )
                     failures += 1
                     continue
                 elapsed = time.time() - t0
@@ -1643,6 +1911,7 @@ def cmd_enhance(args):
                     v1_done = True
                 if raw_path and os.path.isfile(raw_path):
                     from datetime import datetime as _dt
+
                     src_stem = os.path.splitext(os.path.basename(png))[0]
                     ts = _dt.now().strftime("%Y%m%d_%H%M")
                     ext = os.path.splitext(raw_path)[1]
@@ -1655,8 +1924,11 @@ def cmd_enhance(args):
                         pass
                     log.info("  Saved: %s", new_path)
                 else:
-                    log.warning("  Could not locate %s output for %s",
-                                backend, os.path.basename(png))
+                    log.warning(
+                        "  Could not locate %s output for %s",
+                        backend,
+                        os.path.basename(png),
+                    )
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────
@@ -1667,16 +1939,24 @@ def cmd_enhance(args):
                 if _ctmp:
                     _compressed_tmp = _ctmp
                     _img_to_send = _compressed_tmp
-                    log.info("  Compressed %s: %.0fKB → %.0fKB",
-                             os.path.basename(png),
-                             os.path.getsize(png) / 1024, _csz)
+                    log.info(
+                        "  Compressed %s: %.0fKB → %.0fKB",
+                        os.path.basename(png),
+                        os.path.getsize(png) / 1024,
+                        _csz,
+                    )
             except Exception as _ce:
                 log.warning("  Could not compress image: %s", _ce)
 
             # Build command with optional reference, seed, temperature
-            cmd = [sys.executable, gemini_script,
-                   "--prompt-file", prompt_file,
-                   "--image", _img_to_send] + model_arg
+            cmd = [
+                sys.executable,
+                gemini_script,
+                "--prompt-file",
+                prompt_file,
+                "--image",
+                _img_to_send,
+            ] + model_arg
 
             ref_args = []
             if _use_ref and hero_image:
@@ -1687,8 +1967,9 @@ def cmd_enhance(args):
                     if _rctmp:
                         _ref_compressed_tmp = _rctmp
                     ref_args = ["--reference", _ref_to_send]
-                    log.info("  Reference: %s (%.0fKB)",
-                             os.path.basename(hero_image), _rsz)
+                    log.info(
+                        "  Reference: %s (%.0fKB)", os.path.basename(hero_image), _rsz
+                    )
                 except Exception as _re_err:
                     log.warning("  Could not prepare reference image: %s", _re_err)
 
@@ -1702,9 +1983,13 @@ def cmd_enhance(args):
 
             cmd = cmd + ref_args + seed_args + temp_args
 
-            log.info("  Running: enhance %s (%s, %d chars%s)",
-                     os.path.basename(png), view_key, len(prompt),
-                     " +ref" if ref_args else "")
+            log.info(
+                "  Running: enhance %s (%s, %d chars%s)",
+                os.path.basename(png),
+                view_key,
+                len(prompt),
+                " +ref" if ref_args else "",
+            )
             t0 = time.time()
             result = None
             for _attempt in range(3):
@@ -1713,25 +1998,40 @@ def cmd_enhance(args):
                     time.sleep(10)
                 try:
                     result = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=180,
-                        encoding="utf-8", errors="replace",
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     if result.returncode == 0:
                         break
                 except subprocess.TimeoutExpired:
-                    log.warning("  TIMEOUT attempt %d for %s", _attempt + 1, os.path.basename(png))
+                    log.warning(
+                        "  TIMEOUT attempt %d for %s",
+                        _attempt + 1,
+                        os.path.basename(png),
+                    )
                     result = None
 
             # ── Fallback: retry without reference if reference mode failed ──
             if (result is None or result.returncode != 0) and ref_args:
-                log.warning("  Reference mode failed for %s, retrying without reference...",
-                            os.path.basename(png))
-                cmd_fallback = [a for a in cmd if a not in ref_args
-                                and a != "--reference"]
+                log.warning(
+                    "  Reference mode failed for %s, retrying without reference...",
+                    os.path.basename(png),
+                )
+                cmd_fallback = [
+                    a for a in cmd if a not in ref_args and a != "--reference"
+                ]
                 try:
                     result = subprocess.run(
-                        cmd_fallback, capture_output=True, text=True, timeout=180,
-                        encoding="utf-8", errors="replace",
+                        cmd_fallback,
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                 except subprocess.TimeoutExpired:
                     result = None
@@ -1739,8 +2039,12 @@ def cmd_enhance(args):
             elapsed = time.time() - t0
             if result is None or result.returncode != 0:
                 rc_val = result.returncode if result is not None else -1
-                log.error("  FAILED enhance %s (exit %d, %.1fs)",
-                          os.path.basename(png), rc_val, elapsed)
+                log.error(
+                    "  FAILED enhance %s (exit %d, %.1fs)",
+                    os.path.basename(png),
+                    rc_val,
+                    elapsed,
+                )
                 if result is not None and result.stdout:
                     for line in result.stdout.strip().split("\n")[-10:]:
                         log.error("    STDOUT: %s", line)
@@ -1759,6 +2063,7 @@ def cmd_enhance(args):
             gemini_path = _parse_gemini_output(result.stdout)
             if gemini_path and os.path.isfile(gemini_path):
                 from datetime import datetime as _dt
+
                 src_stem = os.path.splitext(os.path.basename(png))[0]
                 ts = _dt.now().strftime("%Y%m%d_%H%M")
                 ext = os.path.splitext(gemini_path)[1]
@@ -1776,8 +2081,9 @@ def cmd_enhance(args):
                     hero_image = new_path
                     log.info("  Hero image set: %s", os.path.basename(new_path))
             else:
-                log.warning("  Could not locate gemini output for %s",
-                            os.path.basename(png))
+                log.warning(
+                    "  Could not locate gemini output for %s", os.path.basename(png)
+                )
 
         except subprocess.TimeoutExpired:
             log.error("  TIMEOUT enhance %s (>180s)", os.path.basename(png))
@@ -1792,42 +2098,68 @@ def cmd_enhance(args):
 
         # ── Labeled version (second Gemini call, --labeled only) ────────────
         _has_labels = bool(rc.get("labels", {}).get(view_key))
-        if (getattr(args, "labeled", False) and backend == "gemini"
-                and not args.dry_run and _has_labels):
+        if (
+            getattr(args, "labeled", False)
+            and backend == "gemini"
+            and not args.dry_run
+            and _has_labels
+        ):
             _labeled_prompt_file = None
             # Use compressed image if available, else original PNG
-            _labeled_img = _compressed_tmp if (_compressed_tmp and os.path.isfile(_compressed_tmp)) else png
+            _labeled_img = (
+                _compressed_tmp
+                if (_compressed_tmp and os.path.isfile(_compressed_tmp))
+                else png
+            )
             try:
                 labeled_prompt = build_labeled_prompt(view_key, rc, is_v1_done=v1_done)
                 import tempfile as _tf2
+
                 with _tf2.NamedTemporaryFile(
                     mode="w", suffix=".txt", delete=False, encoding="utf-8"
                 ) as _lf:
                     _lf.write(labeled_prompt)
                     _labeled_prompt_file = _lf.name
 
-                log.info("  Running: labeled enhance %s (%s)", os.path.basename(png), view_key)
+                log.info(
+                    "  Running: labeled enhance %s (%s)",
+                    os.path.basename(png),
+                    view_key,
+                )
                 t0_l = time.time()
-                _cmd_l = [sys.executable, gemini_script,
-                          "--prompt-file", _labeled_prompt_file,
-                          "--image", _labeled_img]
+                _cmd_l = [
+                    sys.executable,
+                    gemini_script,
+                    "--prompt-file",
+                    _labeled_prompt_file,
+                    "--image",
+                    _labeled_img,
+                ]
                 _cmd_l += model_arg
                 _res_l = subprocess.run(
-                    _cmd_l, capture_output=True, timeout=300,
-                    encoding="utf-8", errors="replace"
+                    _cmd_l,
+                    capture_output=True,
+                    timeout=300,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 elapsed_l = time.time() - t0_l
                 if _res_l.returncode == 0:
                     _lbl_path = None
                     for _line in (_res_l.stdout or "").split("\n"):
                         if "图片已保存:" in _line:
-                            _lbl_path = _line[_line.rfind("图片已保存:") + len("图片已保存:"):].strip()
+                            _lbl_path = _line[
+                                _line.rfind("图片已保存:") + len("图片已保存:") :
+                            ].strip()
                             break
                         if "已保存:" in _line:
-                            _lbl_path = _line[_line.rfind("已保存:") + len("已保存:"):].strip()
+                            _lbl_path = _line[
+                                _line.rfind("已保存:") + len("已保存:") :
+                            ].strip()
                             break
                     if _lbl_path and os.path.isfile(_lbl_path):
                         from datetime import datetime as _dt2
+
                         _src_stem = os.path.splitext(os.path.basename(png))[0]
                         _ts2 = _dt2.now().strftime("%Y%m%d_%H%M")
                         _ext2 = os.path.splitext(_lbl_path)[1]
@@ -1840,12 +2172,20 @@ def cmd_enhance(args):
                             pass
                         log.info("  Labeled: %s (%.1fs)", _lbl_name, elapsed_l)
                     else:
-                        log.warning("  Labeled output not found for %s", os.path.basename(png))
+                        log.warning(
+                            "  Labeled output not found for %s", os.path.basename(png)
+                        )
                 else:
-                    log.warning("  Labeled enhance failed for %s (exit %d, %.1fs)",
-                                os.path.basename(png), _res_l.returncode, elapsed_l)
+                    log.warning(
+                        "  Labeled enhance failed for %s (exit %d, %.1fs)",
+                        os.path.basename(png),
+                        _res_l.returncode,
+                        elapsed_l,
+                    )
             except Exception as _le:
-                log.warning("  Labeled enhance error for %s: %s", os.path.basename(png), _le)
+                log.warning(
+                    "  Labeled enhance error for %s: %s", os.path.basename(png), _le
+                )
             finally:
                 if _labeled_prompt_file and os.path.isfile(_labeled_prompt_file):
                     os.unlink(_labeled_prompt_file)
@@ -1893,23 +2233,38 @@ def cmd_annotate(args):
     img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     _manifest_path = os.path.join(img_dir, "render_manifest.json")
     if not os.path.isfile(_manifest_path) and args.dir:
-        _default_manifest = os.path.join(DEFAULT_OUTPUT, "renders", "render_manifest.json")
+        _default_manifest = os.path.join(
+            DEFAULT_OUTPUT, "renders", "render_manifest.json"
+        )
         if os.path.isfile(_default_manifest):
             _manifest_path = _default_manifest
     _use_manifest = os.path.isfile(_manifest_path)
     if _use_manifest:
         log.info("Annotate using manifest: %s", _manifest_path)
-    for lang in (args.lang.split(",") if "," in args.lang else [args.lang]):
+    for lang in args.lang.split(",") if "," in args.lang else [args.lang]:
         if _use_manifest:
-            cmd = [sys.executable, annotate_script,
-                   "--manifest", _manifest_path,
-                   "--config", config_path,
-                   "--lang", lang.strip()]
+            cmd = [
+                sys.executable,
+                annotate_script,
+                "--manifest",
+                _manifest_path,
+                "--config",
+                config_path,
+                "--lang",
+                lang.strip(),
+            ]
         else:
-            cmd = [sys.executable, annotate_script,
-                   "--all", "--dir", img_dir,
-                   "--config", config_path,
-                   "--lang", lang.strip()]
+            cmd = [
+                sys.executable,
+                annotate_script,
+                "--all",
+                "--dir",
+                img_dir,
+                "--config",
+                config_path,
+                "--lang",
+                lang.strip(),
+            ]
         ok, _ = _run_subprocess(cmd, f"annotate ({lang})", dry_run=args.dry_run)
         if not ok:
             return 1
@@ -1927,7 +2282,9 @@ def _review_checkpoint(args):
 
     critical = data.get("critical", 0)
     if critical > 0:
-        log.error("DESIGN_REVIEW still has %d CRITICAL issue(s). Cannot continue.", critical)
+        log.error(
+            "DESIGN_REVIEW still has %d CRITICAL issue(s). Cannot continue.", critical
+        )
         return 1
 
     return 0
@@ -2021,7 +2378,11 @@ def cmd_status(args):
         steps = glob.glob(os.path.join(DEFAULT_OUTPUT, f"*{prefix}*.step"))
         dxfs = glob.glob(os.path.join(DEFAULT_OUTPUT, f"*{prefix}*.dxf"))
         render_dir = os.path.join(DEFAULT_OUTPUT, "renders")
-        pngs = glob.glob(os.path.join(render_dir, "V*.png")) if os.path.isdir(render_dir) else []
+        pngs = (
+            glob.glob(os.path.join(render_dir, "V*.png"))
+            if os.path.isdir(render_dir)
+            else []
+        )
 
         status = "spec-only"
         if has_build:
@@ -2031,12 +2392,23 @@ def cmd_status(args):
         if pngs:
             status = "rendered"
 
-        icon = {"spec-only": "[ ]", "buildable": "[B]", "built": "[*]", "rendered": "[R]"}
-        log.info("  %s %-25s [%s] build=%s config=%s STEP=%d DXF=%d PNG=%d",
-                 icon.get(status, "?"), entry, status,
-                 "Y" if has_build else "-",
-                 "Y" if has_config else "-",
-                 len(steps), len(dxfs), len(pngs))
+        icon = {
+            "spec-only": "[ ]",
+            "buildable": "[B]",
+            "built": "[*]",
+            "rendered": "[R]",
+        }
+        log.info(
+            "  %s %-25s [%s] build=%s config=%s STEP=%d DXF=%d PNG=%d",
+            icon.get(status, "?"),
+            entry,
+            status,
+            "Y" if has_build else "-",
+            "Y" if has_config else "-",
+            len(steps),
+            len(dxfs),
+            len(pngs),
+        )
 
     return 0
 
@@ -2060,6 +2432,7 @@ def cmd_env_check(args):
     # CadQuery
     try:
         import cadquery
+
         log.info("  CadQuery: %s", cadquery.__version__)
     except ImportError:
         log.error("  CadQuery: NOT INSTALLED (pip install cadquery)")
@@ -2067,6 +2440,7 @@ def cmd_env_check(args):
     # Jinja2 (codegen templates)
     try:
         import jinja2
+
         log.info("  Jinja2: %s", jinja2.__version__)
     except ImportError:
         log.error("  Jinja2: NOT INSTALLED (pip install Jinja2) — required by codegen/")
@@ -2074,6 +2448,7 @@ def cmd_env_check(args):
     # ezdxf
     try:
         import ezdxf
+
         log.info("  ezdxf: %s", ezdxf.__version__)
     except ImportError:
         log.error("  ezdxf: NOT INSTALLED (pip install ezdxf)")
@@ -2081,6 +2456,7 @@ def cmd_env_check(args):
     # matplotlib
     try:
         import matplotlib
+
         log.info("  matplotlib: %s", matplotlib.__version__)
     except ImportError:
         log.error("  matplotlib: NOT INSTALLED (pip install matplotlib)")
@@ -2089,6 +2465,7 @@ def cmd_env_check(args):
     try:
         from PIL import Image
         import PIL
+
         log.info("  Pillow: %s", PIL.__version__)
     except ImportError:
         log.error("  Pillow: NOT INSTALLED (pip install Pillow)")
@@ -2108,6 +2485,13 @@ def cmd_env_check(args):
         log.warning("  Gemini: not found (optional, for AI enhancement)")
 
     return 0
+
+
+def cmd_sw_warmup(args):
+    """SW Toolbox sldprt → STEP 批量预热（v4 §7）。"""
+    from tools.sw_warmup import run_sw_warmup
+
+    return run_sw_warmup(args)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2140,58 +2524,63 @@ def cmd_init(args):
             "name_cn": args.name_cn or sub_name,
             "part_prefix": (args.prefix or sub_name.upper()),
             "glb_file": f"{sub_name}_assembly.glb",
-            "bounding_radius_mm": 300
+            "bounding_radius_mm": 300,
         },
         "coordinate_system": "Z-axis vertical. Describe your coordinate convention here.",
         "materials": {
-            "body": {"preset": "brushed_aluminum", "label": "Main body",
-                     "name_cn": "主体", "name_en": "Main Body"},
-            "fastener": {"preset": "stainless_304", "label": "Fasteners",
-                         "name_cn": "紧固件", "name_en": "Fasteners"}
+            "body": {
+                "preset": "brushed_aluminum",
+                "label": "Main body",
+                "name_cn": "主体",
+                "name_en": "Main Body",
+            },
+            "fastener": {
+                "preset": "stainless_304",
+                "label": "Fasteners",
+                "name_cn": "紧固件",
+                "name_en": "Fasteners",
+            },
         },
         "camera": {
             "V1": {
                 "name": "V1_front_iso",
                 "type": "standard",
-                "azimuth_deg": 35, "elevation_deg": 25, "distance_factor": 2.5,
-                "description": "Front-left isometric — main showcase"
+                "azimuth_deg": 35,
+                "elevation_deg": 25,
+                "distance_factor": 2.5,
+                "description": "Front-left isometric — main showcase",
             },
             "V2": {
                 "name": "V2_rear_oblique",
                 "type": "standard",
-                "azimuth_deg": 215, "elevation_deg": 20, "distance_factor": 2.8,
-                "description": "Rear-right oblique — back detail"
+                "azimuth_deg": 215,
+                "elevation_deg": 20,
+                "distance_factor": 2.8,
+                "description": "Rear-right oblique — back detail",
             },
             "V3": {
                 "name": "V3_exploded",
                 "type": "exploded",
-                "azimuth_deg": 35, "elevation_deg": 35, "distance_factor": 3.5,
-                "description": "Exploded view (render_exploded.py)"
+                "azimuth_deg": 35,
+                "elevation_deg": 35,
+                "distance_factor": 3.5,
+                "description": "Exploded view (render_exploded.py)",
             },
             "V4": {
                 "name": "V4_ortho_front",
                 "type": "ortho",
-                "azimuth_deg": 0, "elevation_deg": 0,
-                "description": "Front orthographic — auto-scaled to fit model"
-            }
+                "azimuth_deg": 0,
+                "elevation_deg": 0,
+                "description": "Front orthographic — auto-scaled to fit model",
+            },
         },
         "components": {
-            "body": {
-                "name_cn": "主体",
-                "name_en": "Main Body",
-                "material": "body"
-            }
+            "body": {"name_cn": "主体", "name_en": "Main Body", "material": "body"}
         },
         "labels": {
             "_doc": "Only visible components per view. Coords at 1920x1080 ref, auto-scaled.",
-            "V1": [
-                {
-                    "component": "body",
-                    "anchor": [600, 400],
-                    "label": [1600, 200]
-                }
-            ]
-        }
+            "V1": [{"component": "body", "anchor": [600, 400], "label": [1600, 200]}],
+        },
     }
 
     rc_path = os.path.join(sub_dir, "render_config.json")
@@ -2262,14 +2651,20 @@ TODO: 描述部件间的装配关系
     log.info("Next steps:")
     log.info("  1. Edit %s/params.py with real dimensions", sub_dir)
     log.info("  2. Edit %s with your design requirements", doc_path)
-    log.info("  3. Edit %s/render_config.json — update camera views and labels", sub_dir)
-    log.info("  4. Run: python cad_pipeline.py full --subsystem %s --design-doc %s",
-             sub_name, doc_path)
+    log.info(
+        "  3. Edit %s/render_config.json — update camera views and labels", sub_dir
+    )
+    log.info(
+        "  4. Run: python cad_pipeline.py full --subsystem %s --design-doc %s",
+        sub_name,
+        doc_path,
+    )
     return 0
 
 
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -2288,7 +2683,9 @@ def main():
 
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug output")
     parser.add_argument("-q", "--quiet", action="store_true", help="Warnings only")
-    parser.add_argument("--dry-run", action="store_true", help="Validate without executing")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Validate without executing"
+    )
 
     sub = parser.add_subparsers(dest="command", help="Pipeline command")
 
@@ -2296,89 +2693,150 @@ def main():
     p_spec = sub.add_parser("spec", help="Design review + CAD_SPEC.md generation")
     p_spec.add_argument("--subsystem", "-s", default=None)
     p_spec.add_argument("--design-doc", help="Path to design document (NN-*.md)")
-    p_spec.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
+    p_spec.add_argument(
+        "--auto-fill", action="store_true", help="Auto-fill computable values"
+    )
     p_spec.add_argument("--force", action="store_true", help="Force regeneration")
-    p_spec.add_argument("--review-only", action="store_true",
-                        help="Generate DESIGN_REVIEW only (no interaction, no CAD_SPEC.md). For Agent-driven review.")
-    p_spec.add_argument("--proceed", action="store_true",
-                        help="Skip interaction, generate CAD_SPEC.md with existing data")
-    p_spec.add_argument("--supplements", default=None,
-                        help="JSON string of Agent-collected supplements, e.g. '{\"B3\":\"4xM4\",\"D2\":\"__AUTO__\"}'. "
-                             "Written to user_supplements.json then spec is generated.")
+    p_spec.add_argument(
+        "--review-only",
+        action="store_true",
+        help="Generate DESIGN_REVIEW only (no interaction, no CAD_SPEC.md). For Agent-driven review.",
+    )
+    p_spec.add_argument(
+        "--proceed",
+        action="store_true",
+        help="Skip interaction, generate CAD_SPEC.md with existing data",
+    )
+    p_spec.add_argument(
+        "--supplements",
+        default=None,
+        help='JSON string of Agent-collected supplements, e.g. \'{"B3":"4xM4","D2":"__AUTO__"}\'. '
+        "Written to user_supplements.json then spec is generated.",
+    )
     p_spec.add_argument(
         "--out-dir",
         type=str,
         default=None,
         help="Override subsystem output root (default: cad/<subsystem>/). "
-             "Used by tests to redirect writes away from pinned subsystem dirs.",
+        "Used by tests to redirect writes away from pinned subsystem dirs.",
     )
 
     # codegen
-    p_codegen = sub.add_parser("codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md")
+    p_codegen = sub.add_parser(
+        "codegen", help="Generate CadQuery scaffolds from CAD_SPEC.md"
+    )
     p_codegen.add_argument("--subsystem", "-s", default=None)
-    p_codegen.add_argument("--force", action="store_true", help="Overwrite existing files")
+    p_codegen.add_argument(
+        "--force", action="store_true", help="Overwrite existing files"
+    )
 
     # build
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
     p_build.add_argument("--subsystem", "-s", default=None)
-    p_build.add_argument("--render", action="store_true", help="Also render after build")
-    p_build.add_argument("--skip-orientation", dest="skip_orientation", action="store_true",
-                         help="Bypass orientation_check.py pre-gate (not recommended)")
+    p_build.add_argument(
+        "--render", action="store_true", help="Also render after build"
+    )
+    p_build.add_argument(
+        "--skip-orientation",
+        dest="skip_orientation",
+        action="store_true",
+        help="Bypass orientation_check.py pre-gate (not recommended)",
+    )
 
     # render
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
     p_render.add_argument("--subsystem", "-s", default=None)
     p_render.add_argument("--view", help="Single view (V1-V5)")
-    p_render.add_argument("--timestamp", action="store_true", help="Append timestamp to filenames")
-    p_render.add_argument("--output-dir", help="Override output directory for rendered PNGs")
+    p_render.add_argument(
+        "--timestamp", action="store_true", help="Append timestamp to filenames"
+    )
+    p_render.add_argument(
+        "--output-dir", help="Override output directory for rendered PNGs"
+    )
 
     # enhance
-    p_enhance = sub.add_parser("enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)")
+    p_enhance = sub.add_parser(
+        "enhance", help="AI enhancement (Gemini, ComfyUI, or fal Cloud ComfyUI)"
+    )
     p_enhance.add_argument("--subsystem", "-s", default=None)
     p_enhance.add_argument("--dir", help="Directory with V*.png files")
-    p_enhance.add_argument("--backend",
-                           choices=["gemini", "comfyui", "fal", "fal_comfy", "engineering"],
-                           help="Override enhance backend (default: from pipeline_config.json). "
-                                "'engineering' = no AI, Blender PBR direct + post-processing.")
-    p_enhance.add_argument("--labeled", action="store_true",
-                           help="Also generate English-labeled version via Gemini (gemini backend only)")
-    p_enhance.add_argument("--model", default=None,
-                           help="Override model key from pipeline_config.json (e.g. nano_banana_2)")
+    p_enhance.add_argument(
+        "--backend",
+        choices=["gemini", "comfyui", "fal", "fal_comfy", "engineering"],
+        help="Override enhance backend (default: from pipeline_config.json). "
+        "'engineering' = no AI, Blender PBR direct + post-processing.",
+    )
+    p_enhance.add_argument(
+        "--labeled",
+        action="store_true",
+        help="Also generate English-labeled version via Gemini (gemini backend only)",
+    )
+    p_enhance.add_argument(
+        "--model",
+        default=None,
+        help="Override model key from pipeline_config.json (e.g. nano_banana_2)",
+    )
 
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
     p_annotate.add_argument("--subsystem", "-s", default=None)
     p_annotate.add_argument("--config", help="render_config.json path")
     p_annotate.add_argument("--dir", help="Directory with images")
-    p_annotate.add_argument("--lang", default="cn,en", help="Languages (default: cn,en)")
+    p_annotate.add_argument(
+        "--lang", default="cn,en", help="Languages (default: cn,en)"
+    )
 
     # full
-    p_full = sub.add_parser("full", help="Full pipeline: spec→codegen→build→render→enhance→annotate")
+    p_full = sub.add_parser(
+        "full", help="Full pipeline: spec→codegen→build→render→enhance→annotate"
+    )
     p_full.add_argument("--subsystem", "-s", default=None)
     p_full.add_argument("--design-doc", help="Path to design document (NN-*.md)")
-    p_full.add_argument("--auto-fill", action="store_true", help="Auto-fill computable values")
-    p_full.add_argument("--force-spec", action="store_true", help="Force spec regeneration")
+    p_full.add_argument(
+        "--auto-fill", action="store_true", help="Auto-fill computable values"
+    )
+    p_full.add_argument(
+        "--force-spec", action="store_true", help="Force spec regeneration"
+    )
     p_full.add_argument("--force", action="store_true", help="Force codegen overwrite")
-    p_full.add_argument("--render", action="store_true", default=False,
-                        help="Pass --render to build_all.py (normally handled by RENDER phase)")
+    p_full.add_argument(
+        "--render",
+        action="store_true",
+        default=False,
+        help="Pass --render to build_all.py (normally handled by RENDER phase)",
+    )
     p_full.add_argument("--view", default=None)
     p_full.add_argument("--dir", default=None)
     p_full.add_argument("--config", default=None)
     p_full.add_argument("--lang", default="cn,en")
-    p_full.add_argument("--timestamp", action="store_true", help="Append timestamp to renders")
+    p_full.add_argument(
+        "--timestamp", action="store_true", help="Append timestamp to renders"
+    )
     p_full.add_argument("--skip-spec", action="store_true", help="Skip spec generation")
-    p_full.add_argument("--skip-codegen", action="store_true", help="Skip code generation")
+    p_full.add_argument(
+        "--skip-codegen", action="store_true", help="Skip code generation"
+    )
     p_full.add_argument("--skip-enhance", action="store_true")
     p_full.add_argument("--skip-annotate", action="store_true")
-    p_full.add_argument("--labeled", action="store_true",
-                        help="Generate English-labeled enhanced images (gemini only)")
-    p_full.add_argument("--agent-review", action="store_true",
-                        help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process")
+    p_full.add_argument(
+        "--labeled",
+        action="store_true",
+        help="Generate English-labeled enhanced images (gemini only)",
+    )
+    p_full.add_argument(
+        "--agent-review",
+        action="store_true",
+        help="Agent-driven review: run Phase 1 review-only, output JSON path, exit 10 for Agent to process",
+    )
 
     # init
     p_init = sub.add_parser("init", help="Scaffold a new subsystem directory")
-    p_init.add_argument("--subsystem", required=True, help="Subsystem directory name (e.g. my_device)")
-    p_init.add_argument("--name-cn", default="", help="Chinese display name (e.g. 末端执行机构)")
+    p_init.add_argument(
+        "--subsystem", required=True, help="Subsystem directory name (e.g. my_device)"
+    )
+    p_init.add_argument(
+        "--name-cn", default="", help="Chinese display name (e.g. 末端执行机构)"
+    )
     p_init.add_argument("--prefix", default="", help="Part number prefix (e.g. GIS-EE)")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing files")
 
@@ -2387,6 +2845,21 @@ def main():
 
     # env-check
     sub.add_parser("env-check", help="Validate environment")
+
+    # sw-warmup（v4 §7）
+    p_sw_warmup = sub.add_parser(
+        "sw-warmup",
+        help="批量预热 SW Toolbox sldprt → STEP 缓存（v4 §7）",
+    )
+    p_sw_warmup.add_argument(
+        "--standard", help="逗号分隔标准，如 GB,ISO,DIN（默认 GB）"
+    )
+    p_sw_warmup.add_argument("--bom", help="BOM CSV 路径（按行匹配 sldprt）")
+    p_sw_warmup.add_argument(
+        "--all", action="store_true", help="预热所有 1818 个标准件"
+    )
+    p_sw_warmup.add_argument("--dry-run", action="store_true", help="只列目标不调 COM")
+    p_sw_warmup.add_argument("--overwrite", action="store_true", help="覆盖已有缓存")
 
     args = parser.parse_args()
 
@@ -2420,6 +2893,7 @@ def main():
         "init": cmd_init,
         "status": cmd_status,
         "env-check": cmd_env_check,
+        "sw-warmup": cmd_sw_warmup,
     }
 
     return dispatch[args.command](args)
