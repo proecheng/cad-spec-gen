@@ -44,6 +44,41 @@ _PART_CATEGORY_RULES = [
 ]
 
 
+# Part 2c P1 T5：BOM material 缺省字符串规范化（M-6）
+# 注意字符选择：所有 em dash 都是 U+2014。"——" 是两 em dash 连写（Excel 里输入 `--`
+# 再被自动替换后的常见形态），不是 U+2500 BOX DRAWINGS。
+# 机械设计师审查 D1：加 "na"（英制 BOM 无斜杠变体，与 "n/a" 并列为常见写法）。
+_MATERIAL_ABSENT_TOKENS = frozenset(
+    {"", "-", "—", "——", "/", "n/a", "na", "无", "无材质"}
+)
+
+
+def _normalize_material(raw: str | None) -> str:
+    """把 BOM 里的"无材质"惯用写法统一为空字符串。
+
+    Why：Excel 导出的 BOM 常见 "—"（U+2014 全角破折号，`--` 自动替换）/
+    "N/A"/"无"等表示"无指定材质"。字面值传到下游：
+      - classify_part 的 substring keyword match 会走 "other"（行为等效，
+        但消耗一次字符串 upper）
+      - cad_pipeline.py 的 material keyword preset match 会全 miss，走默认
+        preset（行为等效）
+      - 未来 sw_material_bridge 若加 by-name lookup 会 100% miss
+    统一归一为 ""，让"缺省"在数据流里是显式状态，日志与观察一致。
+
+    架构一致性：本模块 parse_price 已有 ("—", "-", "N/A") 的缺省集合先例；T5 把
+    material 域的同类逻辑抽成显式辅助函数并扩展 CJK 写法。两者域不同
+    （price / material）暂不合并——若未来第三个消费者出现，届时再抽通用
+    _normalize_empty_strings(raw, tokens)。
+
+    不区分大小写（"N/A" / "n/a" 等价）；strip 两端空白再比较。
+    非缺省值（如 "Q235B"）只做 strip，返回原字符串。
+    """
+    if raw is None:
+        return ""
+    stripped = raw.strip()
+    return "" if stripped.lower() in _MATERIAL_ABSENT_TOKENS else stripped
+
+
 def classify_part(name: str, material: str = "") -> str:
     """Classify a BOM part by name/material keywords → category string.
 
@@ -193,7 +228,11 @@ def parse_bom_from_markdown(filepath: str) -> dict:
                 part_no_raw = cells[col_map["part_no"]] if "part_no" in col_map else ""
                 part_no = _strip_bold(part_no_raw)
                 name = _strip_bold(cells[col_map["name"]] if "name" in col_map else "")
-                material = _strip_bold(cells[col_map.get("material", -1)]) if "material" in col_map and col_map["material"] < len(cells) else ""
+                material = _normalize_material(
+                    _strip_bold(cells[col_map.get("material", -1)])
+                    if "material" in col_map and col_map["material"] < len(cells)
+                    else ""
+                )
                 qty_str = cells[col_map.get("qty", -1)] if "qty" in col_map and col_map["qty"] < len(cells) else "1"
                 make_buy = _strip_bold(cells[col_map.get("make_buy", -1)]) if "make_buy" in col_map and col_map["make_buy"] < len(cells) else ""
                 price_str = cells[col_map.get("price", -1)] if "price" in col_map and col_map["price"] < len(cells) else ""
