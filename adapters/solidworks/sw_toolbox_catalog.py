@@ -686,7 +686,8 @@ def build_query_tokens_weighted(
 ) -> list[tuple[str, float]]:
     """构造加权 query tokens（v4 决策 #12）。
 
-    weights 示例: {"part_no": 2.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+    weights 示例: {"part_no": 0.0, "name_cn": 1.0, "material": 0.5, "size": 1.5}
+    （生产配置：part_no=0.0，内部项目编号不参与打分；标准件可传更高权重）
 
     同一 token 出现在多个字段时取最大权重（不累加），确保 dedup 后 dict() 不会覆盖高权重。
 

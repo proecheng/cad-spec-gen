@@ -565,7 +565,12 @@ class TestValidateSldprtPath:
 
 
 class TestMatchToolboxPart:
-    """v4 决策 #12: part_no 权重 2.0，name_cn 1.0，material 0.5，size 1.5。"""
+    """match_toolbox_part 行为测试。
+
+    注：生产配置 part_no=0.0（SW-C 修复，见 YAML 第 65 行），
+    本类测试直接传入 query_tokens，不经过 build_query_tokens_weighted，
+    可独立验证匹配机制本身（与 part_no 权重配置无关）。
+    """
 
     @pytest.fixture
     def fake_toolbox(self):
@@ -594,7 +599,10 @@ class TestMatchToolboxPart:
         assert score > 0.30
 
     def test_match_part_no_weight_dominates(self, idx):
-        """part_no 权重 2.0 应该能把弱匹配推到阈值之上。"""
+        """加权机制验证：单 token 高权重（2.0）能超过阈值。
+
+        注：生产配置 part_no=0.0；此处直接传入权重 2.0 测试 match_toolbox_part 机制本身。
+        """
         from adapters.solidworks.sw_toolbox_catalog import match_toolbox_part
 
         # 仅 part_no token 命中（"bolt"），name_cn 无命中
