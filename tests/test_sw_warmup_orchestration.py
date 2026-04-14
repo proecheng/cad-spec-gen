@@ -257,3 +257,65 @@ class TestCadPipelineSubcommand:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         assert hasattr(mod, "cmd_sw_warmup"), "cad_pipeline 应导出 cmd_sw_warmup"
+
+
+# ─── Part 2c P1 T4: exit code 3 + WarmupLockContentionError ──────────────
+
+
+class TestLockContentionExitCode:
+    """run_sw_warmup 对 lock contention 专用 exit code 3（Part 2b I-1）。"""
+
+    def test_WarmupLockContentionError_exposes_pid_attribute(self):
+        """架构审查 A1：PID 作为结构化属性暴露，不用字符串反解。"""
+        from tools.sw_warmup import WarmupLockContentionError
+
+        exc = WarmupLockContentionError(pid="9999")
+        assert exc.pid == "9999"
+        assert "9999" in str(exc)
+        assert isinstance(exc, RuntimeError)  # 子类关系保证反向兼容
+
+    def test_run_sw_warmup_returns_3_on_lock_contention(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """mock acquire_warmup_lock 抛 WarmupLockContentionError → rc == 3。"""
+        from contextlib import contextmanager
+        from tools import sw_warmup as mod
+
+        @contextmanager
+        def _raise_contention(_path):
+            raise mod.WarmupLockContentionError(pid="1234")
+            yield  # unreachable
+
+        monkeypatch.setattr(mod, "acquire_warmup_lock", _raise_contention)
+        monkeypatch.setattr(
+            mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock"
+        )
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "1234" in captured.out  # PID 在输出
+
+    def test_run_sw_warmup_returns_1_on_generic_runtimeerror(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """_run_warmup_locked 抛裸 RuntimeError → rc == 1（回归保护）。"""
+        from contextlib import contextmanager
+        from tools import sw_warmup as mod
+
+        @contextmanager
+        def _noop_lock(_path):
+            yield  # 正常获锁
+
+        monkeypatch.setattr(mod, "acquire_warmup_lock", _noop_lock)
+        monkeypatch.setattr(
+            mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock"
+        )
+        monkeypatch.setattr(
+            mod,
+            "_run_warmup_locked",
+            lambda args: (_ for _ in ()).throw(RuntimeError("通用错误")),
+        )
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        assert rc == 1

@@ -27,6 +27,20 @@ _LOCK_OFFSET = 0
 _LOCK_NBYTES = 1
 
 
+class WarmupLockContentionError(RuntimeError):
+    """另一 sw-warmup 进程持有锁；调用方应返回 exit 3 而非 1。
+
+    PID 作为结构化属性暴露，未来 sw-inspect 子命令（P2）可以直接
+    `exc.pid` 读取，无需 `re.match(r"PID (\\d+)", str(exc))` 反解字符串。
+    """
+
+    _MSG_FMT = "另一个 sw-warmup 进程运行中 (PID {pid})"
+
+    def __init__(self, pid: str):
+        super().__init__(self._MSG_FMT.format(pid=pid))
+        self.pid: str = pid
+
+
 # 列名别名表（值为标准化后的字段名，键为 BOM CSV 中可能出现的列名小写）
 BOM_COLUMN_ALIASES = {
     "part_no": "part_no",
@@ -131,8 +145,7 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
 
     # 同进程内重复 acquire 检查
     if lock_path_str in _held_locks:
-        pid = os.getpid()
-        raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})")
+        raise WarmupLockContentionError(pid=str(os.getpid()))
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -156,7 +169,7 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             except OSError as e:
                 fh.close()
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})") from e
+                raise WarmupLockContentionError(pid=pid) from e
         else:
             import fcntl
 
@@ -165,7 +178,7 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             except (OSError, BlockingIOError) as e:
                 fh.close()
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})") from e
+                raise WarmupLockContentionError(pid=pid) from e
 
         # 记录为已持有。_held_locks.add 必须与 .discard 成对出现在同层 try/finally，
         # 否则 yield 体抛异常时会留下孤岛条目，未来 acquire 误判为"已持有"。
@@ -246,12 +259,16 @@ def run_sw_warmup(args) -> int:
     """sw-warmup 主入口（v4 §7）。
 
     Returns:
-        0 成功 / 1 部分失败 / 2 前置失败
+        0 成功 / 1 部分失败 / 2 前置失败 / 3 锁争用（另一实例在运行）
     """
     try:
         with acquire_warmup_lock(_default_lock_path()):
             return _run_warmup_locked(args)
+    except WarmupLockContentionError as e:
+        print(f"[sw-warmup] {e}")
+        return 3
     except RuntimeError as e:
+        # 其它 RuntimeError 仍按"部分失败"处理，保持既有行为
         print(f"[sw-warmup] {e}")
         return 1
 
