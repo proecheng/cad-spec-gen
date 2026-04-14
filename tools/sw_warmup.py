@@ -21,6 +21,26 @@ log = logging.getLogger(__name__)
 _held_locks: set[str] = set()
 
 
+# 锁定的字节范围常量 — acquire 与 release 必须对齐同一 range，
+# 否则 msvcrt release 成 no-op 导致句柄泄漏（Part 2b review I-3）。
+_LOCK_OFFSET = 0
+_LOCK_NBYTES = 1
+
+
+class WarmupLockContentionError(RuntimeError):
+    """另一 sw-warmup 进程持有锁；调用方应返回 exit 3 而非 1。
+
+    PID 作为结构化属性暴露，未来 sw-inspect 子命令（P2）可以直接
+    `exc.pid` 读取，无需 `re.match(r"PID (\\d+)", str(exc))` 反解字符串。
+    """
+
+    _MSG_FMT = "另一个 sw-warmup 进程运行中 (PID {pid})"
+
+    def __init__(self, pid: str):
+        super().__init__(self._MSG_FMT.format(pid=pid))
+        self.pid: str = pid
+
+
 # 列名别名表（值为标准化后的字段名，键为 BOM CSV 中可能出现的列名小写）
 BOM_COLUMN_ALIASES = {
     "part_no": "part_no",
@@ -125,8 +145,7 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
 
     # 同进程内重复 acquire 检查
     if lock_path_str in _held_locks:
-        pid = os.getpid()
-        raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})")
+        raise WarmupLockContentionError(pid=str(os.getpid()))
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -140,11 +159,17 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             import msvcrt
 
             try:
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                # msvcrt.locking 锁的是"从当前位置起 N 字节"。"a+" 模式 open
+                # 后 file position 默认在 EOF，锁会落在未知 offset；而释放路径
+                # 已 seek 到 _LOCK_OFFSET 锁定 _LOCK_NBYTES 字节。acquire 与
+                # release 必须对齐同一 byte range，否则 release 成 no-op 导致
+                # 锁句柄泄漏。修 Part 2b final review I-3。
+                fh.seek(_LOCK_OFFSET)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, _LOCK_NBYTES)
             except OSError as e:
                 fh.close()
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})") from e
+                raise WarmupLockContentionError(pid=pid) from e
         else:
             import fcntl
 
@@ -153,7 +178,7 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
             except (OSError, BlockingIOError) as e:
                 fh.close()
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})") from e
+                raise WarmupLockContentionError(pid=pid) from e
 
         # 记录为已持有。_held_locks.add 必须与 .discard 成对出现在同层 try/finally，
         # 否则 yield 体抛异常时会留下孤岛条目，未来 acquire 误判为"已持有"。
@@ -176,8 +201,8 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
                 import msvcrt
 
                 try:
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    fh.seek(_LOCK_OFFSET)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, _LOCK_NBYTES)
                 except OSError as e:
                     log.debug("释放 msvcrt 锁异常（忽略）: %s", e)
             else:
@@ -234,12 +259,16 @@ def run_sw_warmup(args) -> int:
     """sw-warmup 主入口（v4 §7）。
 
     Returns:
-        0 成功 / 1 部分失败 / 2 前置失败
+        0 成功 / 1 部分失败 / 2 前置失败 / 3 锁争用（另一实例在运行）
     """
     try:
         with acquire_warmup_lock(_default_lock_path()):
             return _run_warmup_locked(args)
+    except WarmupLockContentionError as e:
+        print(f"[sw-warmup] {e}")
+        return 3
     except RuntimeError as e:
+        # 其它 RuntimeError 仍按"部分失败"处理，保持既有行为
         print(f"[sw-warmup] {e}")
         return 1
 
@@ -285,7 +314,7 @@ def _convert_one(
 
 
 def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
-    """读 BOM → 复用 SwToolboxAdapter._find_sldprt 找匹配 sldprt。
+    """读 BOM → 复用 SwToolboxAdapter.find_sldprt 找匹配 sldprt。
     返回 {part_no: SwToolboxPart}（找不到的行被跳过 + warning）。
     """
     from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -295,7 +324,7 @@ def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
     out: dict = {}
     for q in queries:
         spec = {"standard": ["GB", "ISO", "DIN"], "part_category": q.category}
-        match = adapter._find_sldprt(q, spec)
+        match = adapter.find_sldprt(q, spec)
         if match is None:
             log.warning("BOM 行未匹配到 sldprt: %s (%s)", q.part_no, q.name_cn)
             continue

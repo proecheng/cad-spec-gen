@@ -201,11 +201,12 @@ class SwToolboxAdapter(PartsAdapter):
             metadata={"dims": dims, "match_score": score, "configuration": "<default>"},
         )
 
-    def _find_sldprt(self, query, spec: dict):
-        """匹配逻辑独立方法，供 sw-warmup --bom 复用。不触发 COM。
+    def find_sldprt(self, query, spec: dict):
+        """公开的 sldprt 匹配 API（不触发 COM）。
 
         从 resolve() 中抽出 step 1-6（索引加载 + 尺寸提取 + token 打分 + 路径校验），
-        返回匹配结果元组，供外部调用方决定后续动作（COM 转换或其他）。
+        返回匹配结果元组，供 sw-warmup --bom / 外部脚本 / 未来 sw-inspect 子命令
+        等调用方决定后续动作（COM 转换或其他）。
 
         Returns:
             (SwToolboxPart, score) — 匹配成功；或 None — 任意步骤失败。

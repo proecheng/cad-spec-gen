@@ -10,8 +10,8 @@ so two tests finishing in the same second can race an mtime check.
 A hash over (rel_path, size, mtime) tuples for every file catches any
 content mutation regardless of timestamp resolution.
 """
+
 import hashlib
-import os
 import sys
 from pathlib import Path
 
@@ -69,3 +69,44 @@ def isolate_cad_spec_gen_home(monkeypatch, tmp_path):
         f"  After:  {current_hash}\n"
         f"A code path bypassed the HOME monkeypatch — fixture breach!"
     )
+
+
+# ─── @requires_solidworks marker 自动 skip 钩子（Part 2c P1 T2） ───
+
+
+def pytest_collection_modifyitems(config, items):
+    """为 @pytest.mark.requires_solidworks 的 item 按需加 skip 标记。
+
+    触发 skip 条件（任一满足，优先级从高到低）：
+      1. sys.platform != "win32"（COM 是 Windows 独占）
+      2. pywin32 (import win32com) 不可用
+      3. adapters.solidworks.sw_detect.detect_solidworks().installed == False
+
+    2 和 3 由运行时唯一事实源 sw_detect 统一回答（非 Windows 平台上
+    detect_solidworks() 也返回 installed=False, pywin32_available=False，
+    但显式检查 sys.platform 让 skip reason 更精确）。
+    异常不吞：sw_detect 导入失败 → collection 失败，不 silent skip。
+    """
+    needs_sw = [it for it in items if it.get_closest_marker("requires_solidworks")]
+    if not needs_sw:
+        return
+
+    if sys.platform != "win32":
+        reason = "requires_solidworks：非 Windows 平台"
+    else:
+        try:
+            from adapters.solidworks.sw_detect import detect_solidworks
+
+            info = detect_solidworks()
+        except ImportError as exc:
+            raise pytest.UsageError(f"sw_detect 导入失败：{exc}") from exc
+
+        if info.pywin32_available and info.installed:
+            return  # 真装了 SW，保留原样跑
+        reason = "requires_solidworks：" + (
+            "pywin32 缺" if not info.pywin32_available else "SolidWorks 未安装"
+        )
+
+    skip = pytest.mark.skip(reason=reason)
+    for it in needs_sw:
+        it.add_marker(skip)
