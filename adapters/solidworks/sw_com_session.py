@@ -1,33 +1,30 @@
 """
-adapters/solidworks/sw_com_session.py — SolidWorks COM 会话管理。
+adapters/solidworks/sw_com_session.py — SolidWorks COM 会话管理（Part 2c P0 重写）。
 
-====== Part 1 / Part 2 交付边界 ======
-Part 1 交付（本文件）：
-- `SwComSession` 骨架 + `_lock` 保护 + 熔断器（连续 3 次失败）
-- `convert_sldprt_to_step` 假设 `self._app` 已设置；atomic write + 大小/magic 校验
-- `get_session` / `reset_session` singleton 管理
-- 生命周期常量定义（COLD_START_TIMEOUT_SEC 等）
+设计：每次 convert 启动独立 subprocess 跑 `sw_convert_worker`，父进程用
+`subprocess.run(timeout=SINGLE_CONVERT_TIMEOUT_SEC)` 守护；timeout 触发
+时 subprocess.run 内部会先 kill 再 raise，父进程把失败计入熔断器。
 
-Part 2 将实现（SW-B9 真实 COM 验收时）：
-- `start()` 方法 — 实际启动 SW + LoadAddIn Toolbox + 赋值 self._app
-  （受 COLD_START_TIMEOUT_SEC 保护）
-- `_maybe_restart()` — `_convert_count >= RESTART_EVERY_N_CONVERTS` 时 shutdown+start
-- 空闲自动 shutdown — `time.time() - _last_used_ts >= IDLE_SHUTDOWN_SEC`
-- `SINGLE_CONVERT_TIMEOUT_SEC` 与 `convert_sldprt_to_step` 的挂靠（可能用 threading 超时中断或 subprocess 超时）
+为什么 subprocess：pywin32 COM 调用阻塞后 threading 无法中断（SW-B0 spike
+第 3 轮真跑实证）；只有杀子进程是可靠手段。
 
-Part 1 单元测试通过直接赋值 `session._app = mock_app` 绕过 `start()`，
-生产环境用 Part 1 的 session **不会**真正启动 SW —— resolve 的 cache miss 分支
-会在 `_do_convert` 看到 `self._app is None` 后返回 False。
+Session 公共 API 不变：`convert_sldprt_to_step(sldprt, step_out) -> bool` +
+`is_healthy()` + `shutdown()` + `get_session()/reset_session()`。
 
-实施 v4 决策 #6/#22/#23/#25（Part 1）+ #10/#11（Part 2）。
+父进程职责：subprocess 编排 + timeout 守护 + STEP validate + atomic rename +
+熔断器。Worker 职责（另一个模块）：Dispatch + OpenDoc6 + SaveAs3 + 写 tmp。
 
-不在此模块硬依赖 win32com（runtime import）。
+Task 3 会删除老 in-process 生命周期死代码（_start_locked / _maybe_restart_locked /
+_maybe_idle_shutdown_locked / _shutdown_locked / _com_dispatch / _app）。
+本任务不删，保证 git diff 聚焦。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -35,8 +32,11 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# v4 决策 #10/#11 行为契约常量 — Part 2 SW-B9 真实 COM 实现时引用
-# Part 1 仅定义，不执行对应生命周期逻辑
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_WORKER_MODULE = "adapters.solidworks.sw_convert_worker"
+
+# v4 决策 #10/#11 行为契约常量 — 老 in-process 生命周期相关
+# Task 3 会把不再相关的删掉；本任务保留以避免老测试红透
 COLD_START_TIMEOUT_SEC = 90
 SINGLE_CONVERT_TIMEOUT_SEC = 30
 IDLE_SHUTDOWN_SEC = 300
@@ -167,68 +167,37 @@ class SwComSession:
         )
         self._shutdown_locked()
 
-    def convert_sldprt_to_step(
-        self,
-        sldprt_path,
-        step_out,
-    ) -> bool:
-        """转换单个 sldprt 为 STEP（v4 决策 #6/#23/#25）。
+    def convert_sldprt_to_step(self, sldprt_path, step_out) -> bool:
+        """转换单个 sldprt 为 STEP（Part 2c P0 subprocess 守护版）。
 
-        全方法包 self._lock（COM 非线程安全）。
-        atomic write: tmp → validate → rename。
+        全方法包 self._lock（保证 singleton 串行）。subprocess 执行转换，
+        成功时 validate + atomic rename；失败累加熔断计数。
 
         Returns:
             True: 成功
             False: 任何失败（不抛异常），自动累加熔断计数。
         """
-        # v4 决策 #25: encoding 透传
         sldprt_path = str(os.fspath(sldprt_path))
         step_out = str(os.fspath(step_out))
 
         with self._lock:
             if self._unhealthy:
-                # SW-B0 spike H4 自愈：SW 进程可能已被 RPC 失败搞死，
-                # 丢弃 _app 指针 + 清 counters，下方 _start_locked 会冷启动。
-                # 不调 _shutdown_locked（对 dead app ExitApp 会再抛 RPC 错）。
-                log.info("unhealthy 自愈：丢弃 _app 引用，触发冷启动重试")
-                self._app = None
-                self._unhealthy = False
-                self._consecutive_failures = 0
-
-            # Part 2a Task 4: idle shutdown（threading model 规则 6）
-            # 先于 restart 检查 —— idle 已 shutdown 时 restart 判断无意义。
-            self._maybe_idle_shutdown_locked()
-
-            # Part 2a Task 3: 周期强制重启（决策 #11）
-            try:
-                self._maybe_restart_locked()
-            except Exception as e:
-                log.warning("COM 周期重启失败: %s", e)
+                log.info(
+                    "熔断器已开：跳过 convert（系统性故障，call reset_session() 清除）"
+                )
                 return False
-
-            # Part 2a Task 2: _app 未初始化 → 自动触发冷启动（决策 #10）
-            # 持锁调用 _start_locked（threading model 规则 5），不重新 acquire。
-            if self._app is None:
-                try:
-                    self._start_locked()
-                except Exception as e:
-                    log.warning("COM 冷启动失败: %s", e)
-                    return False
 
             success = False
             try:
                 success = self._do_convert(sldprt_path, step_out)
-                if success:
-                    self._convert_count += 1
-                    self._consecutive_failures = 0
-                    self._last_used_ts = time.time()
-                else:
-                    self._consecutive_failures += 1
             except Exception as e:
-                log.warning("COM convert 异常: %s", e)
-                self._consecutive_failures += 1
+                log.warning("convert 未预期异常: %s", e)
                 success = False
-            finally:
+
+            if success:
+                self._consecutive_failures = 0
+            else:
+                self._consecutive_failures += 1
                 if self._consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
                     log.error(
                         "COM 熔断触发（连续 %d 次失败）",
@@ -238,87 +207,63 @@ class SwComSession:
             return success
 
     def _do_convert(self, sldprt_path: str, step_out: str) -> bool:
-        """实际 COM 调用 + atomic write（v4 决策 #23）。
-
-        OpenDoc6 / SaveAs3 的 OUT 参数必须以 VARIANT BYREF I4 传递，否则
-        pywin32 late-bind 会抛 DISP_E_TYPEMISMATCH / DISP_E_PARAMNOTOPTIONAL
-        （SW-B0 spike 实证；见 scripts/sw_spike_h1_convert.py）。
-        """
-        if self._app is None:
-            log.warning(
-                "SwComSession._app 未初始化；Part 2 需要实现 start() 方法来启动真实 SW。"
-                "Part 1 仅单元测试通过 mock 赋值 _app 使用。"
-            )
-            return False
-
-        # tmp 必须保留 .step 扩展名：SaveAs3 按扩展名推断输出格式，
-        # 若文件名以 .tmp 结尾会返回 errors=256 (swFileSaveAsNotSupported)。
-        # SW-B0 H3 spike 实证：scripts/sw_spike_h3_tmpext.py。
+        """启动 worker subprocess，成功则 validate + atomic rename。"""
+        # tmp 必须以 .step 结尾（SaveAs3 按扩展名推断格式；.step.tmp 会被 SW
+        # 拒为 swFileSaveAsNotSupported=256，SW-B0 spike H3 实证）
         tmp_path = str(Path(step_out).with_suffix(".tmp.step"))
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
 
-        import pythoncom
-        from win32com.client import VARIANT
-
-        # OpenDoc6: IN (name, type, options, config) + OUT (errors, warnings)
-        err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-        warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-        model = self._app.OpenDoc6(
+        cmd = [
+            sys.executable,
+            "-m",
+            _WORKER_MODULE,
             sldprt_path,
-            1,  # swDocPART
-            1,  # swOpenDocOptions_Silent
-            "",
-            err_var,
-            warn_var,
-        )
-        if err_var.value:
-            log.warning(
-                "OpenDoc6 errors: %s (warnings: %s)",
-                err_var.value,
-                warn_var.value,
-            )
-            return False
-        if model is None:
-            log.warning("OpenDoc6 returned None model for %s", sldprt_path)
-            return False
+            tmp_path,
+        ]
 
         try:
-            # SaveAs3: IN (name, version, options) + 两个可选 IDispatch* +
-            # OUT (errors, warnings)。IDispatch* 可选空位必须用 VT_DISPATCH/None。
-            export_var = VARIANT(pythoncom.VT_DISPATCH, None)
-            advanced_var = VARIANT(pythoncom.VT_DISPATCH, None)
-            err2_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-            warn2_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-            saved = model.Extension.SaveAs3(
-                tmp_path,
-                0,
-                1,
-                export_var,
-                advanced_var,
-                err2_var,
-                warn2_var,
+            proc = subprocess.run(
+                cmd,
+                timeout=SINGLE_CONVERT_TIMEOUT_SEC,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(_PROJECT_ROOT),
             )
-            if not saved:
-                if err2_var.value:
-                    log.warning("SaveAs3 errors: %s", err2_var.value)
-                return False
+        except subprocess.TimeoutExpired:
+            log.warning(
+                "convert subprocess 超时 %ds，已被 subprocess.run kill；sldprt=%s",
+                SINGLE_CONVERT_TIMEOUT_SEC,
+                sldprt_path,
+            )
+            self._cleanup_tmp(tmp_path)
+            return False
 
-            # Validate tmp
-            if not self._validate_step_file(tmp_path):
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
-                return False
+        if proc.returncode != 0:
+            log.warning(
+                "convert subprocess rc=%d sldprt=%s stderr=%s",
+                proc.returncode,
+                sldprt_path,
+                (proc.stderr or "")[:300],
+            )
+            self._cleanup_tmp(tmp_path)
+            return False
 
-            # Atomic rename
-            os.replace(tmp_path, step_out)
-            return True
-        finally:
-            try:
-                self._app.CloseDoc(model.GetTitle())
-            except Exception:
-                pass
+        if not self._validate_step_file(tmp_path):
+            log.warning("convert tmp STEP 校验失败: %s", tmp_path)
+            self._cleanup_tmp(tmp_path)
+            return False
+
+        os.replace(tmp_path, step_out)
+        return True
+
+    @staticmethod
+    def _cleanup_tmp(tmp_path: str) -> None:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @staticmethod
     def _validate_step_file(path: str) -> bool:
