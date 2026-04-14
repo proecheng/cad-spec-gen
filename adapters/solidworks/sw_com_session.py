@@ -187,7 +187,13 @@ class SwComSession:
 
         with self._lock:
             if self._unhealthy:
-                return False
+                # SW-B0 spike H4 自愈：SW 进程可能已被 RPC 失败搞死，
+                # 丢弃 _app 指针 + 清 counters，下方 _start_locked 会冷启动。
+                # 不调 _shutdown_locked（对 dead app ExitApp 会再抛 RPC 错）。
+                log.info("unhealthy 自愈：丢弃 _app 引用，触发冷启动重试")
+                self._app = None
+                self._unhealthy = False
+                self._consecutive_failures = 0
 
             # Part 2a Task 4: idle shutdown（threading model 规则 6）
             # 先于 restart 检查 —— idle 已 shutdown 时 restart 判断无意义。
@@ -245,7 +251,10 @@ class SwComSession:
             )
             return False
 
-        tmp_path = step_out + ".tmp"
+        # tmp 必须保留 .step 扩展名：SaveAs3 按扩展名推断输出格式，
+        # 若文件名以 .tmp 结尾会返回 errors=256 (swFileSaveAsNotSupported)。
+        # SW-B0 H3 spike 实证：scripts/sw_spike_h3_tmpext.py。
+        tmp_path = str(Path(step_out).with_suffix(".tmp.step"))
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
 
         import pythoncom

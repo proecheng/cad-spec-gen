@@ -14,8 +14,8 @@ FAKE_TOOLBOX = Path(__file__).parent / "fixtures" / "fake_toolbox"
 
 def test_calibration_outputs_recommendation(tmp_path, monkeypatch, capsys):
     """脚本应输出推荐阈值行，且阈值 >= 0.30（决策 #32 下界）。"""
-    from tools import sw_warmup_calibration as cal
     from adapters.solidworks import sw_detect, sw_toolbox_catalog
+    from tools import sw_warmup_calibration as cal
 
     sw_detect._reset_cache()
     monkeypatch.setattr(
