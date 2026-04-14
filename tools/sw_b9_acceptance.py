@@ -46,7 +46,7 @@ def stage_0_preflight(
         log.info("[stage_0] 重建 toolbox index...")
         index = sw_toolbox_catalog.build_toolbox_index(str(toolbox_root))
     else:
-        index = sw_toolbox_catalog.load_toolbox_index(index_path)
+        index = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_root)
 
     index_size = sum(
         len(parts)
