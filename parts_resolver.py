@@ -30,8 +30,6 @@ from __future__ import annotations
 
 import fnmatch
 import os
-import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional
@@ -489,7 +487,7 @@ def load_registry(
 
         default_data = _load_yaml(default_path)
         if default_data is None:
-            log(f"  [resolver] failed to load default registry; using project only")
+            log("  [resolver] failed to load default registry; using project only")
             log(f"  [resolver] loaded registry from {project_path}")
             return project_data
 
@@ -574,6 +572,22 @@ def default_resolver(
     except ImportError as e:
         if logger:
             logger(f"  [resolver] BdWarehouseAdapter unavailable: {e}")
+
+    # Phase SW-B Part 2a — SwToolboxAdapter (opt-in via yaml config +
+    # runtime is_available() self-report)
+    try:
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        resolver.register_adapter(SwToolboxAdapter(
+            project_root=project_root,
+            config=registry.get("solidworks_toolbox", {}),
+        ))
+    except ImportError as e:
+        if logger:
+            logger(f"  [resolver] SwToolboxAdapter unavailable: {e}")
+    except RuntimeError as e:
+        # validate_size_patterns 拒绝恶意 yaml → 不注册但管道继续
+        if logger:
+            logger(f"  [resolver] SwToolboxAdapter config rejected: {e}")
 
     # Phase B — StepPoolAdapter (not yet implemented)
     try:

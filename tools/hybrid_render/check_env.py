@@ -22,6 +22,7 @@ import sys
 # Detection helpers
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def _check_module(name):
     """Try importing a Python module, return (ok, version_or_error)."""
     try:
@@ -104,6 +105,7 @@ def _check_gemini():
 # Main detection
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def detect_environment():
     """Run all checks, return structured result dict."""
     result = {
@@ -153,6 +155,25 @@ def detect_environment():
     else:
         level = 1
 
+    # ─── 增强源检测（不影响 level） ───
+    enhancements = {}
+    try:
+        from adapters.solidworks.sw_detect import detect_solidworks
+
+        sw = detect_solidworks()
+        enhancements["solidworks"] = {
+            "ok": sw.installed and (sw.version_year or 0) >= 2020,
+            "version": sw.version,
+            "path_a": (sw.version_year or 0) >= 2020,
+            "path_b": (sw.version_year or 0) >= 2024 and sw.com_available,
+            "pywin32": sw.pywin32_available,
+            "materials": len(sw.sldmat_paths),
+            "toolbox_addin_enabled": sw.toolbox_addin_enabled,  # Part 2a 决策 #13
+        }
+    except ImportError:
+        enhancements["solidworks"] = {"ok": False}
+    result["enhancements"] = enhancements
+
     result["level"] = level
     return result
 
@@ -162,23 +183,23 @@ def detect_environment():
 # ═════════════════════════════════════════════════════════════════════════════
 
 LEVEL_NAMES = {
-    5: ("FULL",    "全管线：CAD建模 + 2D图 + 3D渲染 + AI增强"),
-    4: ("RENDER",  "CAD + 3D渲染，无AI增强"),
-    3: ("CAD",     "CAD + 2D工程图，无3D渲染"),
-    2: ("IMPORT",  "仅有STEP/GLB文件，可手动导入Blender"),
+    5: ("FULL", "全管线：CAD建模 + 2D图 + 3D渲染 + AI增强"),
+    4: ("RENDER", "CAD + 3D渲染，无AI增强"),
+    3: ("CAD", "CAD + 2D工程图，无3D渲染"),
+    2: ("IMPORT", "仅有STEP/GLB文件，可手动导入Blender"),
     1: ("MINIMAL", "无CAD工具，仅输出prompt文本供手动使用"),
 }
 
 INSTALL_HINTS = {
     "cadquery": "pip install cadquery          # 参数化3D建模",
-    "ezdxf":    "pip install ezdxf             # 2D DXF工程图",
+    "ezdxf": "pip install ezdxf             # 2D DXF工程图",
     "matplotlib": "pip install matplotlib      # DXF→PNG渲染",
-    "blender":  (
+    "blender": (
         "下载 Blender 4.x portable 并解压到 tools/blender/\n"
         "    https://www.blender.org/download/\n"
         "    或设置环境变量: set BLENDER_PATH=C:\\path\\to\\blender.exe"
     ),
-    "gemini":   (
+    "gemini": (
         "配置 Gemini 图像生成:\n"
         "    python D:/imageProduce/gemini_gen.py --config\n"
         "    或设置 GEMINI_GEN_PATH 指向 gemini_gen.py 路径"
@@ -201,12 +222,12 @@ def print_report(result):
 
     # Status table
     checks = [
-        ("Python ≥3.8",  result["python"]["ok"],    result["python"]["version"]),
-        ("CadQuery",      result["cadquery"]["ok"],  result["cadquery"]["detail"]),
-        ("ezdxf",         result["ezdxf"]["ok"],     result["ezdxf"]["detail"]),
-        ("matplotlib",    result["matplotlib"]["ok"], result["matplotlib"]["detail"]),
-        ("Blender",       result["blender"]["ok"],   result["blender"]["detail"]),
-        ("Gemini AI",     result["gemini"]["ok"],    result["gemini"]["detail"]),
+        ("Python ≥3.8", result["python"]["ok"], result["python"]["version"]),
+        ("CadQuery", result["cadquery"]["ok"], result["cadquery"]["detail"]),
+        ("ezdxf", result["ezdxf"]["ok"], result["ezdxf"]["detail"]),
+        ("matplotlib", result["matplotlib"]["ok"], result["matplotlib"]["detail"]),
+        ("Blender", result["blender"]["ok"], result["blender"]["detail"]),
+        ("Gemini AI", result["gemini"]["ok"], result["gemini"]["detail"]),
     ]
 
     print("  检测项          状态    详情")
@@ -238,14 +259,59 @@ def print_report(result):
     print("  Level 2 IMPORT:  手动导入已有GLB到Blender渲染")
     print("  Level 1 MINIMAL: 仅生成prompt文本，手动粘贴到Gemini/ChatGPT")
 
+    # 增强源
+    enhancements = result.get("enhancements", {})
+    sw_enh = enhancements.get("solidworks", {})
+    print()
+    print("  增强源（可选，不影响能力等级）")
+    print("  " + "-" * 56)
+    if sw_enh.get("ok"):
+        sw_ver = sw_enh.get("version", "?")
+        path_a = "材质 ✓" if sw_enh.get("path_a") else "材质 ✗"
+        if sw_enh.get("path_b"):
+            # Path B 细分：pywin32 + SW ≥2024 + COM 可达。Toolbox Library
+            # add-in 对 sldprt→STEP 转换不是必要条件（SW-B0 spike 实证）。
+            if sw_enh.get("toolbox_addin_enabled"):
+                path_b = "Toolbox ✓"
+            else:
+                path_b = "Toolbox ✓ (add-in 未启用 / 仅 UI 功能受限)"
+        elif sw_enh.get("pywin32"):
+            # version < 2024 vs com_available 不可用——两种都需要 pywin32 但更细分
+            sw_version_year = int((sw_enh.get("version") or "0").split(".")[0] or 0)
+            if sw_version_year < 2024:
+                path_b = "Toolbox ✗ (版本 < 2024)"
+            else:
+                path_b = "Toolbox ✗ (COM 接口不可用)"
+        else:
+            path_b = "Toolbox ✗ (pywin32 未安装)"
+        print(f"  SolidWorks    [OK]    {sw_ver} — {path_a} / {path_b}")
+
+        # 决策 #13 + SW-B0 spike：add-in 非必要；仅在你想在 SW UI 里
+        # 插入标准件时才需启用。sldprt→STEP 转换只用 OpenDoc6/SaveAs3。
+        if sw_enh.get("path_b") and not sw_enh.get("toolbox_addin_enabled"):
+            print(
+                "                        可选：启用 Toolbox Library（UI 插件，"
+                "对 sw-warmup 转换非必要）："
+            )
+            print("                          SolidWorks → Tools → Add-Ins →")
+            print("                          勾选 'SOLIDWORKS Toolbox Library'")
+    else:
+        print("  SolidWorks    [  ]    未检测到安装")
+        print(
+            "                        已有 SolidWorks 许可？安装后可自动集成材质库和标准件。"
+        )
+    print("  " + "-" * 56)
+
     # Next steps
     print()
     if level == 5:
         print("  [下一步] 环境完整！运行渲染:")
-        print("    python tools/hybrid_render/validate_config.py "
-              "cad/end_effector/render_config.json")
+        print(
+            "    python tools/hybrid_render/validate_config.py "
+            "cad/end_effector/render_config.json"
+        )
     elif level >= 3:
-        print(f"  [下一步] 安装缺失组件可升级到 Level {min(level+1, 5)}:")
+        print(f"  [下一步] 安装缺失组件可升级到 Level {min(level + 1, 5)}:")
         print(f"    {INSTALL_HINTS[missing[0]]}")
     else:
         print("  [下一步] 安装 CadQuery 开始参数化建模:")
