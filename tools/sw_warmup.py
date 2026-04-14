@@ -155,7 +155,8 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
                 pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
                 raise RuntimeError(f"另一个 sw-warmup 进程运行中 (PID {pid})") from e
 
-        # 记录为已持有
+        # 记录为已持有。_held_locks.add 必须与 .discard 成对出现在同层 try/finally，
+        # 否则 yield 体抛异常时会留下孤岛条目，未来 acquire 误判为"已持有"。
         _held_locks.add(lock_path_str)
 
         # 持锁后写入当前 PID 供下个尝试者诊断（spec 要求）
