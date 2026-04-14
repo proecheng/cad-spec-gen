@@ -12,11 +12,11 @@
 | --- | --- | --- | --- |
 | 0 preflight | toolbox 探测 + index 构建 | index=1844 | True |
 | 0.5 token 健康 | cn_hit_rate > 0 | 0.8666666666666667 | True |
-| A demo 覆盖率 | ≥ 73% | 0.13333333333333333 | False |
-| B GISBOT 覆盖率 | informational | 0.0 | informational |
+| A demo 覆盖率 | ≥ 73% | 0.7333333333333333 | True |
+| B GISBOT 覆盖率 | informational | 0.07692307692307693 | informational |
 | C session 重启 | 前5 后3 STEP 合法 | pre=None post=None | False |
 | D 装配回归 | after ≥ before | True | True |
-| E ROI 熔断 | coverage ≥ 55% | 0.0 → downgrade_gb_only | informational |
+| E ROI 熔断 | coverage ≥ 55% | 0.07692307692307693 → downgrade_gb_only | informational |
 
 ## 样本不足声明（决策 B1 / 决策 #34）
 
@@ -27,6 +27,6 @@ GISBOT 为 CadQuery 原生设计项目，不消费 SW Toolbox sldprt，Stage D �
 ## 详细数据
 
 - preflight.json: toolbox=C:\SolidWorks Data\browser, min_score=0.3
-- stage_a.json: unmatched=['GIS-DEMO-001', 'GIS-DEMO-003', 'GIS-DEMO-004', 'GIS-DEMO-005', 'GIS-DEMO-006', 'GIS-DEMO-008', 'GIS-DEMO-009', 'GIS-DEMO-010', 'GIS-DEMO-011', 'GIS-DEMO-012', 'GIS-DEMO-013', 'GIS-DEMO-014', 'GIS-DEMO-015']
+- stage_a.json: unmatched=['GIS-DEMO-012', 'GIS-DEMO-013', 'GIS-DEMO-014', 'GIS-DEMO-015']
 - stage_b.json: excluded=45 rows
 - stage_c.json: restart_duration=Nones
