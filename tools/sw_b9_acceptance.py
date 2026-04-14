@@ -1,6 +1,13 @@
 """SW-B9 真跑验收编排脚本（见 specs/2026-04-14-sw-b9-real-run-acceptance-design.md）。"""
 from __future__ import annotations
 
+import os
+import sys
+# 允许直接 python tools/sw_b9_acceptance.py 运行（自动加项目根到 path）
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import argparse
 import json
 import logging
