@@ -285,7 +285,7 @@ def _convert_one(
 
 
 def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
-    """读 BOM → 复用 SwToolboxAdapter._find_sldprt 找匹配 sldprt。
+    """读 BOM → 复用 SwToolboxAdapter.find_sldprt 找匹配 sldprt。
     返回 {part_no: SwToolboxPart}（找不到的行被跳过 + warning）。
     """
     from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -295,7 +295,7 @@ def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
     out: dict = {}
     for q in queries:
         spec = {"standard": ["GB", "ISO", "DIN"], "part_category": q.category}
-        match = adapter._find_sldprt(q, spec)
+        match = adapter.find_sldprt(q, spec)
         if match is None:
             log.warning("BOM 行未匹配到 sldprt: %s (%s)", q.part_no, q.name_cn)
             continue

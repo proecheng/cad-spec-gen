@@ -338,7 +338,7 @@ def _default_config() -> dict:
 
 
 class TestFindSldprt:
-    """v4 §5.3: _find_sldprt() 不触发 COM；供 sw-warmup --bom 复用。"""
+    """v4 §5.3: find_sldprt() 不触发 COM；供 sw-warmup --bom 复用。"""
 
     @pytest.fixture
     def setup_sw(self, monkeypatch, tmp_path):
@@ -364,7 +364,7 @@ class TestFindSldprt:
             material = "钢"
 
         a = SwToolboxAdapter(config=_default_config())
-        result = a._find_sldprt(
+        result = a.find_sldprt(
             Q(),
             {
                 "standard": "GB",
@@ -377,10 +377,10 @@ class TestFindSldprt:
         assert part.filename == "hex bolt.sldprt"
 
     def test_find_sldprt_no_com_imports(self, setup_sw, monkeypatch):
-        """_find_sldprt 不应导入/调用 win32com。"""
+        """find_sldprt 不应导入/调用 win32com。"""
         import sys
 
-        # 破坏 win32com.client，证明 _find_sldprt 不依赖它
+        # 破坏 win32com.client，证明 find_sldprt 不依赖它
         monkeypatch.setitem(sys.modules, "win32com.client", None)  # sabotage
 
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -392,7 +392,7 @@ class TestFindSldprt:
 
         a = SwToolboxAdapter(config=_default_config())
         # 应该不 raise（证明没有 import win32com）
-        result = a._find_sldprt(
+        result = a.find_sldprt(
             Q(),
             {
                 "standard": "GB",
