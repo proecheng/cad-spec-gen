@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -109,6 +110,85 @@ STOP_WORDS: frozenset[str] = frozenset(
         "by",
     }
 )
+
+
+DEFAULT_CN_SYNONYMS_PATH = Path(__file__).parent.parent.parent / "config" / "toolbox_cn_synonyms.yaml"
+
+
+def _load_cn_synonyms_from_path(path: Path) -> dict[str, list[str]]:
+    """读取 YAML 并打平分组结构为 {cn_key: [en_tokens]}。"""
+    import yaml
+
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    flat: dict[str, list[str]] = {}
+    for group_name, entries in raw.items():
+        if not isinstance(entries, dict):
+            continue
+        for cn_key, en_tokens in entries.items():
+            if not isinstance(en_tokens, list):
+                continue
+            flat[cn_key] = [str(t).lower() for t in en_tokens]
+    return flat
+
+
+@lru_cache(maxsize=1)
+def _load_cn_synonyms_cached() -> dict[str, list[str]]:
+    return _load_cn_synonyms_from_path(DEFAULT_CN_SYNONYMS_PATH)
+
+
+def load_cn_synonyms(path: Optional[Path] = None) -> dict[str, list[str]]:
+    """加载中英文同义词表。
+
+    无参数调用走 lru_cache（生产路径）；带 path 参数绕开缓存（测试隔离用）。
+
+    Returns:
+        {cn_morpheme: [en_token, ...]} 扁平 dict
+    """
+    if path is None:
+        return _load_cn_synonyms_cached()
+    return _load_cn_synonyms_from_path(path)
+
+
+def expand_cn_synonyms(
+    tokens_weighted: list[tuple[str, float]],
+    synonyms: dict[str, list[str]],
+) -> list[tuple[str, float]]:
+    """对每个 CJK token 做子串同义词匹配，注入对等英文 token（同权重）。
+
+    规则：
+    - 只对含 CJK 字符的 token 做子串扫描（ASCII token 原样透传）
+    - 同一英文 token 被多源注入时取最大权重（与 build_query_tokens_weighted 一致）
+    - 原 CJK token 保留（不删除），扩展只做添加
+
+    Args:
+        tokens_weighted: tokenize + 加权后的 [(token, weight), ...]
+        synonyms: load_cn_synonyms 返回的 {cn_morpheme: [en_tokens]}
+
+    Returns:
+        扩展后的 [(token, weight), ...]
+    """
+    if not tokens_weighted or not synonyms:
+        return list(tokens_weighted)
+
+    collected: dict[str, float] = {}
+    for tok, w in tokens_weighted:
+        if tok not in collected or collected[tok] < w:
+            collected[tok] = w
+
+    for tok, w in tokens_weighted:
+        # 仅对 CJK token 做子串扫描（包含 \u4e00-\u9fff 字符即判定）
+        has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in tok)
+        if not has_cjk:
+            continue
+        for cn_key, en_tokens in synonyms.items():
+            if cn_key in tok:
+                for en in en_tokens:
+                    if en not in collected or collected[en] < w:
+                        collected[en] = w
+
+    return list(collected.items())
 
 
 def tokenize(text: str) -> list[str]:
@@ -587,7 +667,9 @@ def build_query_tokens_weighted(
         for value in size_dict.values():
             add(tokenize(str(value)), weights.get("size", 1.5))
 
-    return [(t, w) for t, w in collected.items()]
+    base = [(t, w) for t, w in collected.items()]
+    synonyms = load_cn_synonyms()
+    return expand_cn_synonyms(base, synonyms)
 
 
 def match_toolbox_part(
