@@ -100,7 +100,11 @@ class TestDoConvertSubprocess:
 
     def test_subprocess_called_with_expected_cmd(self, tmp_path, monkeypatch):
         """验证命令行拼装：sys.executable + -m + 模块路径 + 两个位置参数；cwd 为项目根。"""
-        from adapters.solidworks.sw_com_session import SwComSession, reset_session
+        from adapters.solidworks.sw_com_session import (
+            SwComSession,
+            _PROJECT_ROOT,
+            reset_session,
+        )
 
         reset_session()
         s = SwComSession()
@@ -127,5 +131,5 @@ class TestDoConvertSubprocess:
         assert captured["cmd"][4].endswith(".tmp.step")
         assert captured["kwargs"]["timeout"] > 0
         assert captured["kwargs"]["capture_output"] is True
-        cwd = Path(captured["kwargs"]["cwd"])
-        assert (cwd / "adapters" / "solidworks").is_dir()
+        # cwd 必须严格等于 _PROJECT_ROOT（确保 `python -m` 能找到 worker 模块）
+        assert Path(captured["kwargs"]["cwd"]) == _PROJECT_ROOT
