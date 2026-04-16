@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,6 @@ class ProbeResult:
     ok: bool
     severity: Literal["ok", "warn", "fail"]
     summary: str
-    data: dict
+    data: dict[str, Any]
     error: Optional[str] = None
     hint: Optional[str] = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from adapters.solidworks.sw_probe import ProbeResult
@@ -33,7 +35,7 @@ class TestProbeResult:
 
     def test_frozen_dataclass(self):
         r = ProbeResult(layer="x", ok=True, severity="ok", summary="", data={})
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             r.layer = "changed"  # frozen=True 应当禁止修改
 
     def test_severity_accepts_three_values(self):
