@@ -37,6 +37,10 @@ render = ["matplotlib>=3.5", "Pillow>=9.0"]
 parts_library = ["PyYAML>=6.0"]
 parts_library_bd = ["PyYAML>=6.0", "bd_warehouse>=0.2.0"]
 parts_library_pc = ["PyYAML>=6.0", "partcad>=0.7.0"]
+# SolidWorks 集成（Windows only，决策 #37 2026-04-16）。Linux/macOS 上
+# sys_platform marker 让 pywin32 被 pip 跳过，extra 装成 no-op（sw_detect
+# 运行时会通过 UX 提示告知平台限制，见 tools/hybrid_render/check_env.py）
+solidworks = ['pywin32>=306; sys_platform == "win32"']
 all = [
     "cadquery>=2.0",
     "ezdxf>=0.18",
