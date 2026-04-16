@@ -13,9 +13,11 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from adapters.solidworks import sw_detect
+from adapters.solidworks import sw_toolbox_catalog
 from adapters.solidworks.sw_detect import SwInfo
 
 
@@ -188,5 +190,124 @@ def probe_clsid() -> ProbeResult:
             severity="fail",
             summary="CLSID 查询异常",
             data={"progid": "SldWorks.Application", "clsid": "", "registered": False},
+            error=str(e)[:200],
+        )
+
+
+def probe_toolbox_index_cache(sw_cfg: dict, info: SwInfo) -> ProbeResult:
+    """层：Toolbox index 缓存健康度（对齐 spec §3.4 真实结构）。
+
+    - entry_count：probe 自行聚合 standards dict
+    - by_standard：从 idx["standards"] 的 key 直接聚合，无硬编码白名单
+    - stale：cached_fp 与 current_fp 不一致时（两端均非 "unavailable"）为 True
+    """
+    try:
+        index_path = sw_toolbox_catalog.get_toolbox_index_path(sw_cfg)
+    except Exception as e:
+        return ProbeResult(
+            layer="toolbox_index",
+            ok=False,
+            severity="fail",
+            summary="解析 index 路径异常",
+            data={"exists": False},
+            error=str(e)[:200],
+        )
+
+    exists = index_path.is_file()
+    size_bytes = index_path.stat().st_size if exists else 0
+
+    if not exists:
+        return ProbeResult(
+            layer="toolbox_index",
+            ok=True,
+            severity="warn",
+            summary=f"index 缓存不存在：{index_path}",
+            data={
+                "index_path": str(index_path),
+                "exists": False,
+                "entry_count": 0,
+                "toolbox_fingerprint_cached": "",
+                "toolbox_fingerprint_current": "",
+                "stale": False,
+                "size_bytes": 0,
+                "by_standard": {},
+            },
+            hint="运行 `cad_pipeline.py sw-warmup --standard GB --dry-run` 首次生成索引",
+        )
+
+    if not info.installed or not info.toolbox_dir:
+        return ProbeResult(
+            layer="toolbox_index",
+            ok=True,
+            severity="warn",
+            summary="SW 未安装或 toolbox_dir 不明，跳过 fingerprint 校验",
+            data={
+                "index_path": str(index_path),
+                "exists": True,
+                "entry_count": 0,
+                "toolbox_fingerprint_cached": "",
+                "toolbox_fingerprint_current": "",
+                "stale": False,
+                "size_bytes": size_bytes,
+                "by_standard": {},
+            },
+        )
+
+    try:
+        toolbox_dir = Path(info.toolbox_dir)
+        idx = sw_toolbox_catalog.load_toolbox_index(index_path, toolbox_dir)
+        cached_fp = idx.get("toolbox_fingerprint", "")
+        current_fp = sw_toolbox_catalog._compute_toolbox_fingerprint(toolbox_dir)
+        standards = idx.get("standards", {})
+        entry_count = sum(
+            len(sub) for std_dict in standards.values() for sub in std_dict.values()
+        )
+        by_standard = {
+            std: sum(len(sub) for sub in std_dict.values())
+            for std, std_dict in standards.items()
+        }
+        stale = (
+            cached_fp != current_fp
+            and cached_fp != "unavailable"
+            and current_fp != "unavailable"
+        )
+
+        data = {
+            "index_path": str(index_path),
+            "exists": True,
+            "entry_count": entry_count,
+            "toolbox_fingerprint_cached": cached_fp,
+            "toolbox_fingerprint_current": current_fp,
+            "stale": stale,
+            "size_bytes": size_bytes,
+            "by_standard": by_standard,
+        }
+        if stale:
+            return ProbeResult(
+                layer="toolbox_index",
+                ok=True,
+                severity="warn",
+                summary=f"index 已 stale（cached {cached_fp[:8]} vs current {current_fp[:8]}），{entry_count} 条",
+                data=data,
+                hint="删除 index JSON 后重跑 sw-warmup 刷新；或 sw-warmup 自身会 fingerprint mismatch 触发重建",
+            )
+        return ProbeResult(
+            layer="toolbox_index",
+            ok=True,
+            severity="ok",
+            summary=f"index 健康，{entry_count} 条；{', '.join(f'{k}={v}' for k, v in by_standard.items())}",
+            data=data,
+        )
+    except Exception as e:
+        return ProbeResult(
+            layer="toolbox_index",
+            ok=False,
+            severity="fail",
+            summary="index 加载异常",
+            data={
+                "index_path": str(index_path),
+                "exists": True,
+                "size_bytes": size_bytes,
+            },
             error=str(e)[:200],
         )

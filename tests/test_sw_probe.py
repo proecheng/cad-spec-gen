@@ -233,3 +233,104 @@ class TestProbeClsid:
         assert r.severity == "fail"
         assert r.data["registered"] is False
         assert r.hint is not None
+
+
+from adapters.solidworks.sw_probe import probe_toolbox_index_cache  # noqa: E402
+
+
+def _make_fake_index(fingerprint: str, counts: dict[str, dict[str, int]]) -> dict:
+    """构造与 _make_index_envelope 同结构的 dict。
+
+    counts: {"GB": {"bolts": 3, "nuts": 2}, "ISO": {"bolts": 1}}
+    """
+    from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
+
+    standards = {}
+    for std, subs in counts.items():
+        std_dict = {}
+        for sub, n in subs.items():
+            std_dict[sub] = [
+                SwToolboxPart(
+                    standard=std,
+                    subcategory=sub,
+                    sldprt_path=f"C:\\{std}\\{sub}\\p{i}.sldprt",
+                    filename=f"p{i}.sldprt",
+                    tokens=[],
+                )
+                for i in range(n)
+            ]
+        standards[std] = std_dict
+    return {"toolbox_fingerprint": fingerprint, "standards": standards}
+
+
+class TestProbeToolboxIndexCache:
+    def test_happy_path_not_stale(self, tmp_path, monkeypatch):
+        idx = _make_fake_index("fp-abc", {"GB": {"bolts": 3}, "ISO": {"nuts": 2}})
+        index_path = tmp_path / "sw_toolbox_index.json"
+        index_path.write_text("{}", encoding="utf-8")
+        info = SwInfo(installed=True, toolbox_dir=str(tmp_path / "tb"))
+        (tmp_path / "tb").mkdir()
+
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_index_path",
+            lambda cfg: index_path,
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.load_toolbox_index",
+            lambda ip, td: idx,
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog._compute_toolbox_fingerprint",
+            lambda td: "fp-abc",  # 与 cached 一致 → 不 stale
+        )
+
+        r = probe_toolbox_index_cache({}, info)
+        assert r.layer == "toolbox_index"
+        assert r.severity == "ok"
+        assert r.data["exists"] is True
+        assert r.data["entry_count"] == 5  # 3 + 2
+        assert r.data["toolbox_fingerprint_cached"] == "fp-abc"
+        assert r.data["toolbox_fingerprint_current"] == "fp-abc"
+        assert r.data["stale"] is False
+        assert r.data["by_standard"] == {"GB": 3, "ISO": 2}
+
+    def test_stale_warning(self, tmp_path, monkeypatch):
+        idx = _make_fake_index("fp-old", {"GB": {"bolts": 1}})
+        index_path = tmp_path / "sw_toolbox_index.json"
+        index_path.write_text("{}", encoding="utf-8")
+        info = SwInfo(installed=True, toolbox_dir=str(tmp_path / "tb"))
+        (tmp_path / "tb").mkdir()
+
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_index_path",
+            lambda cfg: index_path,
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.load_toolbox_index",
+            lambda ip, td: idx,
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog._compute_toolbox_fingerprint",
+            lambda td: "fp-new",
+        )
+
+        r = probe_toolbox_index_cache({}, info)
+        assert r.severity == "warn"
+        assert r.data["stale"] is True
+        assert r.hint is not None
+        assert "sw-warmup" in r.hint or "刷新" in r.hint
+
+    def test_index_missing(self, tmp_path, monkeypatch):
+        info = SwInfo(installed=True, toolbox_dir=str(tmp_path / "tb"))
+        (tmp_path / "tb").mkdir()
+        missing_path = tmp_path / "nope.json"
+
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_index_path",
+            lambda cfg: missing_path,
+        )
+
+        r = probe_toolbox_index_cache({}, info)
+        assert r.severity == "warn"
+        assert r.data["exists"] is False
+        assert r.data["entry_count"] == 0
