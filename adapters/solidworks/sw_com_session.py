@@ -23,7 +23,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -48,10 +48,19 @@ class SwComSession:
         self._consecutive_failures = 0
         self._unhealthy = False
         self._lock = threading.Lock()
+        self._last_convert_diagnostics: Optional[dict[str, Any]] = None
 
     def is_healthy(self) -> bool:
         """熔断状态查询。"""
         return not self._unhealthy
+
+    @property
+    def last_convert_diagnostics(self) -> Optional[dict[str, Any]]:
+        """最近一次 convert_sldprt_to_step 的诊断信息（失败回溯用）。
+        返回浅拷贝，调用方修改不影响 session 内部状态。"""
+        if self._last_convert_diagnostics is None:
+            return None
+        return dict(self._last_convert_diagnostics)
 
     def convert_sldprt_to_step(self, sldprt_path, step_out) -> bool:
         """转换单个 sldprt 为 STEP（Part 2c P0 subprocess 守护版）。
@@ -67,10 +76,12 @@ class SwComSession:
         step_out = str(os.fspath(step_out))
 
         with self._lock:
+            self._last_convert_diagnostics = None  # 入口重置，防止跨调用残留
             if self._unhealthy:
                 log.info(
                     "熔断器已开：跳过 convert（系统性故障，call reset_session() 清除）"
                 )
+                self._set_diag("circuit_breaker_open", None, "")
                 return False
 
             success = False
@@ -78,6 +89,9 @@ class SwComSession:
                 success = self._do_convert(sldprt_path, step_out)
             except Exception as e:
                 log.warning("convert 未预期异常: %s", e)
+                self._set_diag(
+                    "unexpected_exception", None, f"{type(e).__name__}: {e}"[:500]
+                )
                 success = False
 
             if success:
@@ -123,6 +137,7 @@ class SwComSession:
                 SINGLE_CONVERT_TIMEOUT_SEC,
                 sldprt_path,
             )
+            self._set_diag("timeout", None, "")
             self._cleanup_tmp(tmp_path)
             return False
 
@@ -133,14 +148,21 @@ class SwComSession:
                 sldprt_path,
                 (proc.stderr or "")[:300],
             )
+            self._set_diag(
+                "subprocess_error", proc.returncode, (proc.stderr or "")[:500]
+            )
             self._cleanup_tmp(tmp_path)
             return False
 
         if not self._validate_step_file(tmp_path):
             log.warning("convert tmp STEP 校验失败: %s", tmp_path)
+            self._set_diag(
+                "validation_failure", proc.returncode, (proc.stderr or "")[:500]
+            )
             self._cleanup_tmp(tmp_path)
             return False
 
+        self._set_diag("success", proc.returncode, (proc.stderr or "")[:500])
         os.replace(tmp_path, step_out)
         return True
 
@@ -150,6 +172,19 @@ class SwComSession:
             Path(tmp_path).unlink(missing_ok=True)
         except OSError:
             pass
+
+    def _set_diag(
+        self,
+        stage: str,
+        exit_code: Optional[int],
+        stderr_tail: str,
+    ) -> None:
+        """写入 last_convert_diagnostics。统一入口，避免 6 处 dict 同构。"""
+        self._last_convert_diagnostics = {
+            "stage": stage,
+            "exit_code": exit_code,
+            "stderr_tail": stderr_tail,
+        }
 
     @staticmethod
     def _validate_step_file(path: str) -> bool:

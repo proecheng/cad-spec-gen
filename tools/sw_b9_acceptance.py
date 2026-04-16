@@ -1,8 +1,10 @@
 """SW-B9 真跑验收编排脚本（见 specs/2026-04-14-sw-b9-real-run-acceptance-design.md）。"""
+
 from __future__ import annotations
 
 import os
 import sys
+
 # 允许直接 python tools/sw_b9_acceptance.py 运行（自动加项目根到 path）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
@@ -64,7 +66,10 @@ def stage_0_preflight(
     # 调校准脚本（subprocess）
     cal_result = subprocess.run(
         [sys.executable, "tools/sw_warmup_calibration.py", "--bom", str(demo_bom)],
-        capture_output=True, text=True, check=False, timeout=120,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
     )
     # 校准脚本输出里解析推荐 min_score（简化：默认 0.30）
     min_score = 0.30
@@ -75,7 +80,9 @@ def stage_0_preflight(
         "min_score_recommended": min_score,
         "min_score_used": min_score,
         "rebuild_forced": rebuild_index,
-        "calibration_stdout_tail": cal_result.stdout[-500:] if cal_result.stdout else "",
+        "calibration_stdout_tail": cal_result.stdout[-500:]
+        if cal_result.stdout
+        else "",
         "pass": index_size > 0,
     }
     _dump(artifacts_dir, "preflight.json", result)
@@ -92,7 +99,9 @@ def stage_0_5_token_health(
 
     index_path = sw_toolbox_catalog.get_toolbox_index_path({})
     # load_toolbox_index(cache_path, toolbox_dir) — toolbox_dir 用于回退重建
-    _toolbox_dir = toolbox_root if toolbox_root is not None else Path("C:/SolidWorks Data/browser")
+    _toolbox_dir = (
+        toolbox_root if toolbox_root is not None else Path("C:/SolidWorks Data/browser")
+    )
     index = sw_toolbox_catalog.load_toolbox_index(index_path, _toolbox_dir)
 
     # 收集 index 所有 part token 集合
@@ -104,6 +113,7 @@ def stage_0_5_token_health(
 
     # 读 demo_bom 每行 name_cn，tokenize + 同义词扩展，统计命中
     import csv
+
     hit_rows = 0
     total = 0
     with open(demo_bom, encoding="utf-8") as f:
@@ -160,7 +170,9 @@ def _measure_coverage(
         m = adapter.find_sldprt(q, spec)
         if m is not None:
             part, score = m
-            matched.append({"part_no": q.part_no, "sldprt": part.sldprt_path, "score": score})
+            matched.append(
+                {"part_no": q.part_no, "sldprt": part.sldprt_path, "score": score}
+            )
         else:
             unmatched.append(q.part_no)
 
@@ -175,7 +187,9 @@ def _measure_coverage(
 
 
 def stage_a_demo_coverage(
-    demo_bom: Path, min_score: float, artifacts_dir: Path,
+    demo_bom: Path,
+    min_score: float,
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     """demo_bom.csv 覆盖率（分母 = 15 行，全标准件）。目标 ≥ 73%。"""
     cov = _measure_coverage(demo_bom, min_score)
@@ -195,12 +209,17 @@ def stage_a_demo_coverage(
 
 
 def stage_b_gisbot_coverage(
-    real_bom_spec: Path, min_score: float, artifacts_dir: Path,
+    real_bom_spec: Path,
+    min_score: float,
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     """GISBOT CAD_SPEC → 过滤 → 覆盖率。informational，不判 pass/fail。"""
     from tools.cad_spec_bom_extractor import (
-        extract_bom_tree, extract_fasteners, filter_standard_rows,
-        classify_category, write_bom_csv,
+        extract_bom_tree,
+        extract_fasteners,
+        filter_standard_rows,
+        classify_category,
+        write_bom_csv,
     )
 
     fasteners = extract_fasteners(real_bom_spec)
@@ -298,11 +317,15 @@ def stage_c_session_restart(
         sldprt = t["sldprt"]
         step_path = step_dir / f"{i:02d}_{Path(sldprt).stem}.step"
         ok = session.convert_sldprt_to_step(sldprt, str(step_path))
-        if ok and step_path.exists() and step_path.stat().st_size > 1024:
+        diag = session.last_convert_diagnostics or {}
+        step_size = step_path.stat().st_size if step_path.exists() else 0
+        entry: dict[str, Any] = {"index": i, "sldprt": sldprt, "step_size": step_size}
+        if ok and step_size > 1024:
             success += 1
-            per_target.append({"index": i, "sldprt": sldprt, "step_size": step_path.stat().st_size})
         else:
-            per_target.append({"index": i, "sldprt": sldprt, "step_size": 0, "failed": True})
+            entry["failed"] = True
+        entry.update(diag)
+        per_target.append(entry)
 
     result = {
         "convert_count": len(targets),
@@ -317,11 +340,14 @@ def stage_c_session_restart(
 
 
 def stage_d_assembly_regression(
-    d_pre: dict[str, Any], artifacts_dir: Path,
+    d_pre: dict[str, Any],
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     """装配回归 gate。若 D-pre.has_consumer=False 则 skip。"""
     if not d_pre.get("has_consumer"):
-        result = {"skipped_with_reason": "GISBOT 走 CadQuery 原生路径，无 sw_toolbox 消费者"}
+        result = {
+            "skipped_with_reason": "GISBOT 走 CadQuery 原生路径，无 sw_toolbox 消费者"
+        }
         _dump(artifacts_dir, "stage_d.json", result)
         return result
 
@@ -357,7 +383,9 @@ def stage_d_assembly_regression(
         env["CAD_PARTS_LIBRARY"] = str(yaml_override)  # 修正：用实际 env 名
         subprocess.run(
             [sys.executable, "-m", "pytest", *suite, f"--junitxml={xml_out}", "-q"],
-            env=env, check=False, timeout=600,
+            env=env,
+            check=False,
+            timeout=600,
         )
         return parse_junit_xml(xml_out)
 
@@ -390,7 +418,8 @@ def stage_d_assembly_regression(
 
 
 def stage_e_roi_decision(
-    stage_b_result: dict[str, Any], artifacts_dir: Path,
+    stage_b_result: dict[str, Any],
+    artifacts_dir: Path,
 ) -> dict[str, Any]:
     coverage = stage_b_result.get("coverage", 0.0)
     decision = "keep_full" if coverage >= 0.55 else "downgrade_gb_only"
@@ -415,8 +444,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SW-B9 真跑验收编排")
     parser.add_argument("--toolbox-root", default="C:/SolidWorks Data/browser")
     parser.add_argument("--demo-bom", default="tests/fixtures/sw_warmup_demo_bom.csv")
-    parser.add_argument("--real-bom-spec",
-                        default="D:/Work/cad-tests/GISBOT/cad/end_effector/CAD_SPEC.md")
+    parser.add_argument(
+        "--real-bom-spec",
+        default="D:/Work/cad-tests/GISBOT/cad/end_effector/CAD_SPEC.md",
+    )
     parser.add_argument("--output-dir", default="artifacts/sw_b9")
     parser.add_argument("--no-rebuild-index", action="store_true")
     args = parser.parse_args()
@@ -432,20 +463,28 @@ def main() -> int:
 
     try:
         preflight = stage_0_preflight(
-            toolbox_root, demo_bom, artifacts_dir,
+            toolbox_root,
+            demo_bom,
+            artifacts_dir,
             rebuild_index=not args.no_rebuild_index,
         )
         stage_0_5_token_health(demo_bom, artifacts_dir, toolbox_root=toolbox_root)
         min_score = preflight.get("min_score_used", 0.30)
         stage_a = stage_a_demo_coverage(demo_bom, min_score, artifacts_dir)
-        stage_b = stage_b_gisbot_coverage(Path(args.real_bom_spec), min_score, artifacts_dir)
+        stage_b = stage_b_gisbot_coverage(
+            Path(args.real_bom_spec), min_score, artifacts_dir
+        )
         d_pre = stage_d_pre_consumer_check(artifacts_dir)
         stage_c_session_restart(stage_a.get("matched_list", []), artifacts_dir)
         stage_d_assembly_regression(d_pre, artifacts_dir)
         stage_e_roi_decision(stage_b, artifacts_dir)
 
         # 生成汇总 + markdown 报告
-        from tools.sw_b9_report_builder import build_acceptance_summary, render_markdown_report
+        from tools.sw_b9_report_builder import (
+            build_acceptance_summary,
+            render_markdown_report,
+        )
+
         summary = build_acceptance_summary(artifacts_dir)
         _dump(artifacts_dir, "acceptance_summary.json", summary)
 
