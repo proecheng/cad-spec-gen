@@ -97,7 +97,7 @@ class TestDefaultYamlConfig:
 
         # com subprocess 超时 + 熔断阈值（Part 2c P0 后剩下的两项）
         com_cfg = cfg.get("com", {})
-        assert com_cfg.get("single_convert_timeout_sec") == 30
+        assert com_cfg.get("single_convert_timeout_sec") == 20
         assert com_cfg.get("circuit_breaker_threshold") == 3
 
     def test_default_yaml_has_gb_fastener_rule_before_generic_fallback(self, tmp_path):

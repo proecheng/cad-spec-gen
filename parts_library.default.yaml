@@ -78,8 +78,11 @@ solidworks_toolbox:
   # COM subprocess 超时 + 熔断（Part 2c P0 后配置瘦身）
   # cold_start / restart / idle_shutdown 在 subprocess-per-convert 模型下
   # 已不存在——每次 convert 是独立冷启，父进程不持久 COM 状态。
+  # single_convert_timeout_sec: 20s 基于 Part 2c P0 真 SW smoke 端到端
+  # 均值 11.6s × 1.72x 冗余（2026-04-16 决策 #36）；回退判定依据见
+  # Follow-up F-4a/F-4b/F-7
   com:
-    single_convert_timeout_sec: 30
+    single_convert_timeout_sec: 20
     circuit_breaker_threshold: 3
 
 mappings:
