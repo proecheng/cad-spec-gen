@@ -79,10 +79,10 @@ class TestDefaultYamlConfig:
         assert set(cfg.get("standards", [])) >= {"GB", "ISO", "DIN"}
         assert cfg.get("min_score") == 0.30
 
-        # token_weights 四字段齐全（决策 #12）
+        # token_weights 四字段齐全（决策 #12）；part_no=0.0 是 SW-C 决策 #35 后的生产值
         weights = cfg.get("token_weights", {})
         assert weights == {
-            "part_no": 2.0,
+            "part_no": 0.0,
             "name_cn": 1.0,
             "material": 0.5,
             "size": 1.5,
