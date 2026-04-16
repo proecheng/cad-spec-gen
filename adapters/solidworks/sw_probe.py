@@ -311,3 +311,61 @@ def probe_toolbox_index_cache(sw_cfg: dict, info: SwInfo) -> ProbeResult:
             },
             error=str(e)[:200],
         )
+
+
+def probe_material_files(info: SwInfo) -> ProbeResult:
+    """层：材质/贴图/P2M 文件数（仅 count；不解析 XML，见 spec ME-2 升级路径）。"""
+    sldmat_count = len(info.sldmat_paths or [])
+    tex_cats = 0
+    tex_total = 0
+    p2m_count = 0
+
+    try:
+        tex_root = Path(info.textures_dir) if info.textures_dir else None
+        if tex_root and tex_root.is_dir():
+            cats = [p for p in tex_root.iterdir() if p.is_dir()]
+            tex_cats = len(cats)
+            for cat in cats:
+                tex_total += sum(1 for _ in cat.iterdir() if _.is_file())
+
+        p2m_root = Path(info.p2m_dir) if info.p2m_dir else None
+        if p2m_root and p2m_root.is_dir():
+            p2m_count = sum(1 for p in p2m_root.iterdir() if p.suffix.lower() == ".p2m")
+    except Exception as e:
+        return ProbeResult(
+            layer="materials",
+            ok=False,
+            severity="fail",
+            summary="材质目录扫描异常",
+            data={
+                "sldmat_files": sldmat_count,
+                "textures_categories": tex_cats,
+                "textures_total": tex_total,
+                "p2m_files": p2m_count,
+            },
+            error=str(e)[:200],
+        )
+
+    data = {
+        "sldmat_files": sldmat_count,
+        "textures_categories": tex_cats,
+        "textures_total": tex_total,
+        "p2m_files": p2m_count,
+    }
+    all_zero = sldmat_count == 0 and tex_cats == 0 and p2m_count == 0
+    if all_zero:
+        return ProbeResult(
+            layer="materials",
+            ok=True,
+            severity="warn",
+            summary="未找到任何材质/贴图/P2M 文件",
+            data=data,
+            hint="检查 SW 安装是否完整；或确认 SwInfo 的 textures_dir / p2m_dir 已正确解析",
+        )
+    return ProbeResult(
+        layer="materials",
+        ok=True,
+        severity="ok",
+        summary=f"sldmat={sldmat_count} textures_cats={tex_cats} textures={tex_total} p2m={p2m_count}",
+        data=data,
+    )

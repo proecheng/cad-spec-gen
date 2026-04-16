@@ -235,6 +235,56 @@ class TestProbeClsid:
         assert r.hint is not None
 
 
+from adapters.solidworks.sw_probe import probe_material_files  # noqa: E402
+
+
+class TestProbeMaterialFiles:
+    def test_counts(self, tmp_path):
+        # 3 个 sldmat、2 个 category 目录（共 4 张 png）、5 个 p2m
+        sldmat_paths = []
+        for n in ["a.sldmat", "b.sldmat", "c.sldmat"]:
+            p = tmp_path / n
+            p.write_text("x", encoding="utf-8")
+            sldmat_paths.append(str(p))
+
+        tex = tmp_path / "tex"
+        (tex / "cat1").mkdir(parents=True)
+        (tex / "cat2").mkdir(parents=True)
+        (tex / "cat1" / "a.png").write_bytes(b"x")
+        (tex / "cat1" / "b.png").write_bytes(b"x")
+        (tex / "cat2" / "c.png").write_bytes(b"x")
+        (tex / "cat2" / "d.png").write_bytes(b"x")
+
+        p2m = tmp_path / "p2m"
+        p2m.mkdir()
+        for n in ["a.p2m", "b.p2m", "c.p2m", "d.p2m", "e.p2m"]:
+            (p2m / n).write_bytes(b"x")
+
+        info = SwInfo(
+            installed=True,
+            sldmat_paths=sldmat_paths,
+            textures_dir=str(tex),
+            p2m_dir=str(p2m),
+        )
+
+        r = probe_material_files(info)
+        assert r.layer == "materials"
+        assert r.severity == "ok"
+        assert r.data["sldmat_files"] == 3
+        assert r.data["textures_categories"] == 2
+        assert r.data["textures_total"] == 4
+        assert r.data["p2m_files"] == 5
+
+    def test_missing_dirs_returns_warn(self):
+        info = SwInfo(installed=True, sldmat_paths=[], textures_dir="", p2m_dir="")
+        r = probe_material_files(info)
+        assert r.severity == "warn"
+        assert r.data["sldmat_files"] == 0
+        assert r.data["textures_categories"] == 0
+        assert r.data["textures_total"] == 0
+        assert r.data["p2m_files"] == 0
+
+
 from adapters.solidworks.sw_probe import probe_toolbox_index_cache  # noqa: E402
 
 
