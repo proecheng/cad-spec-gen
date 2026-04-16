@@ -71,7 +71,6 @@ solidworks_toolbox:
   size_patterns:
     fastener:
       size: '[Mm](\d+(?:\.\d+)?)'
-      length: '[×xX*\-\s](\d+(?:\.\d+)?)'
       exclude_patterns: ['UN[CFEF]', '\bTr\d', '\bG\d/', '\bNPT']
     bearing:
       model: '\b(\d{4,5})\b'
