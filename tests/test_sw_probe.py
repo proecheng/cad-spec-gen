@@ -194,3 +194,42 @@ class TestProbeDetect:
         assert r.error is not None
         assert isinstance(info, SwInfo)
         assert info.installed is False
+
+
+from adapters.solidworks.sw_probe import probe_clsid  # noqa: E402
+
+
+class TestProbeClsid:
+    @pytest.mark.skipif(sys.platform != "win32", reason="仅 Windows 注册表")
+    def test_registered_when_sw_installed(self):
+        """装了 SW 的 Windows 开发机应读到 CLSID；CI Linux 跳过。"""
+        r = probe_clsid()
+        assert r.layer == "clsid"
+        # 装 SW 则 severity=ok，未装则 fail——两种都可接受
+        assert r.severity in ("ok", "fail")
+        if r.severity == "ok":
+            assert r.data["registered"] is True
+            assert r.data["clsid"].startswith("{")
+
+    def test_non_windows_returns_warn(self, monkeypatch):
+        """非 Windows 应返回 warn（not applicable）。"""
+        monkeypatch.setattr("adapters.solidworks.sw_probe.sys.platform", "linux")
+        r = probe_clsid()
+        assert r.layer == "clsid"
+        assert r.severity == "warn"
+        assert "not applicable" in r.summary or "不适用" in r.summary
+        assert r.data["registered"] is False
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="winreg 仅 Windows")
+    def test_fail_when_progid_missing(self, monkeypatch):
+        """mock winreg.OpenKey 抛 FileNotFoundError 模拟 progid 未注册。"""
+        import winreg
+
+        def fake_open(*args, **kwargs):
+            raise FileNotFoundError("not registered")
+
+        monkeypatch.setattr(winreg, "OpenKey", fake_open)
+        r = probe_clsid()
+        assert r.severity == "fail"
+        assert r.data["registered"] is False
+        assert r.hint is not None

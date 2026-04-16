@@ -146,3 +146,47 @@ def probe_detect() -> tuple[ProbeResult, SwInfo]:
         ),
         info,
     )
+
+
+def probe_clsid() -> ProbeResult:
+    """层 3：winreg 读 SldWorks.Application 的 CLSID（不启动进程）。"""
+    if sys.platform != "win32":
+        return ProbeResult(
+            layer="clsid",
+            ok=True,
+            severity="warn",
+            summary="not applicable（非 Windows 平台；CLSID 仅在 Windows 注册表）",
+            data={"progid": "SldWorks.Application", "clsid": "", "registered": False},
+        )
+    try:
+        import winreg
+
+        progid = "SldWorks.Application"
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{progid}\CLSID") as k:
+            clsid, _ = winreg.QueryValueEx(k, "")
+        return ProbeResult(
+            layer="clsid",
+            ok=True,
+            severity="ok",
+            summary=f"{progid} 已注册 CLSID={clsid}",
+            data={"progid": progid, "clsid": clsid, "registered": True},
+        )
+    except FileNotFoundError as e:
+        return ProbeResult(
+            layer="clsid",
+            ok=False,
+            severity="fail",
+            summary="SldWorks.Application progid 未注册",
+            data={"progid": "SldWorks.Application", "clsid": "", "registered": False},
+            error=str(e)[:200],
+            hint="管理员权限运行 `sldworks.exe /regserver` 或重装 SW",
+        )
+    except Exception as e:
+        return ProbeResult(
+            layer="clsid",
+            ok=False,
+            severity="fail",
+            summary="CLSID 查询异常",
+            data={"progid": "SldWorks.Application", "clsid": "", "registered": False},
+            error=str(e)[:200],
+        )
