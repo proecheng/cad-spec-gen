@@ -503,8 +503,16 @@ class TestProbeLoadAddin:
         fake_client.GetObject = getobj
         fake_root = types.ModuleType("win32com")
         fake_root.client = fake_client
+
+        # Task 15 fix 引入 probe_dispatch worker 的 pythoncom.CoInitialize/Uninitialize
+        # Linux CI 无 pythoncom，必须 mock
+        fake_pythoncom = types.ModuleType("pythoncom")
+        fake_pythoncom.CoInitialize = lambda: None
+        fake_pythoncom.CoUninitialize = lambda: None
+
         monkeypatch.setitem(sys.modules, "win32com", fake_root)
         monkeypatch.setitem(sys.modules, "win32com.client", fake_client)
+        monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)  # 新增
 
     def test_first_progid_loads_ok(self, monkeypatch):
         loaded_calls = []
@@ -565,8 +573,15 @@ class TestProbeDispatch:
         fake_root = types.ModuleType("win32com")
         fake_root.client = fake_client
 
+        # Task 15 fix 引入 probe_dispatch worker 的 pythoncom.CoInitialize/Uninitialize
+        # Linux CI 无 pythoncom，必须 mock
+        fake_pythoncom = types.ModuleType("pythoncom")
+        fake_pythoncom.CoInitialize = lambda: None
+        fake_pythoncom.CoUninitialize = lambda: None
+
         monkeypatch.setitem(sys.modules, "win32com", fake_root)
         monkeypatch.setitem(sys.modules, "win32com.client", fake_client)
+        monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)  # 新增
 
     def test_success_not_attached(self, monkeypatch):
         """GetObject 抛（无现有 SW） → 走 Dispatch 冷启路径。"""
