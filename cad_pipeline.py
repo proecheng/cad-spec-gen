@@ -2494,6 +2494,13 @@ def cmd_sw_warmup(args):
     return run_sw_warmup(args)
 
 
+def cmd_sw_inspect(args):
+    """F-1：SW 环境/索引/材质/warmup 产物诊断。"""
+    from tools.sw_inspect import run_sw_inspect
+
+    return run_sw_inspect(args)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 def cmd_init(args):
     """Scaffold a new subsystem directory with template files."""
@@ -2861,6 +2868,22 @@ def main():
     p_sw_warmup.add_argument("--dry-run", action="store_true", help="只列目标不调 COM")
     p_sw_warmup.add_argument("--overwrite", action="store_true", help="覆盖已有缓存")
 
+    # sw-inspect（F-1 子命令）
+    p_sw_inspect = sub.add_parser(
+        "sw-inspect",
+        help="SolidWorks 环境/索引/材质/产物快速诊断（--deep 启动 COM）",
+    )
+    p_sw_inspect.add_argument(
+        "--deep",
+        action="store_true",
+        help="启动 win32com Dispatch + LoadAddIn（冷启约 10–20s，纯诊断用）",
+    )
+    p_sw_inspect.add_argument(
+        "--json",
+        action="store_true",
+        help="输出机读 JSON 而非彩色文本",
+    )
+
     args = parser.parse_args()
 
     # Logging
@@ -2894,6 +2917,7 @@ def main():
         "status": cmd_status,
         "env-check": cmd_env_check,
         "sw-warmup": cmd_sw_warmup,
+        "sw-inspect": cmd_sw_inspect,
     }
 
     return dispatch[args.command](args)

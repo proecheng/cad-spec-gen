@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from adapters.solidworks.sw_probe import ProbeResult
@@ -199,3 +201,23 @@ class TestJsonSchemaShape:
         from datetime import datetime
 
         datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+class TestCadPipelineIntegration:
+    def test_subparser_registered(self):
+        """cad_pipeline.py 构建 parser 后，sw-inspect 应为已注册的子命令。"""
+        import os
+        import subprocess
+
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        result = subprocess.run(
+            [sys.executable, "cad_pipeline.py", "sw-inspect", "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=Path(__file__).parent.parent,
+            env=env,
+        )
+        assert result.returncode == 0, f"stderr={result.stderr}"
+        assert "--deep" in result.stdout
+        assert "--json" in result.stdout
