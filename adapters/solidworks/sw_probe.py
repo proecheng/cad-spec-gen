@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import sys
+import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -501,4 +503,157 @@ def probe_material_files(info: SwInfo) -> ProbeResult:
         severity="ok",
         summary=f"sldmat={sldmat_count} textures_cats={tex_cats} textures={tex_total} p2m={p2m_count}",
         data=data,
+    )
+
+
+def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
+    """层 4：Dispatch COM + Revision + Visible + ExitApp。
+
+    3D-2：先 GetObject 检查现有 SW 会话；已运行则附着（severity=warn，不 ExitApp）。
+    超时用 ThreadPoolExecutor 软超时（后台线程无法真 kill，已知妥协）。
+    """
+    try:
+        import win32com.client  # noqa: F401
+    except Exception as e:
+        return ProbeResult(
+            layer="dispatch",
+            ok=False,
+            severity="fail",
+            summary="pywin32 未安装，无法 Dispatch COM",
+            data={
+                "dispatched": False,
+                "elapsed_ms": 0,
+                "revision_number": "",
+                "visible_set_ok": False,
+                "exit_app_ok": False,
+                "attached_existing_session": False,
+            },
+            error=str(e)[:200],
+            hint="运行 `pip install 'cad-spec-gen[solidworks]'`",
+        )
+
+    from win32com import client as _wc
+
+    # 3D-2：先试附着
+    attached = False
+    app = None
+    try:
+        app = _wc.GetObject("SldWorks.Application")
+        attached = True
+    except Exception:
+        attached = False
+
+    if attached and app is not None:
+        try:
+            rev = str(getattr(app, "RevisionNumber", ""))
+        except Exception as e:
+            return ProbeResult(
+                layer="dispatch",
+                ok=False,
+                severity="fail",
+                summary="附着到现有 SW 但 RevisionNumber 读取失败",
+                data={
+                    "dispatched": True,
+                    "elapsed_ms": 0,
+                    "revision_number": "",
+                    "visible_set_ok": False,
+                    "exit_app_ok": False,
+                    "attached_existing_session": True,
+                },
+                error=str(e)[:200],
+            )
+        return ProbeResult(
+            layer="dispatch",
+            ok=True,
+            severity="warn",
+            summary="SW 已在另一会话运行；本次 probe 附着未接管 visibility / 未退出以保护用户工作",
+            data={
+                "dispatched": True,
+                "elapsed_ms": 0,
+                "revision_number": rev,
+                "visible_set_ok": False,
+                "exit_app_ok": None,
+                "attached_existing_session": True,
+            },
+        )
+
+    # 冷启路径（ThreadPoolExecutor 软超时；后台线程无法真 kill，已知妥协）
+    t0 = _time.perf_counter()
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = ex.submit(_wc.Dispatch, "SldWorks.Application")
+        try:
+            app = fut.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            # wait=False：立即返回，不阻塞等待后台线程完成（软超时已知妥协）
+            ex.shutdown(wait=False)
+            return ProbeResult(
+                layer="dispatch",
+                ok=False,
+                severity="fail",
+                summary=f"Dispatch 超时 ({timeout_sec}s)",
+                data={
+                    "dispatched": False,
+                    "elapsed_ms": int((_time.perf_counter() - t0) * 1000),
+                    "revision_number": "",
+                    "visible_set_ok": False,
+                    "exit_app_ok": False,
+                    "attached_existing_session": False,
+                },
+                error=f"dispatch timeout after {timeout_sec}s",
+                hint="检查 SW 许可证、位数匹配（64-bit Python 对 64-bit SW）、是否被其他进程独占",
+            )
+        except Exception as e:
+            ex.shutdown(wait=False)
+            return ProbeResult(
+                layer="dispatch",
+                ok=False,
+                severity="fail",
+                summary="Dispatch 抛异常",
+                data={
+                    "dispatched": False,
+                    "elapsed_ms": int((_time.perf_counter() - t0) * 1000),
+                    "revision_number": "",
+                    "visible_set_ok": False,
+                    "exit_app_ok": False,
+                    "attached_existing_session": False,
+                },
+                error=str(e)[:200],
+                hint="典型原因：许可证过期、SW 位数与 Python 不匹配、progid 路径错误",
+            )
+    finally:
+        ex.shutdown(wait=False)
+
+    elapsed_ms = int((_time.perf_counter() - t0) * 1000)
+    rev = ""
+    visible_ok = False
+    exit_ok = False
+    try:
+        rev = str(getattr(app, "RevisionNumber", ""))
+    except Exception:
+        pass
+    try:
+        app.Visible = False
+        visible_ok = True
+    except Exception:
+        pass
+    try:
+        app.ExitApp()
+        exit_ok = True
+    except Exception:
+        pass
+
+    return ProbeResult(
+        layer="dispatch",
+        ok=True,
+        severity="ok",
+        summary=f"Dispatch 冷启 {elapsed_ms}ms RevisionNumber={rev}",
+        data={
+            "dispatched": True,
+            "elapsed_ms": elapsed_ms,
+            "revision_number": rev,
+            "visible_set_ok": visible_ok,
+            "exit_app_ok": exit_ok,
+            "attached_existing_session": False,
+        },
     )

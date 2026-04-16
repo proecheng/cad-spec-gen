@@ -235,6 +235,7 @@ class TestProbeClsid:
         assert r.hint is not None
 
 
+from adapters.solidworks.sw_probe import probe_dispatch  # noqa: E402
 from adapters.solidworks.sw_probe import probe_material_files  # noqa: E402
 
 
@@ -481,3 +482,126 @@ class TestProbeWarmupArtifacts:
             proc.join(timeout=5)
             if proc.is_alive():
                 proc.terminate()
+
+
+import time  # noqa: E402
+
+
+class TestProbeDispatch:
+    @staticmethod
+    def _install_fake_win32com(monkeypatch, *, dispatch, get_object):
+        """两层 mock：win32com 根包 + win32com.client 子模块。
+        Linux CI 没装 win32com，必须两层都塞进 sys.modules。"""
+        import types
+
+        fake_client = types.ModuleType("win32com.client")
+        fake_client.Dispatch = dispatch
+        fake_client.GetObject = get_object
+
+        fake_root = types.ModuleType("win32com")
+        fake_root.client = fake_client
+
+        monkeypatch.setitem(sys.modules, "win32com", fake_root)
+        monkeypatch.setitem(sys.modules, "win32com.client", fake_client)
+
+    def test_success_not_attached(self, monkeypatch):
+        """GetObject 抛（无现有 SW） → 走 Dispatch 冷启路径。"""
+
+        class FakeApp:
+            RevisionNumber = "30.1.0.0080"
+            Visible = True
+
+            def ExitApp(self):
+                self.exited = True
+
+        def fake_getobj(progid):
+            raise OSError("no current instance")
+
+        fake_app = FakeApp()
+
+        self._install_fake_win32com(
+            monkeypatch,
+            dispatch=lambda progid: fake_app,
+            get_object=fake_getobj,
+        )
+
+        r = probe_dispatch(timeout_sec=5)
+        assert r.layer == "dispatch"
+        assert r.severity == "ok"
+        assert r.data["dispatched"] is True
+        assert r.data["attached_existing_session"] is False
+        assert r.data["revision_number"] == "30.1.0.0080"
+        assert r.data["exit_app_ok"] is True
+        assert r.data["elapsed_ms"] >= 0
+
+    def test_attached_existing_session_warn(self, monkeypatch):
+        """GetObject 成功 → severity=warn，不 ExitApp。"""
+
+        class FakeApp:
+            RevisionNumber = "30.1.0.0080"
+
+            def ExitApp(self):
+                raise AssertionError("不应 ExitApp")
+
+        fake_app = FakeApp()
+
+        def boom_dispatch(progid):
+            raise AssertionError("附着模式下不该调 Dispatch")
+
+        self._install_fake_win32com(
+            monkeypatch,
+            dispatch=boom_dispatch,
+            get_object=lambda progid: fake_app,
+        )
+
+        r = probe_dispatch(timeout_sec=5)
+        assert r.severity == "warn"
+        assert r.data["attached_existing_session"] is True
+        assert r.data["exit_app_ok"] is None or r.data["exit_app_ok"] is False
+        assert "另一会话" in r.summary or "attached" in r.summary.lower()
+
+    def test_dispatch_com_error(self, monkeypatch):
+        """mock Dispatch 抛 OSError 模拟 com_error。"""
+
+        def fake_dispatch(progid):
+            raise OSError("(-2147221164, 'Class not registered', None, None)")
+
+        def fake_getobj(progid):
+            raise OSError("no instance")
+
+        self._install_fake_win32com(
+            monkeypatch,
+            dispatch=fake_dispatch,
+            get_object=fake_getobj,
+        )
+
+        r = probe_dispatch(timeout_sec=5)
+        assert r.severity == "fail"
+        assert r.data["dispatched"] is False
+        assert "Class not registered" in r.error
+        assert r.hint is not None
+
+    def test_real_thread_pool_timeout(self, monkeypatch):
+        """真 ThreadPoolExecutor：mock Dispatch 为阻塞 sleep(3)，timeout=1 应在 ~1s 返回 fail。"""
+
+        def slow_dispatch(progid):
+            time.sleep(3)
+            return object()
+
+        def fake_getobj(progid):
+            raise OSError("no instance")
+
+        self._install_fake_win32com(
+            monkeypatch,
+            dispatch=slow_dispatch,
+            get_object=fake_getobj,
+        )
+
+        t0 = time.perf_counter()
+        r = probe_dispatch(timeout_sec=1)
+        elapsed = time.perf_counter() - t0
+
+        assert r.severity == "fail"
+        assert r.data["dispatched"] is False
+        assert "timeout" in r.error.lower()
+        assert 0.8 <= elapsed <= 2.0, f"elapsed={elapsed}s 应在 ~1s 上下（容差 ±0.8）"
