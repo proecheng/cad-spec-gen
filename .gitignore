@@ -25,3 +25,10 @@ src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md
 src/cad_spec_gen/data/knowledge/skill_mech_design_zh.md
 src/cad_spec_gen/data/system_prompt.md
 src/cad_spec_gen/data/parts_library.default.yaml
+
+# Claude Code 本地运行时文件（不入 git）
+.claude/settings.json
+.claude/scheduled_tasks.lock
+
+# graphify 工具产物（本机保留，不入 git）
+graphify-out/
