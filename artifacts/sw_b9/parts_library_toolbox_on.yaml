@@ -261,7 +261,7 @@ solidworks_toolbox:
   token_weights:
     material: 0.5
     name_cn: 1.0
-    part_no: 2.0
+    part_no: 0.0
     size: 1.5
 step_pool:
   root: std_parts/

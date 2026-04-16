@@ -1,9 +1,50 @@
 {
-  "convert_count": 0,
-  "success_count": 0,
-  "all_steps_valid": false,
-  "pass": false,
-  "reason": "matched 数不足（需 8），实际 2",
-  "note": "subprocess-per-convert 模型下 Stage C 不再有显式 restart 步骤",
+  "convert_count": 8,
+  "success_count": 8,
+  "all_steps_valid": true,
+  "per_target": [
+    {
+      "index": 0,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\screws\\machine screws\\hex lobular socket head cap screws-4.8 gb.sldprt",
+      "step_size": 44389
+    },
+    {
+      "index": 1,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+      "step_size": 442697
+    },
+    {
+      "index": 2,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\screws\\machine screws\\hex lobular socket head cap screws-4.8 gb.sldprt",
+      "step_size": 44394
+    },
+    {
+      "index": 3,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\nuts\\hexagon nuts\\hex nut-fine pitch-style washer-grade ab gb.sldprt",
+      "step_size": 382917
+    },
+    {
+      "index": 4,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\washers\\spring lock washers\\conical spring washer 1_din.sldprt",
+      "step_size": 17176
+    },
+    {
+      "index": 5,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\bolts and screws\\hex bolts - structural\\hex head structural bolt_din.sldprt",
+      "step_size": 63940
+    },
+    {
+      "index": 6,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
+      "step_size": 442696
+    },
+    {
+      "index": 7,
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\tapered roller bearings gb.sldprt",
+      "step_size": 944656
+    }
+  ],
+  "pass": true,
+  "note": "subprocess-per-convert 模型下每次 convert 已独立 SW 进程",
   "schema_version": 1
 }

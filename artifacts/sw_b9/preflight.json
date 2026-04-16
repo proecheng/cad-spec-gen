@@ -4,7 +4,7 @@
   "min_score_recommended": 0.3,
   "min_score_used": 0.3,
   "rebuild_forced": true,
-  "calibration_stdout_tail": "Inch/bearings/thrust ball bearing2_ai.sldprt\n\n─── 直方图 ───\n  [0.0-0.1) top1=  2 other=  4  ██████\n  [0.1-0.2) top1=  4 other= 13  █████████████████\n  [0.2-0.3) top1=  7 other= 13  ████████████████████\n  [0.3-0.4) top1=  2 other=  0  ██\n  [0.4-0.5) top1=  0 other=  0  \n  [0.5-0.6) top1=  0 other=  0  \n  [0.6-0.7) top1=  0 other=  0  \n  [0.7-0.8) top1=  0 other=  0  \n  [0.8-0.9) top1=  0 other=  0  \n  [0.9-1.0) top1=  0 other=  0  \n\n推荐 min_score: 0.33\n  (noise_mean=0.167, noise_std=0.081, 下界 0.30)\n",
+  "calibration_stdout_tail": "Inch/bearings/thrust ball bearing2_ai.sldprt\n\n─── 直方图 ───\n  [0.0-0.1) top1=  2 other=  4  ██████\n  [0.1-0.2) top1=  0 other=  0  \n  [0.2-0.3) top1=  1 other=  4  █████\n  [0.3-0.4) top1=  5 other=  9  ██████████████\n  [0.4-0.5) top1=  2 other= 11  █████████████\n  [0.5-0.6) top1=  5 other=  2  ███████\n  [0.6-0.7) top1=  0 other=  0  \n  [0.7-0.8) top1=  0 other=  0  \n  [0.8-0.9) top1=  0 other=  0  \n  [0.9-1.0) top1=  0 other=  0  \n\n推荐 min_score: 0.64\n  (noise_mean=0.340, noise_std=0.152, 下界 0.30)\n",
   "pass": true,
   "schema_version": 1
 }

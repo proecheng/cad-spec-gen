@@ -1,8 +1,8 @@
 {
   "total_rows": 58,
   "standard_rows": 13,
-  "matched": 0,
-  "coverage": 0.0,
+  "matched": 1,
+  "coverage": 0.07692307692307693,
   "sample_size_below_100": true,
   "note": "B1: below ≥100 threshold, informational only",
   "excluded_rows": [

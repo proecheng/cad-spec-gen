@@ -1,5 +1,5 @@
 {
-  "real_bom_coverage": 0.0,
+  "real_bom_coverage": 0.07692307692307693,
   "threshold": 0.55,
   "decision": "downgrade_gb_only",
   "actions_required": [

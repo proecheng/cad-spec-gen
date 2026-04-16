@@ -1,32 +1,68 @@
 {
   "total_rows": 15,
   "standard_rows": 15,
-  "matched": 2,
+  "matched": 11,
   "matched_list": [
+    {
+      "part_no": "GIS-DEMO-001",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\screws\\machine screws\\hex lobular socket head cap screws-4.8 gb.sldprt",
+      "score": 0.35294117647058826
+    },
     {
       "part_no": "GIS-DEMO-002",
       "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
-      "score": 0.3125
+      "score": 0.5454545454545454
+    },
+    {
+      "part_no": "GIS-DEMO-003",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\screws\\machine screws\\hex lobular socket head cap screws-4.8 gb.sldprt",
+      "score": 0.35294117647058826
+    },
+    {
+      "part_no": "GIS-DEMO-004",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\nuts\\hexagon nuts\\hex nut-fine pitch-style washer-grade ab gb.sldprt",
+      "score": 0.38095238095238093
+    },
+    {
+      "part_no": "GIS-DEMO-005",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\washers\\spring lock washers\\conical spring washer 1_din.sldprt",
+      "score": 0.3333333333333333
+    },
+    {
+      "part_no": "GIS-DEMO-006",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\bolts and screws\\hex bolts - structural\\hex head structural bolt_din.sldprt",
+      "score": 0.3448275862068966
     },
     {
       "part_no": "GIS-DEMO-007",
       "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\deep groove ball bearings gb.sldprt",
-      "score": 0.3125
+      "score": 0.5454545454545454
+    },
+    {
+      "part_no": "GIS-DEMO-008",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\GB\\bearing\\rolling bearings\\tapered roller bearings gb.sldprt",
+      "score": 0.5
+    },
+    {
+      "part_no": "GIS-DEMO-009",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\bolts and screws\\hexagon socket head screws\\socket head cap screw 4762_din.sldprt",
+      "score": 0.5238095238095238
+    },
+    {
+      "part_no": "GIS-DEMO-010",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\ISO\\nuts\\hex nuts\\hex flange nut gradea_iso.sldprt",
+      "score": 0.5333333333333333
+    },
+    {
+      "part_no": "GIS-DEMO-011",
+      "sldprt": "C:\\SOLIDWORKS Data\\browser\\DIN\\bolts and screws\\hexagon socket head screws\\socket csink head cap screw 10642_din.sldprt",
+      "score": 0.47058823529411764
     }
   ],
-  "coverage": 0.13333333333333333,
+  "coverage": 0.7333333333333333,
   "target": 0.73,
-  "pass": false,
+  "pass": true,
   "unmatched_rows": [
-    "GIS-DEMO-001",
-    "GIS-DEMO-003",
-    "GIS-DEMO-004",
-    "GIS-DEMO-005",
-    "GIS-DEMO-006",
-    "GIS-DEMO-008",
-    "GIS-DEMO-009",
-    "GIS-DEMO-010",
-    "GIS-DEMO-011",
     "GIS-DEMO-012",
     "GIS-DEMO-013",
     "GIS-DEMO-014",
