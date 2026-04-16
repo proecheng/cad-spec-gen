@@ -86,7 +86,6 @@ class TestExtractSize:
         return {
             "fastener": {
                 "size": r"[Mm](\d+(?:\.\d+)?)",
-                "length": r"[×xX*\-\s](\d+(?:\.\d+)?)",
                 "exclude_patterns": [r"UN[CFEF]", r"\bTr\d", r"\bG\d/", r"\bNPT"],
             },
             "bearing": {
@@ -100,25 +99,25 @@ class TestExtractSize:
         result = extract_size_from_name(
             "M6×20 内六角螺钉", default_patterns["fastener"]
         )
-        assert result == {"size": "M6", "length": "20"}
+        assert result == {"size": "M6"}
 
     def test_fastener_m6x20_ascii_x(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
 
         result = extract_size_from_name("M6x20 hex bolt", default_patterns["fastener"])
-        assert result == {"size": "M6", "length": "20"}
+        assert result == {"size": "M6"}
 
     def test_fastener_m6_hyphen_20(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
 
         result = extract_size_from_name("M6-20 螺钉", default_patterns["fastener"])
-        assert result == {"size": "M6", "length": "20"}
+        assert result == {"size": "M6"}
 
     def test_fastener_decimal_thread(self, default_patterns):
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
 
         result = extract_size_from_name("M6.5×20", default_patterns["fastener"])
-        assert result == {"size": "M6.5", "length": "20"}
+        assert result == {"size": "M6.5"}
 
     def test_fastener_unc_returns_none(self, default_patterns):
         """v4 §1.3: UNC 范围外 → None。"""
@@ -164,6 +163,16 @@ class TestExtractSize:
             "深沟球轴承 6205-2RS", default_patterns["bearing"]
         )
         assert result == {"model": "6205"}
+
+    def test_fastener_gbt_spec_no_prefix_no_length(self, default_patterns):
+        """回归（方案 B 验证）：删除 length 字段后，GB/T 规范号前缀 '70.1'
+        不污染结果，×20 也不被抽出，size_dict 仅含 size 键（P1 defer bug）。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        result = extract_size_from_name(
+            "GB/T 70.1 M6×20 内六角圆柱头螺钉", default_patterns["fastener"]
+        )
+        assert result == {"size": "M6"}  # 无 length 键
 
 
 class TestValidateSizePatterns:
@@ -259,7 +268,8 @@ class TestExtractSizeDefensive:
 
     def test_extra_non_str_key_does_not_crash(self):
         """patterns 里有 list 类型的额外键（如改名后的 exclude 或元数据键），
-        extract_size_from_name 应静默跳过而非抛 TypeError。"""
+        extract_size_from_name 应静默跳过而非抛 TypeError。
+        此 patterns 非生产配置副本，"length" 键保留用于覆盖防御路径。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
 
         patterns = {
@@ -646,7 +656,6 @@ class TestMatchToolboxPart:
         if result:
             part, _ = result
             assert part.subcategory == "bolts and studs"
-
 
 
 class TestBuildQueryTokensWeighted:

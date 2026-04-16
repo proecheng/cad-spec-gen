@@ -329,7 +329,6 @@ def _default_config() -> dict:
         "size_patterns": {
             "fastener": {
                 "size": r"[Mm](\d+(?:\.\d+)?)",
-                "length": r"[×xX*\-\s](\d+(?:\.\d+)?)",
                 "exclude_patterns": [r"UN[CFEF]", r"\bTr\d", r"\bG\d/", r"\bNPT"],
             },
             "bearing": {"model": r"\b(\d{4,5})\b"},
