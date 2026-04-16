@@ -4,7 +4,7 @@
 
 COM 接口非线程安全（v4 决策 #22）。Part 1 用 `self._lock` 全方法包裹 `convert_sldprt_to_step`，避免两个线程同时调 COM。Part 2 要加入 `start()` / `_maybe_restart()` / idle shutdown，锁粒度若处理不当会死锁。
 
-关键常量（定义在 `adapters/solidworks/sw_com_session.py` 顶部）：`RESTART_EVERY_N_CONVERTS = 50`（决策 #11），`IDLE_SHUTDOWN_SEC = 300`（5 分钟），`COLD_START_TIMEOUT_SEC = 90`，`SINGLE_CONVERT_TIMEOUT_SEC = 30`，`CIRCUIT_BREAKER_THRESHOLD = 3`。
+关键常量（定义在 `adapters/solidworks/sw_com_session.py` 顶部）：`RESTART_EVERY_N_CONVERTS = 50`（决策 #11），`IDLE_SHUTDOWN_SEC = 300`（5 分钟），`COLD_START_TIMEOUT_SEC = 90`，`SINGLE_CONVERT_TIMEOUT_SEC = 20`（决策 #36，2026-04-16 由 30 下调），`CIRCUIT_BREAKER_THRESHOLD = 3`。
 
 ## 状态转换
 
@@ -51,7 +51,7 @@ COM 接口非线程安全（v4 决策 #22）。Part 1 用 `self._lock` 全方法
 
 ## `_lock` vs `threading.Timer`
 
-本模型**不使用** Timer 或后台线程。理由同上。`SINGLE_CONVERT_TIMEOUT_SEC` 的超时保护推迟到 Part 2c 的 SW-B0 spike 补课时再定方案（可能方向：subprocess 隔离 / ctypes.wintypes.WAIT_TIMEOUT / SW API 自带的 cancel）。
+本模型**不使用** Timer 或后台线程。理由同上。`SINGLE_CONVERT_TIMEOUT_SEC` 的超时保护已在 Part 2c P0 落地——**subprocess-per-convert 隔离**（每次 convert 独立进程，subprocess.run 守 timeout）+ 20s timeout 值（决策 #36，基于 Part 2c P0 真 SW smoke 5 件均值 11.6s × 1.72x 冗余）。
 
 ## 契约
 
