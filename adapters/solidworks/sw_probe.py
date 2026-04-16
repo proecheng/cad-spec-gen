@@ -577,13 +577,49 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
             },
         )
 
+    def _dispatch_and_probe_worker(progid: str) -> tuple[str, bool, bool]:
+        """ThreadPoolExecutor worker：CoInitialize → Dispatch → RevisionNumber/Visible/ExitApp → CoUninitialize。
+
+        COM STA 要求所有 COM 方法调用必须在同一线程完成，因此将
+        Dispatch 与后续属性访问、ExitApp 一并放入此 worker。
+
+        返回：(revision_number, visible_set_ok, exit_app_ok)
+        """
+        import pythoncom  # pywin32 随附；Linux CI 走不到此函数
+
+        pythoncom.CoInitialize()
+        try:
+            from win32com import client as _wc_inner
+
+            _app = _wc_inner.Dispatch(progid)
+            _rev = ""
+            _visible_ok = False
+            _exit_ok = False
+            try:
+                _rev = str(getattr(_app, "RevisionNumber", ""))
+            except Exception:
+                pass
+            try:
+                _app.Visible = False
+                _visible_ok = True
+            except Exception:
+                pass
+            try:
+                _app.ExitApp()
+                _exit_ok = True
+            except Exception:
+                pass
+            return (_rev, _visible_ok, _exit_ok)
+        finally:
+            pythoncom.CoUninitialize()
+
     # 冷启路径（ThreadPoolExecutor 软超时；后台线程无法真 kill，已知妥协）
     t0 = _time.perf_counter()
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        fut = ex.submit(_wc.Dispatch, "SldWorks.Application")
+        fut = ex.submit(_dispatch_and_probe_worker, "SldWorks.Application")
         try:
-            app = fut.result(timeout=timeout_sec)
+            rev, visible_ok, exit_ok = fut.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             # wait=False：立即返回，不阻塞等待后台线程完成（软超时已知妥协）
             ex.shutdown(wait=False)
@@ -625,23 +661,6 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
         ex.shutdown(wait=False)
 
     elapsed_ms = int((_time.perf_counter() - t0) * 1000)
-    rev = ""
-    visible_ok = False
-    exit_ok = False
-    try:
-        rev = str(getattr(app, "RevisionNumber", ""))
-    except Exception:
-        pass
-    try:
-        app.Visible = False
-        visible_ok = True
-    except Exception:
-        pass
-    try:
-        app.ExitApp()
-        exit_ok = True
-    except Exception:
-        pass
 
     return ProbeResult(
         layer="dispatch",
