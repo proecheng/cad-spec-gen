@@ -282,8 +282,15 @@ def print_report(result):
                 path_b = "Toolbox ✗ (版本 < 2024)"
             else:
                 path_b = "Toolbox ✗ (COM 接口不可用)"
+        elif sys.platform != "win32":
+            # Windows only——Linux/macOS 合法跳过，非错误（D1-2 决策：
+            # sys_platform marker 让 extra 在非 Windows 平台装成 no-op）
+            path_b = "Toolbox — (此功能 Windows only，当前平台跳过)"
         else:
-            path_b = "Toolbox ✗ (pywin32 未安装)"
+            path_b = (
+                "Toolbox ✗ (pywin32 未安装；"
+                "运行 `pip install 'cad-spec-gen[solidworks]'`)"
+            )
         print(f"  SolidWorks    [OK]    {sw_ver} — {path_a} / {path_b}")
 
         # 决策 #13 + SW-B0 spike：add-in 非必要；仅在你想在 SW UI 里
