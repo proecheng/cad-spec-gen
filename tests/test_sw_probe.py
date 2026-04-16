@@ -286,6 +286,7 @@ class TestProbeMaterialFiles:
 
 
 from adapters.solidworks.sw_probe import probe_toolbox_index_cache  # noqa: E402
+from adapters.solidworks.sw_probe import probe_warmup_artifacts  # noqa: E402
 
 
 def _make_fake_index(fingerprint: str, counts: dict[str, dict[str, int]]) -> dict:
@@ -384,3 +385,99 @@ class TestProbeToolboxIndexCache:
         assert r.severity == "warn"
         assert r.data["exists"] is False
         assert r.data["entry_count"] == 0
+
+
+class TestProbeWarmupArtifacts:
+    def test_all_absent_defaults_warn_or_ok(self, tmp_path, monkeypatch):
+        """当 home 为空 tmp、step_cache_root 为空 tmp 时：无 lock、无 error log、0 step → warn（全空）。"""
+        monkeypatch.setattr("adapters.solidworks.sw_probe.Path.home", lambda: tmp_path)
+        fake_cache = tmp_path / ".cad-spec-gen" / "step_cache" / "sw_toolbox"
+        fake_cache.mkdir(parents=True)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_cache_root",
+            lambda cfg: fake_cache,
+        )
+
+        r = probe_warmup_artifacts({})
+        assert r.layer == "warmup"
+        assert r.severity in ("ok", "warn")
+        assert r.data["step_files"] == 0
+        assert r.data["lock_held"] is False
+        assert r.data["error_log_last_line"] is None
+
+    def test_error_log_last_line(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("adapters.solidworks.sw_probe.Path.home", lambda: tmp_path)
+        home = tmp_path / ".cad-spec-gen"
+        home.mkdir(parents=True)
+        log = home / "sw_warmup_errors.log"
+        log.write_text("line1\nline2\nLAST LINE\n", encoding="utf-8")
+        fake_cache = home / "step_cache" / "sw_toolbox"
+        fake_cache.mkdir(parents=True)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_cache_root",
+            lambda cfg: fake_cache,
+        )
+
+        r = probe_warmup_artifacts({})
+        assert r.data["error_log_last_line"] == "LAST LINE"
+        assert r.data["error_log_mtime"] is not None
+        assert r.severity == "warn"
+
+    def test_step_files_count(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("adapters.solidworks.sw_probe.Path.home", lambda: tmp_path)
+        home = tmp_path / ".cad-spec-gen"
+        home.mkdir(parents=True)
+        fake_cache = home / "step_cache" / "sw_toolbox"
+        fake_cache.mkdir(parents=True)
+        (fake_cache / "GB").mkdir()
+        for i in range(3):
+            (fake_cache / "GB" / f"p{i}.step").write_bytes(b"x" * 100)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_cache_root",
+            lambda cfg: fake_cache,
+        )
+
+        r = probe_warmup_artifacts({})
+        assert r.data["step_files"] == 3
+        assert r.data["step_size_bytes"] == 300
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="fcntl 仅 Unix；Windows 走 msvcrt 分支单独测试"
+    )
+    def test_lock_held_by_other_process_linux(self, tmp_path, monkeypatch):
+        """Linux：fork 一个子进程持有 fcntl.flock，主进程 non-blocking try 检测到占用。"""
+        import fcntl
+        import multiprocessing
+
+        monkeypatch.setattr("adapters.solidworks.sw_probe.Path.home", lambda: tmp_path)
+        home = tmp_path / ".cad-spec-gen"
+        home.mkdir(parents=True)
+        fake_cache = home / "step_cache" / "sw_toolbox"
+        fake_cache.mkdir(parents=True)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_toolbox_catalog.get_toolbox_cache_root",
+            lambda cfg: fake_cache,
+        )
+        lock_path = home / "sw_warmup.lock"
+
+        def hold_lock(path, ready, release):
+            with open(path, "a+") as fh:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                ready.set()
+                release.wait(timeout=10)
+
+        ready = multiprocessing.Event()
+        release = multiprocessing.Event()
+        proc = multiprocessing.Process(
+            target=hold_lock, args=(lock_path, ready, release)
+        )
+        proc.start()
+        try:
+            assert ready.wait(timeout=5)
+            r = probe_warmup_artifacts({})
+            assert r.data["lock_held"] is True
+        finally:
+            release.set()
+            proc.join(timeout=5)
+            if proc.is_alive():
+                proc.terminate()

@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -311,6 +312,138 @@ def probe_toolbox_index_cache(sw_cfg: dict, info: SwInfo) -> ProbeResult:
             },
             error=str(e)[:200],
         )
+
+
+_STEP_COUNT_DOWNGRADE_THRESHOLD = 5000
+
+
+def _read_last_line(path: Path) -> Optional[str]:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            lines = [ln.rstrip("\r\n") for ln in fh if ln.strip()]
+        return lines[-1] if lines else None
+    except Exception:
+        return None
+
+
+def _try_acquire_lock(lock_path: Path) -> tuple[bool, Optional[int]]:
+    """non-blocking try-acquire：拿到 → 立即 release → 返回 (held_by_other=False, None)；
+    EAGAIN → (True, pid_or_None)。"""
+    if not lock_path.exists():
+        return False, None
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            with lock_path.open("a+") as fh:
+                fh.seek(0)
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    return False, None
+                except OSError:
+                    return True, None
+        else:
+            import fcntl
+
+            with lock_path.open("a+") as fh:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    return False, None
+                except (OSError, BlockingIOError):
+                    return True, None
+    except Exception:
+        return False, None
+
+
+def probe_warmup_artifacts(sw_cfg: dict) -> ProbeResult:
+    """层：warmup 产物快照。
+
+    路径（对齐 spec §3.3 常量表）：
+      home = Path.home() / ".cad-spec-gen"
+      lock_path = home / "sw_warmup.lock"
+      error_log_path = home / "sw_warmup_errors.log"
+      step_cache_root = get_toolbox_cache_root(sw_cfg)
+
+    SA-2：lock 用 non-blocking try + immediate release，不与 sw-warmup 争锁。
+    SAR-3：step_files > _STEP_COUNT_DOWNGRADE_THRESHOLD 时跳过 size 计算。
+    """
+    try:
+        home = Path.home() / ".cad-spec-gen"
+        lock_path = home / "sw_warmup.lock"
+        error_log_path = home / "sw_warmup_errors.log"
+        step_cache_root = sw_toolbox_catalog.get_toolbox_cache_root(sw_cfg)
+    except Exception as e:
+        return ProbeResult(
+            layer="warmup",
+            ok=False,
+            severity="fail",
+            summary="warmup 路径解析异常",
+            data={},
+            error=str(e)[:200],
+        )
+
+    lock_held, lock_pid = _try_acquire_lock(lock_path)
+    error_log_last = (
+        _read_last_line(error_log_path) if error_log_path.exists() else None
+    )
+    error_log_mtime = None
+    if error_log_path.exists():
+        ts = datetime.fromtimestamp(error_log_path.stat().st_mtime, tz=timezone.utc)
+        error_log_mtime = ts.isoformat().replace("+00:00", "Z")
+
+    step_files = 0
+    step_size_bytes = 0
+    if step_cache_root.is_dir():
+        step_paths = list(step_cache_root.rglob("*.step"))
+        step_files = len(step_paths)
+        if step_files <= _STEP_COUNT_DOWNGRADE_THRESHOLD:
+            step_size_bytes = sum(p.stat().st_size for p in step_paths if p.is_file())
+
+    data = {
+        "home": str(home),
+        "step_cache_root": str(step_cache_root),
+        "step_files": step_files,
+        "step_size_bytes": step_size_bytes,
+        "lock_path": str(lock_path),
+        "lock_held": lock_held,
+        "lock_pid": lock_pid,
+        "error_log_path": str(error_log_path),
+        "error_log_last_line": error_log_last,
+        "error_log_mtime": error_log_mtime,
+    }
+
+    if error_log_last or lock_held:
+        parts = []
+        if error_log_last:
+            parts.append("error_log 有内容")
+        if lock_held:
+            parts.append("另一进程持有 warmup 锁")
+        return ProbeResult(
+            layer="warmup",
+            ok=True,
+            severity="warn",
+            summary=f"warmup: {'; '.join(parts)}；STEP {step_files} 件",
+            data=data,
+            hint="查看 sw_warmup_errors.log 末行；或等待占锁进程释放",
+        )
+    if step_files == 0:
+        return ProbeResult(
+            layer="warmup",
+            ok=True,
+            severity="warn",
+            summary="warmup 缓存为空；尚未跑过 sw-warmup",
+            data=data,
+            hint="运行 `cad_pipeline.py sw-warmup --standard GB` 预热常用 Toolbox",
+        )
+    return ProbeResult(
+        layer="warmup",
+        ok=True,
+        severity="ok",
+        summary=f"STEP {step_files} 件 / {step_size_bytes // 1024} KiB",
+        data=data,
+    )
 
 
 def probe_material_files(info: SwInfo) -> ProbeResult:
