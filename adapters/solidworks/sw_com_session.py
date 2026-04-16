@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _WORKER_MODULE = "adapters.solidworks.sw_convert_worker"
 
-SINGLE_CONVERT_TIMEOUT_SEC = 30
+SINGLE_CONVERT_TIMEOUT_SEC = 20
 CIRCUIT_BREAKER_THRESHOLD = 3
 
 # v4 决策 #23: atomic write 校验
