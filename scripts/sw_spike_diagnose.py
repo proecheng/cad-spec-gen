@@ -41,7 +41,10 @@ def main() -> int:
         _ok(f"win32com.client imported from {win32com.client.__file__}")
     except Exception as e:
         _fail("层 1", e)
-        print("\n诊断结论：pywin32 未安装或不兼容当前 Python。跑 `pip install pywin32` 再试。")
+        print(
+            "\n诊断结论：pywin32 未安装或不兼容当前 Python。"
+            "跑 `pip install 'cad-spec-gen[solidworks]'` 再试（Windows only）。"
+        )
         return 1
 
     # 层 2：detect_solidworks — 静态检测
