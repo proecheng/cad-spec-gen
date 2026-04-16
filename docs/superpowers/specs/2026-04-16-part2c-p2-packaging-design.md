@@ -58,9 +58,11 @@ brainstorming 确认 **本轮只做 A + C**；B 因涉及新 CLI 面的独立设
 
 ---
 
-## 变更清单（实施项 7 条）
+## 变更清单（实施项 10 条）
 
 **本节仅列"实施阶段要改的文件"**——本设计文档自身的节（§ 风险 / § Follow-up）属于 spec 内容，不是实施动作，不入清单。
+
+### 核心变更（A+C 主体）
 
 | # | 文件 | 改动 |
 |---|---|---|
@@ -69,10 +71,25 @@ brainstorming 确认 **本轮只做 A + C**；B 因涉及新 CLI 面的独立设
 | 3 | `parts_library.default.yaml:82` | `single_convert_timeout_sec: 30` → `20`，同时更新该行旁注释，改为"基于 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余" |
 | 4 | `tests/test_sw_toolbox_adapter_registration.py:100` | 断言 `== 30` → `== 20` |
 | 5 | `docs/design/sw-com-session-threading-model.md` | line 7 `SINGLE_CONVERT_TIMEOUT_SEC = 30` → `= 20`；line 54 "推迟到 Part 2c 的 SW-B0 spike 补课时再定方案" → "P2 已决定：subprocess 隔离（P0 落地）+ 20s timeout（基于 Part 2c P0 真 SW smoke 5 件均值 11.6s × 1.72x 冗余）" |
-| 6 | `tests/test_pyproject_contract.py`（新建） | `TestSolidworksExtra` 类 — 强制 `pytest.importorskip("packaging")`，然后用 `packaging.requirements.Requirement` 解析而非原生字符串比较（避免 PEP 508 语义等价但字符串不等导致的假阴性）；带 `@skipif(sys.version_info < (3, 11))`（stdlib tomllib 可用性） |
-| 7 | `docs/superpowers/decisions.md` | 追加 `## #36 SINGLE_CONVERT_TIMEOUT_SEC 30→20s（2026-04-16）` 与 `## #37 solidworks optional extra（2026-04-16）` 两条新决策记录，内容与本设计 § 决策记录节对齐 |
+| 6 | `tests/test_pyproject_contract.py`（新建） | `TestSolidworksExtra` 类 — 强制 `pytest.importorskip("packaging")`；用 `packaging.requirements.Requirement` 解析并**显式检查 specifier operator**（避免 `.contains("306")` 对 `==306` 锁死语义和 `>=306` 下限语义无法区分）；带 `@skipif(sys.version_info < (3, 11))`（stdlib tomllib 可用性） |
 
-**总计**：4 处值替换 + 1 处设计文档同步 + 1 个新 test 文件 + 1 处 decisions.md 追加 ≈ 40-50 行改动
+### UX 落地变更（A 子任务兑现价值的必要条件）
+
+A 子任务的价值**取决于**用户发现 extra 命令的存在。当前代码有 3 处用户可见的 pywin32 缺失提示全部指向裸 `pip install pywin32`，若不同步修改，extra 将成"影子功能"（没人用）。故本轮必须一并修改：
+
+| # | 文件 | 改动 |
+|---|---|---|
+| 7 | `tools/sw_warmup.py:252` | `"pywin32 未安装；请运行 `pip install pywin32`"` → `"pywin32 未安装；请运行 `pip install 'cad-spec-gen[solidworks]'`（Windows only）"` |
+| 8 | `scripts/sw_spike_diagnose.py:44` | `"诊断结论：pywin32 未安装或不兼容当前 Python。跑 `pip install pywin32` 再试。"` → `"诊断结论：pywin32 未安装或不兼容当前 Python。跑 `pip install 'cad-spec-gen[solidworks]'` 再试。"` |
+| 9 | `tools/hybrid_render/check_env.py:286` | 当前仅打印 `"Toolbox ✗ (pywin32 未安装)"`。扩展为：Windows 上加 `"→ 运行 `pip install 'cad-spec-gen[solidworks]'`"`；Linux/macOS 上改为 `"Toolbox — (此功能 Windows only，当前平台跳过)"`（非错误，避免用户误解为"没装"）—— 本项同时解决 D1-2 |
+
+### 决策记录
+
+| # | 文件 | 改动 |
+|---|---|---|
+| 10 | `docs/superpowers/decisions.md` | 追加 `## #36 SINGLE_CONVERT_TIMEOUT_SEC 30→20s（2026-04-16）` 与 `## #37 solidworks optional extra（2026-04-16）` 两条新决策记录，内容与本设计 § 决策记录节对齐 |
+
+**总计**：4 处值替换 + 1 处设计文档同步 + 1 个新 test 文件 + 3 处 UX 提示文案同步 + 1 处 decisions.md 追加 ≈ 60-80 行改动
 
 ---
 
@@ -204,8 +221,15 @@ def test_solidworks_extra_has_pywin32_with_windows_marker():
     reqs = [Requirement(s) for s in deps["solidworks"]]
     pywin32 = next((r for r in reqs if r.name == "pywin32"), None)
     assert pywin32 is not None
-    # specifier 语义断言：容许 >=306, >=306.0 等等价写法
-    assert pywin32.specifier.contains("306")
+
+    # specifier 语义断言：显式检查 operator + version
+    # 不能用 `.contains("306")`——它对 ==306（锁死）和 >=306（下限）都返回 True，
+    # 而锁死版本 vs 下限是完全不同的语义，必须区分
+    specs = list(pywin32.specifier)
+    assert len(specs) == 1, "pywin32 应只有一个 specifier"
+    assert specs[0].operator == ">=", f"operator 必须是 >=，实际: {specs[0].operator}"
+    assert specs[0].version == "306"
+
     # marker 语义断言：PEP 508 marker 解析后语义 == win32-only
     assert pywin32.marker is not None
     assert pywin32.marker.evaluate({"sys_platform": "win32"}) is True
@@ -257,7 +281,11 @@ pytestmark = pytest.mark.skipif(
 **缓解**：
 - **熔断器兜底**（`CIRCUIT_BREAKER_THRESHOLD = 3`）：连续 3 次失败 → `_unhealthy=True` → 后续 convert 被跳过 → resolver 回落到下一级 adapter（sw_toolbox → bd_warehouse → jinja_primitive），最终装配产出不受影响
 - **Stage C 可观测性**（commit `0e8ddc7`）：timeout 事件被 `last_convert_diagnostics` 捕获，后续 Stage C 真跑可按 `per_target.diag` 统计 timeout 命中率
-- **回退阈值**（首次真跑前为占位初值，无数据依据）：首轮 Stage C 真跑后按实际 timeout 命中率分布 tuning——若 0%，不必回退；若 > **10%**，按实际分布选择 25s 或 30s；若 >> 10%（例如 > 25%），重新评估 subprocess 模型本身是否合适（不是单纯调 timeout 能解决的）。**10% 是拍脑袋的占位值**，一旦有真实分布数据即用数据替换
+- **tuning 数据链路**（Follow-up F-4a + F-4b + F-7 闭环）：
+  - **F-4a baseline 测量**：**临时把 timeout 放大到 120s**跑一轮真实 Stage C，记录**未被截断**的真实 elapsed_sec 分布（p50/p95/p99）。**这是必要的前置——若直接用生产 20s 下的 elapsed_sec，outlier 会全部被 kill 在 ≈20s，分布被上限截断，基于此数据 tuning 会得到循环错误的结论**
+  - **F-4b runtime 监控**：生产 20s 下，在 `stage_c.json` 追加 `timeout_rate` 字段
+  - **F-7 回退决策**：同时看 F-4a 分布 + F-4b 命中率（不能只看其一）：(a) baseline p95 < 20s 且 runtime 命中率 < 10% → 保持 20s；(b) baseline p95 ≥ 20s → 回退到 ≥ p95；(c) 命中率高但 baseline p95 < 20s → 诊断 timeout 以外的失败原因（熔断/COM 异常）
+- **10% 命中率阈值**（首次真跑前为占位初值，无数据依据）：**拍脑袋的占位值**，一旦 F-4a + F-4b 数据产出即用实证数据替换。占位值用意仅为"设个起点避免 Follow-up 悬空"，不具任何决策权威
 
 ### R-2 双 source of truth 同步成本（S-1）
 
@@ -287,11 +315,12 @@ pytestmark = pytest.mark.skipif(
 |---|---|---|
 | F-1 | **`sw-inspect` 子命令** — 一次性展示 SW 环境 / toolbox 索引 / 匹配率样本 / 熔断状态 | 用户首次报"SW 集成为什么没生效"时 |
 | F-2 | **双 source of truth 彻底解决**：要么 YAML 可配（需 config 读取链路 + 注入 `SwComSession.__init__`），要么删 YAML 字段 + `test_sw_toolbox_adapter_registration.py` 对应断言（单一 source of truth = 代码常量） | 下次调整 timeout 时 |
-| F-3 | **README / `cad-skill-check` 文档更新** — 说明 `pip install 'cad-spec-gen[solidworks]'` 装完后的启用条件（SW 本身已装 / toolbox 索引 build / 自动检测） | Part 2c 收尾或 Phase SW-D 启动时 |
-| F-4 | **Stage C 耗时记录** — `tools/sw_b9_acceptance.py:321-322` 给每件 convert 加 `elapsed_sec` 记录；**直接为 R-1 回退决策提供方差数据**（R-1 的 10% 阈值依赖此数据才能从占位值 tuning 为实证值） | 下次 Stage C 真跑（或手动补一次）|
-| F-5 | **pyproject contract test 扩展** — 未来若新增其他 extras（如 F-3 改动中意外扩 extra、或 SW-D 阶段新引入），同步扩展 `test_pyproject_contract.py` 覆盖 | 新增 extra 时 |
+| F-3 | **README / `cad-help` skill 知识库更新** — 说明 `pip install 'cad-spec-gen[solidworks]'` 装完后的启用条件（SW 本身已装 / toolbox 索引 build / 自动检测）。**D2-1 标注**：本轮变更 #7-9 已覆盖代码内 UX 提示同步；此 Follow-up 是 skill 知识层（README 面向用户 / `cad-help` 面向 AI 辅助）的延伸更新 | Part 2c 收尾或 Phase SW-D 启动时 |
+| F-4a | **baseline 耗时分布测量**（**D3-1 修正 必做前置**）— **临时把 `SINGLE_CONVERT_TIMEOUT_SEC` 放大到 120s**，`tools/sw_b9_acceptance.py:321-322` 给每件 convert 加 `elapsed_sec` 记录，跑一轮真实 Stage C 得到 **未被 timeout 截断** 的真实耗时分布（p50 / p95 / p99）。**原因**：生产 20s timeout 下 outlier 会被 kill 导致记录值恒为 ≈20s，分布被上限截断无法反映真相 | 第一次需要 tuning 时（必须在 F-7 触发前）|
+| F-4b | **runtime 命中率监控** — 生产 20s timeout 下，不再关心耗时分布（已知被截断），只关心 `last_convert_diagnostics.stage == "timeout"` 的**占比**；需在 `tools/sw_b9_report_builder.py` 或 `stage_c.json` 追加 `timeout_rate: float` 字段（**D3-2 同步**）供 F-7 判定 | 每次 Stage C 真跑自动产出 |
+| F-5 | **pyproject contract test 扩展** — 未来若新增其他 extras（如 SW-D 阶段新引入），同步扩展 `test_pyproject_contract.py` 覆盖 | 新增 extra 时 |
 | F-6 | **CI 新增 `pip install '.[solidworks]'` 集成 job** — 实际验证 extra 可装，补 contract test 的"toml 字段正确"但"install 失败"盲区 | 若有用户反馈 `pip install` 实际失败 |
-| F-7 | **timeout 回退 watch** — 基于 F-4 数据，若 Stage C 真跑 timeout 命中率 > 10% 则回退 25s；此 Follow-up 与 F-4 形成闭环（F-4 提供数据 → F-7 触发决策）| F-4 数据产出后首轮 Stage C 真跑 |
+| F-7 | **timeout 回退 watch**（**D3-1 修正**）— 回退判定依据**必须为 F-4a 的 baseline 分布 + F-4b 的 runtime 命中率**，不能只看命中率：(a) F-4a 分布 p95 < 20s 且 F-4b 命中率 < 10% → 保持 20s；(b) F-4a 分布 p95 ≥ 20s → 应回退到 ≥ p95 的值（25s / 30s 候选）；(c) F-4b 命中率 >> 10% 但 F-4a p95 < 20s → 说明 timeout 以外的失败（熔断 / COM 异常），需重新诊断而非调 timeout | F-4a + F-4b 数据同时产出后 |
 
 ### solidworks extra 装完后用户 UX 完整链路
 
@@ -326,7 +355,7 @@ Windows + SolidWorks 已装
 |---|---|---|
 | 决策 #10 | 2026-04-13 | SINGLE_CONVERT_TIMEOUT_SEC = 30（初始值，保守） |
 | 决策 #11 | 2026-04-13 | RESTART_EVERY_N_CONVERTS = 50（session 模型）— Part 2c P0 后废弃 |
-| **决策 #36**（本设计） | **2026-04-16** | **SINGLE_CONVERT_TIMEOUT_SEC 30 → 20s**。依据 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余。回退阈值初值 10%（首次真跑前为占位，无数据依据——见 R-1）；首轮 Stage C 真跑后以实证数据替换 |
+| **决策 #36**（本设计） | **2026-04-16** | **SINGLE_CONVERT_TIMEOUT_SEC 30 → 20s**。依据 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余。回退判定依据：Follow-up F-4a（baseline 分布，必须临时放大 timeout 到 120s 测得未截断的真实分布）+ F-4b（runtime 命中率）同时看（见 R-1 缓解节）。占位阈值 10% 命中率仅为起点，不具决策权威 |
 | **决策 #37**（本设计） | **2026-04-16** | **`pyproject.toml [project.optional-dependencies] solidworks = ['pywin32>=306; sys_platform == "win32"']`**，`all` extra 不含 pywin32 |
 
 ---
@@ -354,8 +383,18 @@ Windows + SolidWorks 已装
 2. 改 `pyproject.toml` 加 `solidworks` extra
    - → test pass
 
-### 3. 最后补 decisions.md
+### 3. 做 UX 落地（A 子任务价值兑现的必要条件）
+
+A 在 § 变更清单核心变更阶段只加了 pyproject 字段，但用户不会自动发现这个 extra——**必须在本步同步 3 处代码提示**，否则 extra 成"影子功能"：
+
+1. `tools/sw_warmup.py:252`：`pip install pywin32` → `pip install 'cad-spec-gen[solidworks]'`
+2. `scripts/sw_spike_diagnose.py:44`：同上
+3. `tools/hybrid_render/check_env.py:286`：Windows 上打印 extra 命令；Linux/macOS 上改为 "Windows only，当前平台跳过（非错误）"
+
+建议顺便为这 3 处加一个回归 test（grep-based 或 `check_env` 的输出快照 test），防止未来 regression——但若工作量太大可推到 F-5。
+
+### 4. 最后补 decisions.md
 
 追加 `## #36` 和 `## #37` 两条新决策记录，与本设计 § 决策记录节对齐。
 
-两段独立可并行，但顺序 C → A → decisions.md 更能保证每段代码 change 伴随 test change，避免"一次大 commit 后补 test"的反模式。
+**实施顺序总结**：C (timeout) → A (pyproject extra) → UX 落地 (3 处提示) → decisions.md。C 和 A 独立可并行；UX 落地必须在 A 之后（因为提示文案依赖 extra 的存在）；decisions.md 最后做以记录已完成决策。
