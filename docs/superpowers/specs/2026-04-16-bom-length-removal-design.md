@@ -137,14 +137,18 @@ def test_fastener_gbt_spec_no_prefix_no_length(self, default_patterns):
 
 ## TDD 节奏
 
+> **注意**：新回归测试使用 `default_patterns` **fixture**（in-test 变量），
+> 不直接读 YAML。因此 GREEN 阶段必须同时更新 fixture，否则新测试不会变绿。
+
 ```
 Task 1 — RED（写新测试，验证现有代码失败）
-  - 新增 test_fastener_gbt_spec_no_prefix_no_length
-  - 运行 pytest：预期失败（当前返回 {"size": "M6", "length": "70.1"}）
+  - 新增 test_fastener_gbt_spec_no_prefix_no_length（使用 default_patterns fixture）
+  - 运行 pytest：预期失败（fixture 含 length，当前返回 {"size": "M6", "length": "70.1"}）
 
-Task 2 — GREEN（改 YAML，让新测试通过）
+Task 2 — GREEN（同时改 fixture + YAML，让新测试通过）
+  - TestExtractSizeFromName.default_patterns fixture 删除 "length" 键
   - 两个 parts_library.default.yaml 删除 length 行
-  - 运行 pytest：新测试绿；原 4 条断言变红
+  - 运行 pytest：新测试绿；原 4 条断言变红（fixture 更新后返回无 length）
 
 Task 3 — REFACTOR（修正原有测试断言）
   - 更新 4 条 TestExtractSizeFromName 断言（3 条 M6、1 条 M6.5）
