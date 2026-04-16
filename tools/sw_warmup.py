@@ -249,7 +249,10 @@ def _check_preflight() -> tuple[bool, str]:
     if (info.version_year or 0) < 2024:
         return False, f"SolidWorks 版本 {info.version_year} < 2024；请升级"
     if not info.pywin32_available:
-        return False, "pywin32 未安装；请运行 `pip install pywin32`"
+        return False, (
+            "pywin32 未安装；请运行 "
+            "`pip install 'cad-spec-gen[solidworks]'`（Windows only）"
+        )
     if not info.toolbox_dir:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
     return True, ""
