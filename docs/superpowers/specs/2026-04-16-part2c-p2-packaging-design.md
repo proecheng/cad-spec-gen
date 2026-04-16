@@ -51,14 +51,16 @@ brainstorming 确认 **本轮只做 A + C**；B 因涉及新 CLI 面的独立设
 
 ## 事实口径（来自 memory / 代码扫描的权威事实）
 
-- **冷启动 15s**：SW-B0 spike 早期实测，Dispatch + OpenDoc6 冷启。本轮不直接使用该数据。
-- **端到端均值 11.6s/件**：**Part 2c P0 真 SW smoke**（2026-04-14，5 件 GB sldprt，全部成功）。subprocess-per-convert 模型下，每次都是独立冷启，所以 11.6s ≈ 冷启 + 短 convert + 关闭。本轮 timeout 20s 对齐的是**端到端**预算，不是单纯冷启预算。
+- **15s（过时历史数据，不适用本轮决策）**：SW-B0 早期 spike 在**旧 session 模型**下测得的 "Dispatch + LoadAddIn" 冷启时间。`LoadAddIn` 已在 H1 修复中删除（subprocess 模型不调 LoadAddIn），且 session 模型本身已被 Part 2c P0 的 subprocess-per-convert 模型取代。此数据仅作历史参考
+- **11.6s/件（本轮唯一决策依据）**：**Part 2c P0 真 SW smoke**（2026-04-14，5 件 GB sldprt 全部成功），**subprocess 模型端到端**测量（= Python subprocess 启动 + pywin32 Dispatch + OpenDoc6 + SaveAs3 + CloseDoc + ExitApp）。**15s 与 11.6s 是不同架构下的不可比测量**——11.6s 不是"15s 冷启 - X"得出的，两者不能做加减算术。本轮 timeout 20s = 11.6s × 1.72x 冗余
 - **Stage C 真跑**：8/8 全绿（2026-04-16，commit `0e8ddc7` 之后），step size 44 KB ~ 944 KB。但 Stage C 验收代码（`tools/sw_b9_acceptance.py:321-322`）**仅记录 step_size，不记录每件 convert 耗时**——因此生产大件（944 KB 级别）的**单件耗时未知**，是本轮风险评估的信息 gap。
 - **CI 矩阵**：6 个 matrix test job（Windows/Ubuntu × Python 3.10/3.11/3.12）+ 1 个 regression job = 7 个 job。本轮契约 test 仅在 3.11+ 跑，6 个 matrix job 中有 2 个 Python 3.10 job skip，覆盖率 4/6 对"pyproject 解析"级 regression 足够。
 
 ---
 
-## 变更清单（最终 8 项）
+## 变更清单（实施项 7 条）
+
+**本节仅列"实施阶段要改的文件"**——本设计文档自身的节（§ 风险 / § Follow-up）属于 spec 内容，不是实施动作，不入清单。
 
 | # | 文件 | 改动 |
 |---|---|---|
@@ -67,11 +69,10 @@ brainstorming 确认 **本轮只做 A + C**；B 因涉及新 CLI 面的独立设
 | 3 | `parts_library.default.yaml:82` | `single_convert_timeout_sec: 30` → `20`，同时更新该行旁注释，改为"基于 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余" |
 | 4 | `tests/test_sw_toolbox_adapter_registration.py:100` | 断言 `== 30` → `== 20` |
 | 5 | `docs/design/sw-com-session-threading-model.md` | line 7 `SINGLE_CONVERT_TIMEOUT_SEC = 30` → `= 20`；line 54 "推迟到 Part 2c 的 SW-B0 spike 补课时再定方案" → "P2 已决定：subprocess 隔离（P0 落地）+ 20s timeout（基于 Part 2c P0 真 SW smoke 5 件均值 11.6s × 1.72x 冗余）" |
-| 6 | `tests/test_pyproject_contract.py`（新建） | `TestSolidworksExtra` 类 — 使用 `packaging.requirements.Requirement` 解析而非原生字符串比较（避免 PEP 508 语义等价但字符串不等导致的假阴性）；带 `@skipif(sys.version_info < (3, 11))`（stdlib tomllib 可用性） |
-| 7 | 本 design doc § 风险节 | 标注"20s 基于 Part 2c P0 smoke 5 件均值，生产大件 outlier 未测；若 Stage C 真跑显示 timeout 命中率 > 10%，回退 25s 候选" |
-| 8 | 本 design doc § Follow-up 节 | 列出 solidworks extra 装完后用户 UX 完整链路，标注后续独立任务 |
+| 6 | `tests/test_pyproject_contract.py`（新建） | `TestSolidworksExtra` 类 — 强制 `pytest.importorskip("packaging")`，然后用 `packaging.requirements.Requirement` 解析而非原生字符串比较（避免 PEP 508 语义等价但字符串不等导致的假阴性）；带 `@skipif(sys.version_info < (3, 11))`（stdlib tomllib 可用性） |
+| 7 | `docs/superpowers/decisions.md` | 追加 `## #36 SINGLE_CONVERT_TIMEOUT_SEC 30→20s（2026-04-16）` 与 `## #37 solidworks optional extra（2026-04-16）` 两条新决策记录，内容与本设计 § 决策记录节对齐 |
 
-**总计**：4 处值替换 + 1 处文档同步 + 1 个新 test 文件 + 2 段 design doc 文字 ≈ 35-40 行改动
+**总计**：4 处值替换 + 1 处设计文档同步 + 1 个新 test 文件 + 1 处 decisions.md 追加 ≈ 40-50 行改动
 
 ---
 
@@ -188,6 +189,12 @@ Stage C 可观测性已由 commit `0e8ddc7` 提供，timeout 事件自动进入 
 
 ```python
 # 核心骨架（实际由 plan 细化）
+import pytest
+
+# 强制使用 importorskip 而非假设"packaging 通常已在"——本项目 uv 环境
+# 已知有 partcad vs bd-warehouse 依赖冲突风险，不能依赖传递依赖
+pytest.importorskip("packaging")
+
 from packaging.requirements import Requirement
 
 def test_solidworks_extra_has_pywin32_with_windows_marker():
@@ -222,7 +229,7 @@ pytestmark = pytest.mark.skipif(
 )
 ```
 
-`packaging` 是 pip 自带依赖，通常已在环境里；若 CI 环境意外没有可改为 `pytest.importorskip("packaging")`。
+`packaging` 以 `pytest.importorskip` 强制处理——CI 若碰到依赖冲突不装 packaging（本项目 uv 环境已见过），该 test 自动 skip 而非 error。不假设"packaging 通常已在"。
 
 ### 现有测试更新
 
@@ -250,7 +257,7 @@ pytestmark = pytest.mark.skipif(
 **缓解**：
 - **熔断器兜底**（`CIRCUIT_BREAKER_THRESHOLD = 3`）：连续 3 次失败 → `_unhealthy=True` → 后续 convert 被跳过 → resolver 回落到下一级 adapter（sw_toolbox → bd_warehouse → jinja_primitive），最终装配产出不受影响
 - **Stage C 可观测性**（commit `0e8ddc7`）：timeout 事件被 `last_convert_diagnostics` 捕获，后续 Stage C 真跑可按 `per_target.diag` 统计 timeout 命中率
-- **回退阈值**：若后续 Stage C 真跑显示 timeout 命中率 > **10%**（经验阈值），回退 25s 候选；若 > 25%，考虑回退 30s 或重新评估
+- **回退阈值**（首次真跑前为占位初值，无数据依据）：首轮 Stage C 真跑后按实际 timeout 命中率分布 tuning——若 0%，不必回退；若 > **10%**，按实际分布选择 25s 或 30s；若 >> 10%（例如 > 25%），重新评估 subprocess 模型本身是否合适（不是单纯调 timeout 能解决的）。**10% 是拍脑袋的占位值**，一旦有真实分布数据即用数据替换
 
 ### R-2 双 source of truth 同步成本（S-1）
 
@@ -281,9 +288,10 @@ pytestmark = pytest.mark.skipif(
 | F-1 | **`sw-inspect` 子命令** — 一次性展示 SW 环境 / toolbox 索引 / 匹配率样本 / 熔断状态 | 用户首次报"SW 集成为什么没生效"时 |
 | F-2 | **双 source of truth 彻底解决**：要么 YAML 可配（需 config 读取链路 + 注入 `SwComSession.__init__`），要么删 YAML 字段 + `test_sw_toolbox_adapter_registration.py` 对应断言（单一 source of truth = 代码常量） | 下次调整 timeout 时 |
 | F-3 | **README / `cad-skill-check` 文档更新** — 说明 `pip install 'cad-spec-gen[solidworks]'` 装完后的启用条件（SW 本身已装 / toolbox 索引 build / 自动检测） | Part 2c 收尾或 Phase SW-D 启动时 |
-| F-4 | **Stage C 耗时记录** — `tools/sw_b9_acceptance.py` 给每件 convert 加 `elapsed_sec` 记录，为将来 timeout 调优提供方差数据 | 下次 Stage C 真跑（或手动补一次） |
-| F-5 | **pyproject contract test 扩展** — 若加入 F-3 的 README / check 或其他 extras，扩展 `test_pyproject_contract.py` 覆盖 | F-3 同步 |
-| F-6 | **CI 新增 `pip install '.[solidworks]'` 集成 job** — 实际验证 extra 可装 | 若 F-5 发现 contract test 有盲区时 |
+| F-4 | **Stage C 耗时记录** — `tools/sw_b9_acceptance.py:321-322` 给每件 convert 加 `elapsed_sec` 记录；**直接为 R-1 回退决策提供方差数据**（R-1 的 10% 阈值依赖此数据才能从占位值 tuning 为实证值） | 下次 Stage C 真跑（或手动补一次）|
+| F-5 | **pyproject contract test 扩展** — 未来若新增其他 extras（如 F-3 改动中意外扩 extra、或 SW-D 阶段新引入），同步扩展 `test_pyproject_contract.py` 覆盖 | 新增 extra 时 |
+| F-6 | **CI 新增 `pip install '.[solidworks]'` 集成 job** — 实际验证 extra 可装，补 contract test 的"toml 字段正确"但"install 失败"盲区 | 若有用户反馈 `pip install` 实际失败 |
+| F-7 | **timeout 回退 watch** — 基于 F-4 数据，若 Stage C 真跑 timeout 命中率 > 10% 则回退 25s；此 Follow-up 与 F-4 形成闭环（F-4 提供数据 → F-7 触发决策）| F-4 数据产出后首轮 Stage C 真跑 |
 
 ### solidworks extra 装完后用户 UX 完整链路
 
@@ -318,15 +326,36 @@ Windows + SolidWorks 已装
 |---|---|---|
 | 决策 #10 | 2026-04-13 | SINGLE_CONVERT_TIMEOUT_SEC = 30（初始值，保守） |
 | 决策 #11 | 2026-04-13 | RESTART_EVERY_N_CONVERTS = 50（session 模型）— Part 2c P0 后废弃 |
-| **决策 #36**（本设计） | **2026-04-16** | **SINGLE_CONVERT_TIMEOUT_SEC 30 → 20s**。依据 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余。回退阈值：Stage C 真跑 timeout 命中率 > 10% → 候选 25s |
+| **决策 #36**（本设计） | **2026-04-16** | **SINGLE_CONVERT_TIMEOUT_SEC 30 → 20s**。依据 Part 2c P0 真 SW smoke 端到端均值 11.6s × 1.72x 冗余。回退阈值初值 10%（首次真跑前为占位，无数据依据——见 R-1）；首轮 Stage C 真跑后以实证数据替换 |
 | **决策 #37**（本设计） | **2026-04-16** | **`pyproject.toml [project.optional-dependencies] solidworks = ['pywin32>=306; sys_platform == "win32"']`**，`all` extra 不含 pywin32 |
 
 ---
 
 ## 实施顺序建议（供 writing-plans 参考）
 
-1. **先做 C（timeout 30→20）**：5 处同步 + 1 处断言更新，纯值替换，范围清晰，TDD 直接：`test_sw_toolbox_adapter_registration.py:100` 改 20 → 运行 fail → 改 YAML + 代码常量 → pass → 补文档
-2. **再做 A（pyproject solidworks extra）**：TDD：先写 `test_pyproject_contract.py` → fail（solidworks key 不存在）→ 改 pyproject → pass
-3. **最后补文档**：`docs/design/sw-com-session-threading-model.md` 两处同步（变更 #5）
+### 1. 先做 C（timeout 30→20）
 
-两段独立可并行，但顺序 C → A 更能保证每段代码 change 伴随 test change，避免"一次大 commit 后补 test"的反模式。
+**严格 TDD 顺序**（利用现有 test 作为契约守门人）：
+
+1. 改 `parts_library.default.yaml:82` 的 `single_convert_timeout_sec: 30 → 20`
+   - → 现有 `test_sw_toolbox_adapter_registration.py:100` 自动 fail（契约失守立即报警，证明断言在守门）
+2. 同步 test 断言 `== 30 → == 20`（pass）
+3. 改代码常量 `sw_com_session.py:33  SINGLE_CONVERT_TIMEOUT_SEC = 30 → 20`
+4. 补文档 `docs/design/sw-com-session-threading-model.md:7,54`
+
+这个顺序的合理性：**先触发现有 test fail 证明契约守门有效**，再把断言改到新契约（pass），最后让代码常量与声明对齐。不是反 TDD"先改测试"——而是"先让契约在声明层生效（test fail 即为证据），再把断言与声明同步"。
+
+### 2. 再做 A（pyproject solidworks extra）
+
+**严格 TDD 顺序**（新 test 先于实现）：
+
+1. 新建 `tests/test_pyproject_contract.py`，写 `TestSolidworksExtra` 类
+   - → 首跑 fail（pyproject 里没有 `solidworks` key）
+2. 改 `pyproject.toml` 加 `solidworks` extra
+   - → test pass
+
+### 3. 最后补 decisions.md
+
+追加 `## #36` 和 `## #37` 两条新决策记录，与本设计 § 决策记录节对齐。
+
+两段独立可并行，但顺序 C → A → decisions.md 更能保证每段代码 change 伴随 test change，避免"一次大 commit 后补 test"的反模式。
