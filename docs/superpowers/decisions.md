@@ -55,3 +55,25 @@ Stage C（STEP 转换）仍为 `pre=None post=None`，根因为 SolidWorks COM S
 **契约守门**：`tests/test_pyproject_contract.py::TestSolidworksExtra` 用 `packaging.requirements.Requirement` 解析并显式检查 operator、version、marker 三个字段，避免字符串 `==` 断言对 PEP 508 等价写法假阴性。
 
 **spec**: `docs/superpowers/specs/2026-04-16-part2c-p2-packaging-design.md`
+
+---
+
+## #38 sw-inspect 作为正式深度诊断入口（2026-04-16）
+
+- **决策**：`cad_pipeline.py sw-inspect [--deep] [--json]` 为 SW 诊断的**正式 CLI 入口**；
+  `scripts/sw_spike_diagnose.py` 保留为 SW-B0 时期 REPL 友好的历史档案，内部薄壳调
+  `adapters/solidworks/sw_probe.py` 共享内核。
+- **退出码独立编号**：
+  - sw-inspect：`0` 全绿 / `1` warn / `2` 静态 fail / `3` deep-COM fail / `4` deep-addin fail / `64` 参数错
+  - sw_spike_diagnose：`0/1/2/3/4` 继承 SW-B0 时期历史语义不变
+  - 两者不互通；CI 和脚本默认消费 sw-inspect 退出码
+- **JSON schema v1 稳定字段**（消费方依赖）：
+  `overall.exit_code` / `overall.elapsed_ms` / `layers.*.severity` /
+  `layers.dispatch.data.elapsed_ms`（F-4a baseline 数据源）
+- **F-1 follow-up**：F-1.1 deep 模式材质 XML 解析；F-1.2 subprocess 隔离 Dispatch 悬挂；
+  F-1.3 Windows self-hosted runner 真跑 real smoke
+- **Spec**：`docs/superpowers/specs/2026-04-16-sw-inspect-design.md`
+- **Plan**：`docs/superpowers/plans/2026-04-16-sw-inspect.md`
+- **已发现的问题（实施过程）**：probe_dispatch 在 ThreadPoolExecutor worker 线程缺 CoInitialize，
+  真 SW smoke 暴露后追加 `_dispatch_and_probe_worker` 内嵌 `pythoncom.CoInitialize/Uninitialize`
+  包装整个 COM 生命周期到同一 STA 线程（commit 91caf82）

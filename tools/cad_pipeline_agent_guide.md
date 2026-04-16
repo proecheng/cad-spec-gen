@@ -649,3 +649,25 @@ cad/output/                    ← 所有输出
 ├── *.dxf                      ← 2D工程图
 └── renders/*.png              ← 渲染结果
 ```
+
+## sw-inspect — SW 诊断单一入口
+
+**用途**：聚合 SW 环境 / Toolbox 索引 / 材质库 / warmup 产物状态到一个 CLI。
+
+**用法**：
+
+```bash
+# 快速扫（< 500ms，不启动 SW 进程）
+python cad_pipeline.py sw-inspect
+
+# 深度诊断（真跑 Dispatch + LoadAddIn，冷启约 10–20s）
+python cad_pipeline.py sw-inspect --deep
+
+# 机读 JSON 输出给 CI / 脚本消费
+python cad_pipeline.py sw-inspect --json
+python cad_pipeline.py sw-inspect --deep --json
+```
+
+**退出码**：0 全绿 / 1 warn / 2 环境 fail / 3 deep-COM fail / 4 deep-addin fail / 64 参数错
+
+**排障定位**：若 `sw-warmup` 挂了，先跑 `sw-inspect --deep` 看卡在哪一层；输出的 `hint` 字段会指向下一步行动。
