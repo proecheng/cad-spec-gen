@@ -486,6 +486,70 @@ class TestProbeWarmupArtifacts:
 
 import time  # noqa: E402
 
+from adapters.solidworks.sw_probe import probe_loadaddin  # noqa: E402
+
+
+class TestProbeLoadAddin:
+    @staticmethod
+    def _install_fake_win32com_with_app(monkeypatch, fake_app):
+        """两层 mock（同 TestProbeDispatch）。"""
+        import types
+
+        def getobj(progid):
+            raise OSError("no instance")
+
+        fake_client = types.ModuleType("win32com.client")
+        fake_client.Dispatch = lambda progid: fake_app
+        fake_client.GetObject = getobj
+        fake_root = types.ModuleType("win32com")
+        fake_root.client = fake_client
+        monkeypatch.setitem(sys.modules, "win32com", fake_root)
+        monkeypatch.setitem(sys.modules, "win32com.client", fake_client)
+
+    def test_first_progid_loads_ok(self, monkeypatch):
+        loaded_calls = []
+
+        class FakeApp:
+            def LoadAddIn(self, progid):
+                loaded_calls.append(progid)
+                return 1  # SUCCESS
+
+        self._install_fake_win32com_with_app(monkeypatch, FakeApp())
+
+        r = probe_loadaddin()
+        assert r.layer == "loadaddin"
+        assert r.severity == "ok"
+        assert r.data["loaded"] is True
+        assert r.data["attempts"][0]["progid"] == "SwToolbox.1"
+        assert r.data["attempts"][0]["return_code"] == 1
+
+    def test_second_progid_fallback(self, monkeypatch):
+        class FakeApp:
+            def LoadAddIn(self, progid):
+                return 1 if progid == "SwToolbox" else 3
+
+        self._install_fake_win32com_with_app(monkeypatch, FakeApp())
+
+        r = probe_loadaddin()
+        assert r.severity == "ok"
+        assert r.data["loaded"] is True
+        assert len(r.data["attempts"]) == 2
+
+    def test_all_fail_becomes_warn_not_fail(self, monkeypatch):
+        """loadaddin 失败按 spec §5.1 降级为 warn（SW-B0 实证非必要）。"""
+
+        class FakeApp:
+            def LoadAddIn(self, progid):
+                return 3  # 非 1 都算失败
+
+        self._install_fake_win32com_with_app(monkeypatch, FakeApp())
+
+        r = probe_loadaddin()
+        assert r.severity == "warn"
+        assert r.data["loaded"] is False
+        assert all(a["return_code"] == 3 for a in r.data["attempts"])
+        assert r.hint is not None
+
 
 class TestProbeDispatch:
     @staticmethod

@@ -657,3 +657,65 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
             "attached_existing_session": False,
         },
     )
+
+
+def probe_loadaddin() -> ProbeResult:
+    """层 5：LoadAddIn。SAR-1：无参数，内部自行 Dispatch 附着（秒级）。
+    SW-B0 实证 Toolbox Add-In 非必要，失败降级为 warn，不是 fail。"""
+    try:
+        import win32com.client  # noqa: F401
+    except Exception as e:
+        return ProbeResult(
+            layer="loadaddin",
+            ok=False,
+            severity="fail",
+            summary="pywin32 未安装",
+            data={"attempts": [], "loaded": False},
+            error=str(e)[:200],
+        )
+
+    from win32com import client as _wc
+
+    try:
+        app = _wc.Dispatch("SldWorks.Application")
+    except Exception as e:
+        return ProbeResult(
+            layer="loadaddin",
+            ok=False,
+            severity="fail",
+            summary="Dispatch 失败，无法测试 LoadAddIn",
+            data={"attempts": [], "loaded": False},
+            error=str(e)[:200],
+        )
+
+    attempts = []
+    loaded = False
+    for progid in ("SwToolbox.1", "SwToolbox"):
+        try:
+            rc = int(app.LoadAddIn(progid))
+        except Exception as e:
+            attempts.append(
+                {"progid": progid, "return_code": None, "error": str(e)[:100]}
+            )
+            continue
+        attempts.append({"progid": progid, "return_code": rc})
+        if rc == 1:
+            loaded = True
+            break
+
+    if loaded:
+        return ProbeResult(
+            layer="loadaddin",
+            ok=True,
+            severity="ok",
+            summary="Toolbox Add-In 加载成功",
+            data={"attempts": attempts, "loaded": True},
+        )
+    return ProbeResult(
+        layer="loadaddin",
+        ok=True,
+        severity="warn",
+        summary="Toolbox Add-In 未加载（对 sldprt→STEP 转换非必要，仅插入标准件时需要）",
+        data={"attempts": attempts, "loaded": False},
+        hint="若要手工插入标准件，在 SW Tools → Add-Ins 中勾选 'SOLIDWORKS Toolbox Library'",
+    )
