@@ -21,6 +21,7 @@ pytestmark = pytest.mark.skipif(
 # partcad vs bd-warehouse 依赖冲突风险，健壮性优先
 pytest.importorskip("packaging")
 
+# importorskip 必须在 import 之前执行；E402 是预期的
 from packaging.requirements import Requirement  # noqa: E402
 
 PYPROJECT_PATH = Path(__file__).resolve().parents[1] / "pyproject.toml"
@@ -49,6 +50,8 @@ class TestSolidworksExtra:
         # 不用 .contains("306")——它对 ==306（锁死版本）和 >=306（下限）
         # 都返回 True，但两者语义完全不同，必须区分
         specs = list(pywin32.specifier)
+        # SpecifierSet 底层是 frozenset，多个 specifier 时迭代顺序不保证；
+        # 强制 len==1 确保 specs[0] 可安全访问，如需支持上界需重写断言逻辑
         assert len(specs) == 1, "pywin32 应只有一个 specifier"
         assert specs[0].operator == ">=", \
             f"operator 必须是 >=（下限），实际: {specs[0].operator}"
@@ -56,6 +59,11 @@ class TestSolidworksExtra:
 
         # marker 语义断言：PEP 508 marker 解析后语义 == win32-only
         assert pywin32.marker is not None, "pywin32 必须有 sys_platform marker"
+        # 规范 marker variable 必须用 sys_platform（而非语义等价的 os_name == "nt"）。
+        # Marker.evaluate() 的 environment 仅覆盖对应 key，其他 key 走系统真实值，
+        # 如果改成 os_name 语义等价形式，evaluate 断言在 Windows CI 上会误判
+        assert str(pywin32.marker) == 'sys_platform == "win32"', \
+            f"marker 必须使用 sys_platform 变量（决策 #37），实际: {pywin32.marker}"
         assert pywin32.marker.evaluate({"sys_platform": "win32"}) is True
         assert pywin32.marker.evaluate({"sys_platform": "linux"}) is False
         assert pywin32.marker.evaluate({"sys_platform": "darwin"}) is False
