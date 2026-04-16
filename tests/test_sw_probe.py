@@ -65,3 +65,52 @@ class TestProbeEnvironment:
         # summary 至少提到 python 版本号前两位
         short_ver = ".".join(sys.version.split()[0].split(".")[:2])
         assert short_ver in r.summary
+
+
+from adapters.solidworks.sw_probe import probe_pywin32  # noqa: E402
+
+
+class TestProbePywin32:
+    def test_available_path(self):
+        """真装了 pywin32 时（Windows 开发机）走此路径；Linux CI 走下一条。"""
+        try:
+            import win32com.client  # noqa: F401
+
+            has_pywin32 = True
+        except ImportError:
+            has_pywin32 = False
+
+        r = probe_pywin32()
+        assert r.layer == "pywin32"
+        if has_pywin32:
+            assert r.severity == "ok"
+            assert r.ok is True
+            assert r.data["available"] is True
+            assert r.data["module_path"] is not None
+            assert r.hint is None
+        else:
+            assert r.severity == "fail"
+            assert r.ok is False
+            assert r.data["available"] is False
+            assert r.hint is not None
+            assert "solidworks" in r.hint.lower()
+
+    def test_fail_when_import_error(self, monkeypatch):
+        """模拟 pywin32 未装：monkeypatch 让 import win32com.client 抛 ImportError。"""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "win32com.client" or name.startswith("win32com"):
+                raise ImportError("mocked: pywin32 not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        r = probe_pywin32()
+        assert r.severity == "fail"
+        assert r.ok is False
+        assert r.data["available"] is False
+        assert "mocked" in r.error or "pywin32" in r.error
+        assert r.hint is not None

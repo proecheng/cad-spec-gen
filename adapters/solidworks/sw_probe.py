@@ -55,3 +55,30 @@ def probe_environment() -> ProbeResult:
             "pid": os.getpid(),
         },
     )
+
+
+def probe_pywin32() -> ProbeResult:
+    """层 1：import win32com.client。失败提示装 [solidworks] extra。"""
+    try:
+        import win32com.client
+
+        return ProbeResult(
+            layer="pywin32",
+            ok=True,
+            severity="ok",
+            summary="pywin32 已安装",
+            data={
+                "available": True,
+                "module_path": getattr(win32com.client, "__file__", None),
+            },
+        )
+    except Exception as e:  # ImportError 或其他
+        return ProbeResult(
+            layer="pywin32",
+            ok=False,
+            severity="fail",
+            summary="pywin32 未安装或不兼容",
+            data={"available": False, "module_path": None},
+            error=str(e)[:200],
+            hint="运行 `pip install 'cad-spec-gen[solidworks]'`（Windows only）",
+        )
