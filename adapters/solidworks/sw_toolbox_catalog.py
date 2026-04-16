@@ -693,7 +693,8 @@ def build_query_tokens_weighted(
 
     Args:
         query: 含 part_no / name_cn / material 属性的对象（缺失属性回退空字符串）
-        size_dict: 尺寸 dict，如 {"size": "M6", "length": "20"}，None 时跳过
+        size_dict: 尺寸 dict，key 由 size_patterns 配置决定（紧固件 {"size": "M6"}，
+            轴承 {"model": "6205"}），None 时跳过
         weights: 字段权重配置
 
     Returns:
@@ -776,7 +777,8 @@ def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, s
     """从 BOM name_cn 正则抽尺寸（v4 §1.3, 决策 #9）。
 
     返回:
-      - 成功抽到任一字段: dict，如 {"size": "M6", "length": "20"}
+      - 成功抽到任一字段: dict，key 由 patterns 决定（紧固件如 {"size": "M6"}，
+        轴承如 {"model": "6205"}）
       - 检测到范围外螺纹（UNC/Tr/G/NPT）: None
       - 什么都没抽到: None
 
