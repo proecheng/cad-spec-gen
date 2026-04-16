@@ -44,7 +44,7 @@ COM 接口非线程安全（v4 决策 #22）。Part 1 用 `self._lock` 全方法
 
 ## 为什么不引入后台线程做 idle shutdown？
 
-- 后台线程做 shutdown 要 acquire `_lock`，但 `_lock` 在 convert 期间被长期持有（单转最长 30s）。后台线程会长时间 block。
+- 后台线程做 shutdown 要 acquire `_lock`，但 `_lock` 在 convert 期间被长期持有（单转最长 20s，决策 #36）。后台线程会长时间 block。
 - 即使后台线程能抢到锁，shutdown 后 convert 若恢复需要重新 start，增加状态机复杂度。
 - Opportunistic 模型天然避免并发：下次 convert 发现空闲 → shutdown → restart，状态转换线性化。
 - 成本：若 session 空闲超过 `IDLE_SHUTDOWN_SEC` 但永远无下一次 convert，SW 进程不释放。这由 `reset_session()`（`reset_all_sw_caches` 调用链）兜底，可接受。
