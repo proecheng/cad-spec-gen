@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
@@ -35,3 +37,21 @@ class ProbeResult:
     data: dict[str, Any]
     error: Optional[str] = None
     hint: Optional[str] = None
+
+
+def probe_environment() -> ProbeResult:
+    """层 0：OS / Python 版本 / 位数 / PID。无 I/O，无可能失败点。"""
+    pyver = sys.version.split()[0]
+    bits = 64 if sys.maxsize > 2**32 else 32
+    return ProbeResult(
+        layer="environment",
+        ok=True,
+        severity="ok",
+        summary=f"python={pyver} platform={sys.platform} arch={bits}-bit",
+        data={
+            "os": sys.platform,
+            "python_version": pyver,
+            "python_bits": bits,
+            "pid": os.getpid(),
+        },
+    )
