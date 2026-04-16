@@ -8,6 +8,8 @@ import sys
 import pytest
 
 from adapters.solidworks.sw_probe import ProbeResult
+from adapters.solidworks.sw_detect import SwInfo
+from adapters.solidworks.sw_probe import probe_detect
 
 
 class TestProbeResult:
@@ -114,3 +116,81 @@ class TestProbePywin32:
         assert r.data["available"] is False
         assert "mocked" in r.error or "pywin32" in r.error
         assert r.hint is not None
+
+
+class TestProbeDetect:
+    def test_installed_happy_path(self, monkeypatch):
+        """mock detect_solidworks 返回已装 SW 的 SwInfo。
+        probe_detect 返回 tuple (ProbeResult, SwInfo)：让下游 probe_material_files /
+        probe_toolbox_index_cache 复用 info 对象，避免重复 detect。"""
+        fake = SwInfo(
+            installed=True,
+            version="30.1.0.0080",
+            version_year=2024,
+            install_dir=r"D:\SOLIDWORKS Corp\SOLIDWORKS",
+            sldmat_paths=["a.sldmat", "b.sldmat"],
+            textures_dir=r"D:\tex",
+            p2m_dir=r"D:\p2m",
+            toolbox_dir=r"C:\SOLIDWORKS Data\browser",
+            com_available=True,
+            pywin32_available=True,
+            toolbox_addin_enabled=False,
+        )
+        reset_called = []
+
+        def fake_reset():
+            reset_called.append(1)
+
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect._reset_cache", fake_reset
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect.detect_solidworks", lambda: fake
+        )
+
+        r, info = probe_detect()
+        assert r.layer == "detect"
+        assert r.severity == "ok"
+        assert r.ok is True
+        assert r.data["installed"] is True
+        assert r.data["version_year"] == 2024
+        assert r.data["toolbox_dir"] == r"C:\SOLIDWORKS Data\browser"
+        assert r.data["toolbox_addin_enabled"] is False
+        assert len(reset_called) == 1, "必须调 _reset_cache 保证读最新状态"
+        assert info is fake
+        assert info.sldmat_paths == ["a.sldmat", "b.sldmat"]
+
+    def test_not_installed(self, monkeypatch):
+        fake = SwInfo(installed=False)
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect._reset_cache", lambda: None
+        )
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect.detect_solidworks", lambda: fake
+        )
+
+        r, info = probe_detect()
+        assert r.severity == "fail"
+        assert r.ok is False
+        assert r.data["installed"] is False
+        assert r.hint is not None
+        assert info is fake
+
+    def test_detect_raises_returns_empty_info(self, monkeypatch):
+        """detect_solidworks 抛异常时 probe_detect 捕获；info 返回空 SwInfo 占位。"""
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect._reset_cache", lambda: None
+        )
+
+        def boom():
+            raise RuntimeError("simulated registry boom")
+
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_probe.sw_detect.detect_solidworks", boom
+        )
+
+        r, info = probe_detect()
+        assert r.severity == "fail"
+        assert r.error is not None
+        assert isinstance(info, SwInfo)
+        assert info.installed is False

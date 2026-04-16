@@ -15,6 +15,9 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
+from adapters.solidworks import sw_detect
+from adapters.solidworks.sw_detect import SwInfo
+
 
 @dataclass(frozen=True)
 class ProbeResult:
@@ -82,3 +85,64 @@ def probe_pywin32() -> ProbeResult:
             error=str(e)[:200],
             hint="运行 `pip install 'cad-spec-gen[solidworks]'`（Windows only）",
         )
+
+
+def probe_detect() -> tuple[ProbeResult, SwInfo]:
+    """层 2：sw_detect 静态注册表检测。
+
+    返回 (ProbeResult, SwInfo)：info 对象透传给 probe_material_files /
+    probe_toolbox_index_cache，避免重复 detect。
+
+    每次先 `_reset_cache()` 强制重测（SAR-2：保证长驻进程场景下读到最新状态）。
+    """
+    try:
+        sw_detect._reset_cache()
+        info = sw_detect.detect_solidworks()
+    except Exception as e:
+        empty = SwInfo(installed=False)
+        return (
+            ProbeResult(
+                layer="detect",
+                ok=False,
+                severity="fail",
+                summary="detect_solidworks 调用异常",
+                data={"installed": False},
+                error=str(e)[:200],
+            ),
+            empty,
+        )
+
+    data = {
+        "installed": info.installed,
+        "version": info.version,
+        "version_year": info.version_year,
+        "install_dir": info.install_dir,
+        "textures_dir": info.textures_dir,
+        "p2m_dir": info.p2m_dir,
+        "toolbox_dir": info.toolbox_dir,
+        "com_available": info.com_available,
+        "pywin32_available": info.pywin32_available,
+        "toolbox_addin_enabled": info.toolbox_addin_enabled,
+    }
+    if info.installed:
+        return (
+            ProbeResult(
+                layer="detect",
+                ok=True,
+                severity="ok",
+                summary=f"SolidWorks {info.version_year} 已安装于 {info.install_dir}",
+                data=data,
+            ),
+            info,
+        )
+    return (
+        ProbeResult(
+            layer="detect",
+            ok=False,
+            severity="fail",
+            summary="未在注册表检测到 SolidWorks 安装",
+            data=data,
+            hint="检查 HKLM\\SOFTWARE\\SolidWorks\\SOLIDWORKS 202X 注册表项；或重装 SolidWorks",
+        ),
+        info,
+    )
