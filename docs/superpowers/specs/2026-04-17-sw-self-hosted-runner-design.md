@@ -52,6 +52,8 @@
 | D8 | `timeout-minutes: 15`，防 Dispatch 悬挂锁死 runner | §4.3 |
 | D9 | 新增 runbook `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md`，登记决策 #39 | §5 |
 | D10 | Skip-guard：pytest exit code 5（no tests collected）显式当 fail 处理，防 `@requires_solidworks` 逻辑误改后 CI 误绿 | §4.4 |
+| D11 | 数据流双轨：pytest 负责回归断言（失败即炸），独立 CLI step `python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json` 负责数据产出；理由：`run_sw_inspect` 只 `print` 到 stdout 不落盘（`tools/sw_inspect.py:184`），pytest 吃掉了 stdout，artifact 必须独立 redirect 得到 | §4.1 |
+| D12 | 依赖安装不用 `pip install -e .`：对齐 `tests.yml` 风格直接列依赖 `pywin32 pytest pytest-timeout Jinja2 psutil PyYAML`，规避 `hatch_build.py` custom hook 在 editable install 时同步 `src/cad_spec_gen/data/` 的副作用 | §4.1 |
 
 ---
 
@@ -89,6 +91,10 @@ GitHub self-hosted runner registration token 有效期约 1 小时，用于 init
 
 ### 4.1 workflow 文件：`.github/workflows/sw-smoke.yml`
 
+**依赖安装策略**：对齐 `tests.yml` 既有风格——**直接列依赖**，不走 `pip install -e .`。理由：`pyproject.toml` 配了 `tool.hatch.build.targets.wheel.hooks.custom` = `hatch_build.py`，`-e` 会触发 custom hook 同步 `src/cad_spec_gen/data/`，在 CI 上引入不必要的副作用与失败面。sw-inspect 链路导入 `adapters.solidworks.sw_probe`（项目根）+ `tools.sw_inspect`（项目根），pytest 默认把 rootdir 加到 sys.path，无需 `-e` 即可 import。
+
+**数据流双轨**：pytest 只负责**回归断言**（失败即炸）；真 SW JSON 数据靠**独立 CLI 步骤**产出（stdout 重定向到文件），供 F-4a baseline / 未来 dashboard 消费。`tools/sw_inspect.py:run_sw_inspect` 在 `--json` 模式下仅 `print(json.dumps(...))` 到 stdout，不落盘，这也是此处必须独立跑的原因。
+
 ```yaml
 name: sw-smoke
 
@@ -117,10 +123,19 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[solidworks]"
-          pip install pytest pytest-timeout
+          # 对齐 tests.yml 风格：直接列依赖，不走 `pip install -e .`
+          # 规避 hatch_build.py custom hook 的 editable install 副作用。
+          pip install pywin32 pytest pytest-timeout Jinja2 psutil PyYAML
 
-      - name: Run SW real smoke
+      - name: Sync data/ mirrors
+        # 与 tests.yml 一致：exit 0 = 无变更 / exit 1 = 有文件被同步（非错误）/ exit >1 = 真错误。
+        shell: bash
+        run: |
+          rc=0
+          python scripts/dev_sync.py || rc=$?
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+
+      - name: Run SW real smoke (pytest 回归)
         shell: bash
         env:
           PYTHONUTF8: "1"
@@ -133,7 +148,7 @@ jobs:
         shell: bash
         run: |
           # pytest exit 5 = no tests collected；若 @requires_solidworks gate 逻辑被误改
-          # 导致 smoke 全 skip，CI 会绿但无真跑证据。显式断言 junit 报告里 testcase 数 > 0。
+          # 导致 smoke 全 skip，CI 会绿但无真跑证据。显式断言 junit 报告里 testcase 数 ≥ 2。
           test -f sw-smoke-junit.xml
           count=$(grep -c '<testcase' sw-smoke-junit.xml || true)
           echo "skip-guard: <testcase> count = $count"
@@ -142,14 +157,25 @@ jobs:
             exit 1
           fi
 
+      - name: Emit sw-inspect JSON artifact (独立 CLI run)
+        # run_sw_inspect 只 print 到 stdout（tools/sw_inspect.py:184），重定向到文件。
+        # 即便 exit code 非 0（warn/fail），仍要保留 JSON 供诊断消费，故 || true。
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json || true
+          test -s sw-inspect-deep.json  # 非空断言
+          python -c "import json; d = json.load(open('sw-inspect-deep.json')); assert 'layers' in d and 'dispatch' in d['layers']"
+
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sw-smoke-artifacts
           path: |
             sw-smoke-junit.xml
-            **/sw_inspect_*.json
-          if-no-files-found: ignore
+            sw-inspect-deep.json
+          if-no-files-found: error
 ```
 
 ### 4.2 runner 标签
@@ -179,7 +205,7 @@ jobs:
 ### 5.1 Runbook：`docs/superpowers/runbooks/sw-self-hosted-runner-setup.md`
 
 章节：
-1. 前置要求（Windows 11 / SolidWorks 2024+ license / 可联网）
+1. 前置要求（Windows 11 / SolidWorks 2024+ license / 可联网 / **Python 3.12 预装**或允许 `actions/setup-python` 下载）
 2. 创建 `ghrunner` 账户（net user + 组权限收敛清单）
 3. 开机自动登录配置（Autologon 工具 vs 注册表 `DefaultUserName`）
 4. 下载并安装 GitHub Actions Runner（版本锁 + 校验）
@@ -215,7 +241,7 @@ jobs:
 - [ ] self-hosted runner 在 `Settings → Actions → Runners` 页可见，labels 含 `self-hosted`, `Windows`, `solidworks`
 - [ ] 至少一次 `push: main` 触发的 sw-smoke 成功 run（绿），Actions 页可下载 `sw-smoke-artifacts`
 - [ ] artifact 内 `sw-smoke-junit.xml` 可见 `<testcase>` 条数 ≥ 2（fast + deep 均真跑非 skip）
-- [ ] `sw_inspect_*.json`（若 run_sw_inspect 落地产物）可下载并含 `layers.dispatch.data.elapsed_ms`
+- [ ] artifact 内 `sw-inspect-deep.json` 可下载、非空，且 `json.load(...)["layers"]["dispatch"]["data"]["elapsed_ms"]` 字段存在（workflow 内嵌 python assertion 同条件）
 - [ ] `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` commit
 - [ ] 决策 #39 追加到 `docs/superpowers/decisions.md`
 - [ ] 既有 `tests.yml` / `regression` job 零改动（`git diff main -- .github/workflows/tests.yml` 空 diff）
@@ -253,4 +279,4 @@ jobs:
 | F-1.3b | `workflow_dispatch` 加 input `full: bool`，full=true 时追加跑 sw-warmup / Stage C | F-4a baseline 工作开启时 |
 | F-1.3c | 若未来有第二台 SW 机器，加 `runner-group` 做负载均衡 | 出现 license / 可用性冲突时 |
 | F-1.3d | 把 `actionlint` 加到 pre-commit + CI（独立于本 F-1.3，但本设计验收依赖 actionlint 通过）| 本 F-1.3 收尾时一并做或另立 |
-| F-1.3e | "runner 低在线率"降级路径：runbook + 本地 `pwsh scripts/run_sw_smoke.ps1` 产物贴 PR 描述，不开 self-hosted runner | 若实际开机率 < 30% 且不想维护 runner |
+| F-1.3e | "runner 低在线率"降级路径：保留 runbook + **届时新建** `scripts/run_sw_smoke.ps1`（本 F-1.3 不产出），本地一键跑 + 手工贴 PR，不开 self-hosted runner | 若实际开机率 < 30% 且不想维护 runner |
