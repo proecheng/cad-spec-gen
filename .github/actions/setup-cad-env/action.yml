@@ -1,16 +1,23 @@
 name: Setup CAD env
 description: |
   sw-smoke / 未来 CAD-related CI 共享的前置：
-  setup-python 3.12 + pip install 运行期依赖 + dev_sync.py 同步 data/ mirrors。
+  用系统 Python 3.12 + pip install 运行期依赖 + dev_sync.py 同步 data/ mirrors。
 
   消费者：sw-smoke（首个）；F-1.3b 扩展时复用；未来 tests.yml 迁移（F-1.3g）。
+
+  **Self-hosted runner 场景要求**（runbook §1 前置）：机器系统 PATH 含
+  Python 3.12.x（`D:\Python312\` 或等价）。不用 `actions/setup-python@v6`
+  因其在 self-hosted Windows 上 setup.ps1 找不到 downloaded installer exe
+  （F-1.3 首跑踩坑）；也省一次 Python 下载/安装的 CI 时间。
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v6
-      with:
-        python-version: "3.12"
+    - name: Verify system Python 3.12
+      shell: bash
+      run: |
+        python --version
+        python -c "import sys; assert sys.version_info[:2] == (3, 12), f'expected Python 3.12.x, got {sys.version}'; print(f'OK: Python {sys.version.split()[0]} from {sys.executable}')"
 
     - name: Install runtime deps
       shell: bash
