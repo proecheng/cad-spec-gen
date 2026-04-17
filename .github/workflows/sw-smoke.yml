@@ -31,7 +31,10 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          pytest tests/test_sw_inspect_real.py -v --tb=short \
+          # 用 `python -m pytest` 而非 `pytest`：前者让 sys.path[0] = cwd（项目根），
+          # 后者 sys.path[0] = pytest.exe 所在 Scripts 目录，`from tools.xxx` import 会失败。
+          # F-1.3 首跑踩坑（见 run 24554711697）。
+          python -m pytest tests/test_sw_inspect_real.py -v --tb=short \
                  -m requires_solidworks \
                  --junitxml=sw-smoke-junit.xml
 
