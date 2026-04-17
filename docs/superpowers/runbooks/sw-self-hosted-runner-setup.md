@@ -147,11 +147,16 @@ cd D:\actions-runner
    - `sw-inspect-deep.json`：记录 `layers.dispatch.data.elapsed_ms` 作为 K1 第一个数据点
 4. CI 页 Job Summary 区块应直接显示 sw-inspect text 输出（D16 / §4.7）
 
-**baseline 记录**（填入本 runbook 本节）：
+**baseline 记录**（F-1.3 首跑 run 24554801242）：
 
-- 首跑日期：`____`
-- `skip-guard: total=X skipped=Y real=Z`：`____`
-- `sw-inspect-deep.json.layers.dispatch.data.elapsed_ms`：`____` ms
+- 首跑日期：**2026-04-17**
+- junit：`total=2 skipped=0 real=2`（`test_fast_real_smoke` + `test_deep_real_smoke` 双 PASS）
+- `sw-inspect-deep.json.overall.elapsed_ms`：**8349 ms**（端到端）
+- `sw-inspect-deep.json.layers.dispatch.data.elapsed_ms`：**5492 ms**（SW COM Dispatch 冷启——K1 第一个数据点）
+- `sw-inspect-deep.json.layers.toolbox_index.data.entry_count`：**1844**（19 standards）
+- `sw-inspect-deep.json.layers.materials.data.sldmat_files`：**6**
+- CI 总耗时：57s（pytest ~6s + sw-inspect emit ~8s + setup/artifact ~43s）
+- runner 配置：procheng session（F.1 手工启动），F.2 完整生产链路验证（重启 + Autologon + Task Scheduler）待后续
 
 ## 8. 故障排查
 
