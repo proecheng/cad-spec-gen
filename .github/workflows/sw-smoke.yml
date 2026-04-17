@@ -1,0 +1,76 @@
+name: sw-smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sw-smoke
+  cancel-in-progress: false  # D7：保留队首，避免 cancel 吃 artifact
+
+jobs:
+  sw-smoke:
+    # D15：commit message 含 [skip smoke] 或 [skip sw-smoke] 时跳过（避让开发者当前在用 SW）
+    if: >-
+      !contains(github.event.head_commit.message, '[skip smoke]') &&
+      !contains(github.event.head_commit.message, '[skip sw-smoke]')
+    runs-on: [self-hosted, windows, solidworks]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: true  # 显式（D4 long-lived runner 的清场保证）
+
+      - name: Setup CAD env (composite)
+        uses: ./.github/actions/setup-cad-env
+
+      - name: Run SW real smoke (pytest 回归)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          pytest tests/test_sw_inspect_real.py -v --tb=short \
+                 -m requires_solidworks \
+                 --junitxml=sw-smoke-junit.xml
+
+      - name: Skip-guard (ET-based, D10)
+        shell: bash
+        run: |
+          python -c "
+          from xml.etree import ElementTree as ET
+          root = ET.parse('sw-smoke-junit.xml').getroot()
+          all_tcs = list(root.iter('testcase'))
+          skipped = [tc for tc in all_tcs if tc.find('skipped') is not None]
+          real = len(all_tcs) - len(skipped)
+          print(f'skip-guard: total={len(all_tcs)} skipped={len(skipped)} real={real}')
+          assert real >= 1, 'expected >= 1 real testcase, got 0 — @requires_solidworks 可能被全量 skip'
+          "
+
+      - name: Emit sw-inspect JSON artifact (独立 CLI run, D11)
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json || true
+          python tools/assert_sw_inspect_schema.py sw-inspect-deep.json
+
+      - name: Write human-readable step summary (D16)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          echo '## sw-inspect (deep) 输出' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python cad_pipeline.py sw-inspect --deep >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sw-smoke-artifacts
+          path: |
+            sw-smoke-junit.xml
+            sw-inspect-deep.json
+          if-no-files-found: error
