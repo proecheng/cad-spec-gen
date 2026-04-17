@@ -1,0 +1,29 @@
+name: Setup CAD env
+description: |
+  sw-smoke / 未来 CAD-related CI 共享的前置：
+  setup-python 3.12 + pip install 运行期依赖 + dev_sync.py 同步 data/ mirrors。
+
+  消费者：sw-smoke（首个）；F-1.3b 扩展时复用；未来 tests.yml 迁移（F-1.3g）。
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: Install runtime deps
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        # 对齐 tests.yml 的 unpinned 约定（spec §8 已知债务）；
+        # 不走 `pip install -e .` 规避 hatch_build.py custom hook 副作用（spec §4.1 / D12）
+        pip install pywin32 pytest pytest-timeout Jinja2 psutil PyYAML
+
+    - name: Sync data/ mirrors
+      # 与 tests.yml 一致：dev_sync.py exit 0 无变更 / 1 有同步（非错误）/ >1 真错误
+      shell: bash
+      run: |
+        rc=0
+        python scripts/dev_sync.py || rc=$?
+        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
