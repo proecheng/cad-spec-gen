@@ -467,6 +467,7 @@ def test_deep_real_smoke(self):
 | F-1.3f | deep smoke `elapsed_ms` 门槛调整（30s → 60s 或 p95-based 动态）| K3 flaky 率 > 5% 或连续 3 次 p95 > 20s |
 | F-1.3g | tests.yml 也迁移到 `.github/actions/setup-cad-env` composite action | 有第三个 workflow 需要相同前置时 |
 | F-1.3h | `test_deep_real_smoke` 追加 `toolbox_index.by_standard` 断言（T2 实施时发现被 conftest autouse `isolate_cad_spec_gen_home` 阻挡，需 pre-seed fake_home 或 fixture override）| `sw-smoke` 稳定运行后，想补齐 §4.8 的完整 3D-1 覆盖时 |
+| F-1.3i | step summary 从第三次 live SW Dispatch 改为消费已有 `sw-inspect-deep.json`（T4 review 指出：当前每 job 3 次 SW attach × ~12s = 36s + 3 次 COM 冷启，license 压力下放大 flakiness）。实现方向：`sw-inspect` 加 `--from-json PATH --format=text` 或新增 `tools/sw_inspect_format.py` | 有 SW license per-user 冲突报告时，或 K3 flaky > 5% 时 |
 
 ---
 

@@ -12,6 +12,7 @@ concurrency:
 jobs:
   sw-smoke:
     # D15：commit message 含 [skip smoke] 或 [skip sw-smoke] 时跳过（避让开发者当前在用 SW）
+    # 注：workflow_dispatch 时 head_commit 为 null，contains() 返回 false，手动触发不受 skip 影响（预期）
     if: >-
       !contains(github.event.head_commit.message, '[skip smoke]') &&
       !contains(github.event.head_commit.message, '[skip sw-smoke]')
