@@ -44,25 +44,32 @@ net localgroup Administrators
 ## 4. 下载并安装 GitHub Actions Runner
 
 1. GitHub → repo Settings → Actions → Runners → New self-hosted runner → Windows x64
-2. 按页面给出的 PowerShell 命令下载 + 解压到 `D:\actions-runner`（独立盘，隔离日常 dev 盘）
-3. 校验 SHA256（页面同时给出）
+2. **先以管理员身份预建 `D:\actions-runner` 并授权 ghrunner**（否则标准用户 ghrunner 后续 extract 会 Access Denied）：
+   ```powershell
+   New-Item -ItemType Directory -Force D:\actions-runner
+   icacls D:\actions-runner /grant "ghrunner:(OI)(CI)M"
+   ```
+3. 按页面给出的 PowerShell 命令下载 + 解压到 `D:\actions-runner`
+4. 校验 SHA256：
+   ```powershell
+   Get-FileHash -Algorithm SHA256 actions-runner-win-x64-*.zip
+   # 对比 GitHub 页面给出的 expected SHA256
+   ```
 
 ## 5. 注册 runner（long-lived，D4）
 
-以 `ghrunner` 账户登录，在 `D:\actions-runner` 跑：
+以 `ghrunner` 账户登录（**非管理员** PowerShell），在 `D:\actions-runner` 跑一行命令（PowerShell 续行符 `` ` `` 后不能有空格，建议直接一行）：
 
 ```powershell
 cd D:\actions-runner
-.\config.cmd --url https://github.com/proecheng/cad-spec-gen `
-             --token <one-time-registration-token> `
-             --labels solidworks `
-             --replace
+.\config.cmd --url https://github.com/proecheng/cad-spec-gen --token <one-time-registration-token> --labels solidworks --replace
 ```
 
 注意：
 - **不**加 `--ephemeral`（D4：ephemeral 需要长期 PAT 自动重注册，破坏账户隔离）
 - token 从"New self-hosted runner"页面复制，1 小时有效
 - `--labels solidworks` 必填；另两个 label `self-hosted` / `Windows` GitHub 自动附加
+- `--replace`：首次注册可省；重注册（§9 轮换）必加；**多 runner 场景禁用**（会清掉同名 runner）
 
 ### SW 用户数据隔离
 
@@ -95,7 +102,7 @@ cd D:\actions-runner
 1. GitHub repo → Actions → sw-smoke → Run workflow（workflow_dispatch）
 2. 观察 Actions 页：runner 应 pickup job 并跑完
 3. 下载 `sw-smoke-artifacts`：
-   - `sw-smoke-junit.xml`：ET 解析应得 `total >= 2, skipped == 0, real >= 2`（首跑 baseline）
+   - `sw-smoke-junit.xml`：workflow skip-guard 硬门槛 `real >= 1`；当前 testcase 总数为 2（`test_fast_real_smoke` + `test_deep_real_smoke`），首跑 baseline 期望 `skipped == 0, real == 2`
    - `sw-inspect-deep.json`：记录 `layers.dispatch.data.elapsed_ms` 作为 K1 第一个数据点
 4. CI 页 Job Summary 区块应直接显示 sw-inspect text 输出（D16 / §4.7）
 
@@ -110,7 +117,10 @@ cd D:\actions-runner
 ### 8.1 Runner offline
 
 - Actions → Runners 页显示红点 → ghrunner session 未登录或 `run.cmd` 崩溃
-- 以 ghrunner 登录，检查 `D:\actions-runner\_diag\` 最新日志
+- **先查 ghrunner 是否真的自动登录了**（Autologon 会被 Windows Update / LSA 重置 / 密码变更静默失效）：
+  - 物理/远程到机器看屏幕；若停在登录画面 → Autologon 失效
+  - 重跑 `Autologon.exe` 输密码 + Enable → 重启验证自动登录
+- 若已登录但 runner 仍 offline：以 ghrunner 登录，检查 `D:\actions-runner\_diag\` 最新日志
 
 ### 8.2 SW Dispatch 失败
 
@@ -125,9 +135,17 @@ cd D:\actions-runner
 
 ### 8.4 积压 queued job 清理
 
+`gh run cancel` **不支持** `--all` flag（常见误记）。用显式 id 循环：
+
+```powershell
+# PowerShell（runner 主机原生）
+gh run list --workflow=sw-smoke --status=queued --json databaseId --jq '.[].databaseId' | ForEach-Object { gh run cancel $_ }
+```
+
+或 bash：
+
 ```bash
-gh run list --workflow=sw-smoke --status=queued
-gh run cancel --all  # 或逐个 cancel
+gh run list --workflow=sw-smoke --status=queued --json databaseId --jq '.[].databaseId' | xargs -I{} gh run cancel {}
 ```
 
 ### 8.5 Network license / 浮动许可首次 smoke license swap
@@ -140,20 +158,41 @@ gh run cancel --all  # 或逐个 cancel
 
 目的：控制 runner credential 泄漏窗口（虽 GitHub 无强制过期，手动轮换是最佳实践）。
 
-1. Settings → Actions → Runners → 找到本 runner → Remove
-2. 以 ghrunner 登录，`D:\actions-runner` 跑 `.\config.cmd remove`
-3. 按第 5 节重新注册（获取新 registration token）
+**正确顺序**（避免 local `.credentials` 与 GitHub 端状态失步）：
+
+1. **准备**：Settings → Actions → Runners → 选中本 runner → `...` → Remove → 页面会给出一次性 **removal token**（1h 有效）+ 对应的 `config.cmd remove --token` 命令。**暂不点** "I've removed it"
+2. 以 ghrunner 登录，`D:\actions-runner`：
+   ```powershell
+   cd D:\actions-runner
+   .\config.cmd remove --token <removal-token>
+   # 预期 "Runner removed successfully"
+   ```
+3. 返回 GitHub UI 点 "I've removed it"（若条目已自动消失则跳过）
+4. 在 repo Settings → Actions → Runners → New self-hosted runner 获取**新** registration token
+5. 按 §5 重新注册（不需要重跑 Autologon / Task Scheduler / 目录权限准备）
+
+**中途失败的回退**（例如 removal token 1h 已过期或 config.cmd 找不到）：
+
+```powershell
+# 强制本地清除 .credentials，让 runner 彻底脱绑
+.\config.cmd remove --local
+```
+
+然后 GitHub UI 手工点 Remove，再从步骤 4 开始。
 
 日历提醒：每 90 天跑一次。
 
 ## 10. 卸载
 
-```powershell
-cd D:\actions-runner
-.\config.cmd remove --token <one-time-removal-token>
-```
+**顺序重要**（若先删 ghrunner 账户，Autologon 会引用不存在的用户导致下次开机登录回环）：
 
-之后：
-- Task Scheduler 删除"GitHub Actions Runner (sw-smoke)"
-- 如不再需要 ghrunner 账户：`net user ghrunner /delete`
-- Autologon 工具 → Disable
+1. **先** Autologon.exe → Disable（清 LSA credential，防循环）
+2. 获取一次性 removal token：Settings → Actions → Runners → 选中 runner → `...` → Remove（页面给出 token 和命令）
+3. 以 ghrunner 登录执行：
+   ```powershell
+   cd D:\actions-runner
+   .\config.cmd remove --token <removal-token>
+   ```
+4. Task Scheduler 删除 "GitHub Actions Runner (sw-smoke)"
+5. 如不再需要 ghrunner 账户：`net user ghrunner /delete`
+6. 重启验证：主账户能正常登录，无登录回环
