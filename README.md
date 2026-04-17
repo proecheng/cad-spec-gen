@@ -549,6 +549,13 @@ Create a JSON config file (see `config/gisbot.json` for a full 19-subsystem exam
     └── cad_pipeline_agent_guide.md # Cross-LLM agent integration guide
 ```
 
+## CI
+
+GitHub Actions workflows（见 `.github/workflows/`）：
+
+- `tests.yml`：常规单元/集成测试，PR 与 push 触发（ubuntu + windows matrix，不含真 SolidWorks）
+- `sw-smoke`：真 SolidWorks 环境回归（self-hosted runner，仅 `main` push + 手动触发；commit 含 `[skip smoke]` 跳过）
+
 ## License
 
 MIT
