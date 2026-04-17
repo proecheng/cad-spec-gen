@@ -77,3 +77,51 @@ Stage C（STEP 转换）仍为 `pre=None post=None`，根因为 SolidWorks COM S
 - **已发现的问题（实施过程）**：probe_dispatch 在 ThreadPoolExecutor worker 线程缺 CoInitialize，
   真 SW smoke 暴露后追加 `_dispatch_and_probe_worker` 内嵌 `pythoncom.CoInitialize/Uninitialize`
   包装整个 COM 生命周期到同一 STA 线程（commit 91caf82）
+
+---
+
+## #39 sw-smoke workflow：long-lived self-hosted runner + 不在 PR 跑（2026-04-17）
+
+**决策：** F-1.3 实现 `sw-smoke` workflow 运行在 self-hosted Windows runner
+（labels: `self-hosted, windows, solidworks`），触发条件为 `push: main` +
+`workflow_dispatch`，**不**监听 `pull_request`。
+
+**关键取舍：**
+- **C1 路径 vs 全量 PR 触发**：public repo 下 fork PR 会在 runner 机器上
+  执行任意代码（GitHub 官方警告），不值得承担风险；main 合并 + 手动触发
+  覆盖 F-1.3 目标
+- **Long-lived runner vs ephemeral**（D4，v3 审查修正）：ephemeral 自动
+  重注册需要持续有效的 PAT，PAT 存在受限 `ghrunner` 账户即等于给它日常
+  GitHub 操作权，抵消了 ephemeral 的安全收益。改 long-lived + `git clean`
+  + 90 天手动轮换 credential
+- **非 Service 模式**：SW COM 需要交互式 GUI 会话；runner 装成 Service
+  会触发 SW Dispatch 静默挂起。用 Task Scheduler `at-logon` + Autologon
+  代替（见 runbook）
+- **`cancel-in-progress: false`**（D7，v3 审查修正）：true 会在新 push 到
+  来时硬杀正跑 job 吃掉 artifact；false 下离线积压靠 `gh run cancel` id
+  循环清理
+
+**决策生效前提：**
+- 开发者拥有一台常可开机的 Windows + SolidWorks 2024+ 机器
+- 在 12 个月内至少捕获 1 次真 SW 回归（K2）；若 K2 = 0 则评估降级到
+  F-1.3e（本地跑 + runbook）
+
+**Follow-up：**
+- F-1.3a：artifact → dashboard（K1 达成时）
+- F-1.3b：full=true input 追加 sw-warmup / Stage C
+- F-1.3c：第二台 SW 机器 runner-group 负载均衡（license/可用性连续 14 天冲突时）
+- F-1.3d：actionlint 加 pre-commit
+- F-1.3e：runner 低在线率降级路径（K2 = 0 或月在线率 < 30%）
+- F-1.3f：elapsed_ms 门槛调整（K3 flaky > 5%）
+- F-1.3g：tests.yml 迁移到 setup-cad-env composite action
+- F-1.3h：pre-seed fake_home 或 fixture override 恢复 toolbox_index 断言（T2 发现）
+- F-1.3i：step summary 从第三次 live SW Dispatch 改为消费已有 JSON（T4 review 发现）
+
+**Spec**：`docs/superpowers/specs/2026-04-17-sw-self-hosted-runner-design.md` (v3)
+**Plan**：`docs/superpowers/plans/2026-04-17-sw-self-hosted-runner.md`
+
+**修订历史：**
+- v1 初稿（ephemeral + cancel-in-progress: true）
+- v2 二审（artifact 数据流 + 依赖安装）
+- v3 多角色审查（D4 → long-lived / D7 → cancel-in-progress: false；
+  + D13/D14/D15/D16 新决策）
