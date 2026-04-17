@@ -13,7 +13,12 @@
 - Python 3.12 预装（或允许 workflow 里 `actions/setup-python@v6` 在线下载）
 - **Git for Windows 已安装**（提供 Git Bash 给 workflow 里 `shell: bash` 的
   step 使用；T3 code review 指出这是 self-hosted 场景下与 GitHub-hosted
-  `windows-latest` 镜像的关键差异点）
+  `windows-latest` 镜像的关键差异点）。验证：
+  ```powershell
+  where.exe bash
+  # 预期输出 C:\Program Files\Git\bin\bash.exe（或等价路径）
+  # 若仅返回 scoop/chocolatey 的 git.exe 路径不含 bash.exe，需重装完整 Git for Windows
+  ```
 
 ## 2. 创建 `ghrunner` 账户
 
@@ -27,8 +32,44 @@ net localgroup Administrators
 ```
 
 收敛权限：
-- 禁用 RDP 对 ghrunner 的访问（gpedit / 组策略 `Deny log on through Remote Desktop Services`）
-- 文件系统：开发者个人文件夹（如 `C:\Users\proecheng`）对 `ghrunner` 拒绝读写（右键属性 → 安全 → 编辑）
+
+**1. 禁用 RDP 访问**（防止外网 brute-force 拿 ghrunner 的 shell）
+
+Windows 11 Pro / Enterprise — `gpedit.msc` 路径：
+
+```
+Win+R → gpedit.msc → 回车
+→ Computer Configuration
+  → Windows Settings
+    → Security Settings
+      → Local Policies
+        → User Rights Assignment
+          → Deny log on through Remote Desktop Services
+            → Properties → Add User or Group... → ghrunner → OK
+```
+
+Windows 11 Home（无 `gpedit.msc`）替代方案：
+
+```powershell
+# 以管理员身份在 PowerShell 跑。Home 版需手动 edit secedit 策略：
+secedit /export /cfg $env:TEMP\secpol.cfg
+# 打开 $env:TEMP\secpol.cfg，找到 SeDenyRemoteInteractiveLogonRight 这行
+# 追加 ghrunner 的 SID（用 `whoami /user` 先查 ghrunner SID，或用账户名）
+secedit /configure /db $env:WINDIR\security\local.sdb /cfg $env:TEMP\secpol.cfg /areas USER_RIGHTS
+```
+
+若 Home 版 secedit 也不顺利 — 至少确保 ghrunner 账户**无 admin 权限 + 密码强**，此时即使 RDP 可达，攻击者拿到的也是受限 shell（降级但可接受）。
+
+**2. 文件系统隔离**（防 ghrunner 读到开发者个人文件）
+
+```powershell
+# 拒绝 ghrunner 对开发者主目录的读写：
+icacls C:\Users\proecheng /deny "ghrunner:(OI)(CI)(R,W,D)"
+# 验证：
+icacls C:\Users\proecheng | findstr ghrunner
+```
+
+或图形界面：资源管理器右键 `C:\Users\proecheng` → Properties → Security → Edit → Add ghrunner → 勾选 Deny column 的 Read / Write / Modify。
 
 ## 3. 开机自动登录配置
 
