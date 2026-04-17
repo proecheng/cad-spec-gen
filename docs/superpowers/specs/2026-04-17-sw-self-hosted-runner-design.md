@@ -466,6 +466,7 @@ def test_deep_real_smoke(self):
 | F-1.3e | "runner 低在线率"降级路径：保留 runbook + **届时新建** `scripts/run_sw_smoke.ps1`，本地一键跑 + 手工贴 PR，不开 self-hosted runner | K2 = 0（12 个月零价值）或 runner 月在线率 < 30% |
 | F-1.3f | deep smoke `elapsed_ms` 门槛调整（30s → 60s 或 p95-based 动态）| K3 flaky 率 > 5% 或连续 3 次 p95 > 20s |
 | F-1.3g | tests.yml 也迁移到 `.github/actions/setup-cad-env` composite action | 有第三个 workflow 需要相同前置时 |
+| F-1.3h | `test_deep_real_smoke` 追加 `toolbox_index.by_standard` 断言（T2 实施时发现被 conftest autouse `isolate_cad_spec_gen_home` 阻挡，需 pre-seed fake_home 或 fixture override）| `sw-smoke` 稳定运行后，想补齐 §4.8 的完整 3D-1 覆盖时 |
 
 ---
 
