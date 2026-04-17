@@ -271,59 +271,34 @@ runs:
 
 把 workflow 里内联的 `assert 'layers' in d and 'dispatch' in d['layers']` 抽到独立脚本。sw-inspect schema（决策 #38 定义）升级时改一处即可。
 
+**⚠️ 修订历史（v3 → v3.1 schema 对齐）**：本节第一版（v3 spec）根据 spec 作者的假想写了 schema 常量，实施阶段 F-1.3 final review 对比 `tools/sw_inspect.py:165-181` 的 `payload` 真实形状发现两处偏差，已在 F-1.3 T1 post-fix 对齐：
+- `elapsed_ms` 实际在 `overall.elapsed_ms`（不是 top-level），top-level 只保留 `version/generated_at/mode/overall/layers` 五项
+- layer 子 dict 字段是 `ok/severity/summary/data`（+ 可选 error/hint），**无** `"layer"` 字段（layer 名由 dict key 表达）
+
+对齐后的真实常量（以 `tools/assert_sw_inspect_schema.py` 为准）：
+
 ```python
-# tools/assert_sw_inspect_schema.py
-"""断言 sw-inspect --json 输出符合 v1 schema（决策 #38）。
-
-workflow / CI / 任何机读消费方统一调用此脚本而非自己写断言。
-schema 升级到 v2 时只改本文件。
-"""
-from __future__ import annotations
-
-import json
-import sys
-from pathlib import Path
-
-
-REQUIRED_TOP_KEYS = ("version", "mode", "layers", "overall", "elapsed_ms")
-REQUIRED_LAYERS_DEEP = (
+REQUIRED_TOP_KEYS = ("version", "generated_at", "mode", "overall", "layers")
+REQUIRED_OVERALL_FIELDS = ("severity", "exit_code", "elapsed_ms")
+REQUIRED_LAYERS_FAST = (
     "environment", "pywin32", "detect", "clsid",
     "toolbox_index", "materials", "warmup",
-    "dispatch", "loadaddin",
 )
-REQUIRED_LAYER_FIELDS = ("layer", "ok", "severity", "summary", "data")
-
-
-def assert_schema_v1(path: Path) -> None:
-    doc = json.loads(path.read_text(encoding="utf-8"))
-
-    for k in REQUIRED_TOP_KEYS:
-        assert k in doc, f"缺顶层字段 {k!r}"
-
-    # deep 模式时校验全 9 层；fast 模式跳过 dispatch/loadaddin
-    mode = doc["mode"]
-    layers = doc["layers"]
-    required = REQUIRED_LAYERS_DEEP if mode == "deep" else REQUIRED_LAYERS_DEEP[:-2]
-    for layer_name in required:
-        assert layer_name in layers, f"mode={mode} 缺 layer {layer_name!r}"
-        for field in REQUIRED_LAYER_FIELDS:
-            assert field in layers[layer_name], f"layer {layer_name} 缺 {field!r}"
-
-    # deep 模式：dispatch 层必须有 elapsed_ms（F-4a baseline 消费字段）
-    if mode == "deep":
-        assert "elapsed_ms" in layers["dispatch"]["data"], \
-            "deep 模式 dispatch.data 缺 elapsed_ms（F-4a baseline 消费字段）"
-
-
-if __name__ == "__main__":
-    assert_schema_v1(Path(sys.argv[1]))
-    print(f"schema v1 OK: {sys.argv[1]}")
+REQUIRED_LAYERS_DEEP = REQUIRED_LAYERS_FAST + ("dispatch", "loadaddin")
+REQUIRED_LAYER_FIELDS = ("ok", "severity", "summary", "data")
 ```
 
-同时新建 `tests/test_assert_sw_inspect_schema.py` 覆盖：
+assert 流程：top keys → overall 子字段（severity/exit_code/elapsed_ms）→ layers 列表（按 mode 决定 7 或 9 层）→ 每层 required 字段 → deep 模式 `dispatch.data.elapsed_ms`（F-4a baseline 主消费字段）。
+
+CLI 入口：`main(argv)` 读 `argv[1]` 路径，usage 错返 64，schema OK 打印 `schema v1 OK: <path>` 返 0。
+
+新建 `tests/test_assert_sw_inspect_schema.py` 覆盖 13 个场景：
 - 合法 fast / deep 样本通过
-- 缺顶层字段 → AssertionError
+- 缺各顶层 key（5 parametrize）→ AssertionError
+- overall 缺 severity / exit_code / elapsed_ms（3 parametrize）→ AssertionError
+- deep 模式缺 layer → AssertionError
 - deep 模式缺 `dispatch.data.elapsed_ms` → AssertionError
+- fast 模式允许缺 dispatch / loadaddin
 
 ### 4.7 Step summary（D16 新增）
 
@@ -476,3 +451,4 @@ def test_deep_real_smoke(self):
 - **v1（2026-04-17）**：初稿。定义 C1 路径、ephemeral runner、`cancel-in-progress: true`、inline JSON schema 断言。commit `9dfdf52`
 - **v2（2026-04-17）**：二审修正。artifact path 数据流（run_sw_inspect 只 print 到 stdout → 独立 CLI step）、依赖安装对齐 tests.yml（规避 hatch custom hook）、新增 D11/D12。commit `1881396`
 - **v3（2026-04-17，本版）**：多角色审查修正。D4 重写（ephemeral → long-lived）、D7 修正（cancel-in-progress → false）、新增 D13/D14/D15/D16，§1.2 KPI、§1.3 env-check 范围、§4.5/4.6/4.7/4.8 新组件、§7 资源竞争风险、§8 unpinned 债务、§9 新 follow-up F-1.3f/g
+- **v3.1（2026-04-17）**：执行期 schema 对齐。F-1.3 T1 实施 + final review 发现 §4.6 原常量凭想当然编造（`elapsed_ms` 实际在 `overall` 下非 top；layer 子 dict 无 `"layer"` 字段）。对齐 `tools/sw_inspect.py:165-181` 真实 payload，新增 `REQUIRED_OVERALL_FIELDS`，§4.6 代码块重写为真实形状。同时 §9 执行期新增 F-1.3h（T2 toolbox fixture 阻挡）与 F-1.3i（T4 review step summary 重复 SW Dispatch）。
