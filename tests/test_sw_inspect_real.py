@@ -44,3 +44,10 @@ class TestSwInspectRealSmoke:
         assert disp["data"]["elapsed_ms"] < 30_000, (
             f"Dispatch 耗时 {disp['data']['elapsed_ms']}ms 超 30s"
         )
+
+        # F-1.3 §4.8：追加 materials 层断言（3D-1 修正；toolbox_index 断言
+        # 因 conftest autouse HOME redirect 推迟到 F-1.3h follow-up）
+        mat = doc["layers"]["materials"]
+        assert mat["data"]["sldmat_files"] > 0, (
+            f"materials.sldmat_files = 0，SW 材质库可能失效；data={mat['data']}"
+        )
