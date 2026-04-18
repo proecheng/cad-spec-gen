@@ -145,3 +145,63 @@ class TestTimeoutPathPerStep:
             "visible_ms": 0,
             "exitapp_ms": 0,
         }
+
+
+class TestWorkerStepException:
+    """worker 内部单步抛异常的哨兵测试（-1 = RAISED）。"""
+
+    def test_revision_step_raises(self, monkeypatch):
+        """RevisionNumber 抛 → revision_ms = -1，但 dispatch_ms 正常，visible/exitapp 仍运行。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        # mock Dispatch 返回的 _app：RevisionNumber 抛，其他正常
+        fake_app = mock.Mock()
+        # 关键：RevisionNumber 用 PropertyMock side_effect 抛异常
+        type(fake_app).RevisionNumber = mock.PropertyMock(
+            side_effect=Exception("rev fail")
+        )
+        fake_app.Visible = False  # 赋值 OK
+        fake_app.ExitApp = mock.Mock(return_value=None)
+
+        monkeypatch.setattr("win32com.client.Dispatch", mock.Mock(return_value=fake_app))
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+        assert r.data["per_step_ms"]["revision_ms"] == -1
+        assert r.data["per_step_ms"]["dispatch_ms"] >= 1  # 最小值截断
+
+
+class TestPerStepMinTruncation:
+    """E2: per_step_ms <1ms 截断为 1 避免与哨兵 0 混淆。"""
+
+    def test_fast_step_truncated_to_one(self, monkeypatch):
+        """成功跑过的步即使耗时 <1ms 也应记为 1，不能记为 0（哨兵 UNREACHED 占用）。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        # mock worker：每步真实耗时 0.1ms，原始 int 会舍为 0；截断后应为 1
+        fake_per_step = {
+            "dispatch_ms": 1,  # 真实 0.1ms * 1000 = 0.1 → int=0 → 截断 1
+            "revision_ms": 1,
+            "visible_ms": 1,
+            "exitapp_ms": 1,
+        }
+
+        def fake_worker(progid):
+            return ("2024", True, True, fake_per_step)
+
+        monkeypatch.setattr(sw_probe, "_dispatch_and_probe_worker", fake_worker)
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+        for step in ("dispatch_ms", "revision_ms", "visible_ms", "exitapp_ms"):
+            assert r.data["per_step_ms"][step] >= 1, (
+                f"{step} = 0 与哨兵 UNREACHED 冲突"
+            )

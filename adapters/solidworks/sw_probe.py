@@ -545,7 +545,9 @@ def _dispatch_and_probe_worker(
         # step 1: Dispatch
         t_dispatch_start = _time.perf_counter()
         _app = _wc_inner.Dispatch(progid)
-        per_step["dispatch_ms"] = int((_time.perf_counter() - t_dispatch_start) * 1000)
+        per_step["dispatch_ms"] = max(
+            int((_time.perf_counter() - t_dispatch_start) * 1000), 1
+        )
 
         _rev = ""
         _visible_ok = False
@@ -555,7 +557,9 @@ def _dispatch_and_probe_worker(
         t_rev_start = _time.perf_counter()
         try:
             _rev = str(getattr(_app, "RevisionNumber", ""))
-            per_step["revision_ms"] = int((_time.perf_counter() - t_rev_start) * 1000)
+            per_step["revision_ms"] = max(
+                int((_time.perf_counter() - t_rev_start) * 1000), 1
+            )
         except Exception:
             per_step["revision_ms"] = PER_STEP_SENTINEL_RAISED
 
@@ -564,7 +568,9 @@ def _dispatch_and_probe_worker(
         try:
             _app.Visible = False
             _visible_ok = True
-            per_step["visible_ms"] = int((_time.perf_counter() - t_vis_start) * 1000)
+            per_step["visible_ms"] = max(
+                int((_time.perf_counter() - t_vis_start) * 1000), 1
+            )
         except Exception:
             per_step["visible_ms"] = PER_STEP_SENTINEL_RAISED
 
@@ -573,7 +579,9 @@ def _dispatch_and_probe_worker(
         try:
             _app.ExitApp()
             _exit_ok = True
-            per_step["exitapp_ms"] = int((_time.perf_counter() - t_exit_start) * 1000)
+            per_step["exitapp_ms"] = max(
+                int((_time.perf_counter() - t_exit_start) * 1000), 1
+            )
         except Exception:
             per_step["exitapp_ms"] = PER_STEP_SENTINEL_RAISED
 
