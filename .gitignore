@@ -32,3 +32,6 @@ src/cad_spec_gen/data/parts_library.default.yaml
 
 # graphify 工具产物（本机保留，不入 git）
 graphify-out/
+
+# superpowers worktree 隔离目录
+.worktrees/

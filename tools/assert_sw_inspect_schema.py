@@ -55,6 +55,17 @@ REQUIRED_LAYERS_FAST = (
 REQUIRED_LAYERS_DEEP = REQUIRED_LAYERS_FAST + ("dispatch", "loadaddin")
 REQUIRED_LAYER_FIELDS = ("ok", "severity", "summary", "data")
 
+# F-1.3l Phase 1 Task 9：per_step_ms 4 段必填 + dispatch.data 扩展
+REQUIRED_DISPATCH_DATA_FIELDS = ("elapsed_ms", "per_step_ms", "attached_existing_session")
+REQUIRED_PER_STEP_FIELDS = ("dispatch_ms", "revision_ms", "visible_ms", "exitapp_ms")
+
+# F-1.3l Phase 1 Task 11：AC-3 区间断言首次代码化
+# Phase 1 初值宽容 [100, 30000] 兼容已知双峰（浅档 310ms / 深档 3295ms）
+# + 对齐 test_sw_inspect_real.py 30s 上限
+# Phase 3 会按 Phase 2 实测数据收紧（浅档中位 × 0.5 / 深档中位 × 2）
+AC3_LOWER_MS = 100
+AC3_UPPER_MS = 30_000
+
 
 def assert_schema_v1(path: Path) -> None:
     """对 path 指向的 sw-inspect JSON 做 v1 schema 断言。
@@ -80,11 +91,54 @@ def assert_schema_v1(path: Path) -> None:
         for field in REQUIRED_LAYER_FIELDS:
             assert field in layers[layer_name], f"layer {layer_name} 缺字段 {field!r}"
 
-    # deep 模式：dispatch.data.elapsed_ms 是 F-4a baseline 主要消费字段（Dispatch 冷启耗时）
+    # deep 模式：dispatch.data 扩展字段（F-1.3l Phase 1 Task 9）
     if mode == "deep":
-        assert "elapsed_ms" in layers["dispatch"]["data"], (
-            "deep 模式 dispatch.data 缺 elapsed_ms（F-4a baseline 消费字段）"
+        d = layers["dispatch"]["data"]
+        for f in REQUIRED_DISPATCH_DATA_FIELDS:
+            assert f in d, f"deep 模式 dispatch.data 缺 {f!r}（F-1.3l 扩展）"
+
+        per_step = d["per_step_ms"]
+        assert isinstance(per_step, dict), (
+            f"dispatch.data.per_step_ms 必须是 dict，实际 {type(per_step).__name__}"
         )
+        for step in REQUIRED_PER_STEP_FIELDS:
+            assert step in per_step, f"per_step_ms 缺 {step!r}"
+            assert isinstance(per_step[step], int), (
+                f"per_step_ms.{step} 必须是 int，实际 {type(per_step[step]).__name__}"
+            )
+
+        # F-1.3l Phase 1 Task 10：冷启路径总和 ≈ elapsed_ms（±50ms）
+        # 宽松条件：attach 路径（elapsed_ms=0 + 全 0）/ 任何哨兵值 -1 出现 → 跳过总和检查
+        is_attach = (
+            d["attached_existing_session"]
+            and all(per_step[s] == 0 for s in REQUIRED_PER_STEP_FIELDS)
+        )
+        has_exception = any(per_step[s] == -1 for s in REQUIRED_PER_STEP_FIELDS)
+        if not is_attach and not has_exception:
+            total = sum(per_step[s] for s in REQUIRED_PER_STEP_FIELDS)
+            diff = abs(total - d["elapsed_ms"])
+            assert diff <= 50, (
+                f"冷启路径 per_step sum {total} 与 elapsed_ms {d['elapsed_ms']} "
+                f"差 {diff}ms > ±50ms 容差（F-1.3l rc=66 边界）"
+            )
+
+
+def assert_ac3_range(dispatch_data: dict) -> None:
+    """AC-3 断言：dispatch.data.elapsed_ms 落在 [AC3_LOWER_MS, AC3_UPPER_MS] 区间。
+
+    attach 路径（attached_existing_session=True）豁免 — elapsed_ms=0 是硬编码语义。
+
+    Raises:
+        AssertionError: elapsed_ms 超出区间；消息含 "AC-3" 便于 grep。
+    """
+    if dispatch_data.get("attached_existing_session"):
+        return  # attach 路径豁免
+
+    elapsed = dispatch_data["elapsed_ms"]
+    assert AC3_LOWER_MS <= elapsed <= AC3_UPPER_MS, (
+        f"AC-3 区间检查失败：elapsed_ms={elapsed}ms 超出 "
+        f"[{AC3_LOWER_MS}, {AC3_UPPER_MS}]ms"
+    )
 
 
 def main(argv: list[str]) -> int:
@@ -125,9 +179,12 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 65
-    except AssertionError:
-        # AssertionError 由 assert_schema_v1 抛出 → 走 Python 默认退出码 1
-        # 不在这里 catch，让回溯保留
+    except AssertionError as e:
+        # F-1.3l Phase 1 Task 10：区分 rc=1（schema 结构错）vs rc=66（per_step 总和超差）
+        msg = str(e)
+        if "per_step" in msg and "sum" in msg:
+            print(f"per_step total mismatch: {e}", file=sys.stderr)
+            return 66
         raise
 
     print(f"schema v1 OK: {argv[1]}")
