@@ -10,11 +10,19 @@
 
 fixtures 的 shape 对齐 tools/sw_inspect.py:165-181 真实 payload
 （v3 spec §4.6 凭想当然的列表已在 F-1.3 final review 后对齐）。
+
+F-1.3j+k S2.0(a) 追加：subprocess 级 RED 测试（TestJsonDecodeError），
+验证 main() 入口在空文件输入时以 retcode 65（DATAERR sysexits）退出
+而非 AssertionError 的 retcode 1。
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from tools.assert_sw_inspect_schema import assert_schema_v1
@@ -136,3 +144,24 @@ class TestAssertSchemaV1:
         p = tmp_path / "fast.json"
         p.write_text(json.dumps(doc), encoding="utf-8")
         assert_schema_v1(p)  # 不抛
+
+
+class TestJsonDecodeError:
+    def test_empty_file_returns_65(self, tmp_path: Path) -> None:
+        """空文件触发 JSONDecodeError，应以 retcode 65 退出（DATAERR sysexits）"""
+        empty = tmp_path / "empty.json"
+        empty.write_text("", encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, "tools/assert_sw_inspect_schema.py", str(empty)],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 65, (
+            f"expected retcode 65 (DATAERR for JSONDecodeError), got {result.returncode}; "
+            f"stderr={result.stderr[:300]}"
+        )
+        assert "JSONDecodeError" in result.stderr or "json" in result.stderr.lower(), (
+            f"expected JSONDecodeError mention in stderr, got: {result.stderr[:300]}"
+        )

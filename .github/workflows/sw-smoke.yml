@@ -19,6 +19,37 @@ jobs:
     runs-on: [self-hosted, windows, solidworks]
     timeout-minutes: 15
     steps:
+      - name: Pre-checkout workspace cleanup (F-1.3j 防 protected-ACL 残留)
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          # P2-O：兜底 kill SW 残留进程
+          Get-Process SLDWORKS -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Stopping orphan SLDWORKS PID=$($_.Id) StartTime=$($_.StartTime)"
+            $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+          # P2-D part 2：守卫强化 — workspace 未定义 / 空字符串 / 不存在 三种均跳过
+          $ws = $env:GITHUB_WORKSPACE
+          if (-not $ws -or $ws.Trim() -eq '' -or -not (Test-Path -LiteralPath $ws)) {
+            Write-Host "workspace not yet created or undefined, skip"
+            exit 0
+          }
+
+          # 仅清理白名单内路径（spec §2.2 cleanup 白名单）
+          $cache = Join-Path $ws '.pytest_cache'
+          if (Test-Path -LiteralPath $cache) {
+            Write-Host "Removing $cache (best-effort)"
+            Remove-Item -Recurse -Force -LiteralPath $cache -ErrorAction SilentlyContinue
+            # P2-L：silent-fail 可观测性 — 失败时发 GitHub workflow command annotation
+            if (Test-Path -LiteralPath $cache) {
+              Write-Host "::warning title=cleanup_residual::pre-checkout cleanup left .pytest_cache; ACL drift suspected; checkout fallback will attempt recreate"
+            }
+          }
+          Get-ChildItem -Path $ws -Filter '__pycache__' -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
       - uses: actions/checkout@v6
         with:
           clean: true  # 显式（D4 long-lived runner 的清场保证）
@@ -40,6 +71,8 @@ jobs:
 
       - name: Skip-guard (ET-based, D10)
         shell: bash
+        env:
+          PYTHONUTF8: "1"
         run: |
           python -c "
           from xml.etree import ElementTree as ET
@@ -48,7 +81,7 @@ jobs:
           skipped = [tc for tc in all_tcs if tc.find('skipped') is not None]
           real = len(all_tcs) - len(skipped)
           print(f'skip-guard: total={len(all_tcs)} skipped={len(skipped)} real={real}')
-          assert real >= 1, 'expected >= 1 real testcase, got 0 — @requires_solidworks 可能被全量 skip'
+          assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + test_deep_real_smoke), got {real} — marker 漂移或新测试未授 @requires_solidworks'
           "
 
       - name: Emit sw-inspect JSON artifact (独立 CLI run, D11)
@@ -56,7 +89,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json || true
+          python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json
           python tools/assert_sw_inspect_schema.py sw-inspect-deep.json
 
       - name: Write human-readable step summary (D16)
