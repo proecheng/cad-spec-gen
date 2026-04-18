@@ -59,6 +59,13 @@ REQUIRED_LAYER_FIELDS = ("ok", "severity", "summary", "data")
 REQUIRED_DISPATCH_DATA_FIELDS = ("elapsed_ms", "per_step_ms", "attached_existing_session")
 REQUIRED_PER_STEP_FIELDS = ("dispatch_ms", "revision_ms", "visible_ms", "exitapp_ms")
 
+# F-1.3l Phase 1 Task 11：AC-3 区间断言首次代码化
+# Phase 1 初值宽容 [100, 30000] 兼容已知双峰（浅档 310ms / 深档 3295ms）
+# + 对齐 test_sw_inspect_real.py 30s 上限
+# Phase 3 会按 Phase 2 实测数据收紧（浅档中位 × 0.5 / 深档中位 × 2）
+AC3_LOWER_MS = 100
+AC3_UPPER_MS = 30_000
+
 
 def assert_schema_v1(path: Path) -> None:
     """对 path 指向的 sw-inspect JSON 做 v1 schema 断言。
@@ -114,6 +121,24 @@ def assert_schema_v1(path: Path) -> None:
                 f"冷启路径 per_step sum {total} 与 elapsed_ms {d['elapsed_ms']} "
                 f"差 {diff}ms > ±50ms 容差（F-1.3l rc=66 边界）"
             )
+
+
+def assert_ac3_range(dispatch_data: dict) -> None:
+    """AC-3 断言：dispatch.data.elapsed_ms 落在 [AC3_LOWER_MS, AC3_UPPER_MS] 区间。
+
+    attach 路径（attached_existing_session=True）豁免 — elapsed_ms=0 是硬编码语义。
+
+    Raises:
+        AssertionError: elapsed_ms 超出区间；消息含 "AC-3" 便于 grep。
+    """
+    if dispatch_data.get("attached_existing_session"):
+        return  # attach 路径豁免
+
+    elapsed = dispatch_data["elapsed_ms"]
+    assert AC3_LOWER_MS <= elapsed <= AC3_UPPER_MS, (
+        f"AC-3 区间检查失败：elapsed_ms={elapsed}ms 超出 "
+        f"[{AC3_LOWER_MS}, {AC3_UPPER_MS}]ms"
+    )
 
 
 def main(argv: list[str]) -> int:
