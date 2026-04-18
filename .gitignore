@@ -35,3 +35,8 @@ graphify-out/
 
 # superpowers worktree 隔离目录
 .worktrees/
+
+# F-2 self-hosted runner chore 脚本与临时产物（runbook §11 存档）
+/setup-runner-task.ps1
+/pc7-baseline.ps1
+/f2-evidence-*/

@@ -13,7 +13,10 @@
       "Bash(/d/Python312/python --version)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('hooks',{}\\), indent=2\\)\\)\")",
       "Bash(gh release create v2.2.0 --title 'v2.2.0 — Auto-Annotation Engine + Generality Overhaul' --notes ':*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(gh repo *)",
+      "Bash(git -C /d/Work/cad-spec-gen log --oneline -10)",
+      "Bash(git -C /d/Work/cad-spec-gen status --short)"
     ]
   }
 }

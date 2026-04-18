@@ -358,3 +358,89 @@ gh run list --workflow=sw-smoke --status=queued --json databaseId --jq '.[].data
 4. Task Scheduler 删除 "GitHub Actions Runner (sw-smoke)"
 5. 如不再需要 ghrunner 账户：`net user ghrunner /delete`
 6. 重启验证：主账户能正常登录，无登录回环
+
+## 11. 附录：一次性 chore 脚本与临时产物
+
+以下 2 段脚本按 F-2 plan 意图**不入 git**（属独立 chore）。这里留底是为了未来重建 runner 时不必重新摸索；复制出来到本地执行即可。
+
+### 11.1 setup-runner-task.ps1 — 注册 ghrunner 开机自动启动 runner（T9 Phase E）
+
+用途：让 runner 随 ghrunner 登录自动拉起，不依赖 Windows Service（Service 模式与 Autologon 桌面会话隔离不兼容）。
+
+**执行前提**：已按 §5 完成 `config.cmd` 注册；以 admin 身份运行。
+
+```powershell
+# setup-runner-task.ps1 — 以 admin 身份执行
+$ErrorActionPreference = 'Stop'
+
+$action = New-ScheduledTaskAction `
+    -Execute 'D:\actions-runner\run.cmd' `
+    -WorkingDirectory 'D:\actions-runner'
+
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User 'ghrunner'
+
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -RestartCount 3 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -ExecutionTimeLimit (New-TimeSpan -Days 365)
+
+$principal = New-ScheduledTaskPrincipal `
+    -UserId 'ghrunner' `
+    -LogonType Interactive `
+    -RunLevel Limited
+
+Register-ScheduledTask `
+    -TaskName 'GitHub Actions Runner (sw-smoke)' `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Principal $principal `
+    -Force
+
+Write-Host "OK: Task Scheduler entry created. Next: reboot or switch to ghrunner session to start run.cmd."
+```
+
+执行后：重启机器或手工切到 ghrunner 桌面会话，`run.cmd` 会自动启动并 Listening for Jobs。
+
+### 11.2 pc7-baseline.ps1 — PC7 reboot 基线记录（T7）
+
+用途：记录 PC7 场景（reboot 后 runner 自动重连）的 reboot_time 基线 + 确认 reboot 瞬间 runner 处于 offline 状态；`.xml` 供后续 T11 验收对照。
+
+**执行前提**：主账户下 admin PowerShell，`gh auth` 已配置。
+
+```powershell
+# pc7-baseline.ps1 — 主账户 admin PS
+$rebootTime = Get-Date
+$rebootTimeStr = $rebootTime.ToString("yyyy-MM-dd HH:mm:ss")
+Write-Host "reboot_time baseline: $rebootTimeStr"
+
+$baselineRunner = gh api repos/proecheng/cad-spec-gen/actions/runners |
+                  ConvertFrom-Json |
+                  Select-Object -ExpandProperty runners |
+                  Where-Object { $_.name -eq "procheng-sw-smoke" }
+Write-Host "baseline runner status: $($baselineRunner.status), id: $($baselineRunner.id)"
+
+if ($baselineRunner.status -ne "offline") {
+  Write-Error "PC7 FAIL: baseline runner status = $($baselineRunner.status), expected offline"
+  exit 1
+}
+
+$baseline = @{
+  reboot_time   = $rebootTime
+  runner_status = $baselineRunner.status
+  runner_id     = $baselineRunner.id
+}
+$baselinePath = "D:\actions-runner\f2-baseline.xml"
+$baseline | Export-Clixml $baselinePath
+Write-Host "baseline persisted to: $baselinePath"
+```
+
+### 11.3 f2-evidence-&lt;runId&gt;/ 临时产物目录
+
+F-2 T11 验收步骤用 `gh run download <runId> --name sw-smoke-artifacts --dir .\f2-evidence-<runId>` 下载 workflow artifact 到本地核对 `sw-inspect-deep.json` + `sw-smoke-junit.xml`。
+
+**性质**：验收一次性产物，核对完可删；已在 `.gitignore` 过滤防污染仓库。
+
+**远端 artifact 保留期**：GitHub Actions 默认 90 天，超期后需重跑 workflow 才能再下载。若需长期留存请人工归档到本文档附近。
