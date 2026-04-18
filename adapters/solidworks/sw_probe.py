@@ -687,7 +687,10 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                 layer="dispatch",
                 ok=False,
                 severity="fail",
-                summary=f"Dispatch 超时 ({timeout_sec}s)",
+                summary=(
+                    f"Dispatch 超时 ({timeout_sec}s) "
+                    f"[dispatch:{timeout_sec * 1000}/rev:-/vis:-/exit:-]"
+                ),
                 data={
                     "dispatched": False,
                     "elapsed_ms": timeout_sec * 1000,
@@ -740,7 +743,14 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
         layer="dispatch",
         ok=True,
         severity="ok",
-        summary=f"Dispatch 冷启 {elapsed_ms}ms RevisionNumber={rev}",
+        summary=(
+            f"Dispatch 冷启 {elapsed_ms}ms "
+            f"[dispatch:{per_step_ms['dispatch_ms']}"
+            f"/rev:{per_step_ms['revision_ms']}"
+            f"/vis:{per_step_ms['visible_ms']}"
+            f"/exit:{per_step_ms['exitapp_ms']}] "
+            f"RevisionNumber={rev}"
+        ),
         data={
             "dispatched": True,
             "elapsed_ms": elapsed_ms,

@@ -253,3 +253,58 @@ class TestPerStepMinTruncation:
             assert r.data["per_step_ms"][step] >= 1, (
                 f"{step} = 0 与哨兵 UNREACHED 冲突"
             )
+
+
+class TestSummaryBreakdown:
+    """Phase 2-lite：probe_dispatch summary 字符串含 per_step 拆解，CI fail 时一眼看哪段慢。"""
+
+    def test_cold_success_summary_contains_per_step_breakdown(self, monkeypatch):
+        """冷启成功 summary 含 [dispatch:X/rev:Y/vis:Z/exit:W] 拆解段。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        fake_per_step = {
+            "dispatch_ms": 150,
+            "revision_ms": 3100,  # 模拟深档 RevisionNumber 慢
+            "visible_ms": 35,
+            "exitapp_ms": 10,
+        }
+
+        def fake_worker(progid):
+            return ("2024", True, True, fake_per_step)
+
+        monkeypatch.setattr(sw_probe, "_dispatch_and_probe_worker", fake_worker)
+
+        r = sw_probe.probe_dispatch(timeout_sec=60)
+        assert "[dispatch:150/rev:3100/vis:35/exit:10]" in r.summary, (
+            f"summary 未含 per_step 拆解：{r.summary!r}"
+        )
+        assert "RevisionNumber=2024" in r.summary
+
+    def test_timeout_summary_contains_placeholder_breakdown(self, monkeypatch):
+        """timeout summary 含 [dispatch:NNN/rev:-/vis:-/exit:-] 占位拆解。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        fake_future = mock.Mock()
+        fake_future.result = mock.Mock(side_effect=concurrent.futures.TimeoutError())
+        fake_executor = mock.Mock()
+        fake_executor.submit = mock.Mock(return_value=fake_future)
+        fake_executor.shutdown = mock.Mock()
+        monkeypatch.setattr(
+            "concurrent.futures.ThreadPoolExecutor",
+            mock.Mock(return_value=fake_executor),
+        )
+
+        r = sw_probe.probe_dispatch(timeout_sec=5)
+        assert "[dispatch:5000/rev:-/vis:-/exit:-]" in r.summary, (
+            f"timeout summary 未含占位拆解：{r.summary!r}"
+        )
