@@ -635,6 +635,12 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                     "visible_set_ok": False,
                     "exit_app_ok": False,
                     "attached_existing_session": True,
+                    "per_step_ms": {
+                        "dispatch_ms": 0,
+                        "revision_ms": 0,
+                        "visible_ms": 0,
+                        "exitapp_ms": 0,
+                    },
                 },
                 error=str(e)[:200],
             )
@@ -650,6 +656,12 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                 "visible_set_ok": False,
                 "exit_app_ok": None,
                 "attached_existing_session": True,
+                "per_step_ms": {
+                    "dispatch_ms": 0,
+                    "revision_ms": 0,
+                    "visible_ms": 0,
+                    "exitapp_ms": 0,
+                },
             },
         )
 

@@ -83,3 +83,30 @@ class TestColdDispatchPerStep:
             f"elapsed_ms={r.data['elapsed_ms']} 包含了 500ms 线程池 cold-start — "
             "t0 被误放在 submit 之前"
         )
+
+
+class TestAttachPathPerStep:
+    """attach 路径下 per_step_ms 的语义测试。"""
+
+    def test_attach_path_per_step_all_zero(self, monkeypatch):
+        """attach 路径 elapsed_ms=0 且 per_step_ms 全 0（未运行到任何一步）。"""
+        from adapters.solidworks import sw_probe
+
+        fake_app = mock.Mock()
+        fake_app.RevisionNumber = "2024"
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(return_value=fake_app),
+        )
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+
+        assert r.data["attached_existing_session"] is True
+        assert r.data["elapsed_ms"] == 0
+        assert r.data["per_step_ms"] == {
+            "dispatch_ms": 0,
+            "revision_ms": 0,
+            "visible_ms": 0,
+            "exitapp_ms": 0,
+        }
