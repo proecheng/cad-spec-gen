@@ -199,20 +199,20 @@ PASS/FAIL 以 4 环节 + dispatch pickup 是否全绿为准（C1-C4，定义见 
 - 失败检查点：**C<n>**（现象：....）
 - 单次修复尝试：....（依据 runbook §X.X / Q4=B）
 - 修复后结果：仍失败
-- 诊断证据：
-  - `Get-ScheduledTaskInfo` 完整输出：```...```
-  - `gh api runners` 完整输出：```...```
-  - `_diag/*.log` 末 30 行（仅 C3 失败时填）：```...```
+- 诊断证据（fenced code block 单独贴在条目下）：
+  - `Get-ScheduledTaskInfo` 完整输出：[PASTE_PS_OUTPUT]
+  - `gh api runners` 完整输出：[PASTE_JSON_OUTPUT]
+  - `_diag/*.log` 末 30 行（仅 C3 失败时填）：[PASTE_LOG]
 - 下次行动：另起 brainstorming 专题分析 C<n>，本 F.2 不追修
 - 当前 ghrunner session 状态：保留运行
 ```
 
 ### 5.4 联动更新
 
-无论 PASS / FAIL：
+无论 PASS / FAIL，更新 auto-memory 两份文件（路径在 repo 外、不入 git）：
 
-- `memory/solidworks_asset_extraction.md`：F.2 bullet 改写为 "Phase F.2 PASS（2026-04-XX，run XXX）" 或 "F.2 attempted FAIL at C<n>，见 runbook §7"
-- `memory/MEMORY.md`：description 摘掉 "剩余 F.2"
+- `C:\Users\procheng\.claude\projects\D--Work-cad-spec-gen\memory\solidworks_asset_extraction.md`：F.2 bullet 改写为 "Phase F.2 PASS（2026-04-XX，run XXX）" 或 "F.2 attempted FAIL at C<n>，见 runbook §7"
+- `C:\Users\procheng\.claude\projects\D--Work-cad-spec-gen\memory\MEMORY.md`：description 行摘掉 "剩余 F.2"
 
 ### 5.5 不更新
 
@@ -257,12 +257,12 @@ T4 触发的 sw-smoke 跑等效再做一次 F.1，顺带验证：
 
 按 superpowers:verification-before-completion 精神，硬门槛 4 项：
 
-1. §5 PASS 模板所有字段（XX 残留 = 0）填完
-2. `git diff` 看到 runbook §7 F.2 段落实际落地
-3. memory 两个文件均更新
-4. `git log` 看到对应 commit
+1. **§5 PASS 模板字段全部填完**（验证：`grep -c "XX" runbook §7 F.2 段落 == 0`）
+2. **runbook §7 改动落地 git**（验证：`git log --oneline -1 docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` 是 F.2 commit）
+3. **memory 两个文件均更新**（验证：`Read` 工具读 `solidworks_asset_extraction.md` 看 F.2 bullet 已改写；`Read` 读 `MEMORY.md` 看 description 已摘 "剩余 F.2"。memory 在 repo 外的 `C:\Users\procheng\.claude\projects\D--Work-cad-spec-gen\memory\`，git diff 不可见）
+4. **runner 仍在 GitHub 端 online**（验证：`gh api runners` 返回 `status=online`，证明 F.2 后链路真持续）
 
-四项满足 → 才说 "F.2 done"。
+四项全满足 → 才说 "F.2 done"。
 
 ---
 
