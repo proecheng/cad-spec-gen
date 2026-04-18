@@ -110,3 +110,38 @@ class TestAttachPathPerStep:
             "visible_ms": 0,
             "exitapp_ms": 0,
         }
+
+
+class TestTimeoutPathPerStep:
+    """timeout 路径下 per_step_ms 的语义测试。"""
+
+    def test_timeout_path_per_step(self, monkeypatch):
+        """timeout 时 dispatch_ms = timeout_sec*1000，其他 3 段 = 0（哨兵 UNREACHED）。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        # mock future.result 抛 TimeoutError
+        fake_future = mock.Mock()
+        fake_future.result = mock.Mock(side_effect=concurrent.futures.TimeoutError())
+
+        fake_executor = mock.Mock()
+        fake_executor.submit = mock.Mock(return_value=fake_future)
+        fake_executor.shutdown = mock.Mock()
+
+        monkeypatch.setattr(
+            "concurrent.futures.ThreadPoolExecutor",
+            mock.Mock(return_value=fake_executor),
+        )
+
+        r = sw_probe.probe_dispatch(timeout_sec=5)
+        assert r.severity == "fail"
+        assert r.data["per_step_ms"] == {
+            "dispatch_ms": 5000,
+            "revision_ms": 0,
+            "visible_ms": 0,
+            "exitapp_ms": 0,
+        }
