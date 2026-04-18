@@ -111,10 +111,17 @@ def main(argv: list[str]) -> int:
         # UTF-8 中文字节会触发父端 UnicodeDecodeError → stderr=None。
         # 中文留在代码注释里供人读，stderr 给消费方机读用 ASCII。
         # 含 "JSONDecodeError" 关键字便于 grep 与测试断言。
+        # M1 fix（v3 L3 P3#2 + Task 4 follow-up）：read_bytes 二次失败不应吞掉
+        # 原始 JSONDecodeError——若 .pytest_cache 锁 / 文件被删致 OSError，
+        # 父进程仅见 traceback 而非 retcode 65 + 友好 stderr，CI 可观测性丢失。
+        try:
+            preview = path.read_bytes()[:200]
+        except OSError as read_err:
+            # fallback 字符串编码为 ASCII bytes 保持类型一致（既存逻辑用 !r repr bytes）
+            preview = f"<read failed: {read_err}>".encode("ascii", errors="replace")
         print(
             f"sw-inspect output is not valid JSON (JSONDecodeError): "
-            f"path={path}; err={e}; "
-            f"first 200 bytes={path.read_bytes()[:200]!r}",
+            f"path={path}; err={e}; first 200 bytes={preview!r}",
             file=sys.stderr,
         )
         return 65
