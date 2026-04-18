@@ -513,6 +513,75 @@ def probe_material_files(info: SwInfo) -> ProbeResult:
     )
 
 
+def _dispatch_and_probe_worker(
+    progid: str,
+) -> tuple[str, bool, bool, dict[str, int]]:
+    """ThreadPoolExecutor worker：CoInitialize → Dispatch → Revision/Visible/ExitApp → CoUninitialize。
+
+    COM STA 要求所有 COM 方法调用必须在同一线程完成，因此将
+    Dispatch 与后续属性访问、ExitApp 一并放入此 worker。
+
+    F-1.3l Phase 1：每步单独计时，返回 per_step_ms dict。
+    per_step_ms 语义：
+      - 真实测量值：≥ 1（<1ms 截断为 1，Task 7 实现）
+      - 未到达的步：0（PER_STEP_SENTINEL_UNREACHED）
+      - 抛异常的步：-1（PER_STEP_SENTINEL_RAISED）
+
+    返回：(revision_number, visible_set_ok, exit_app_ok, per_step_ms)
+    """
+    import pythoncom  # pywin32 随附；Linux CI 走不到此函数
+
+    pythoncom.CoInitialize()
+    try:
+        from win32com import client as _wc_inner
+
+        per_step = {
+            "dispatch_ms": PER_STEP_SENTINEL_UNREACHED,
+            "revision_ms": PER_STEP_SENTINEL_UNREACHED,
+            "visible_ms": PER_STEP_SENTINEL_UNREACHED,
+            "exitapp_ms": PER_STEP_SENTINEL_UNREACHED,
+        }
+
+        # step 1: Dispatch
+        t_dispatch_start = _time.perf_counter()
+        _app = _wc_inner.Dispatch(progid)
+        per_step["dispatch_ms"] = int((_time.perf_counter() - t_dispatch_start) * 1000)
+
+        _rev = ""
+        _visible_ok = False
+        _exit_ok = False
+
+        # step 2: RevisionNumber
+        t_rev_start = _time.perf_counter()
+        try:
+            _rev = str(getattr(_app, "RevisionNumber", ""))
+            per_step["revision_ms"] = int((_time.perf_counter() - t_rev_start) * 1000)
+        except Exception:
+            per_step["revision_ms"] = PER_STEP_SENTINEL_RAISED
+
+        # step 3: Visible = False
+        t_vis_start = _time.perf_counter()
+        try:
+            _app.Visible = False
+            _visible_ok = True
+            per_step["visible_ms"] = int((_time.perf_counter() - t_vis_start) * 1000)
+        except Exception:
+            per_step["visible_ms"] = PER_STEP_SENTINEL_RAISED
+
+        # step 4: ExitApp
+        t_exit_start = _time.perf_counter()
+        try:
+            _app.ExitApp()
+            _exit_ok = True
+            per_step["exitapp_ms"] = int((_time.perf_counter() - t_exit_start) * 1000)
+        except Exception:
+            per_step["exitapp_ms"] = PER_STEP_SENTINEL_RAISED
+
+        return (_rev, _visible_ok, _exit_ok, per_step)
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     """层 4：Dispatch COM + Revision + Visible + ExitApp。
 
@@ -584,49 +653,13 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
             },
         )
 
-    def _dispatch_and_probe_worker(progid: str) -> tuple[str, bool, bool]:
-        """ThreadPoolExecutor worker：CoInitialize → Dispatch → RevisionNumber/Visible/ExitApp → CoUninitialize。
-
-        COM STA 要求所有 COM 方法调用必须在同一线程完成，因此将
-        Dispatch 与后续属性访问、ExitApp 一并放入此 worker。
-
-        返回：(revision_number, visible_set_ok, exit_app_ok)
-        """
-        import pythoncom  # pywin32 随附；Linux CI 走不到此函数
-
-        pythoncom.CoInitialize()
-        try:
-            from win32com import client as _wc_inner
-
-            _app = _wc_inner.Dispatch(progid)
-            _rev = ""
-            _visible_ok = False
-            _exit_ok = False
-            try:
-                _rev = str(getattr(_app, "RevisionNumber", ""))
-            except Exception:
-                pass
-            try:
-                _app.Visible = False
-                _visible_ok = True
-            except Exception:
-                pass
-            try:
-                _app.ExitApp()
-                _exit_ok = True
-            except Exception:
-                pass
-            return (_rev, _visible_ok, _exit_ok)
-        finally:
-            pythoncom.CoUninitialize()
-
     # 冷启路径（ThreadPoolExecutor 软超时；后台线程无法真 kill，已知妥协）
     t0 = _time.perf_counter()
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         fut = ex.submit(_dispatch_and_probe_worker, "SldWorks.Application")
         try:
-            rev, visible_ok, exit_ok = fut.result(timeout=timeout_sec)
+            rev, visible_ok, exit_ok, per_step_ms = fut.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             # wait=False：立即返回，不阻塞等待后台线程完成（软超时已知妥协）
             ex.shutdown(wait=False)
@@ -667,7 +700,7 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     finally:
         ex.shutdown(wait=False)
 
-    elapsed_ms = int((_time.perf_counter() - t0) * 1000)
+    elapsed_ms = sum(per_step_ms.values())
 
     return ProbeResult(
         layer="dispatch",
@@ -681,6 +714,7 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
             "visible_set_ok": visible_ok,
             "exit_app_ok": exit_ok,
             "attached_existing_session": False,
+            "per_step_ms": per_step_ms,
         },
     )
 
