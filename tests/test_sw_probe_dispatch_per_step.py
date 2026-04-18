@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-import concurrent.futures
+import concurrent.futures  # noqa: F401  # T6 TestTimeoutPathPerStep 使用
 from unittest import mock
 
-import pytest
+import pytest  # noqa: F401  # T7 TestWorkerStepException / T10 TestSchemaPerStep 使用
 
 
 class TestColdDispatchPerStep:
