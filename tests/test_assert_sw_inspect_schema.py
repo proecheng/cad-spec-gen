@@ -75,7 +75,8 @@ def _sample_deep() -> dict:
         "severity": "ok",
         "summary": "ok",
         "data": {
-            "elapsed_ms": 12345,
+            # per_step 总和 = 5000+3000+2000+1000 = 11000，elapsed_ms 需在 ±50ms 内
+            "elapsed_ms": 11000,
             "per_step_ms": {
                 "dispatch_ms": 5000,
                 "revision_ms": 3000,

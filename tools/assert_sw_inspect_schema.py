@@ -100,6 +100,21 @@ def assert_schema_v1(path: Path) -> None:
                 f"per_step_ms.{step} 必须是 int，实际 {type(per_step[step]).__name__}"
             )
 
+        # F-1.3l Phase 1 Task 10：冷启路径总和 ≈ elapsed_ms（±50ms）
+        # 宽松条件：attach 路径（elapsed_ms=0 + 全 0）/ 任何哨兵值 -1 出现 → 跳过总和检查
+        is_attach = (
+            d["attached_existing_session"]
+            and all(per_step[s] == 0 for s in REQUIRED_PER_STEP_FIELDS)
+        )
+        has_exception = any(per_step[s] == -1 for s in REQUIRED_PER_STEP_FIELDS)
+        if not is_attach and not has_exception:
+            total = sum(per_step[s] for s in REQUIRED_PER_STEP_FIELDS)
+            diff = abs(total - d["elapsed_ms"])
+            assert diff <= 50, (
+                f"冷启路径 per_step sum {total} 与 elapsed_ms {d['elapsed_ms']} "
+                f"差 {diff}ms > ±50ms 容差（F-1.3l rc=66 边界）"
+            )
+
 
 def main(argv: list[str]) -> int:
     """CLI 入口。
@@ -139,9 +154,12 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 65
-    except AssertionError:
-        # AssertionError 由 assert_schema_v1 抛出 → 走 Python 默认退出码 1
-        # 不在这里 catch，让回溯保留
+    except AssertionError as e:
+        # F-1.3l Phase 1 Task 10：区分 rc=1（schema 结构错）vs rc=66（per_step 总和超差）
+        msg = str(e)
+        if "per_step" in msg and "sum" in msg:
+            print(f"per_step total mismatch: {e}", file=sys.stderr)
+            return 66
         raise
 
     print(f"schema v1 OK: {argv[1]}")
