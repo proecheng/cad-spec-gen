@@ -63,23 +63,38 @@ Phase 1：仪器化基础设施（永久合入 main，TDD 严格）
 ├── assert_sw_inspect_schema.py (AC-2) 断言 per-step 存在 + 总和 ≈ elapsed_ms
 └── 单测覆盖冷启 / attach / timeout / 异常路径全集
 
-Phase 2：3 假设串行证伪（临时探针 + 实验脚本）
-│   **实验前**：runner `labels: [f13l-exclusive]` 临时挡 sw-smoke CI
+Phase 2：3 假设验证（临时探针 + 实验脚本）
+│   **实验前**：
+│     - workflow 文件 `runs-on` 临时改为 `[self-hosted, f13l-exclusive]` 挡 sw-smoke CI
+│       （GitHub Actions workflow 层改动，非 runner settings；见 §10 R8）
+│     - 新建 `F13L_REVERT_CHECKLIST.md` 记录所有临时变动点
 │   **对照原则**：严格交替（奇 = 干预 / 偶 = baseline），**不得**用"前 N / 后 N"
-│   分块设计（避免 H1 ~15min 阈值与实验总时长自相关 — 见 §10 风险 R6）
-├── H1 license daemon（先，最便宜）
+│
+│   **职责分工**（关键：解决早退出 vs ≥20 点样本量矛盾）：
+│     - H1 / H2 = **根因证伪**：允许早退出（命中即停）
+│     - H3 = **timing 分布采样**：**始终执行**（为 §8 AC-3 区间公式提供 ≥ 20 点分布）
+│       例外：若 Phase 2 判定分支为"代码 bug"（§8 分支 B），H3 跳过（bug 修后 CI 重采）
+│
+├── H1 license daemon（先，最便宜；证伪型）
 │   ├── 临时探针：license_session_age_sec
 │   └── 交替实验：10 轮，奇数轮前 Stop-Process sldWorkerManager / 偶数轮 baseline
-├── H2 COM ROT / registration cache（次）
+│   判定后：HIT → 跳 H2，直接跑 H3；FALSIFIED → 进 H2；INCONCLUSIVE → 补 +5 点重判
+│
+├── H2 COM ROT / registration cache（次；证伪型）
 │   ├── 临时探针：com_rot_entry_count / com_registration_timestamp
 │   ├── **前置等价性 baseline**：同进程连续调 `Dispatch` 10 次 + `CoCreateInstanceEx` 10 次，
-│   │   确认无干预条件下两 API 的 per_step timing 无系统差（均值差 < 20%）；
-│   │   若有系统差 → H2 实验结论需额外控制此变量
+│   │   确认无干预条件下两 API 的 per_step timing 无系统差
+│   │   - 系统差 < 20% → 进主实验
+│   │   - 系统差 ≥ 20% → 放弃 H2（CSV `hypothesis` 字段标 `H2-abandoned`），直接跳 H3；
+│   │     runbook §7 记录"H2 因 API 语义差异无法归因，未证伪也未命中"
 │   └── 交替实验：10 轮，奇数轮 DEBUG_USE_COCREATEINSTANCEEX=1 / 偶数轮 baseline
-├── H3 Defender scan cache（末位，非侵入）
-│   ├── 临时探针：defender_last_scan_age_sec / defender_rtp_state
-│   └── Get-MpComputerStatus 只读，顺路收集做相关性分析
-└── 串行早退出：任一假设命中（§8 关闭条件 2 的 "≥ 2x" 阈值）即停，不跑后续
+│   判定后：HIT → 跳 H3；FALSIFIED → 进 H3；INCONCLUSIVE → 补 +5 点重判
+│
+└── H3 Defender scan cache + timing 分布采样（始终跑，除非判定为分支 B）
+    ├── 临时探针：defender_last_scan_age_sec / defender_rtp_state
+    ├── 间隔梯度 5/10/15/20/30/45/60min × 3 次 = 21 点
+    └── Get-MpComputerStatus 只读，顺路收集做相关性分析
+    判定：相关性分析产出 H3 HIT / FALSIFIED 结论（不影响是否继续跑，H3 就是终点）
 
 Phase 3：根因确认 + AC-3 调整
 ├── runbook §7 新增"F-1.3l 根因"子段（一句话结论 + 数据链接）
@@ -92,7 +107,7 @@ Phase 3：根因确认 + AC-3 调整
 
 **关键不变量**：
 - Phase 1 改动**不依赖**任何假设成立，per-step timing 对未来所有 dispatch 调查都有价值
-- Phase 2 的 3 个实验**串行早退出**，命中即停（命中定义以 §8 关闭条件 2 为准）
+- H1 / H2 是**根因证伪型**实验，允许命中早退出；H3 是**timing 分布采样型**实验，始终执行（除非分支 B 跳过）
 - runner 占用分批：Phase 1 只跑本地 pytest + CI 冒烟；Phase 2 每轮实验 30-45 分钟 runner 独占
 
 ---
@@ -164,8 +179,8 @@ assert_sw_inspect_schema.py (AC-2)
 | `iter` | int | ✓ | ✓ | ✓ | 本实验内第几次 |
 | `ts_utc` | str | ✓ | ✓ | ✓ | ISO8601 |
 | `kill_flag` | int | 0/1 | — | — | H1 专用：1 = 干预前 Stop-Process；其他留空 |
-| `com_api_flag` | int | — | 0/1 | — | H2 专用：1 = 用 CoCreateInstanceEx；其他留空 |
-| `baseline_phase` | str | — | `pre` / `post` | — | H2 前置等价 baseline 20 点 vs 主实验 10 点 |
+| `com_api_flag` | int | — | 0/1 | — | H2 全程填（baseline 的 20 点 = Dispatch 10 + CoCreateInstanceEx 10；main 的 10 点 = 奇偶交替） |
+| `baseline_phase` | str | — | `pre` / `main` | — | H2 前置等价 baseline 20 点（`pre`）vs 主实验 10 点（`main`） |
 | `interval_min` | int | — | — | ✓ | H3 专用：距前次 Dispatch 分钟数 |
 | `dispatch_ms` | int | ✓ | ✓ | ✓ | 空字段 = 未运行到；详见 §6 哨兵约定 |
 | `revision_ms` | int | ✓ | ✓ | ✓ | 同上 |
@@ -190,11 +205,15 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
   └─> f2-evidence-f13l/h1_license.csv
 
 一键分析（scripts/f13l_analyze.py）
-  └─ pandas.read_csv(na_values=['', '-1']).dropna(subset=['dispatch_ms']).groupby(flag).describe()
+  └─ pandas.read_csv(na_values=['', '-1'])
+        .pipe(lambda df: df[df['attached_existing_session'] != True])  # 过滤 attach 行
+        .dropna(subset=['dispatch_ms'])                                # 过滤"抛异常"行
+        .groupby(flag).describe()
         两组 per_step_ms 中位数差 ≥ 2x → 输出 "HIT"
         两组差 < 1.5x → 输出 "FALSIFIED"
         1.5x ≤ 差 < 2x → 输出 "INCONCLUSIVE, need +5 samples"
-        (attached_existing_session == True 的行全局过滤掉)
+        （注意：attach 行不删除而过滤，保留原始行便于"偶发 attach 频率"事后追溯；
+         详见 §6 "CSV 语义取舍"段）
 ```
 
 ---
@@ -215,6 +234,11 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 - `scripts/f13l_analyze.py` 开头统一 `df = pd.read_csv(path, na_values=['', '-1'])` + `df.dropna(subset=['dispatch_ms'])` 预处理
 - **schema 对异常路径宽松**：AC-2 只断言"字段存在 + 类型 int"，不断言"总和 = elapsed_ms"（异常路径总和不等是合法）
 - **Phase 2 实验脚本单轮失败不中断 loop**：跑 10 轮某次 COM 抖动只丢一行 CSV，不全废
+
+**CSV 语义取舍**（显式标注，未来维护者参考）：
+- CSV 中 -1（抛异常）和空字段（不适用列）经 `na_values=['', '-1']` 后都 → NaN，下游**无法区分**两者。取舍原因：统一为 NaN 让 pandas 分析代码简洁（一次 dropna 两种都过滤），符合本 spec "用户零操作"原则
+- 代价：未来若需分析"异常率"（e.g. "ExitApp 多久抛一次"），CSV 不够；需要回去看 sw-inspect JSON 原始输出
+- attach 路径整行**不删除**而是 analyze 时**过滤不参与统计**，保留行便于事后追溯"偶发 attach 事件频率"
 
 **回滚保证**：
 - H1 `finally` 段确保 Ctrl+C 时不留"license daemon kill 但没重启"状态（Windows service 自拉起，无需手动恢复）
@@ -265,13 +289,19 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 
 - 实验脚本**不写单测**（一次性用完即 revert，ROI 低）
 - PS1 `$ErrorActionPreference='Stop'` + 每步 try/catch
-- CSV 输出前最小 validation：列数 == 预期，无 NaN
+- CSV 输出前最小 validation：
+  * 列数 == 预期（17 列）
+  * 该实验**应填字段**无 NaN（见 §5 schema 表 "H1/H2/H3" 列的 ✓ 或 0/1 标记；不适用列留空是合法的）
+  * 例：H1 脚本输出的行必须有 `kill_flag / dispatch_ms ... /license_session_age_sec` 非 NaN；
+       `com_api_flag / baseline_phase / interval_min / com_rot_* / defender_*` 留空为合法
 
 ### Phase 3 测试层
 
-- `test_ac3_lower_bound_new_100_passes`
-- `test_ac3_upper_bound_15000_still_fails`
-- `test_ac3_old_lower_3000_now_accepted`
+- `test_ac3_lower_bound_shallow_median_half_passes`（浅档中位数 × 0.5 边界合法）
+- `test_ac3_upper_bound_deep_median_2x_passes`（深档中位数 × 2 边界合法）
+- `test_ac3_below_lower_bound_fails`（比浅档中位 × 0.5 还小的异常点 → fail）
+- `test_ac3_above_upper_bound_fails`（比深档中位 × 2 还大的异常点 → fail）
+- `test_ac3_old_lower_3000ms_now_within_range`（旧下限 3000ms 数据点在新区间内）
 
 ---
 
@@ -285,20 +315,29 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - code-review 无阻断性问题
 
 2. **Phase 2 至少 1 条假设有明确结论**
-   - 命中：H1/H2/H3 之一被实验数据证实（`scripts/f13l_analyze.py` 输出 `HIT`，两组中位数差 ≥ 2x）
-   - 或全伪：3 条假设都不命中 → 触发 F-1.3l-Q2 升级假设
+   - **HIT**：H1/H2/H3 之一被实验数据证实（`scripts/f13l_analyze.py` 输出 `HIT`，两组中位数差 ≥ 2x）
+   - **INCONCLUSIVE 处理路径**（差 1.5-2x）：
+     * 该假设自动补采 +5 点，最多补 2 轮（共 10 点新数据）
+     * 第 2 轮后仍 INCONCLUSIVE → 视为 FALSIFIED，进入下一假设
+     * 根据"用户零操作"原则，`scripts/f13l_run.ps1 --auto-chain` 内部自动执行此补采流程
+   - **全伪**（H1/H2 FALSIFIED + H3 相关性无统计意义）：
+     * 触发 F-1.3l-Q2 升级假设
      * **升级路径**：新开 `docs/superpowers/specs/YYYY-MM-DD-f-1-3l-q2-design.md`（不追加本 spec），引用本 spec 的 Phase 2 CSV 数据作为"已证伪基线"
      * F-1.3l 本 spec 状态改为"closed-inconclusive"，F.2 维持 PASS pickup-only 不降级
+   - **H2-abandoned**（§3 定义）：视为 FALSIFIED，继续 H3
 
 3. **AC-3 区间调整有数据支撑**（公式必须保留回归保护能力，不得 tautology）
-   - 汇总 ≥ 20 个 K1 数据点
+   - **样本量门槛**：Phase 2 H3 梯度扫描 21 点 + H1/H2 已采集点，合计 ≥ 20 点；
+     且**浅档 ≥ 5 点 / 深档 ≥ 5 点**（任一档 < 5 点 → 延长 H3 采样至满足）
    - **分支 A — 根因 by design，双峰保留**（预期多数场景）：
      * 新下限 = **浅档中位数 × 0.5**（若异常比浅档还快 ≥ 2x，仍能报警；不是 min-20% 这种画靶命中式）
      * 新上限 = **深档中位数 × 2**（若异常比深档还慢 ≥ 2x，仍能报警）
      * 例：浅档中位 310ms / 深档中位 3295ms → 新区间 `[155, 6590]`
-   - **分支 B — 根因是 bug 已修，双峰塌缩成单峰**：
+   - **分支 B — 根因是 bug 已修，双峰塌缩成单峰**（Phase 2 H3 跳过）：
+     * Phase 3 fix merge 后，CI 采新点（无 Phase 2 数据可用）
      * 新下限 = 单峰中位数 × 0.5
      * 新上限 = 单峰中位数 × 2
+     * 单峰样本量门槛 ≥ 10 点
    - 区间调整 PR 合入 main
 
 4. **runbook §7 F-1.3l 根因记录段写入**
@@ -306,11 +345,14 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - 数据链接（`f2-evidence-f13l/` CSV 的 git sha + 行数）
    - 未来如何复现验证（3-5 行）
 
-5. **≥ 6 次 sw-smoke CI run 一致落在新区间**
+5. **≥ 6 次 sw-smoke CI run 的 timing 分布与 Phase 2 实测一致**
+   - **分支 A**（双峰保留）：6 次 run 至少有 2 个点落在浅档 ± 50% + 2 个点落在深档 ± 50%，
+     不得出现落入"两峰之间谷值（e.g. 500-2000ms）"的异常点（否则说明区间过宽丢失回归保护）
+   - **分支 B**（单峰）：6 次 run 均落在单峰中位数 × 0.5 ~ × 2 区间内
    - F.2 状态机从 PASS pickup-only → PASS clean
 
 6. **临时探针 git revert**
-   按 `F13L_REVERT_CHECKLIST.md`（Phase 2 开工时建）逐项勾：
+   按 `F13L_REVERT_CHECKLIST.md`（Phase 2 开工时建）逐项勾。**仅 Phase 2 临时改动需 revert；Phase 1 / Phase 3 永久改动保留**：
    - [ ] `DEBUG_USE_COCREATEINSTANCEEX` 开关从 `sw_probe.py` 删除
    - [ ] `probe_investigation_env()` 函数从 `sw_probe.py` 删除
    - [ ] `scripts/f13l_run.ps1`
@@ -319,8 +361,9 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - [ ] `scripts/f13l_h3_gradient_scan.ps1`
    - [ ] `scripts/f13l_analyze.py`
    - [ ] `F13L_REVERT_CHECKLIST.md` 本身（最后）
-   - [ ] runner `labels: [f13l-exclusive]` 恢复默认 labels
+   - [ ] workflow 文件 `runs-on` 从 `[self-hosted, f13l-exclusive]` 恢复 `[self-hosted]`（行号记在 checklist）
    - [ ] `f2-evidence-f13l/` 保留 CSV 但 `.gitignore`（本地磁盘归档；§8.4 runbook 记录 git sha 指针）
+   - **保留不 revert**：`per_step_ms` 字段、schema 迁移、AC-2/AC-3 断言调整、Phase 1 单测 — 这些是 F-1.3l 留下的永久基础设施
    - commit message：`chore(f-1-3l): 移除临时探针 + F-1.3l 收尾`
 
 ### 分支：根因找到但不修代码
@@ -360,8 +403,9 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 | R3 | Phase 2 实验脚本污染 runner 环境 | 低 | 后续 CI 失败 | `$ErrorActionPreference='Stop'` + `finally` 恢复；license daemon 自拉起无需手动；`f13l-exclusive` label 隔离 CI |
 | R4 | 根因找到是代码 bug 但修代码风险高 | 低 | Phase 1 白做 | 分支路径已在 §8 覆盖；`test_worker_t0_start_inside_worker` 回归保障 |
 | R5 | per_step_ms 字段在下游消费者（未来的监控 dashboard）被误解 | 低 | 误报误警 | attach/timeout/异常路径的 per_step 语义在 §6 文档化 + schema 注释里 |
-| R6 | H1 实验总时长 ~15min 与假设阈值自相关 | 中 | 实验结论不可信（数据一致性 bug） | §3 明确"严格交替奇偶轮"；相邻两轮间隔几乎相同，任何"距上次 SW 活动时间"的潜在混淆对奇偶两组等效施加 |
-| R7 | H2 `CoCreateInstanceEx` vs `Dispatch` 语义差异混入实验 | 中 | H2 结论无法归因于 ROT | §3 H2 前置等价 baseline 20 点强制先证实两 API 无系统差（均值差 < 20%） |
+| R6 | H1 实验总时长 ~15min 与假设阈值自相关 | 中 | 实验结论不可信（数据一致性 bug） | §3 明确"严格交替奇偶轮"；相邻两轮间隔差异 ≤ 30s（奇数轮 +Stop+sleep 30s / 偶数轮无），远 << 假设 ~15min 阈值两个量级，故混淆风险可接受 |
+| R7 | H2 `CoCreateInstanceEx` vs `Dispatch` 语义差异混入实验 | 中 | H2 结论无法归因于 ROT | §3 H2 前置等价 baseline 20 点；系统差 ≥ 20% 时 H2-abandoned（§8 关闭条件 2）|
+| R8 | workflow `runs-on` 临时改 `f13l-exclusive` 被误合 main | 中 | 非 F-1.3l 期间 sw-smoke CI 找不到 runner，所有 PR 卡住 | `F13L_REVERT_CHECKLIST.md` 强制列 workflow 文件行号；Phase 2 开工时在 PR 草稿里单独开子 commit，便于回滚 |
 
 ---
 
