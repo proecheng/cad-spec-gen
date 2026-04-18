@@ -121,9 +121,14 @@ F.2 切换到 **ghrunner（Users 组，非 admin）** 身份长驻：
 以 proecheng（admin）身份在 PowerShell 执行（手抄 runbook 内命令，不写脚本）：
 
 ```powershell
-# P1.1 验证污染目录存在（sanity check）
+# P1.0（v3 新增 L4 P1#1）：先确认 ghrunner runner 当前 Idle，避免与正在跑的 sw-smoke job race
+gh api repos/proecheng/cad-spec-gen/actions/runners --jq '.runners[] | select(.name=="procheng-sw-smoke") | {status, busy}'
+# 期望：status=online, busy=false；如果 busy=true 等待当前 run 跑完再继续（GitHub Actions 页能看到 in_progress run）
+
+# P1.1 验证污染目录存在（sanity check）+ LastWriteTime 复核（必须是 F.1 残留时间戳，非新写入）
 Test-Path 'D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache'
-# 期望：True
+(Get-Item 'D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache').LastWriteTime
+# 期望：True / 时间 ≈ 2026-04-17 16:09（F.1 baseline 时间戳）；若时间戳是当天新近的，先停 ghrunner Task 排查
 
 # P1.2 admin 强删（Administrators 组有 Full 权限，无视 protected ACL）
 Remove-Item -Recurse -Force 'D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache'
@@ -144,13 +149,13 @@ Test-Path 'D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache'
 
 ### 3.2 P2 workflow 兜底 step（sw-smoke.yml）
 
-在 `.github/workflows/sw-smoke.yml` 的 `actions/checkout@v6` step **之前**插入：
+在 `.github/workflows/sw-smoke.yml` 的 `actions/checkout@v6` step **之前**插入（v3 L3 P2#3 明示：当前 yaml `checkout` 是 `jobs.sw-smoke.steps[0]`，本 cleanup 设为新的 `steps[0]`，原 checkout 顺位下移为 `steps[1]`）：
 
 ```yaml
       - name: Pre-checkout workspace cleanup (F-1.3j 防 protected-ACL 残留)
         shell: pwsh
         run: |
-          # P2-O：兜底 kill SW 残留进程（防上一次跑异常退出留 SLDWORKS.exe 持锁，与 runbook §8.3 license 应急路径对齐）
+          # P2-O：兜底 kill SW 残留进程（防上一次跑异常退出留 SLDWORKS.exe 持锁，与 runbook §8.3 license 冲突场景互补：runbook §8.3 处理人手动关 SW，本 step 处理 ghrunner 上一次跑残留；S7 commit 时同步在 runbook §8.3 末尾追加自动化补充行 "sw-smoke pre-checkout step 已加 Stop-Process SLDWORKS 兜底，详见 F-1.3j 块"）
           Get-Process SLDWORKS -ErrorAction SilentlyContinue | ForEach-Object {
             Write-Host "Stopping orphan SLDWORKS PID=$($_.Id) StartTime=$($_.StartTime)"
             $_ | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -205,7 +210,7 @@ P1 + P2 + §3.4 改动 merge 到 main 后，**手动**通过 GitHub UI（Actions
 
 | 原因 | 详细 |
 |---|---|
-| **触发等价性可论证**（机械 P1#1） | merge to main 走 `push` event，与 `workflow_dispatch` event 在 GitHub webhook 分发路径上不一定等价（protected branch / required reviewers / squash merge 时 head_commit 字段为合并提交而非原 commit），无法独立验证；workflow_dispatch 与 F.2 T3 / runbook §7 既有验证完全一致，**承袭已验证路径** |
+| **触发等价性可论证**（机械 P1#1 + v3 L3 P2#2 澄清）| **runner pickup 层等价**（F.2 §0.2 第一条已断言 "commit 触发 / dispatch 触发等价"，本 spec 不否定该结论）；但**触发条件层有差异**（push event 受 protected branch / required reviewers / squash merge head_commit 字段差异 / `[skip smoke]` 在 head_commit.message 上的命中规则影响），本 spec 选 workflow_dispatch 是为消除**触发条件层**的歧义、与 F.2 T3 / runbook §7 既有验证完全一致，**承袭已验证路径** |
 | **F.2 §0.2 承诺 1 一致性**（机械 P1#1） | F.2 §0.2 承诺"链路层：runner 自启动 OK，下次 push main 自动 pickup" — 这条承诺在本 spec 不复验证（`push main` 自动触发与 `workflow_dispatch` 共享同一 runner / 同一 workflow，只在 GitHub event 入口分叉，本 spec 不引入新 runner 假设故承诺仍 hold） |
 | **可控 + 显式** | 手动触发避免开发者意外 push（如纯文档 commit 不希望触发）的边界 case；与 §6 S6 `[skip smoke]` 形成"显式触发 + 显式跳过"的对称语义 |
 
@@ -265,7 +270,7 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 |---|---|---|---|---|
 | AC-1 | sw-smoke workflow 跑完 | `conclusion=success` | manual eyeball | `gh run view <run-id>` / GitHub UI |
 | AC-2 | sw-inspect-deep.json schema 字段完备 | 含 `layers.dispatch.data.elapsed_ms` 数值字段；并且 `tools/assert_sw_inspect_schema.py` 退出码 = 0 | auto via workflow（§3.4 P4-E 已删 `\|\| true`，sw-inspect 退出码不再被吞） | workflow step "Emit sw-inspect JSON artifact" 红即 AC-2 fail |
-| **AC-2.5（v2 新增 C）** | materials.sldmat_files 业务承诺（继承 F.2 §0.2 第 3 条） | `layers.materials.data.sldmat_files > 0` | auto via test | `tests/test_sw_inspect_real.py::test_deep_real_smoke` 内已硬断（line 50-53），失败将让 sw-smoke "Run SW real smoke" step 红 → AC-1 连带 fail |
+| **AC-2.5（v2 新增 C）** | materials.sldmat_files 业务承诺（继承 F.2 §0.2 第 3 条） | `layers.materials.data.sldmat_files > 0` | auto via test | `tests/test_sw_inspect_real.py::test_deep_real_smoke` 内已硬断（line 51-53，line 50 为 `mat = doc[...]` 取值上下文），失败将让 sw-smoke "Run SW real smoke" step 红 → AC-1 连带 fail |
 | **AC-3（v2 修订 B+Q）** | dispatch 性能在合理区间且为真冷启动 | `attached_existing_session == false` **AND** `3000 <= dispatch.elapsed_ms <= 15000`（端点闭区间含 3000 / 15000） | auto via script | 下载 artifact `sw-inspect-deep.json`，`jq -e '.layers.dispatch.data.attached_existing_session == false and (.layers.dispatch.data.elapsed_ms >= 3000) and (.layers.dispatch.data.elapsed_ms <= 15000)'`；K1 区间合规判读详见 §5 模板 |
 | **AC-4（v2 修订 F）** | junit 真测试覆盖 | `total=2 skipped=0 real=2` | auto via workflow（§3.4 P4-F 已把 skip-guard 断言改为 `real == 2`） | workflow Skip-guard step 失败即 AC-4 fail，无需人工核 junit xml |
 | AC-5 | runbook §7 同步 | F.2 段开头加状态升级行 + F.2 段之后追加"F-1.3j+k 修复记录 + K1 第二数据点"块（含 8 条 F.2 §0.2 承诺复核 + K1 区间合规判读 + state upgrade 收尾） | manual git diff | `git diff origin/main..HEAD -- docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` 含期望 patch |
@@ -317,7 +322,9 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 - 一次性手工 fix：admin PowerShell `Remove-Item -Recurse -Force` 清掉 `D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache` + 所有 `__pycache__` 残留
 - 防御性变更：`.github/workflows/sw-smoke.yml` 在 `actions/checkout@v6` 之前新增 `Pre-checkout workspace cleanup` step（pwsh / best-effort / 使用 `$env:GITHUB_WORKSPACE` 不绑定 runner 路径 / 含 SW 残留进程清理 + `::warning::` annotation）
 - 衍生修复：line 59 删 `|| true`（修 AC-2 fail-fast 击穿）/ line 51 skip-guard 由 `real >= 1` 加严到 `real == 2`（修 AC-4 自动化）
-- **验证 run**：<run URL 回填>（workflow_dispatch 显式触发，非 push）
+- **验证 run**：
+  - **K1 数据点 run-B**（workflow_dispatch 触发 / 入 K1）：<run URL 回填> / runId=<回填>
+  - S4 烟雾 run-A（merge push 自动触发 / 仅参考，不入 K1）：<run URL 回填>（可选记录）
 
 **AC 验收结果**：
 
@@ -334,7 +341,7 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 **F.2 §0.2 八条承诺复核**（机械设计师消费视角）：
 
 承诺侧：
-- [ ] 链路层 — runner 自启动 OK，workflow_dispatch 触发 pickup（push main 路径未在本 spec 复验，依据共享 runner / 同 workflow 论据继承 F.2 PASS pickup-only 结论）
+- [ ] 链路层 — runner 自启动 OK，workflow_dispatch 触发 pickup（push main 路径未在本 spec 复验，依据共享 runner / 同 workflow 论据继承 F.2 PASS pickup-only 结论；**已核 sw-smoke.yml 无 push event payload 依赖**——所有 step 均不读 `github.event.head_commit.*` 之外的 push 字段，故 dispatch / push 路径在 step 行为层等价）
 - [ ] schema 回归 — `assert_sw_inspect_schema.py` PASS，sw-inspect JSON v1 字段不漂
 - [ ] materials 业务回归 — `materials.sldmat_files > 0`（test_deep_real_smoke 已断言）
 - [ ] 运行时回归 — 真 SW Dispatch 5492 ms ± Δ 量级未异常退化（K1 第二点见 AC-3）
@@ -360,24 +367,24 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 
 | 节点 | 动作 | commit 策略 | 触发 sw-smoke？ |
 |---|---|---|---|
-| S1 | admin PowerShell 跑 §3.1（P1 一次性 fix） | 不 commit（手工动作） | 否 |
+| S1 | admin PowerShell 跑 §3.1（含 v3 P1.0 runner Idle 检查 + P1.1 LastWriteTime 复核 + P1.2/3/4 一次性 fix） | 不 commit（手工动作） | 否 |
 | S2 | 改 sw-smoke.yml 加 §3.2（P2 cleanup step）+ §3.4 删 `\|\| true` + 改 `real == 2` | 1 commit on feature branch | 否（feature branch push 不触发） |
-| **S2.5（v2 新增 R）** | 本地 dry-run pwsh cleanup 脚本（3 fixture：workspace 不存在 / 含 .pytest_cache / 不设 GITHUB_WORKSPACE），核每个分支输出符合预期 | 不 commit（手工预检） | 否 |
-| S3 | 本地 `actionlint .github/workflows/sw-smoke.yml` | 不 commit（预检） | 否 |
-| S4 | PR + merge to main | merge commit | 是（merge 自动触发会跑一次 sw-smoke，**但本 spec K1 数据点不依赖此次** — 该次跑用作"修复有效性烟雾"，K1 第二数据点统一以 S5 为准） |
-| **S5（v2 修订 A）** | **手动 `gh workflow run sw-smoke.yml --ref main`** 触发 K1 第二数据点采集 run | 不 commit | **是**（workflow_dispatch 显式触发，与 F.2 T3 一致） |
-| S6 | 等 S5 跑完，下载 artifact，核 AC-1..AC-5（含 AC-2.5 / AC-3 attached 守卫 + 区间判读 / AC-4 自动） | 不 commit | — |
-| S7 | runbook §7 回填 §5 模板（含 F.2 状态升级行 + 新块 K1 数据 + 8 条承诺 checkbox） | 1 commit on main，message 末尾加 `[skip smoke]` | 否（`[skip smoke]` 跳过无意义触发） |
+| **S2.5（v3 修订 R + L4 P1#3）** | 本地 dry-run pwsh cleanup 脚本（3 fixture：workspace 不存在 / 含 .pytest_cache happy path / 不设 GITHUB_WORKSPACE），**仅查 happy-path 三分支**；**protected-ACL 路径靠 S4/S5 真 ghrunner 跑覆盖**（本地 procheng admin 身份不能复现 ghrunner 限权 EPERM）；可选第 4 fixture：admin 跑 `icacls $tempdir /inheritance:r /grant SYSTEM:F /grant Administrators:F`（手工模拟 protected ACL）+ `runas /user:LIMITED_USER` 跑 cleanup 验 `::warning::` annotation 路径 | 不 commit（手工预检） | 否 |
+| **S3（v3 修订 L4 P2#7）** | 本地 `actionlint --version` ≥ 1.6.26（pwsh shell 支持要求）后跑 `actionlint .github/workflows/sw-smoke.yml`；若本机无 actionlint 用 `docker run --rm -v ${PWD}:/repo rhysd/actionlint:latest -color`；预期：无 error / 允许 pwsh inline 命令的"unknown command" warning（已知噪声，可 ignore） | 不 commit（预检） | 否 |
+| **S4（v3 修订 L4 P2#5）** | PR + merge to main → merge commit 自动触发 sw-smoke run-A（push event）。**run-A 用作"修复有效性烟雾"（不入 K1）**；如果 run-A fail：(a) 失败 step = checkout EPERM → S1 admin fix 未生效，**先复诊 S1**；(b) 失败 step = 其他 → 不阻塞 S5（concurrency 不传染失败，run-B 可独立 dispatch） | merge commit | 是（自动 push event） |
+| **S5（v3 修订 L4 P1#2 + P2#4 + P2#6）** | **前置**：(i) 等 S4 run-A 跑完释放 SW（持久授权下 `Get-Process SLDWORKS` 返回 null 后再等 ≥30s 余量）；(ii) **首次跑前**用 admin runas 到 ghrunner 起 SW UI 一次完成首启 sldmaterials 路径初始化（仅首次 S5 需做，之后 ghrunner profile 已建好）。**触发**：`gh workflow run sw-smoke.yml --ref main` 显式 workflow_dispatch；**取最新 dispatch run-id**：`gh run list --workflow sw-smoke.yml --event workflow_dispatch --limit 1 --json databaseId,url --jq '.[0]'` 拿到 run-B URL + runId | 不 commit | **是**（workflow_dispatch 显式触发，与 F.2 T3 一致） |
+| S6 | 等 S5 跑完（`gh run watch <runId>` / GitHub UI），下载 artifact，核 AC-1..AC-5（含 AC-2.5 / AC-3 attached 守卫 + 区间判读 / AC-4 自动） | 不 commit | — |
+| **S7（v3 修订 L4 P3#10）** | runbook §7 回填 §5 模板（含 F.2 状态升级行 + 新块 K1 数据 + 8 条承诺 checkbox + run-A/run-B 双 URL）+ runbook §8.3 末尾追加 Stop-Process 自动化补充行（详见 §3.2 P2-O） | 1 commit on main，message 末尾加 `[skip smoke]`；**忘加 [skip smoke] 至多多跑一次 ~57s 无 fail 风险**（runbook 改动不动 sw-smoke.yml，re-trigger 走全 PASS 路径） | 否（`[skip smoke]` 跳过无意义触发） |
 
 **关键设计决策**：
 
 | 决策 | 取舍 |
 |---|---|
 | S2 不直接 push main | feature branch 过渡方便 S4 一次 review；走 PR 保留审查轨迹 |
-| **S2.5 dry-run 3 fixture**（R：测试员 P2#2）| cleanup step 含 3 个新分支（workspace nonexistent / cache present / SW 残留进程），actionlint 只查 yaml 语法不查 pwsh 逻辑；S2.5 在本机模拟环境跑一遍，确认 `Write-Host` 输出符合预期 |
-| **S4 merge 跑当烟雾，不当 K1 来源**（A 修订）| merge 自动触发的 push event run 用作"修复立即生效"信号；K1 数据点统一走 S5 workflow_dispatch，避免 push event vs workflow_dispatch event 路径假设歧义 |
-| **S5 workflow_dispatch 显式触发**（A 修订）| 与 F.2 T3 / runbook §7 既有验证完全一致；可控触发避免边界 case |
-| S7 单独 commit 回填 runbook | 数据更新与代码变更解耦；`[skip smoke]` 避免纯文档 commit 触发 ~57s 物理跑 |
+| **S2.5 dry-run 局限明示**（R + v3 L4 P1#3）| cleanup step 含 3 happy-path 分支（workspace nonexistent / cache present / SW 进程），本地 procheng admin 跑全 success **不证明** ghrunner 限权下也 success；protected-ACL 路径靠真 ghrunner 跑（S4 run-A / S5 run-B）覆盖；可选 icacls + runas 第 4 fixture 仅作高保真补强 |
+| **S4 merge 跑当烟雾，不当 K1 来源**（A 修订 + v3 L4 P2#5）| merge 自动触发的 push event run 用作"修复立即生效"信号；K1 数据点统一走 S5 workflow_dispatch，避免 push event vs workflow_dispatch event 路径假设歧义；run-A fail 不传染 S5（concurrency 只串行不传染成败） |
+| **S5 workflow_dispatch + 30s 余量 + ghrunner SW 首启**（v3 L4 P1#2 + P2#6）| 与 F.2 T3 / runbook §7 既有验证完全一致；持久授权下 `Stop-Process` + 30s 等待是保险余量（FlexLM 网络浮动场景需 60-90s，本机不适用）；ghrunner 首启 SW UI 仅在 S5 首次执行前做一次（之后 profile 已建） |
+| S7 单独 commit 回填 runbook + runbook §8.3 同步 | 数据更新与代码变更解耦；`[skip smoke]` 避免纯文档 commit 触发 ~57s 物理跑（忘加无 fail 风险）；§8.3 双向引用 Stop-Process 保持文档一致 |
 
 ---
 
@@ -398,6 +405,7 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 | **消费者误诊（CI 红被误判为代码问题）**（机械 P2#2）| 中 | 中 | cleanup step name 含 `(F-1.3j 防 protected-ACL 残留)` 后缀，Actions UI 一眼可辨；annotation title 含 `cleanup_residual` 关键字 |
 | S1 后短期内又有人手工跑 procheng admin pytest 污染 workspace | 极低 | 高（复发） | runbook §5 已规定 long-lived ghrunner；本 spec 不加额外约束（不值得为低概率事件加流程负担） |
 | `$env:GITHUB_WORKSPACE` 在某些 runner 版本下未定义 / 空字符串 | 极低 | 低 | step 内已强化守卫覆盖 `-not $ws -or $ws.Trim() -eq '' -or -not (Test-Path -LiteralPath $ws)`，未定义直接 skip（等价 no-op） |
+| **S5 dispatch 后 90s 内未见 in_progress**（v3 L4 P2#8）| 中 | 中 | runner 状态机扰动（Listener 崩 / Task Scheduler 重启 / Windows Update）；缓解：`gh api /repos/proecheng/cad-spec-gen/actions/runners --jq '.runners[]'` 看 status；必要时 admin 手动重启 Task Scheduler 任务后 re-dispatch；K1 数据点采纳的是首次 PASS run（不累加 / 不取首次 fail run 的部分数据） |
 
 ### 7.2 回滚方案
 
@@ -405,7 +413,7 @@ assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + te
 |---|---|
 | S2 commit 导致 yaml 语法错 | `git revert <commit>`；S1 清掉的 workspace 不影响（下次跑会 recreate） |
 | S4 / S5 sw-smoke 持续红，排查需时间 | commit message 加 `[skip smoke]` / `[skip sw-smoke]`（D15 已存在）临时跳过；不阻塞其他 PR；同时开 F-1.3l follow-up |
-| §3.4 P4-E 删 `\|\| true` 后 sw-inspect 偶发 crash 让 sw-smoke 转红率上升 | revert §3.4 P4-E（恢复 `\|\| true`）；改为在 `tools/assert_sw_inspect_schema.py` 内加 `JSONDecodeError` 友好包装（保留信息但不影响 fail-fast） |
+| §3.4 P4-E 删 `\|\| true` 后 sw-inspect 偶发 crash 让 sw-smoke 转红率上升 | revert §3.4 P4-E（恢复 `\|\| true`）；改为在 `tools/assert_sw_inspect_schema.py` 的 **`main()`** 内加 try/except `JSONDecodeError`（不是改 `assert_schema_v1` 函数本身——它只做断言），catch 后用 **退出码 65**（区别于 schema mismatch 的退出码 1）+ stderr 打印"sw-inspect 输出非合法 JSON，原始 path = X，前 200 字节 = Y"友好信息；保留 fail-fast + 调试信息双效 |
 | §3.4 P4-F `real == 2` 在新增第 3 个真测试时阻塞 | 该次 PR 必须**同时**改 skip-guard 数字（设计意图，强制 reviewer 显式确认增量）；非 emergency 不绕过 |
 | 极端（workflow 损坏无法临时跳过） | Settings → Actions → sw-smoke → Disable workflow（与 runbook §8.3 license 冲突应急路径相同） |
 
@@ -476,3 +484,10 @@ v NT AUTHORITY\SYSTEM:(I)(OI)(CI)(F)               ← 子目录继承（I）但
   - 6 高价值 P2（L silent-fail annotation / O Stop-Process / P cleanup 白名单 / Q 闭区间 / R dry-run task / T 八条承诺复核）
   - 主要新增：§3.4（sw-smoke.yml 衍生修复）/ §2.2 cleanup 白名单 / AC-2.5 / S2.5 dry-run / S5 workflow_dispatch / 状态升级声明
   - 主要修订：§3.2 决策表（+5 行）/ §3.3 trigger 改 workflow_dispatch / §4 AC-3 加 attached 守卫 + 闭区间 / §5 模板大幅扩展 / §7 风险矩阵更新 P→S + 新增 4 行 / §9 follow-up 增 F-1.3m/n/o/p
+- **v3（本稿）**：layer 3 代码-spec 对照（APPROVE，0 BLOCKER）+ layer 4 holistic dry-run（REVISE，3 BLOCKER 中 1 条因 SW 持久授权前提降级 P2）共 14 项合入：
+  - **L3 P2**：§3.2 Stop-Process "对齐"→"互补" + runbook §8.3 双向引用 / §3.3 push vs dispatch 等价性澄清（pickup 层等价 vs 触发层差异）/ §3.2 显式 "checkout 是 steps[0]，cleanup 设新 steps[0]" / AC-2.5 行号 :50-53 → :51-53
+  - **L3 P3**：§7.2 回滚 JSONDecodeError 包装细化到 main() try/except + 退出码 65
+  - **L4 P1**：§3.1 加 runner Idle + LastWriteTime 复核 / §6 S2.5 明确 "本地仅查 happy-path / protected-ACL 路径靠真 ghrunner 跑覆盖"
+  - **L4 P1#2 降级 P2**：§6 S5 加 SW process 退出后等 ≥30s 余量（持久授权下保险）
+  - **L4 P2**：§5.2 模板 + S6 加 run-B 显式标注 + `gh run list --event workflow_dispatch` / §6 S4 加 "run-A fail 不传染 S5" 注 / §6 S5 加 admin runas ghrunner 起 SW UI 一次首启 / §6 S3 加 actionlint ≥1.6.26 + docker fallback / §7.1 加 "S5 dispatch 后 90s 未 in_progress → 检查 runner" 行
+  - **L4 P3**：§5.2 第一条 checkbox 加 "已核 sw-smoke.yml 无 push payload 依赖" / §6 S7 加 "忘 [skip smoke] 多跑一次 ~57s 无 fail 风险" 注
