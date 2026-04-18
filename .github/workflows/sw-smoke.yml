@@ -47,8 +47,8 @@ jobs:
               Write-Host "::warning title=cleanup_residual::pre-checkout cleanup left .pytest_cache; ACL drift suspected; checkout fallback will attempt recreate"
             }
           }
-          Get-ChildItem -Path $ws -Filter '__pycache__' -Recurse -Force -Directory -EA SilentlyContinue |
-            Remove-Item -Recurse -Force -EA SilentlyContinue
+          Get-ChildItem -Path $ws -Filter '__pycache__' -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
       - uses: actions/checkout@v6
         with:
@@ -71,6 +71,8 @@ jobs:
 
       - name: Skip-guard (ET-based, D10)
         shell: bash
+        env:
+          PYTHONUTF8: "1"
         run: |
           python -c "
           from xml.etree import ElementTree as ET
