@@ -49,3 +49,37 @@ class TestColdDispatchPerStep:
             <= r.data["elapsed_ms"]
             <= sum(fake_per_step.values()) + 50
         ), f"elapsed_ms={r.data['elapsed_ms']} 超出 per_step 总和 ±50ms"
+
+    def test_worker_t0_start_inside_worker(self, monkeypatch):
+        """回归钉：elapsed_ms 不应包含线程池 cold-start 开销。
+
+        模拟 worker 先 sleep 500ms 再返回 per_step 总和 10。
+        若 elapsed_ms 误用外层 t0（即 int((perf_counter() - t0) * 1000)），
+        则 elapsed ≥ 500；正确实现应 elapsed = sum(per_step) = 10 < 100。
+        """
+        import time as _time_mod
+
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        def slow_worker(progid):
+            _time_mod.sleep(0.5)  # 模拟线程池 cold-start 延迟
+            fake_per_step = {
+                "dispatch_ms": 5,
+                "revision_ms": 3,
+                "visible_ms": 1,
+                "exitapp_ms": 1,
+            }
+            return ("2024", True, True, fake_per_step)
+
+        monkeypatch.setattr(sw_probe, "_dispatch_and_probe_worker", slow_worker)
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+        assert r.data["elapsed_ms"] < 100, (
+            f"elapsed_ms={r.data['elapsed_ms']} 包含了 500ms 线程池 cold-start — "
+            "t0 被误放在 submit 之前"
+        )
