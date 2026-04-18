@@ -19,6 +19,7 @@
   # 预期输出 C:\Program Files\Git\bin\bash.exe（或等价路径）
   # 若仅返回 scoop/chocolatey 的 git.exe 路径不含 bash.exe，需重装完整 Git for Windows
   ```
+- **gh CLI ≥ 2.20**（验证：`gh --version`；F-1.3j+k 的 runner Idle 检查 + workflow_dispatch 触发 + artifact 下载链路依赖此版本）
 
 ## 2. 创建 `ghrunner` 账户
 
@@ -160,6 +161,8 @@ cd D:\actions-runner
 
 **F.2 完整生产链路验收记录**（2026-04-18，PASS pickup-only，run 24598627853）：
 
+**状态：→ 2026-04-18 F-1.3j+k AC-3 间歇性 fail（5 点 2/5 越界，触发 F-1.3l 根因调查）；状态保留 PASS pickup-only，等 F-1.3l 关闭后再升级 PASS clean**
+
 - 验收日期：**2026-04-18**
 - 触发方式：手动 `gh workflow run sw-smoke.yml --ref main`（workflow_dispatch）
 - run URL：https://github.com/proecheng/cad-spec-gen/actions/runs/24598627853
@@ -190,6 +193,78 @@ cd D:\actions-runner
 - **推 main 风险**：**HIGH**（CI 会 checkout 失败），未修 F-1.3j 前**不要推 main**
 - F.2 后状态：runner long-lived 在线（Listener PID=12180）；下次 push main 会自动触发但会因 workspace 锁失败；当日有效，token 90 d 轮换 / Windows 大版本升级后须复跑 F.2
 
+**F-1.3j workspace ACL 修复 + F-1.3k K1 第二数据点**（2026-04-18，AC-3 间歇性 fail / state kept at PASS pickup-only）：
+
+- 修复日期：2026-04-18
+- 根因：F.1 baseline 跑（procheng admin session）创建的 `.pytest_cache` 持有 protected ACL（仅 Owner/Admin/SYSTEM Full，无 ghrunner 条目且不继承），F.2 切到 ghrunner 身份后 `git clean -ffdx` 无权 scandir 触发 EPERM
+- 一次性手工 fix：admin PowerShell `Remove-Item -Recurse -Force` 清掉 `D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache` + 所有 `__pycache__` 残留
+- 防御性变更：`.github/workflows/sw-smoke.yml` 在 `actions/checkout@v6` 之前新增 `Pre-checkout workspace cleanup` step（pwsh / best-effort / `$env:GITHUB_WORKSPACE` 三重守卫 / SW 残留进程清理 + `::warning::cleanup_residual` annotation）
+- 衍生修复：`Emit sw-inspect JSON artifact` 删 `|| true`（修 AC-2 fail-fast 击穿）/ skip-guard 由 `real >= 1` 加严到 `real == 2`（修 AC-4 自动化）
+- 验证 run（workflow_dispatch，K1 新数据点）：
+  - run-B 24605253673：https://github.com/proecheng/cad-spec-gen/actions/runs/24605253673
+  - run-C 24605350467：https://github.com/proecheng/cad-spec-gen/actions/runs/24605350467
+  - K4 24605595945：https://github.com/proecheng/cad-spec-gen/actions/runs/24605595945
+  - K5 24605597487：https://github.com/proecheng/cad-spec-gen/actions/runs/24605597487
+
+**AC 验收结果**：
+
+- AC-1 conclusion: ✅ success（4 个 run 全 success）
+- AC-2 schema fail-fast: ✅（assert_sw_inspect_schema.py exit=0，含 `layers.dispatch.data.elapsed_ms`）
+- AC-2.5 materials 业务承诺: ✅ `layers.materials.data.sldmat_files = 6` (> 0) — 4 个 run 全一致
+- AC-3 K1 第二数据点：**❌ 间歇性 fail**（5 点 2/5 越界下沿；attached_existing_session=false 全程成立）
+  - 数据点 cluster 分析：
+
+    | run | event | elapsed_ms | 距前一 run | AC-3 [3000, 15000] |
+    |---|---|---|---|---|
+    | F.1 baseline | push | 5492 | — | ✅ |
+    | run-B (本次) | dispatch | 306 | SW 物理退出 ~8min | ❌ 越界下沿 |
+    | run-C (本次) | dispatch | 314 | run-B + 5min | ❌ 越界下沿 |
+    | K4 (本次) | dispatch | 3295 | run-C + 14min | ✅ |
+    | K5 (本次) | dispatch | 3295 | K4 + 1min 串行 | ✅（与 K4 bit-exact） |
+
+  - 假设（待 F-1.3l 验证）：触发条件与 **recent physical SW activity** 相关；物理 SW 退出 < ~15min 内，dispatch 走某种浅层路径跑出 ~310ms，即使 `attached_existing_session=false`；超过 ~15min 后回到 ~3295ms 正常冷启
+  - Δ vs F.1 baseline 5492ms：{-94.4%, -94.3%, -40.0%, -40.0%}
+- AC-4 junit: ✅ total=2 skipped=0 real=2（4 个 run 全一致，workflow skip-guard 自动断言）
+- AC-5 文档同步: ✅ 本块 + F.2 状态升级行 + §1 gh CLI 前置 + §8.3 自动化补充
+
+**F.2 §0.2 八条承诺复核**（机械设计师消费视角）：
+
+承诺侧：
+- [x] 链路层 — runner 自启动 OK，workflow_dispatch 触发 pickup 秒级
+- [x] schema 回归 — `assert_sw_inspect_schema.py` PASS，sw-inspect JSON v1 字段不漂
+- [x] materials 业务回归 — `layers.materials.data.sldmat_files = 6 > 0`（test_deep_real_smoke 已断言）
+- [ ] **运行时回归 — ❌ 真 SW Dispatch elapsed_ms 间歇性越界下沿**（run-B/C 306/314ms vs F.1 5492ms），F-1.3l 调研中
+
+不承诺侧（不变）：
+- [ ] toolbox 业务层回归 ❌ 未在 sw-smoke 内（F-1.3h 待办）
+- [ ] STEP 转换正确性 ❌ 未跑 sw-warmup / Stage C
+- [ ] 永久有效 ❌ 90 天 token 轮换 + Windows / SW 升级须复验
+- [ ] 跨机器 ❌ F.2 仅本机 procheng-sw-smoke 验证
+
+**后续状态**：runner long-lived 在线，sw-smoke 重新进入 ready-for-merge 状态（AC-1/2/2.5/4 绿，AC-3 间歇性 fail 不阻断日常 merge — 触发条件罕见）。
+
+❌ **F.2 状态保留 PASS pickup-only**（未升级到 PASS clean，因 AC-3 间歇性 fail 未闭环）；F-1.3l 关闭 + 至少 6 个数据点一致落在 [3000, 15000] 区间后升级
+
+---
+
+**F-1.3l follow-up — dispatch.elapsed_ms 双峰分布根因调查**（2026-04-18 起触发）：
+
+- **现象**：K1 5 点数据 `{5492, 306, 314, 3295, 3295}`，呈双模态分布（~310ms cluster + ~3295ms cluster + 孤立 5492ms）；后续 cluster 切换与最近一次物理 SW 活动时间间隔相关（<15min → ~310ms / >15min → ~3295ms）
+- **关键事实**：两个 cluster 中 `attached_existing_session=false` 全程成立；所以不是 attach/cache 路径明面可判定
+- **猜测路径**（F-1.3l spec 起草时验证）：
+  1. SW license daemon idle timeout — 持久授权下某种 license context 有 ~15min 生命周期，超时后下次冷启需重 license check
+  2. SW COM server registration cache — pywin32 Dispatch 路径在 COM registration 热时走 inline，冷时走 out-of-process
+  3. Windows Defender 实时扫描 — 物理 SW 启动后 Defender scan cache 标记 SLDWORKS.exe 为 known-good，加速后续 launch
+- **验证步骤**（F-1.3l plan 草案）：
+  1. 在 sw_probe.py 里给 dispatch 阶段加 per-step timing（Dispatch / Revision / Visible=False / ExitApp 分别计时），重现 run-B/C 和 K4/K5 看哪一步差异
+  2. 补充 `probe_dispatch` 的 SwInfo 数据：license session ID / COM registration age / Defender status
+  3. 连续跑 10-20 次 dispatch，每次间隔 5min 递增（5/10/15/20/25min），确认 15min 阈值是否真实且单调
+- **关闭条件**：
+  - (a) 找到具体根因 + 文档化 → 若是预期行为，AC-3 区间调整为 `[100, 15000]` 保留上沿警示档
+  - (b) 若是代码 bug（误走浅层 path）→ 修 sw_probe.py 让两种情况都跑完整 lifecycle
+  - (c) F-1.3l spec + plan + 至少 6 个 K1 数据点一致落在新区间后关闭
+- **优先级**：中 — AC-1/2/2.5/4 绿，日常 merge 不受影响；但 AC-3 未闭环 F.2 状态机卡在 PASS pickup-only
+
 ## 8. 故障排查
 
 ### 8.1 Runner offline
@@ -210,6 +285,8 @@ cd D:\actions-runner
 如果 license 是 per-user：
 - 合并前关闭你的 SW 实例，或 commit message 加 `[skip smoke]` / `[skip sw-smoke]`（D15）
 - 持续冲突可在 Actions → sw-smoke → Disable workflow 临时关闭
+
+**自动化补充**（F-1.3j+k 起）：sw-smoke `Pre-checkout workspace cleanup` step 已加 `Stop-Process SLDWORKS` 兜底 kill 残留进程（详见 F-1.3j+k 块 + spec §3.2 P2-O），处理人手动关 SW 与本自动化互补。
 
 ### 8.4 积压 queued job 清理
 
