@@ -1,19 +1,18 @@
 """per_step_ms 字段的单测（F-1.3l Phase 1）。
 
-SW 仅 Windows，本文件所有测试 Linux CI 自动 skip（module-level skipif）。
+全文用 @requires_solidworks marker（见 tests/conftest.py 统一 skip 钩子），
+Linux / 无 pywin32 / 无 SW 三种环境自动 skip；self-hosted runner + 本地
+Windows 开发机跑真 mock 逻辑。
 """
 
 from __future__ import annotations
 
 import concurrent.futures  # noqa: F401  # T6 TestTimeoutPathPerStep 使用
-import sys
 from unittest import mock
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    sys.platform != "win32", reason="SolidWorks COM 仅 Windows，F-1.3l 不在 Linux 验"
-)
+pytestmark = pytest.mark.requires_solidworks
 
 
 class TestColdDispatchPerStep:
