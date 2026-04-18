@@ -23,6 +23,13 @@ from adapters.solidworks import sw_detect
 from adapters.solidworks import sw_toolbox_catalog
 from adapters.solidworks.sw_detect import SwInfo
 
+# F-1.3l Phase 1：per_step_ms 哨兵常量（PER_STEP_* 供未来其他 probe_* 函数复用）
+# PER_STEP_SENTINEL_RAISED = -1 表示"该步运行但抛异常"
+# PER_STEP_SENTINEL_UNREACHED = 0 表示"该步未被运行到"（timeout / 之前的步抛错）
+# 真实测量值 ≥ 1（<1ms 截断为 1，见 Task 7）
+PER_STEP_SENTINEL_RAISED = -1
+PER_STEP_SENTINEL_UNREACHED = 0
+
 
 @dataclass(frozen=True)
 class ProbeResult:
