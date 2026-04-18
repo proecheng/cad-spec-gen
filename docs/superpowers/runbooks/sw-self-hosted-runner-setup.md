@@ -249,6 +249,13 @@ cd D:\actions-runner
 
 **F-1.3l follow-up — dispatch.elapsed_ms 双峰分布根因调查**（2026-04-18 起触发）：
 
+**Phase 1 完成回填**（2026-04-XX，提交 SHA `<PHASE-1-MERGE-SHA>`）：
+- ✅ per_step_ms 4 段计时已合入 `sw_probe.probe_dispatch`（dispatch / revision / visible / exitapp 独立测量，哨兵 UNREACHED=0 / RAISED=-1 / <1ms 截断为 1）
+- ✅ AC-3 区间首次代码化为 `assert_ac3_range(dispatch_data)` 函数，初值 `[100, 30000]ms`（宽容档覆盖已知双峰）
+- ✅ `assert_sw_inspect_schema.py` 扩展 `REQUIRED_DISPATCH_DATA_FIELDS` / `REQUIRED_PER_STEP_FIELDS` + rc=66 per_step 总和超差
+- ✅ Phase 1 单测 18 个全绿（`tests/test_sw_probe_dispatch_per_step.py` 8 + `test_assert_schema_per_step.py` 6 + `test_assert_ac3_range.py` 7，外加 `test_sw_probe.py` / `test_assert_sw_inspect_schema.py` 无回归）
+- 状态：Phase 2 可开工（见 F-1.3l spec §8.0 前置 checklist）
+
 - **现象**：K1 5 点数据 `{5492, 306, 314, 3295, 3295}`，呈双模态分布（~310ms cluster + ~3295ms cluster + 孤立 5492ms）；后续 cluster 切换与最近一次物理 SW 活动时间间隔相关（<15min → ~310ms / >15min → ~3295ms）
 - **关键事实**：两个 cluster 中 `attached_existing_session=false` 全程成立；所以不是 attach/cache 路径明面可判定
 - **猜测路径**（F-1.3l spec 起草时验证）：
