@@ -700,7 +700,9 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     finally:
         ex.shutdown(wait=False)
 
-    elapsed_ms = sum(per_step_ms.values())
+    # 过滤负哨兵（PER_STEP_SENTINEL_RAISED=-1）避免污染壁钟语义；
+    # UNREACHED=0 被过滤无影响（不参与成功路径的加总）。
+    elapsed_ms = sum(v for v in per_step_ms.values() if v > 0)
 
     return ProbeResult(
         layer="dispatch",
