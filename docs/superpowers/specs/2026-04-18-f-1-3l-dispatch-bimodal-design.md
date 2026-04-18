@@ -56,18 +56,28 @@ F-1.3j+k 在 sw-smoke CI 采到 K1 5 数据点，发现 `sw-inspect-deep.json.la
 
 ```
 Phase 1：仪器化基础设施（永久合入 main，TDD 严格）
-├── probe_dispatch 重构：单点 elapsed_ms → 4 段 per-step timing
+├── probe_dispatch 重构（adapters/solidworks/sw_probe.py）：
+│   单点 elapsed_ms → 4 段 per-step timing
 │   字段：dispatch_ms / revision_ms / visible_ms / exitapp_ms
+│   实现方式：probe_dispatch 内部构造 data dict 时额外加 per_step_ms key
+│            （ProbeResult frozen dataclass 结构不改，data: dict[str, Any] 本就兼容）
 ├── t0 起点迁移：ThreadPoolExecutor.submit 之后 → worker 函数第一行
-├── sw_inspect 输出 schema 新增 4 个 optional 字段（向下兼容）
-├── assert_sw_inspect_schema.py (AC-2) 断言 per-step 存在 + 总和 ≈ elapsed_ms
-└── 单测覆盖冷启 / attach / timeout / 异常路径全集
+├── assert_sw_inspect_schema.py 扩展（schema 定义位置）：
+│   - REQUIRED_DISPATCH_DATA_FIELDS 常量新增（首次引入层级字段约束）
+│   - assert_schema_v1() 扩展：per_step_ms 4 字段存在 + 冷启路径总和 ≈ elapsed_ms
+│   - 退出码扩展：新增 rc=66（总和超差）；保留 rc=65 原语义"JSON parse 失败"不变
+├── 新建 AC-3 断言函数（首次在代码中实现该区间检查）：
+│   - 当前 AC-3 [3000, 15000] 仅在 runbook §7 文字记录，代码里不存在
+│   - 本 Phase 新建 assert_ac3_range(dispatch_data) 函数，Phase 3 会按根因调区间
+└── 单测覆盖冷启 / attach / timeout / 异常路径全集（tests/test_sw_probe_dispatch_per_step.py）
 
 Phase 2：3 假设验证（临时探针 + 实验脚本）
 │   **实验前**：
-│     - workflow 文件 `runs-on` 临时改为 `[self-hosted, f13l-exclusive]` 挡 sw-smoke CI
-│       （GitHub Actions workflow 层改动，非 runner settings；见 §10 R8）
-│     - 新建 `F13L_REVERT_CHECKLIST.md` 记录所有临时变动点
+│     - workflow `runs-on` **追加** `f13l-exclusive` label（不替换）：
+│       从 `[self-hosted, windows, solidworks]`
+│       改为 `[self-hosted, windows, solidworks, f13l-exclusive]`
+│       保留现有 3 labels 避免 runner 匹配失败
+│     - 新建 `F13L_REVERT_CHECKLIST.md` 记录所有临时变动点（含 workflow 行号）
 │   **对照原则**：严格交替（奇 = 干预 / 偶 = baseline），**不得**用"前 N / 后 N"
 │
 │   **职责分工**（关键：解决早退出 vs ≥20 点样本量矛盾）：
@@ -96,10 +106,11 @@ Phase 2：3 假设验证（临时探针 + 实验脚本）
     └── Get-MpComputerStatus 只读，顺路收集做相关性分析
     判定：相关性分析产出 H3 HIT / FALSIFIED 结论（不影响是否继续跑，H3 就是终点）
 
-Phase 3：根因确认 + AC-3 调整
+Phase 3：根因确认 + AC-3 区间确定
 ├── runbook §7 新增"F-1.3l 根因"子段（一句话结论 + 数据链接）
-├── AC-3 区间调整（预期 [100, 15000]，具体值由 Phase 2 数据决定）
-└── ≥ 6 次 sw-smoke CI 一致落在新区间 → F.2 状态 PASS pickup-only → PASS clean
+├── 调整 Phase 1 新建的 AC-3 断言函数的区间常量（非"修改旧 3000 → 100"，
+│   因为代码里从来没有 3000；这里是**首次定区间**，基于 Phase 2 数据）
+└── ≥ 6 次 sw-smoke CI 分布与 Phase 2 实测一致 → F.2 状态 PASS pickup-only → PASS clean
 
 临时探针 revert
 └── chore(f-1-3l): 收尾 — 删除 DEBUG 开关 + 实验脚本 + 临时字段
@@ -118,23 +129,24 @@ Phase 3：根因确认 + AC-3 调整
 
 | 文件 | 变动 |
 |---|---|
-| `adapters/solidworks/sw_probe.py` | `probe_dispatch` 重构：worker 返回 `per_step_ms` dict；`t0` 起点移入 worker；`ProbeResult.data` 新增 `per_step_ms` 字段；模块级常量 `PER_STEP_SENTINEL_RAISED = -1` / `PER_STEP_SENTINEL_UNREACHED = 0` 定义（供未来其他 probe_* 函数复用） |
-| `adapters/solidworks/sw_inspect_schema.py` 或 `.json` | `layers.dispatch.data` 新增 4 个 optional int 字段 |
-| `tools/assert_sw_inspect_schema.py` | AC-2 断言补 per-step：4 字段存在 + 冷启路径总和 ≈ `elapsed_ms`（±50ms） |
+| `adapters/solidworks/sw_probe.py` | `probe_dispatch` 重构：worker 返回 `per_step_ms` dict；`t0` 起点移入 worker；构造 ProbeResult 时 `data` dict 新增 `per_step_ms` key（**注**：ProbeResult frozen dataclass 不动，`data: dict[str, Any]` 本就能装任意 key）；模块级常量 `PER_STEP_SENTINEL_RAISED = -1` / `PER_STEP_SENTINEL_UNREACHED = 0` 定义（供未来其他 probe_* 函数复用） |
+| `tools/assert_sw_inspect_schema.py` | **schema 定义就在此文件的常量 + 函数里**（不存在独立的 sw_inspect_schema 文件）：<br/>① 扩展 `REQUIRED_LAYER_FIELDS` / 新增 `REQUIRED_DISPATCH_DATA_FIELDS = ("elapsed_ms", "per_step_ms")`<br/>② `assert_schema_v1()` 扩展：per_step_ms 4 字段存在 + 冷启路径总和 ≈ elapsed_ms（±50ms）<br/>③ 退出码扩展：新增 rc=66（总和超差）；rc=65 保留"JSON parse 失败"原语义<br/>④ **新建** `assert_ac3_range(dispatch_data)` 函数 — Phase 1 首次把 AC-3 区间从 runbook 文字搬到代码；初始区间用当前行为 `[306, 3295×2]` 兼容现状，Phase 3 再按根因收紧 |
 | `tests/test_sw_probe_dispatch_per_step.py`（新建） | 覆盖冷启 / attach / timeout / 3 步异常 / t0 起点回归 |
 | `tests/test_assert_schema_per_step.py`（新建） | 覆盖 schema 新断言的 happy / 缺字段 / 类型错 / 总和超差 4 case |
-| `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` | §7 F-1.3l follow-up 段补"Phase 1 完成"标记 |
+| `tests/test_assert_ac3_range.py`（新建） | 覆盖 AC-3 断言函数首次代码化的边界 |
+| `tests/test_sw_inspect_real.py` | **保留**现有 `elapsed_ms < 30_000` 上限断言作 fallback 安全网；AC-3 新断言是比它更严的区间检查，两者同时存在不冲突 |
+| `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` | §7 F-1.3l follow-up 段补"Phase 1 完成 — AC-3 首次代码化"标记 |
 
 ### Phase 2（临时探针 + 实验脚本；调查完毕 revert）
 
 | 文件 | 类型 | 用途 |
 |---|---|---|
 | `scripts/f13l_run.ps1` | 新建·临时 | **一键入口**：`--phase 2 --auto-chain` 按 H1→H2→H3 串行跑，命中即停 |
-| `scripts/f13l_h1_license_test.ps1` | 新建·临时 | H1 交替实验脚本，10 轮 CSV 输出 |
-| `scripts/f13l_h2_com_api_test.py` | 新建·临时 | H2 前置等价 baseline 20 点 + 交替实验 10 轮 CSV |
-| `scripts/f13l_h3_gradient_scan.ps1` | 新建·临时 | H3 间隔梯度 5/10/15/20/30/45/60min × 3 次 = 21 点 |
+| `scripts/f13l_h1_license_test.ps1` | 新建·临时 | H1 交替实验脚本，10 轮 CSV 输出。**调用方式**：PS1 内部用 `python -c "from adapters.solidworks.sw_probe import probe_dispatch; ..."` **Python 直调**，不走 `cad_pipeline.py sw-inspect` CLI — CLI 无 `--layer` 参数无法单独跑 dispatch 层 |
+| `scripts/f13l_h2_com_api_test.py` | 新建·临时 | H2 前置等价 baseline 20 点 + 交替实验 10 轮 CSV；同样 Python 直调 probe_dispatch |
+| `scripts/f13l_h3_gradient_scan.ps1` | 新建·临时 | H3 间隔梯度 5/10/15/20/30/45/60min × 3 次 = 21 点；同样 Python 直调 |
 | `scripts/f13l_analyze.py` | 新建·临时 | **一键分析**：`--csv X.csv --hypothesis H1` 读 CSV → pandas groupby → 输出"命中 / 证伪 / 需补数据"三态决策 |
-| `adapters/solidworks/sw_probe.py` | 临时 patch | `DEBUG_USE_COCREATEINSTANCEEX` 开关；`probe_investigation_env()` 不进 schema |
+| `adapters/solidworks/sw_probe.py` | 临时 patch | `DEBUG_USE_COCREATEINSTANCEEX` 开关（读环境变量）；`probe_investigation_env()` 辅助函数，返回临时探针字段；两者都不进 schema |
 | `f2-evidence-f13l/` | 新建·gitignored | CSV 数据归档（本地磁盘） |
 | `F13L_REVERT_CHECKLIST.md` | 新建·临时 | 调查开始时写，收尾 revert 时逐项勾（防漏删） |
 
@@ -142,9 +154,9 @@ Phase 3：根因确认 + AC-3 调整
 
 | 文件 | 变动 |
 |---|---|
-| `tools/assert_sw_inspect_schema.py` | AC-3 下限：3000 → 100（或根因决定的新下限）；上限保留 15000 |
+| `tools/assert_sw_inspect_schema.py` | 调整 Phase 1 新建的 `assert_ac3_range` 函数的区间常量（非"修改旧 3000"，3000 从未在代码里）。分支 A：新下限 = 浅档中位数 × 0.5 / 新上限 = 深档中位数 × 2；分支 B：单峰中位数 × 0.5 ~ × 2 |
 | `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` | §7 新增"F-1.3l 根因记录"子段 |
-| `tests/test_assert_schema_ac3.py` | 新下限边界测试 |
+| `tests/test_assert_ac3_range.py` | Phase 1 建好的测试文件，Phase 3 扩展新区间边界测试 |
 
 ---
 
@@ -153,20 +165,28 @@ Phase 3：根因确认 + AC-3 调整
 ### Phase 1（永久）
 
 ```
-sw_inspect CLI
-  └─> probe_dispatch(timeout=60)
-        ├─ attach 路径 → per_step_ms={全 0}; elapsed_ms=0
-        ├─ timeout → dispatch_ms=timeout_sec*1000; 其他 3 段=0
-        ├─ 单步异常 → 完成段真实值; 失败段=-1 (哨兵); 未到达段=0
-        └─ 冷启 → 4 段都有真实值; elapsed_ms = sum(per_step_ms.values())
+CLI 入口（现有）: python cad_pipeline.py sw-inspect --deep --json
+  └─> tools.sw_inspect.run_sw_inspect(args)
+        └─> adapters.solidworks.sw_probe.probe_dispatch(timeout=60)
+              ├─ attach 路径 → per_step_ms={全 0}; elapsed_ms=0
+              ├─ timeout → dispatch_ms=timeout_sec*1000; 其他 3 段=0
+              ├─ 单步异常 → 完成段真实值; 失败段=-1 (哨兵); 未到达段=0
+              └─ 冷启 → 4 段都有真实值; elapsed_ms = sum(per_step_ms.values())
 
 sw_inspect 输出
   └─> sw-inspect-deep.json
-        layers.dispatch.data.{elapsed_ms, per_step_ms: {...}, ...}
+        layers.dispatch.data.{elapsed_ms, per_step_ms: {...}, attached_existing_session, ...}
 
-assert_sw_inspect_schema.py (AC-2)
-  └─> 断言 per_step_ms 4 字段存在 + 冷启路径总和 ≈ elapsed_ms（±50ms）
-        失败 → rc=65 (schema) / rc=66 (总和超差)
+tools/assert_sw_inspect_schema.py
+  ├─ assert_schema_v1() 扩展：per_step_ms 4 字段存在 + 冷启总和 ≈ elapsed_ms（±50ms）
+  │   rc 约定（F-1.3l 扩展后完整表）：
+  │     0  = schema OK
+  │     1  = schema 不合规（AssertionError，Python 默认退出码）
+  │     64 = 用法错误（沿用现有）
+  │     65 = JSON parse 失败（沿用现有语义）
+  │     66 = per_step_ms 总和超差（**新增**）
+  └─ assert_ac3_range() 新建：dispatch.data.elapsed_ms 落在 [下限, 上限] 区间
+      （下限/上限 Phase 1 先设为容错值兼容现状，Phase 3 再收紧）
 ```
 
 ### Phase 2（临时）
@@ -193,14 +213,20 @@ assert_sw_inspect_schema.py (AC-2)
 | `com_registration_timestamp` | str | — | ✓ | — | H2 临时探针 |
 | `defender_last_scan_age_sec` | int | — | — | ✓ | H3 临时探针 |
 
-**流程**：
+**流程**（关键：Phase 2 实验直接 Python 调 `probe_dispatch()`，不走 CLI — CLI 无 `--layer` 参数且跑一次会经全部 9 层 probe，单独跑 dispatch 开销最小）：
 
 ```
 PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
   ├─ loop 10 次:
   │    if iter % 2 == 1 (奇): Stop-Process sldWorkerManager -Force; sleep 30s
-  │    $result = python -m tools.sw_inspect --layer dispatch --json
-  │    $env = python -c "from adapters.solidworks.sw_probe import probe_investigation_env; print(probe_investigation_env())"
+  │    # Python 单行直调 probe_dispatch，stdout 打印 JSON 行
+  │    $json = python -c "
+  │      import json
+  │      from adapters.solidworks.sw_probe import probe_dispatch, probe_investigation_env
+  │      r = probe_dispatch()
+  │      env = probe_investigation_env()
+  │      print(json.dumps({**r.data, **env}))
+  │    "
   │    追加 CSV 一行（17 列统一 schema；不适用列留空；哨兵 -1 序列化为空 → pandas NaN）
   └─> f2-evidence-f13l/h1_license.csv
 
@@ -281,9 +307,12 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 
 ### Phase 1 集成测试（Windows runner，手动触发）
 
-- sw-smoke CI 现有 7 AC 全绿（AC-1/2/2.5/4 必须保持绿；AC-3 仍允许间歇 fail）
+- sw-smoke CI 现有 AC（AC-1 / AC-2 / AC-2.5 / AC-3 / AC-4，详见 `docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` §7）验收：
+  * AC-1 / AC-2 / AC-2.5 / AC-4 必须保持绿
+  * AC-3 首次代码化后，因用容错区间初值，**也应保持绿**（这是 Phase 1 与之前间歇 fail 行为的关键区别）
 - sw-inspect-deep.json 真实产出 `per_step_ms` 4 字段
 - `assert_sw_inspect_schema.py` 在真 SW 数据上不抛 schema error
+- `test_sw_inspect_real.py:44` 的 `elapsed_ms < 30_000` 上限断言保留作 fallback 安全网
 
 ### Phase 2 测试层（极简）
 
@@ -310,8 +339,8 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 全部满足才关闭 F-1.3l：
 
 1. **Phase 1 永久改动合入 main**
-   - 所有 Phase 1 单测 GREEN
-   - sw-smoke CI 7 AC 全绿（AC-3 仍允许间歇 fail）
+   - 所有 Phase 1 单测 GREEN（含新建 `test_assert_ac3_range.py`）
+   - sw-smoke CI 现有 AC 全绿（AC-3 因首次代码化 + 容错初值区间，本应保持绿）
    - code-review 无阻断性问题
 
 2. **Phase 2 至少 1 条假设有明确结论**
@@ -361,7 +390,7 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - [ ] `scripts/f13l_h3_gradient_scan.ps1`
    - [ ] `scripts/f13l_analyze.py`
    - [ ] `F13L_REVERT_CHECKLIST.md` 本身（最后）
-   - [ ] workflow 文件 `runs-on` 从 `[self-hosted, f13l-exclusive]` 恢复 `[self-hosted]`（行号记在 checklist）
+   - [ ] workflow 文件 `runs-on` **移除 `f13l-exclusive` label**，恢复 `[self-hosted, windows, solidworks]`（行号记在 checklist；不要误把 windows/solidworks 也删掉）
    - [ ] `f2-evidence-f13l/` 保留 CSV 但 `.gitignore`（本地磁盘归档；§8.4 runbook 记录 git sha 指针）
    - **保留不 revert**：`per_step_ms` 字段、schema 迁移、AC-2/AC-3 断言调整、Phase 1 单测 — 这些是 F-1.3l 留下的永久基础设施
    - commit message：`chore(f-1-3l): 移除临时探针 + F-1.3l 收尾`
@@ -369,7 +398,7 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 ### 分支：根因找到但不修代码
 
 若根因是"SW COM 的预期行为"（e.g. license daemon idle timeout 本来就是设计如此）：
-- AC-3 区间扩为 `[100, 15000]`
+- AC-3 区间按 §8 (3) 分支 A 公式设定（浅档 × 0.5 ~ 深档 × 2，例 `[155, 6590]`）
 - sw_probe 代码**不修**
 - runbook 标注为"by design, accepted"
 - F.2 状态机照常升级 PASS clean
@@ -378,7 +407,7 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 
 若根因是 sw_probe 代码错误（e.g. attach 路径探测误判 / GetObject 在 ROT miss 时返回 stale proxy）：
 - 开 F-1.3l-fix 子任务单独走 TDD 修代码
-- AC-3 区间**不变**（维持 `[3000, 15000]`），等修完后期望双峰塌缩成单峰
+- 修完后 CI 重采 ≥ 10 点，按 §8 (3) 分支 B 公式设定单峰区间
 - F.2 状态机升级条件改为"fix merge + 6 次 run 一致"
 
 ---
@@ -405,7 +434,8 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 | R5 | per_step_ms 字段在下游消费者（未来的监控 dashboard）被误解 | 低 | 误报误警 | attach/timeout/异常路径的 per_step 语义在 §6 文档化 + schema 注释里 |
 | R6 | H1 实验总时长 ~15min 与假设阈值自相关 | 中 | 实验结论不可信（数据一致性 bug） | §3 明确"严格交替奇偶轮"；相邻两轮间隔差异 ≤ 30s（奇数轮 +Stop+sleep 30s / 偶数轮无），远 << 假设 ~15min 阈值两个量级，故混淆风险可接受 |
 | R7 | H2 `CoCreateInstanceEx` vs `Dispatch` 语义差异混入实验 | 中 | H2 结论无法归因于 ROT | §3 H2 前置等价 baseline 20 点；系统差 ≥ 20% 时 H2-abandoned（§8 关闭条件 2）|
-| R8 | workflow `runs-on` 临时改 `f13l-exclusive` 被误合 main | 中 | 非 F-1.3l 期间 sw-smoke CI 找不到 runner，所有 PR 卡住 | `F13L_REVERT_CHECKLIST.md` 强制列 workflow 文件行号；Phase 2 开工时在 PR 草稿里单独开子 commit，便于回滚 |
+| R8 | workflow `runs-on` 临时追加 `f13l-exclusive` label 被误合 main | 中 | 非 F-1.3l 期间 sw-smoke CI 匹配不到 runner（因 runner 只带前 3 labels），所有 PR 卡住 | `F13L_REVERT_CHECKLIST.md` 强制列 workflow 文件行号 + "追加 label 不替换"的原始 3 labels；Phase 2 开工时在 PR 草稿里单独开子 commit，便于回滚 |
+| R9 | Phase 1 新建 AC-3 断言区间初值选得太严 | 中 | sw-smoke CI AC-3 从"间歇 fail"变成"必 fail"，F-1.3l 以外的 PR 全部被阻 | Phase 1 初值用宽容值 `[100, 30000]` 与现有 `test_sw_inspect_real.py` 30s 上限对齐；Phase 3 再按根因收紧 |
 
 ---
 
@@ -416,4 +446,12 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 - F-1.3j+k spec：`docs/superpowers/specs/2026-04-18-sw-self-hosted-runner-f13jk-design.md`
 - runbook：`docs/superpowers/runbooks/sw-self-hosted-runner-setup.md` §7
 - handoff memory：`memory/project_f13jk_handoff.md`
-- 代码：`adapters/solidworks/sw_probe.py:509-678`（当前 `probe_dispatch` 实现）
+
+**关键代码位置**（第 3 轮审查后校正）：
+- `adapters/solidworks/sw_probe.py:509-678` — 当前 `probe_dispatch` 实现
+- `adapters/solidworks/sw_probe.py:27-47` — `ProbeResult` dataclass（frozen）
+- `tools/sw_inspect.py:121-188` — `run_sw_inspect(args)` CLI 实现（args 只读 `deep` / `json`，无 `--layer`）
+- `tools/assert_sw_inspect_schema.py:1-138` — **schema 定义在此文件内**（REQUIRED_*_LAYERS 常量 + `assert_schema_v1()`）
+- `tests/test_sw_inspect_real.py:44` — 现有 `elapsed_ms < 30_000` 上限断言（Phase 1 保留作 fallback）
+- `.github/workflows/sw-smoke.yml:19` — `runs-on: [self-hosted, windows, solidworks]`
+- `cad_pipeline.py` — CLI 入口，调 `python cad_pipeline.py sw-inspect --deep --json`
