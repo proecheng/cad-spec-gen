@@ -89,7 +89,18 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
+          # cad_pipeline sw-inspect 按 spec §5.1 退出码：
+          #   0=ok / 1=warn / 2=static fail / 3=dispatch fail / 4=loadaddin fail
+          # CI 策略：warn（rc=1）放行，让 assert_sw_inspect_schema 做结构 gate；
+          # rc>=2 真失败仍阻断（保留 Phase A `|| true` 击穿修复意图）
+          set +e
           python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json
+          cp_rc=$?
+          set -e
+          if [ "$cp_rc" -ge 2 ]; then
+            echo "::error title=sw_inspect_fail::sw-inspect rc=$cp_rc (severity=fail), blocking CI"
+            exit "$cp_rc"
+          fi
           python tools/assert_sw_inspect_schema.py sw-inspect-deep.json
 
       - name: Write human-readable step summary (D16)
