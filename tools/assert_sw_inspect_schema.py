@@ -88,10 +88,41 @@ def assert_schema_v1(path: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """CLI 入口。
+
+    退出码：
+      0  = schema 合规
+      1  = schema 不合规（AssertionError）
+      64 = 用法错误（参数缺失）
+      65 = JSON parse 失败（DATAERR，sysexits 标准；F-1.3j+k S2 commit 1 新增）
+    """
     if len(argv) != 2:
         print(f"usage: {argv[0]} <sw-inspect-json-path>", file=sys.stderr)
         return 64
-    assert_schema_v1(Path(argv[1]))
+
+    path = Path(argv[1])
+    try:
+        # 关键：把原 assert_schema_v1 调用包在 JSONDecodeError 守卫里
+        # 不动 assert_schema_v1 函数本身（继承 v3 L3 P3#2 决策）
+        assert_schema_v1(path)
+    except json.JSONDecodeError as e:
+        # stderr 文案强制 ASCII：项目 PYTHONIOENCODING=utf-8 注入子进程，
+        # 但 subprocess.run(text=True) 父端按 locale (Windows=GBK) 解码，
+        # UTF-8 中文字节会触发父端 UnicodeDecodeError → stderr=None。
+        # 中文留在代码注释里供人读，stderr 给消费方机读用 ASCII。
+        # 含 "JSONDecodeError" 关键字便于 grep 与测试断言。
+        print(
+            f"sw-inspect output is not valid JSON (JSONDecodeError): "
+            f"path={path}; err={e}; "
+            f"first 200 bytes={path.read_bytes()[:200]!r}",
+            file=sys.stderr,
+        )
+        return 65
+    except AssertionError:
+        # AssertionError 由 assert_schema_v1 抛出 → 走 Python 默认退出码 1
+        # 不在这里 catch，让回溯保留
+        raise
+
     print(f"schema v1 OK: {argv[1]}")
     return 0
 
