@@ -158,6 +158,38 @@ cd D:\actions-runner
 - CI 总耗时：57s（pytest ~6s + sw-inspect emit ~8s + setup/artifact ~43s）
 - runner 配置：procheng session（F.1 手工启动），F.2 完整生产链路验证（重启 + Autologon + Task Scheduler）待后续
 
+**F.2 完整生产链路验收记录**（2026-04-18，PASS pickup-only，run 24598627853）：
+
+- 验收日期：**2026-04-18**
+- 触发方式：手动 `gh workflow run sw-smoke.yml --ref main`（workflow_dispatch）
+- run URL：https://github.com/proecheng/cad-spec-gen/actions/runs/24598627853
+- host_fingerprint：`CC-PC` / Windows 11 build 26200
+- runner_version：`2.333.1`（来自 `D:\actions-runner\bin\Runner.Listener.exe` ProductVersion；install zip = `actions-runner-win-x64-2.333.1.zip`）
+- 链路检查点：
+  - **C1 Autologon**：PASS（用户肉眼确认 ghrunner 桌面自动登入；含 P2.5 等 30s）
+  - **C2 Task Scheduler + daemon**：PASS（LastRunTime=`2026-04-18 14:03:05`，LastTaskResult=`267009`，Runner.Listener PID=`12180` StartTime=`2026-04-18 14:03:15`）
+  - **C3 runner online**：PASS（runner `procheng-sw-smoke` 在 ghrunner 登录后 <15s status=online，T2 iter 1/12 即命中 baseline offline→online transition）
+  - **C4 workflow pickup + run**：**PASS pickup-only**（dispatch → pickup `5s`，但 conclusion=failure；jobs[0].startedAt=`06:14:43Z` 非 null，pickup 层 OK，workflow 内部 step 红）
+- 失败 step 详情：
+  - step name：`Run actions/checkout@v6`（step #2）
+  - failure 类型：self-hosted runner workspace 残留 `.pytest_cache` 目录有 EPERM scandir 锁
+  - failure log 摘要：
+    ```
+    warning: could not open directory '.pytest_cache/': Permission denied
+    warning: failed to remove .pytest_cache/: Directory not empty
+    ##[warning]Unable to clean or reset the repository. The repository will be recreated instead.
+    ##[error]File was unable to be removed Error: EPERM: operation not permitted, scandir
+    'D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache'
+    ```
+  - 后续 skipped steps：`Setup CAD env (composite)` / `Run SW real smoke (pytest 回归)` / `Skip-guard (ET-based, D10)` / `Emit sw-inspect JSON artifact` / `upload-artifact@v4` 全部 skipped
+- 与 F.1 对比：CI 总耗时 `30s`（F.1=57s，因 checkout 失败提前结束）；K1 dispatch.elapsed_ms **不可获取**（workflow 未跑到 sw-inspect step），需作为 follow-up 单独再跑；pickup_latency=`5s` 优于 F.1 baseline（含真 SW Dispatch 冷启 5492ms）
+- 结论：**F-1.3 Phase F.2 PASS pickup-only**，自动化生产链路端到端通（reboot → Autologon → Task Scheduler → run.cmd → GitHub online → workflow pickup 5s 全 OK），但 sw-smoke workflow 内部 actions/checkout 失败需独立排查
+- **必须立即另起 follow-up**（runbook §10 backlog 候选 / GitHub issue / 项目 todo）：
+  - **F-1.3j**（新建）：清理 `D:\actions-runner\_work\cad-spec-gen\cad-spec-gen\.pytest_cache` workspace 锁；考虑给 sw-smoke.yml 加 pre-checkout cleanup step（admin PS `Remove-Item -Recurse -Force`），或用 `clean: false` 跳过 git clean 步骤
+  - **F-1.3k**（新建）：F.2 K1 baseline 补点 — workspace 修复后单独 re-dispatch sw-smoke 一次拿 sw-inspect-deep.json 的 dispatch.elapsed_ms（与 F.1 5492ms 对照）
+- **推 main 风险**：**HIGH**（CI 会 checkout 失败），未修 F-1.3j 前**不要推 main**
+- F.2 后状态：runner long-lived 在线（Listener PID=12180）；下次 push main 会自动触发但会因 workspace 锁失败；当日有效，token 90 d 轮换 / Windows 大版本升级后须复跑 F.2
+
 ## 8. 故障排查
 
 ### 8.1 Runner offline
