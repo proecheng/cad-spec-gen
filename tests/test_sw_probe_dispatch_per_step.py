@@ -174,6 +174,50 @@ class TestWorkerStepException:
         assert r.data["per_step_ms"]["revision_ms"] == -1
         assert r.data["per_step_ms"]["dispatch_ms"] >= 1  # 最小值截断
 
+    def test_visible_step_raises(self, monkeypatch):
+        """Visible = False 抛 → visible_ms = -1；前序步正常记录 + 后序步仍运行。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        fake_app = mock.Mock()
+        fake_app.RevisionNumber = "2024"
+        # Visible 赋值抛异常
+        type(fake_app).Visible = mock.PropertyMock(side_effect=Exception("visible fail"))
+        fake_app.ExitApp = mock.Mock(return_value=None)
+
+        monkeypatch.setattr("win32com.client.Dispatch", mock.Mock(return_value=fake_app))
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+        assert r.data["per_step_ms"]["visible_ms"] == -1
+        assert r.data["per_step_ms"]["dispatch_ms"] >= 1
+        assert r.data["per_step_ms"]["revision_ms"] >= 1
+
+    def test_exitapp_step_raises(self, monkeypatch):
+        """ExitApp 抛 → exitapp_ms = -1，前 3 步正常记录。"""
+        from adapters.solidworks import sw_probe
+
+        monkeypatch.setattr(
+            "win32com.client.GetObject",
+            mock.Mock(side_effect=Exception("no running SW")),
+        )
+
+        fake_app = mock.Mock()
+        fake_app.RevisionNumber = "2024"
+        fake_app.Visible = False
+        fake_app.ExitApp = mock.Mock(side_effect=Exception("exit fail"))
+
+        monkeypatch.setattr("win32com.client.Dispatch", mock.Mock(return_value=fake_app))
+
+        r = sw_probe.probe_dispatch(timeout_sec=10)
+        assert r.data["per_step_ms"]["exitapp_ms"] == -1
+        assert r.data["per_step_ms"]["dispatch_ms"] >= 1
+        assert r.data["per_step_ms"]["revision_ms"] >= 1
+        assert r.data["per_step_ms"]["visible_ms"] >= 1
+
 
 class TestPerStepMinTruncation:
     """E2: per_step_ms <1ms 截断为 1 避免与哨兵 0 混淆。"""
