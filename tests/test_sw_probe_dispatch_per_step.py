@@ -6,9 +6,35 @@
 from __future__ import annotations
 
 import concurrent.futures  # noqa: F401  # T6 TestTimeoutPathPerStep 使用
+import sys
+import types
 from unittest import mock
 
-import pytest  # noqa: F401  # T7 TestWorkerStepException / T10 TestSchemaPerStep 使用
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fake_win32com(monkeypatch):
+    """Linux CI 无 pywin32；sys.modules 伪造 win32com / win32com.client / pythoncom 三层。
+
+    沿用 test_sw_probe.py::TestProbeDispatch._install_fake_win32com 的既定模式。
+    `monkeypatch.setattr("win32com.client.GetObject", ...)` 这类字符串路径写法
+    要求目标模块已存在于 sys.modules 且有对应属性；本 fixture 先建空桩。
+    """
+    fake_client = types.ModuleType("win32com.client")
+    fake_client.Dispatch = mock.Mock()
+    fake_client.GetObject = mock.Mock()
+
+    fake_root = types.ModuleType("win32com")
+    fake_root.client = fake_client
+
+    fake_pythoncom = types.ModuleType("pythoncom")
+    fake_pythoncom.CoInitialize = lambda: None
+    fake_pythoncom.CoUninitialize = lambda: None
+
+    monkeypatch.setitem(sys.modules, "win32com", fake_root)
+    monkeypatch.setitem(sys.modules, "win32com.client", fake_client)
+    monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)
 
 
 class TestColdDispatchPerStep:
