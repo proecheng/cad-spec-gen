@@ -64,12 +64,18 @@ Phase 1：仪器化基础设施（永久合入 main，TDD 严格）
 └── 单测覆盖冷启 / attach / timeout / 异常路径全集
 
 Phase 2：3 假设串行证伪（临时探针 + 实验脚本）
+│   **实验前**：runner `labels: [f13l-exclusive]` 临时挡 sw-smoke CI
+│   **对照原则**：严格交替（奇 = 干预 / 偶 = baseline），**不得**用"前 N / 后 N"
+│   分块设计（避免 H1 ~15min 阈值与实验总时长自相关 — 见 §10 风险 R6）
 ├── H1 license daemon（先，最便宜）
 │   ├── 临时探针：license_session_age_sec
-│   └── 2×2 对比实验：baseline 5 次 vs 每次 Stop-Process sldWorkerManager 后 5 次
+│   └── 交替实验：10 轮，奇数轮前 Stop-Process sldWorkerManager / 偶数轮 baseline
 ├── H2 COM ROT / registration cache（次）
 │   ├── 临时探针：com_rot_entry_count / com_registration_timestamp
-│   └── DEBUG_USE_COCREATEINSTANCEEX 环境开关：5 次 on / 5 次 off
+│   ├── **前置等价性 baseline**：同进程连续调 `Dispatch` 10 次 + `CoCreateInstanceEx` 10 次，
+│   │   确认无干预条件下两 API 的 per_step timing 无系统差（均值差 < 20%）；
+│   │   若有系统差 → H2 实验结论需额外控制此变量
+│   └── 交替实验：10 轮，奇数轮 DEBUG_USE_COCREATEINSTANCEEX=1 / 偶数轮 baseline
 ├── H3 Defender scan cache（末位，非侵入）
 │   ├── 临时探针：defender_last_scan_age_sec / defender_rtp_state
 │   └── Get-MpComputerStatus 只读，顺路收集做相关性分析
@@ -97,7 +103,7 @@ Phase 3：根因确认 + AC-3 调整
 
 | 文件 | 变动 |
 |---|---|
-| `adapters/solidworks/sw_probe.py` | `probe_dispatch` 重构：worker 返回 `per_step_ms` dict；`t0` 起点移入 worker；`ProbeResult.data` 新增 `per_step_ms` 字段 |
+| `adapters/solidworks/sw_probe.py` | `probe_dispatch` 重构：worker 返回 `per_step_ms` dict；`t0` 起点移入 worker；`ProbeResult.data` 新增 `per_step_ms` 字段；模块级常量 `PER_STEP_SENTINEL_RAISED = -1` / `PER_STEP_SENTINEL_UNREACHED = 0` 定义（供未来其他 probe_* 函数复用） |
 | `adapters/solidworks/sw_inspect_schema.py` 或 `.json` | `layers.dispatch.data` 新增 4 个 optional int 字段 |
 | `tools/assert_sw_inspect_schema.py` | AC-2 断言补 per-step：4 字段存在 + 冷启路径总和 ≈ `elapsed_ms`（±50ms） |
 | `tests/test_sw_probe_dispatch_per_step.py`（新建） | 覆盖冷启 / attach / timeout / 3 步异常 / t0 起点回归 |
@@ -108,11 +114,14 @@ Phase 3：根因确认 + AC-3 调整
 
 | 文件 | 类型 | 用途 |
 |---|---|---|
-| `scripts/f13l_h1_license_test.ps1` | 新建·临时 | H1 2×2 对比脚本，10 轮 CSV 输出 |
-| `scripts/f13l_h2_com_api_test.py` | 新建·临时 | H2 DEBUG 开关对比 10 轮 CSV |
+| `scripts/f13l_run.ps1` | 新建·临时 | **一键入口**：`--phase 2 --auto-chain` 按 H1→H2→H3 串行跑，命中即停 |
+| `scripts/f13l_h1_license_test.ps1` | 新建·临时 | H1 交替实验脚本，10 轮 CSV 输出 |
+| `scripts/f13l_h2_com_api_test.py` | 新建·临时 | H2 前置等价 baseline 20 点 + 交替实验 10 轮 CSV |
 | `scripts/f13l_h3_gradient_scan.ps1` | 新建·临时 | H3 间隔梯度 5/10/15/20/30/45/60min × 3 次 = 21 点 |
+| `scripts/f13l_analyze.py` | 新建·临时 | **一键分析**：`--csv X.csv --hypothesis H1` 读 CSV → pandas groupby → 输出"命中 / 证伪 / 需补数据"三态决策 |
 | `adapters/solidworks/sw_probe.py` | 临时 patch | `DEBUG_USE_COCREATEINSTANCEEX` 开关；`probe_investigation_env()` 不进 schema |
 | `f2-evidence-f13l/` | 新建·gitignored | CSV 数据归档（本地磁盘） |
+| `F13L_REVERT_CHECKLIST.md` | 新建·临时 | 调查开始时写，收尾 revert 时逐项勾（防漏删） |
 
 ### Phase 3（根因确认后改动）
 
@@ -147,20 +156,45 @@ assert_sw_inspect_schema.py (AC-2)
 
 ### Phase 2（临时）
 
+**统一 CSV schema**（所有 H1/H2/H3 脚本都输出完全相同的 17 列；不适用字段填空 → pandas 读为 NaN）：
+
+| 列 | 类型 | H1 | H2 | H3 | 说明 |
+|---|---|---|---|---|---|
+| `hypothesis` | str | `H1` | `H2` | `H3` | 实验标签，便于合并多 CSV 分析 |
+| `iter` | int | ✓ | ✓ | ✓ | 本实验内第几次 |
+| `ts_utc` | str | ✓ | ✓ | ✓ | ISO8601 |
+| `kill_flag` | int | 0/1 | — | — | H1 专用：1 = 干预前 Stop-Process；其他留空 |
+| `com_api_flag` | int | — | 0/1 | — | H2 专用：1 = 用 CoCreateInstanceEx；其他留空 |
+| `baseline_phase` | str | — | `pre` / `post` | — | H2 前置等价 baseline 20 点 vs 主实验 10 点 |
+| `interval_min` | int | — | — | ✓ | H3 专用：距前次 Dispatch 分钟数 |
+| `dispatch_ms` | int | ✓ | ✓ | ✓ | 空字段 = 未运行到；详见 §6 哨兵约定 |
+| `revision_ms` | int | ✓ | ✓ | ✓ | 同上 |
+| `visible_ms` | int | ✓ | ✓ | ✓ | 同上 |
+| `exitapp_ms` | int | ✓ | ✓ | ✓ | 同上 |
+| `elapsed_ms` | int | ✓ | ✓ | ✓ | sw_inspect 顶层字段（冷启应 = 4 段和） |
+| `attached_existing_session` | bool | ✓ | ✓ | ✓ | 若 true → 整行视为无效（过滤）|
+| `license_session_age_sec` | int | ✓ | — | — | H1 临时探针 |
+| `com_rot_entry_count` | int | — | ✓ | — | H2 临时探针 |
+| `com_registration_timestamp` | str | — | ✓ | — | H2 临时探针 |
+| `defender_last_scan_age_sec` | int | — | — | ✓ | H3 临时探针 |
+
+**流程**：
+
 ```
 PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
   ├─ loop 10 次:
-  │    if iter is odd: Stop-Process sldWorkerManager -Force; sleep 30s
+  │    if iter % 2 == 1 (奇): Stop-Process sldWorkerManager -Force; sleep 30s
   │    $result = python -m tools.sw_inspect --layer dispatch --json
   │    $env = python -c "from adapters.solidworks.sw_probe import probe_investigation_env; print(probe_investigation_env())"
-  │    追加 CSV 行：iter, kill_flag, dispatch_ms, revision_ms, visible_ms, exitapp_ms,
-  │                license_session_age_sec, com_rot_entry_count, defender_last_scan_age_sec
+  │    追加 CSV 一行（17 列统一 schema；不适用列留空；哨兵 -1 序列化为空 → pandas NaN）
   └─> f2-evidence-f13l/h1_license.csv
 
-分析
-  └─ pandas.read_csv().groupby('kill_flag').describe()
-        两组 per_step_ms 均值/中位数差 ≥ 2x → H1 命中
-        否则 → H1 证伪，进 H2
+一键分析（scripts/f13l_analyze.py）
+  └─ pandas.read_csv(na_values=['', '-1']).dropna(subset=['dispatch_ms']).groupby(flag).describe()
+        两组 per_step_ms 中位数差 ≥ 2x → 输出 "HIT"
+        两组差 < 1.5x → 输出 "FALSIFIED"
+        1.5x ≤ 差 < 2x → 输出 "INCONCLUSIVE, need +5 samples"
+        (attached_existing_session == True 的行全局过滤掉)
 ```
 
 ---
@@ -177,6 +211,8 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 
 **关键设计决策**：
 - **哨兵 -1 vs 0** 严格区分"运行过但抛异常"vs"没运行到"；分析时 -1 可 filter
+- **JSON 字段内部**保留真实值 -1 / 0；**CSV 序列化**时，-1 → 空字段（便于 pandas 读为 NaN，避免 `mean()` 把 -1 当合法值计算）；0 保持为 "0"（表示"有意义的零"，attach 路径）
+- `scripts/f13l_analyze.py` 开头统一 `df = pd.read_csv(path, na_values=['', '-1'])` + `df.dropna(subset=['dispatch_ms'])` 预处理
 - **schema 对异常路径宽松**：AC-2 只断言"字段存在 + 类型 int"，不断言"总和 = elapsed_ms"（异常路径总和不等是合法）
 - **Phase 2 实验脚本单轮失败不中断 loop**：跑 10 轮某次 COM 抖动只丢一行 CSV，不全废
 
@@ -249,13 +285,20 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - code-review 无阻断性问题
 
 2. **Phase 2 至少 1 条假设有明确结论**
-   - 命中：H1/H2/H3 之一被实验数据证实（`pandas.groupby().describe()` 两组均值差 ≥ 2x）
-   - 或全伪：3 条假设都不命中 → 触发 F-1.3l-Q2 升级假设（见 §9 不做清单）
+   - 命中：H1/H2/H3 之一被实验数据证实（`scripts/f13l_analyze.py` 输出 `HIT`，两组中位数差 ≥ 2x）
+   - 或全伪：3 条假设都不命中 → 触发 F-1.3l-Q2 升级假设
+     * **升级路径**：新开 `docs/superpowers/specs/YYYY-MM-DD-f-1-3l-q2-design.md`（不追加本 spec），引用本 spec 的 Phase 2 CSV 数据作为"已证伪基线"
+     * F-1.3l 本 spec 状态改为"closed-inconclusive"，F.2 维持 PASS pickup-only 不降级
 
-3. **AC-3 区间调整有数据支撑**
+3. **AC-3 区间调整有数据支撑**（公式必须保留回归保护能力，不得 tautology）
    - 汇总 ≥ 20 个 K1 数据点
-   - 新下限 = min(全部点) - 20% 缓冲
-   - 新上限 = max(全部点) + 30% 缓冲（若 ≥ 10000ms 才保留）
+   - **分支 A — 根因 by design，双峰保留**（预期多数场景）：
+     * 新下限 = **浅档中位数 × 0.5**（若异常比浅档还快 ≥ 2x，仍能报警；不是 min-20% 这种画靶命中式）
+     * 新上限 = **深档中位数 × 2**（若异常比深档还慢 ≥ 2x，仍能报警）
+     * 例：浅档中位 310ms / 深档中位 3295ms → 新区间 `[155, 6590]`
+   - **分支 B — 根因是 bug 已修，双峰塌缩成单峰**：
+     * 新下限 = 单峰中位数 × 0.5
+     * 新上限 = 单峰中位数 × 2
    - 区间调整 PR 合入 main
 
 4. **runbook §7 F-1.3l 根因记录段写入**
@@ -267,10 +310,18 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
    - F.2 状态机从 PASS pickup-only → PASS clean
 
 6. **临时探针 git revert**
-   - `chore(f-1-3l): 移除临时探针` commit
-   - `DEBUG_USE_COCREATEINSTANCEEX` / `probe_investigation_env` 删除
-   - `scripts/f13l_*.ps1/.py` 删除
-   - `f2-evidence-f13l/` 保留 CSV 但 `.gitignore`（本地磁盘归档）
+   按 `F13L_REVERT_CHECKLIST.md`（Phase 2 开工时建）逐项勾：
+   - [ ] `DEBUG_USE_COCREATEINSTANCEEX` 开关从 `sw_probe.py` 删除
+   - [ ] `probe_investigation_env()` 函数从 `sw_probe.py` 删除
+   - [ ] `scripts/f13l_run.ps1`
+   - [ ] `scripts/f13l_h1_license_test.ps1`
+   - [ ] `scripts/f13l_h2_com_api_test.py`
+   - [ ] `scripts/f13l_h3_gradient_scan.ps1`
+   - [ ] `scripts/f13l_analyze.py`
+   - [ ] `F13L_REVERT_CHECKLIST.md` 本身（最后）
+   - [ ] runner `labels: [f13l-exclusive]` 恢复默认 labels
+   - [ ] `f2-evidence-f13l/` 保留 CSV 但 `.gitignore`（本地磁盘归档；§8.4 runbook 记录 git sha 指针）
+   - commit message：`chore(f-1-3l): 移除临时探针 + F-1.3l 收尾`
 
 ### 分支：根因找到但不修代码
 
@@ -302,13 +353,15 @@ PS1 实验脚本（e.g. f13l_h1_license_test.ps1）
 
 ## 10. 风险与缓解
 
-| 风险 | 概率 | 影响 | 缓解 |
-|---|---|---|---|
-| 3 条假设全伪 | 中 | 调查失败，AC-3 无法下调 | 触发 F-1.3l-Q2 开新假设集；F.2 仍保持 PASS pickup-only 不降级 |
-| Phase 1 TDD 破坏 AC-2 现有断言 | 低 | sw-smoke CI 回归 | `test_schema_accepts_sum_mismatch_exception_path` 显式覆盖异常路径宽松断言 |
-| Phase 2 实验脚本污染 runner 环境 | 低 | 后续 CI 失败 | `$ErrorActionPreference='Stop'` + `finally` 恢复；license daemon 自拉起无需手动 |
-| 根因找到是代码 bug 但修代码风险高 | 低 | Phase 1 白做 | 分支路径已在 §8 覆盖；`test_worker_t0_start_inside_worker` 回归保障 |
-| per_step_ms 字段在下游消费者（未来的监控 dashboard）被误解 | 低 | 误报误警 | attach/timeout/异常路径的 per_step 语义在 §6 文档化 + schema 注释里 |
+| ID | 风险 | 概率 | 影响 | 缓解 |
+|---|---|---|---|---|
+| R1 | 3 条假设全伪 | 中 | 调查失败，AC-3 无法下调 | 触发 F-1.3l-Q2 开新 spec；F.2 仍保持 PASS pickup-only 不降级 |
+| R2 | Phase 1 TDD 破坏 AC-2 现有断言 | 低 | sw-smoke CI 回归 | `test_schema_accepts_sum_mismatch_exception_path` 显式覆盖异常路径宽松断言 |
+| R3 | Phase 2 实验脚本污染 runner 环境 | 低 | 后续 CI 失败 | `$ErrorActionPreference='Stop'` + `finally` 恢复；license daemon 自拉起无需手动；`f13l-exclusive` label 隔离 CI |
+| R4 | 根因找到是代码 bug 但修代码风险高 | 低 | Phase 1 白做 | 分支路径已在 §8 覆盖；`test_worker_t0_start_inside_worker` 回归保障 |
+| R5 | per_step_ms 字段在下游消费者（未来的监控 dashboard）被误解 | 低 | 误报误警 | attach/timeout/异常路径的 per_step 语义在 §6 文档化 + schema 注释里 |
+| R6 | H1 实验总时长 ~15min 与假设阈值自相关 | 中 | 实验结论不可信（数据一致性 bug） | §3 明确"严格交替奇偶轮"；相邻两轮间隔几乎相同，任何"距上次 SW 活动时间"的潜在混淆对奇偶两组等效施加 |
+| R7 | H2 `CoCreateInstanceEx` vs `Dispatch` 语义差异混入实验 | 中 | H2 结论无法归因于 ROT | §3 H2 前置等价 baseline 20 点强制先证实两 API 无系统差（均值差 < 20%） |
 
 ---
 
