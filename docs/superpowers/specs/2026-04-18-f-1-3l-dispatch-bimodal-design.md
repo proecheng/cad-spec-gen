@@ -73,8 +73,7 @@ Phase 2：3 假设串行证伪（临时探针 + 实验脚本）
 ├── H3 Defender scan cache（末位，非侵入）
 │   ├── 临时探针：defender_last_scan_age_sec / defender_rtp_state
 │   └── Get-MpComputerStatus 只读，顺路收集做相关性分析
-└── 串行早退出：任一假设命中即停（不跑后续）
-                除非命中度弱（解释力 < 50%），才继续跑后续假设排除干扰
+└── 串行早退出：任一假设命中（§8 关闭条件 2 的 "≥ 2x" 阈值）即停，不跑后续
 
 Phase 3：根因确认 + AC-3 调整
 ├── runbook §7 新增"F-1.3l 根因"子段（一句话结论 + 数据链接）
@@ -87,7 +86,7 @@ Phase 3：根因确认 + AC-3 调整
 
 **关键不变量**：
 - Phase 1 改动**不依赖**任何假设成立，per-step timing 对未来所有 dispatch 调查都有价值
-- Phase 2 的 3 个实验**串行早退出**，命中即停
+- Phase 2 的 3 个实验**串行早退出**，命中即停（命中定义以 §8 关闭条件 2 为准）
 - runner 占用分批：Phase 1 只跑本地 pytest + CI 冒烟；Phase 2 每轮实验 30-45 分钟 runner 独占
 
 ---
