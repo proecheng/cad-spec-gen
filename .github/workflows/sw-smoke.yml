@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Pre-checkout workspace cleanup (F-1.3j 防 protected-ACL 残留)
-        shell: pwsh
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
