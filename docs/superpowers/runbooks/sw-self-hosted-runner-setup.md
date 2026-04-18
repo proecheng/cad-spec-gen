@@ -249,7 +249,7 @@ cd D:\actions-runner
 
 **F-1.3l follow-up — dispatch.elapsed_ms 双峰分布根因调查**（2026-04-18 起触发）：
 
-**Phase 1 完成回填**（2026-04-XX，提交 SHA `<PHASE-1-MERGE-SHA>`）：
+**Phase 1 完成回填**（2026-04-18，squash merge SHA `4df3fcb`，PR #8）：
 - ✅ per_step_ms 4 段计时已合入 `sw_probe.probe_dispatch`（dispatch / revision / visible / exitapp 独立测量，哨兵 UNREACHED=0 / RAISED=-1 / <1ms 截断为 1）
 - ✅ AC-3 区间首次代码化为 `assert_ac3_range(dispatch_data)` 函数，初值 `[100, 30000]ms`（宽容档覆盖已知双峰）
 - ✅ `assert_sw_inspect_schema.py` 扩展 `REQUIRED_DISPATCH_DATA_FIELDS` / `REQUIRED_PER_STEP_FIELDS` + rc=66 per_step 总和超差
