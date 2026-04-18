@@ -55,6 +55,10 @@ REQUIRED_LAYERS_FAST = (
 REQUIRED_LAYERS_DEEP = REQUIRED_LAYERS_FAST + ("dispatch", "loadaddin")
 REQUIRED_LAYER_FIELDS = ("ok", "severity", "summary", "data")
 
+# F-1.3l Phase 1 Task 9：per_step_ms 4 段必填 + dispatch.data 扩展
+REQUIRED_DISPATCH_DATA_FIELDS = ("elapsed_ms", "per_step_ms", "attached_existing_session")
+REQUIRED_PER_STEP_FIELDS = ("dispatch_ms", "revision_ms", "visible_ms", "exitapp_ms")
+
 
 def assert_schema_v1(path: Path) -> None:
     """对 path 指向的 sw-inspect JSON 做 v1 schema 断言。
@@ -80,11 +84,21 @@ def assert_schema_v1(path: Path) -> None:
         for field in REQUIRED_LAYER_FIELDS:
             assert field in layers[layer_name], f"layer {layer_name} 缺字段 {field!r}"
 
-    # deep 模式：dispatch.data.elapsed_ms 是 F-4a baseline 主要消费字段（Dispatch 冷启耗时）
+    # deep 模式：dispatch.data 扩展字段（F-1.3l Phase 1 Task 9）
     if mode == "deep":
-        assert "elapsed_ms" in layers["dispatch"]["data"], (
-            "deep 模式 dispatch.data 缺 elapsed_ms（F-4a baseline 消费字段）"
+        d = layers["dispatch"]["data"]
+        for f in REQUIRED_DISPATCH_DATA_FIELDS:
+            assert f in d, f"deep 模式 dispatch.data 缺 {f!r}（F-1.3l 扩展）"
+
+        per_step = d["per_step_ms"]
+        assert isinstance(per_step, dict), (
+            f"dispatch.data.per_step_ms 必须是 dict，实际 {type(per_step).__name__}"
         )
+        for step in REQUIRED_PER_STEP_FIELDS:
+            assert step in per_step, f"per_step_ms 缺 {step!r}"
+            assert isinstance(per_step[step], int), (
+                f"per_step_ms.{step} 必须是 int，实际 {type(per_step[step]).__name__}"
+            )
 
 
 def main(argv: list[str]) -> int:

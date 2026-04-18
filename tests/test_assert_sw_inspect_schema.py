@@ -74,7 +74,16 @@ def _sample_deep() -> dict:
         "ok": True,
         "severity": "ok",
         "summary": "ok",
-        "data": {"elapsed_ms": 12345, "dispatched": True},
+        "data": {
+            "elapsed_ms": 12345,
+            "per_step_ms": {
+                "dispatch_ms": 5000,
+                "revision_ms": 3000,
+                "visible_ms": 2000,
+                "exitapp_ms": 1000,
+            },
+            "attached_existing_session": False,
+        },
     }
     payload["layers"]["loadaddin"] = {
         "ok": True,
