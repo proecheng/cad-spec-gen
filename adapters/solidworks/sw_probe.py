@@ -23,6 +23,13 @@ from adapters.solidworks import sw_detect
 from adapters.solidworks import sw_toolbox_catalog
 from adapters.solidworks.sw_detect import SwInfo
 
+# F-1.3l Phase 1：per_step_ms 哨兵常量（PER_STEP_* 供未来其他 probe_* 函数复用）
+# PER_STEP_SENTINEL_RAISED = -1 表示"该步运行但抛异常"
+# PER_STEP_SENTINEL_UNREACHED = 0 表示"该步未被运行到"（timeout / 之前的步抛错）
+# 真实测量值 ≥ 1（<1ms 截断为 1，见 Task 7）
+PER_STEP_SENTINEL_RAISED = -1
+PER_STEP_SENTINEL_UNREACHED = 0
+
 
 @dataclass(frozen=True)
 class ProbeResult:
@@ -506,6 +513,83 @@ def probe_material_files(info: SwInfo) -> ProbeResult:
     )
 
 
+def _dispatch_and_probe_worker(
+    progid: str,
+) -> tuple[str, bool, bool, dict[str, int]]:
+    """ThreadPoolExecutor worker：CoInitialize → Dispatch → Revision/Visible/ExitApp → CoUninitialize。
+
+    COM STA 要求所有 COM 方法调用必须在同一线程完成，因此将
+    Dispatch 与后续属性访问、ExitApp 一并放入此 worker。
+
+    F-1.3l Phase 1：每步单独计时，返回 per_step_ms dict。
+    per_step_ms 语义：
+      - 真实测量值：≥ 1（<1ms 截断为 1，Task 7 实现）
+      - 未到达的步：0（PER_STEP_SENTINEL_UNREACHED）
+      - 抛异常的步：-1（PER_STEP_SENTINEL_RAISED）
+
+    返回：(revision_number, visible_set_ok, exit_app_ok, per_step_ms)
+    """
+    import pythoncom  # pywin32 随附；Linux CI 走不到此函数
+
+    pythoncom.CoInitialize()
+    try:
+        from win32com import client as _wc_inner
+
+        per_step = {
+            "dispatch_ms": PER_STEP_SENTINEL_UNREACHED,
+            "revision_ms": PER_STEP_SENTINEL_UNREACHED,
+            "visible_ms": PER_STEP_SENTINEL_UNREACHED,
+            "exitapp_ms": PER_STEP_SENTINEL_UNREACHED,
+        }
+
+        # step 1: Dispatch
+        t_dispatch_start = _time.perf_counter()
+        _app = _wc_inner.Dispatch(progid)
+        per_step["dispatch_ms"] = max(
+            int((_time.perf_counter() - t_dispatch_start) * 1000), 1
+        )
+
+        _rev = ""
+        _visible_ok = False
+        _exit_ok = False
+
+        # step 2: RevisionNumber
+        t_rev_start = _time.perf_counter()
+        try:
+            _rev = str(getattr(_app, "RevisionNumber", ""))
+            per_step["revision_ms"] = max(
+                int((_time.perf_counter() - t_rev_start) * 1000), 1
+            )
+        except Exception:
+            per_step["revision_ms"] = PER_STEP_SENTINEL_RAISED
+
+        # step 3: Visible = False
+        t_vis_start = _time.perf_counter()
+        try:
+            _app.Visible = False
+            _visible_ok = True
+            per_step["visible_ms"] = max(
+                int((_time.perf_counter() - t_vis_start) * 1000), 1
+            )
+        except Exception:
+            per_step["visible_ms"] = PER_STEP_SENTINEL_RAISED
+
+        # step 4: ExitApp
+        t_exit_start = _time.perf_counter()
+        try:
+            _app.ExitApp()
+            _exit_ok = True
+            per_step["exitapp_ms"] = max(
+                int((_time.perf_counter() - t_exit_start) * 1000), 1
+            )
+        except Exception:
+            per_step["exitapp_ms"] = PER_STEP_SENTINEL_RAISED
+
+        return (_rev, _visible_ok, _exit_ok, per_step)
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     """层 4：Dispatch COM + Revision + Visible + ExitApp。
 
@@ -559,6 +643,12 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                     "visible_set_ok": False,
                     "exit_app_ok": False,
                     "attached_existing_session": True,
+                    "per_step_ms": {
+                        "dispatch_ms": 0,
+                        "revision_ms": 0,
+                        "visible_ms": 0,
+                        "exitapp_ms": 0,
+                    },
                 },
                 error=str(e)[:200],
             )
@@ -574,44 +664,14 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                 "visible_set_ok": False,
                 "exit_app_ok": None,
                 "attached_existing_session": True,
+                "per_step_ms": {
+                    "dispatch_ms": 0,
+                    "revision_ms": 0,
+                    "visible_ms": 0,
+                    "exitapp_ms": 0,
+                },
             },
         )
-
-    def _dispatch_and_probe_worker(progid: str) -> tuple[str, bool, bool]:
-        """ThreadPoolExecutor worker：CoInitialize → Dispatch → RevisionNumber/Visible/ExitApp → CoUninitialize。
-
-        COM STA 要求所有 COM 方法调用必须在同一线程完成，因此将
-        Dispatch 与后续属性访问、ExitApp 一并放入此 worker。
-
-        返回：(revision_number, visible_set_ok, exit_app_ok)
-        """
-        import pythoncom  # pywin32 随附；Linux CI 走不到此函数
-
-        pythoncom.CoInitialize()
-        try:
-            from win32com import client as _wc_inner
-
-            _app = _wc_inner.Dispatch(progid)
-            _rev = ""
-            _visible_ok = False
-            _exit_ok = False
-            try:
-                _rev = str(getattr(_app, "RevisionNumber", ""))
-            except Exception:
-                pass
-            try:
-                _app.Visible = False
-                _visible_ok = True
-            except Exception:
-                pass
-            try:
-                _app.ExitApp()
-                _exit_ok = True
-            except Exception:
-                pass
-            return (_rev, _visible_ok, _exit_ok)
-        finally:
-            pythoncom.CoUninitialize()
 
     # 冷启路径（ThreadPoolExecutor 软超时；后台线程无法真 kill，已知妥协）
     t0 = _time.perf_counter()
@@ -619,7 +679,7 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     try:
         fut = ex.submit(_dispatch_and_probe_worker, "SldWorks.Application")
         try:
-            rev, visible_ok, exit_ok = fut.result(timeout=timeout_sec)
+            rev, visible_ok, exit_ok, per_step_ms = fut.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             # wait=False：立即返回，不阻塞等待后台线程完成（软超时已知妥协）
             ex.shutdown(wait=False)
@@ -630,11 +690,17 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                 summary=f"Dispatch 超时 ({timeout_sec}s)",
                 data={
                     "dispatched": False,
-                    "elapsed_ms": int((_time.perf_counter() - t0) * 1000),
+                    "elapsed_ms": timeout_sec * 1000,
                     "revision_number": "",
                     "visible_set_ok": False,
                     "exit_app_ok": False,
                     "attached_existing_session": False,
+                    "per_step_ms": {
+                        "dispatch_ms": timeout_sec * 1000,
+                        "revision_ms": PER_STEP_SENTINEL_UNREACHED,
+                        "visible_ms": PER_STEP_SENTINEL_UNREACHED,
+                        "exitapp_ms": PER_STEP_SENTINEL_UNREACHED,
+                    },
                 },
                 error=f"dispatch timeout after {timeout_sec}s",
                 hint="检查 SW 许可证、位数匹配（64-bit Python 对 64-bit SW）、是否被其他进程独占",
@@ -653,6 +719,12 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
                     "visible_set_ok": False,
                     "exit_app_ok": False,
                     "attached_existing_session": False,
+                    "per_step_ms": {
+                        "dispatch_ms": PER_STEP_SENTINEL_UNREACHED,
+                        "revision_ms": PER_STEP_SENTINEL_UNREACHED,
+                        "visible_ms": PER_STEP_SENTINEL_UNREACHED,
+                        "exitapp_ms": PER_STEP_SENTINEL_UNREACHED,
+                    },
                 },
                 error=str(e)[:200],
                 hint="典型原因：许可证过期、SW 位数与 Python 不匹配、progid 路径错误",
@@ -660,7 +732,9 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
     finally:
         ex.shutdown(wait=False)
 
-    elapsed_ms = int((_time.perf_counter() - t0) * 1000)
+    # 过滤负哨兵（PER_STEP_SENTINEL_RAISED=-1）避免污染壁钟语义；
+    # UNREACHED=0 被过滤无影响（不参与成功路径的加总）。
+    elapsed_ms = sum(v for v in per_step_ms.values() if v > 0)
 
     return ProbeResult(
         layer="dispatch",
@@ -674,6 +748,7 @@ def probe_dispatch(timeout_sec: int = 60) -> ProbeResult:
             "visible_set_ok": visible_ok,
             "exit_app_ok": exit_ok,
             "attached_existing_session": False,
+            "per_step_ms": per_step_ms,
         },
     )
 
