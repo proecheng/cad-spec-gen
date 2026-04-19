@@ -6,6 +6,41 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [2.11.0] — 2026-04-19
+
+**Theme:** SW 装即用零配置体验 + AGENTS.md 生成。两大 feature 合并发布。
+
+### Added
+
+**SW 装即用（session 7+8，PR #9）**
+- `sw_preflight/` 包 — 零配置体检引擎：`preflight.run_preflight()` 编排 matrix 7 项体检 + 一键修 + cache 落盘
+- **Matrix 7 项体检**：`platform / pywin32 / sw_installed / toolbox_supported / com_healthy / addin_enabled / toolbox_path`
+- **一键修 4 个**：`fix_pywin32` / `fix_rot_orphan` / `fix_addin_enable` / `fix_sw_launch_background`
+- **admin 退化**：`handle_admin_required` 三选一 + `elevate_with_runas` UAC 提权
+- **诊断 9 模板**：`make_diagnosis` 工厂生成友好错误信息
+- **干跑分析**：`dry_run.dry_run_bom` 三分类（hit/missing/stand_in）
+- **用户裁决**：`user_provided` 完整流（prompt / 按 PartCategory 分流复制 / yaml mapping / provenance sha256 校验）
+- **HTML 报告**：`report.emit_report` 三段式（标准/外购/自定义）+ `<details>` 折叠技术细节 + `ACTION_FRIENDLY` 术语友好化（`rot_orphan_release`→"程序残留清理"）
+- **CLI 接入**：`cad-spec` (strict=False 温和预告) / `cad-codegen` (strict=True + cache + emit_report)
+- **CI 零硬编码守护**：`sw_preflight/` 子包禁止路径/版本字面值
+- **集成测试**：24 case 退出矩阵（6 交互 × 4 响应）+ 修复幂等
+
+**AGENTS.md 生成（PR #10）**
+- `scripts/dev_sync.py` +86 行：`_render_skill_row` / `_render_agents_md` / `_sync_agents_md` + `_AGENTS_TEMPLATE`（f-string，不引 Jinja2）
+- 自动从 `src/cad_spec_gen/data/skill.json` 生成仓库根 `AGENTS.md`
+- 为 Codex CLI 等非 Claude LLM 作项目指南
+- 确定性：纯函数，无 timestamp / git rev；pre-commit 自动守护 drift
+- 3 测试（含全部 5 skill trigger / 连跑字节相等 / 无 volatile 字段）
+
+### Validation
+- **102 passed / 5 skipped** sw_preflight 全套验收
+- **3/3 passed** AGENTS.md 测试；全量回归零新增 fail
+- Plan 35 task + 6 checkpoint 全部落地；4 轮 spec 审查从 v1 (333 行) 收敛到 v4 (211 行)
+
+See [`PR #9`](https://github.com/proecheng/cad-spec-gen/pull/9) + [`PR #10`](https://github.com/proecheng/cad-spec-gen/pull/10) for details.
+
+---
+
 ## [2.10.0] — 2026-04-12
 
 **Theme:** data/ mirror 根治 + legacy P2 regex 清除。结构性清理：mirror 文件从 git tracking 移除，改由 dev_sync.py + pre-commit hook 同步；v2.9.0 遗留的 `_legacy_p2_regex_block` 和 `CAD_SPEC_WALKER_ENABLED` feature flag 正式移除。
