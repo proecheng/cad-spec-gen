@@ -69,7 +69,7 @@ B/C 场景（手动选件 / 新交互）暂不在本 spec。
 
 ### 3.1 新增内部库
 
-**位置**：`src/cad_spec_gen/sw_preflight/`（与 `adapters/solidworks/` 平级，**不是** adapter，不参与 BOM 路由）
+**位置**：项目根 `sw_preflight/` 子目录（与 `adapters/`、`codegen/`、`cad_spec_gen.py` 平级）。**不在** `adapters/` 内（不是 adapter，不参与 BOM 路由）；**不在** `src/cad_spec_gen/` 下（仓库未采用 src layout，本 spec 不重构现有目录骨架）。
 
 **职责**：把"SW 装没装好 / 缺什么 / 能不能一键修 / 修完什么状态" 集中到一处，让所有用户入口（`cad-spec` / `cad-codegen` / `mechdesign`）调用同一个函数拿一致结果。
 
@@ -80,36 +80,70 @@ def run_preflight(strict: bool = True) -> PreflightResult:
     # strict=False: 异常只在 stdout 末尾打 1 行温和提示，不卡
     ...
 
-def dry_run_bom(bom_rows: list[BomRow]) -> BomDryRunResult:
-    # 走 router 走一遍，标记"会进 stand-in / 完全没匹配"的行
+def dry_run_bom(bom_rows: list[dict]) -> BomDryRunResult:
+    # bom_rows 复用 codegen/gen_build.parse_bom_tree() 的 list[dict] 格式
+    # (字段: part_no / name_cn / material / make_buy / is_assembly)
+    # 走 PartsResolver.resolve() 走一遍，标记"会进 stand-in / 完全没匹配"的行
     # 不真生成几何
     ...
 
-def prompt_user_provided(missing_rows: list[BomRow]) -> UserChoiceResult:
+def prompt_user_provided(missing_rows: list[dict]) -> UserChoiceResult:
     # 三选一全局策略 + 单行可跳过
     # 复制文件到 skill 自决位置 + 自动追加 yaml mapping
     ...
 
-def emit_report(bom_rows, output_dir) -> Path:
+def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
+                preflight: PreflightResult, output_dir: Path) -> Path:
     # 跑完 codegen 后调，吐出三段式 HTML 报告
     ...
 ```
 
+**新增数据类型**（`sw_preflight/types.py`，全部 `@dataclass(frozen=True)`）：
+
+| 类型 | 字段（核心） | 用途 |
+|---|---|---|
+| `PreflightResult` | `passed: bool` / `sw_info: SwInfo` / `fixes_applied: list[FixRecord]` / `diagnosis: DiagnosisInfo \| None` / `per_step_ms: dict[str, float]` | run_preflight 返回 |
+| `BomDryRunResult` | `total_rows: int` / `hit_rows: list[RowOutcome]` / `missing_rows: list[RowOutcome]` / `stand_in_rows: list[RowOutcome]` | dry_run_bom 返回 |
+| `RowOutcome` | `bom_row: dict` / `category: 'standard' \| 'vendor' \| 'custom'` / `expected_adapter: str` / `actual_adapter: str` / `status: '✅' \| '⚠️' \| '❌'` / `diagnosis: DiagnosisInfo \| None` | dry-run 单行结果 |
+| `UserChoiceResult` | `provided_files: dict[bom_key, Path]` / `stand_in_keys: set[bom_key]` / `skipped_keys: set[bom_key]` | prompt_user_provided 返回 |
+| `DiagnosisCode` (Enum) | `SW_NOT_INSTALLED` / `SW_STANDARD_NO_TOOLBOX` / `COM_REGISTRATION_BROKEN` / `TOOLBOX_PATH_INVALID` / `PYWIN32_MISSING` / `ADDIN_DISABLED` / `BOM_ROW_NO_MATCH` / `BOM_ROW_FELL_THROUGH_TO_STAND_IN` / ... | 失败码枚举 |
+| `DiagnosisInfo` | `code: DiagnosisCode` / `reason: str` (中文一句) / `suggestion: str` (GUI 操作步骤) / `severity: 'block' \| 'warn'` | 诊断载体 |
+| `FixRecord` | `action: str` / `before_state: str` / `after_state: str` / `elapsed_ms: float` | 一键修执行记录（落 P2 自愈段） |
+
+**关键决策**：诊断信息**不污染**现有 `adapters/parts/parts_resolver.ResolveResult.metadata`——独立模型，仅 sw_preflight 用。这样 adapter chain 的契约保持纯净，诊断系统未来扩展不会反向影响 router。
+
 ### 3.2 与现有代码边界
 
-- ✅ **不动** `adapters/solidworks/` 现有 6 个文件
-- ✅ **复用** `sw_detect.is_solidworks_installed()`、`sw_probe` 的诊断信号、`sw_material_bridge.is_available()`、`sw_probe` 的 per-step 仪器化
-- ✅ **复用** `step_pool_adapter` 的 STEP 解析逻辑（用户指定文件校验时用）
-- ✅ **新增** orchestrator 层（"判断 + 修复 + 呈现"）
+**复用（无修改）**：
+- `adapters/solidworks/sw_detect.detect_solidworks() -> SwInfo`（dataclass，含 `installed` / `version_year` / `toolbox_dir` / `toolbox_addin_enabled`）
+- `adapters/solidworks/sw_toolbox_adapter.is_available()`（6 项检查，是 Toolbox 真正的可用性入口；**不要**用 `sw_material_bridge`——后者只解析 sldmat XML，无 is_available）
+- `adapters/solidworks/sw_com_session.is_healthy()`（subprocess-per-convert 模式不暴露 dispatch 对象，体检仅靠 is_healthy + convert_sldprt_to_step 的 bool 返回）
+- `adapters/solidworks/sw_probe.probe_dispatch()` / `probe_com_session()`（已返回 `per_step_ms` dict，sw_preflight 复用此 schema）
+- `adapters/parts/parts_resolver.PartsResolver.resolve()`（dry-run 走每行 BOM）
+- `adapters/parts/step_pool_adapter` 的现有 STEP 路径搜索（project-local `std_parts/` → shared cache）
+- `adapters/parts/vendor_synthesizer.default_cache_root()`（=`~/.cad-spec-gen/step_cache/`，user_provided 在其下加 `user_provided/{standard,vendor}/`）
 
-### 3.3 接入点（修改 3 处 CLI 入口，每处 5-10 行）
+**修改（小改动，列入 §11）**：
+- `adapters/solidworks/sw_detect.py`：
+  - `SwInfo` 加 `edition: Literal['Standard', 'Pro', 'Premium', 'unknown']` 字段
+  - 新增 `reset_cache()` API（清 `_cached_info` 进程级缓存——一键修后必须调，否则拿旧值假成功）
 
-| 入口 | strict | dry-run | P2 报告 | 备注 |
-|---|---|---|---|---|
-| `cad-spec` | False（异常 1 行温和预告） | ❌ | ❌ | 编辑阶段不打扰，仅"后续会需要 SW"预告 |
-| `cad-codegen` (`gen_std_parts.py`) | **True** | ✅ | ✅ | 主战场 |
-| `cad_pipeline` (端到端) | 复用 cad-spec + cad-codegen 各自策略 | ✅ | ✅ | 不重复体检 |
-| `mechdesign` | **暂不接** | ❌ | ❌ | 保留"5 行接入"能力，下 spec 再说 |
+**新增（orchestrator 层）**：
+- `sw_preflight/`（"判断 + 修复 + 呈现 + 诊断"集中处）
+
+### 3.3 接入点（修改 3 处 CLI 入口）
+
+| 入口 | 实际文件路径 | strict | dry-run | P2 报告 | 备注 |
+|---|---|---|---|---|---|
+| `cad-spec` | `cad_spec_gen.py`（项目根） | False（异常 1 行温和预告） | ❌ | ❌ | 编辑阶段不打扰，仅"后续会需要 SW"预告 |
+| `cad-codegen` | `codegen/gen_std_parts.py` | **True** | ✅ | ✅ | 主战场 |
+| `cad_pipeline` (端到端) | `cad_pipeline.py`（项目根） | 复用 cad-spec + cad-codegen 各自策略 | ✅ | ✅ | 不重复体检 |
+| `mechdesign` | （多 phase 文件） | **暂不接** | ❌ | ❌ | 保留"15 行接入"能力，下 spec 再说 |
+
+> **路径与复杂度说明**：
+> - 现有入口在**项目根 + `codegen/`** 子目录，**不在** `src/cad_spec_gen/cli/`——本 spec 不重构 CLI 骨架
+> - 仓库无统一 CLI 框架（混合 argparse），sw_preflight 接入要分别适配三个入口的 argparse 结构
+> - 实际接入复杂度 ~15-30 行/入口（含 import / 错误处理 / 参数透传 / strict 模式分支），**不是** 5-10 行——orchestrator 层吸收大部分逻辑后入口才能瘦
 
 ---
 
@@ -119,15 +153,19 @@ def emit_report(bom_rows, output_dir) -> Path:
 
 | 检测项 | 期望状态 |
 |---|---|
-| Windows 平台 | win32 ✓ |
-| pywin32 已装且 postinstall 已跑 | import win32com 成功 ✓ |
-| SOLIDWORKS 已安装 | sw_detect.is_solidworks_installed() ✓ |
-| SW 版本支持 Toolbox | Pro 或 Premium ✓（Standard 无 Toolbox） |
-| SLDWORKS COM CLSID 可实例化 | sw_com_session 拿得到 dispatch ✓ |
-| Toolbox Add-In 已启用 | sw_material_bridge.is_available() ✓ |
-| Toolbox 数据库路径有效 | 路径存在 + 可读 ✓ |
+| Windows 平台 | `sys.platform == 'win32'` ✓ |
+| pywin32 已装且 postinstall 已跑 | `import win32com` 成功 + `pythoncom` 可初始化 ✓ |
+| SOLIDWORKS 已安装 | `sw_detect.detect_solidworks().installed` ✓ |
+| SW 版本支持 Toolbox | `SwInfo.edition in {'Pro', 'Premium'}` ✓³ |
+| SLDWORKS COM 可用 | `sw_com_session.is_healthy()` ✓⁴ |
+| Toolbox Add-In 已启用 | `sw_toolbox_adapter.is_available()` ✓ |
+| Toolbox 数据库路径有效 | `SwInfo.toolbox_dir` 存在 + 可读 ✓ |
 
 全过 → M 静默通过，pipeline 直接进入主任务。
+
+> **³ SwInfo.edition 字段当前缺失**：现有 `sw_detect.SwInfo` 无 edition 字段，`sw_toolbox_adapter` 仅按 `version_year < 2024` 判 Toolbox 支持，**无法区分 Standard / Pro / Premium**。本 spec 在 §11 列改动：`sw_detect.py` 增加 `edition: Literal['Standard', 'Pro', 'Premium', 'unknown']`（plan 阶段单独 task；从注册表 `HKLM\SOFTWARE\SolidWorks\SOLIDWORKS <ver>\Setup` 读 edition / 或回退查 license 文件）。
+>
+> **⁴ sw_com_session 不暴露 dispatch 对象**：现 subprocess-per-convert 模式（`adapters/solidworks/sw_com_session.py` Part 2c P0 重写注释），无持久 dispatch 暴露给上层。体检通过 `is_healthy()` 间接验证 COM 可用——若 `is_healthy()` 不足以覆盖"CLSID 可实例化"，sw_preflight 内做一次 spawn-test-die 子进程探测（`subprocess.run([python, '-c', 'import win32com.client; win32com.client.Dispatch("SldWorks.Application")'])`），不污染 sw_com_session 现有 API。
 
 ### 4.2 一键修（H 策略 — 弹一行话 + 回车）
 
@@ -148,17 +186,23 @@ def emit_report(bom_rows, output_dir) -> Path:
 
 > **¹ "僵死 SW 实例" 定义**：Running Object Table 里登记的 `SldWorks.Application` COM 对象，但对应进程已退出（孤儿引用）；或对应进程存在但 `IsConnected()` / 任意 API 调用返回 RPC_E_DISCONNECTED。检测靠 sw_com_session 的 health probe（已有逻辑）。
 
-修完**重跑一次体检**，全过才放行。修了什么、修了多久 → 记 P2 "M 体检自愈记录" 段。
+修完**重跑一次体检**，全过才放行。
+
+> **⚠️ 重跑前必须调 `sw_detect.reset_cache()`**：`detect_solidworks()` 内部有进程级 `_cached_info`，不 reset 会拿到修前的旧值导致**假成功**。`reset_cache()` 是本 spec 在 sw_detect.py 新增的 API（§3.2 列入）。所有自动修复函数返回前必须调一次 `reset_cache()` 再交还控制流。
+
+修了什么、修了多久 → 记 P2 "M 体检自愈记录" 段（数据结构 = `FixRecord`，见 §3.1）。
 
 ### 4.3 卡住（清晰诊断 + 不让继续）
 
-| 异常 | 给用户的诊断 | 为什么不能一键 |
-|---|---|---|
-| 非 Windows 平台 | "本工具仅支持 Windows — 检测到 platform=darwin/linux" | 北极星平台边界 |
-| SW 未安装 | "未检测到 SolidWorks 安装。本工具的标准件几何来自 SW Toolbox，请先安装 SolidWorks Pro 或 Premium。" | 装 SW 需要序列号 + 几 GB 安装包 |
-| SW 是 Standard（无 Toolbox） | "检测到 SW Standard — 该版本不含 Toolbox。请联系授权管理员升级到 Pro/Premium。" | 授权问题 |
-| COM 注册损坏 | "SW COM 接口异常（CLSID 实例化失败）。建议：控制面板 → 程序 → SOLIDWORKS → 修改 → 修复安装。" | 装坏了得用 SW installer 修复 |
-| Toolbox 数据库路径无效（OneDrive 锁、被删等） | "Toolbox 数据库路径不可访问：`<path>`。建议：SOLIDWORKS → 工具 → 选项 → 系统选项 → 异型孔向导/Toolbox → 把路径改到本地非同步目录。" | 用户系统配置问题 |
+> **诊断载体**：每条诊断由 `DiagnosisInfo` dataclass 实例承载（字段：`code: DiagnosisCode` / `reason: str` / `suggestion: str` / `severity: 'block'`，定义见 §3.1）。下表"诊断"列是 `reason` 字段示例，"建议"是 `suggestion` 字段。诊断**不**写入 `ResolveResult.metadata`——独立模型，避免污染 router 契约。
+
+| `DiagnosisCode` | `reason` (诊断) | `suggestion` (建议) | 为什么不能一键 |
+|---|---|---|---|
+| `PLATFORM_NOT_WINDOWS` | 本工具仅支持 Windows — 检测到 platform=darwin/linux | 在 Windows 机器上重跑 | 北极星平台边界 |
+| `SW_NOT_INSTALLED` | 未检测到 SolidWorks 安装 | 请先安装 SolidWorks Pro 或 Premium。本工具的标准件几何来自 SW Toolbox。 | 装 SW 需要序列号 + 几 GB 安装包 |
+| `SW_STANDARD_NO_TOOLBOX` | 检测到 SW Standard — 该版本不含 Toolbox | 请联系授权管理员升级到 Pro/Premium | 授权问题 |
+| `COM_REGISTRATION_BROKEN` | SW COM 接口异常（CLSID 实例化失败） | 控制面板 → 程序 → SOLIDWORKS → 修改 → 修复安装 | 装坏了得用 SW installer 修复 |
+| `TOOLBOX_PATH_INVALID` | Toolbox 数据库路径不可访问：`<path>` | SOLIDWORKS → 工具 → 选项 → 系统选项 → 异型孔向导/Toolbox → 把路径改到本地非同步目录 | 用户系统配置问题 |
 
 **诊断行规范**：一句问题 + 一句"建议怎么做"，没有技术名词；建议必须是 GUI 操作步骤（用户在 SW / 控制面板里点哪几下），不是命令行。
 
@@ -215,6 +259,12 @@ mappings:
       file: "user_provided/standard/gbt70.1_m3x8.step"
     note: "用户提供 2026-04-19"
 ```
+
+> **插入位置**：mappings 列表中**第一个 `match: {any: true}` 兜底规则之前**——保证规则能命中且不抢其它特化规则；若 yaml 中无兜底则追加到列表末尾。
+>
+> **理由**：`parts_library.default.yaml` 第 285 行（`- match: {any: true}` → `jinja_primitive`）是 first-hit-wins 的兜底；`parts_library.default.yaml` 第 273 行附近还有 `sw_toolbox` ISO/DIN fastener / bearing 兜底。若 user_provided mapping 插在末尾，会被 `{any: true}` 抢走；若插在最前，会抢其它特化规则。"插在第一个 `{any: true}` 之前"是平衡点。
+>
+> **`note:` 字段的 schema 兼容性**：现有 yaml 解析器（`adapters/parts/parts_library_loader.py`）的 mapping schema 仅识别 `match` / `adapter` / `spec` 三键，`note` 是无害自定义字段（loader 忽略未知键）。本 spec 明确该字段作为人读元数据保留，不参与 router 决策。
 
 下次跑同 BOM 直接命中，不再问。**yaml 是 skill 行为，不是用户负担**——北极星 #1 gate 通过。
 
@@ -300,8 +350,9 @@ cad-spec `--review` 模式跑完后，报告末尾**显式列出**覆盖范围 +
 | 场景 | 处理 |
 |---|---|
 | 用户在"等关 SW"按 [Q] | M 干净退出、pipeline 终止；不破坏；下次跑从 M 重新开始 |
-| 文件对话框选了非 .step | 校验扩展名 → 报错 → 重弹一次 |
-| 选的 STEP 解析失败 | step_pool 校验失败 → 报"文件可能损坏，是否换一个？" → 重弹 |
+| 文件对话框选了非 `.step`/`.stp` 扩展名 | 校验扩展名 → 报"请选 STEP 文件（.step / .stp）" → 重弹一次 |
+| 选的文件 — 魔数头校验失败（非 ISO-10303 格式） | 复用 `sw_com_session._validate_step_file()` 现有逻辑（仅检查文件大小 + ISO-10303 魔数头）→ 报"非 STEP 文件或文件已损坏" → 重弹一次 |
+| 选的文件 — 魔数头通过但 cadquery/OCP 几何解析失败 | 仅 **warn**："文件几何解析有警告（可能影响渲染），是否仍使用？[Y/N]" → 用户选 Y 接受、N 重弹（**用户责任不替担**——平衡严格性 vs 速度，不强制 reject） |
 | 几何与 BOM 描述不符（用户给 M8 标 M6） | **skill 不做内容校验**——用户责任。报告里标"用户提供 + 日期"，事后可追责 |
 | 项目根 yaml 已存在但格式损坏 | 不强写、不修复；提示"`parts_library.yaml` 解析失败，请检查后重跑。本次选择已缓存在 `~/.cad-spec-gen/...`" |
 | Toolbox Add-In API 调用失败（个别 SW 版本） | 退化"卡住"类：清晰诊断 + GUI 手动启用步骤 |
@@ -349,9 +400,14 @@ cad-spec `--review` 模式跑完后，报告末尾**显式列出**覆盖范围 +
 3. 收紧动作放到下一个 spec
 
 **接触面**：
-- 复用 sw_probe 的 per_step 仪器化机制
-- M 体检自身也带 per_step 计时
-- 数据共同落进 P2 报告，作为未来 timing AC 收紧依据
+- 复用 sw_probe.probe_dispatch() / probe_com_session() 已有的 `per_step_ms` dict schema
+- M 体检自身每步（detect / com_init / addin_check / dry_run / fix_*）也带 per_step 计时
+
+**采样时序（避免重复采样污染基线）**：
+- ✅ **preflight 阶段**调 `sw_probe.probe_dispatch()` 采 per_step（cold-start 全数据，含 dispatch / revision / visible / exitapp 4 段）
+- ❌ **codegen 阶段不重复采**——SW 已被 preflight 热启过，per_step 数据无新信息（且会扭曲冷启基线）
+- ⚠️ **fallback**：仅当 preflight **未跑过**（如 cad-spec strict=False 关闭、用户直接命令行跳过 preflight）时，codegen 入口检测到无 preflight 数据 → 当次自己采一份作为兜底
+- 数据共同落 P2 "M 体检自愈记录" 段（按"采样阶段"标签区分 `preflight` / `codegen-fallback`）
 
 ---
 
@@ -360,35 +416,39 @@ cad-spec `--review` 模式跑完后，报告末尾**显式列出**覆盖范围 +
 ### 新增
 
 ```
-src/cad_spec_gen/sw_preflight/
+sw_preflight/                        # 项目根，与 adapters/ codegen/ 平级
   __init__.py
-  preflight.py          # run_preflight 主入口 + PreflightResult
-  matrix.py             # 4.1/4.2/4.3 检测矩阵 + 修复函数
-  dry_run.py            # dry_run_bom + 识别 missing 行
-  user_provided.py      # prompt_user_provided + 文件复制 + yaml 追加
-  report.py             # emit_report HTML 生成（jinja 模板）
+  types.py              # PreflightResult / BomDryRunResult / RowOutcome / UserChoiceResult / FixRecord
+  diagnosis.py          # DiagnosisCode enum + DiagnosisInfo dataclass
+  preflight.py          # run_preflight 主入口（编排 matrix + dry_run）
+  matrix.py             # 4.1/4.2/4.3 检测矩阵 + 一键修函数（含 sw_detect.reset_cache 调用）
+  dry_run.py            # dry_run_bom (复用 PartsResolver.resolve) + RowOutcome 构造
+  user_provided.py      # prompt_user_provided + 文件复制（按语义分流目录）+ yaml mapping 追加（{any:true} 之前）
+  report.py             # emit_report HTML 生成 + sw_report_data.json 同步落盘
   templates/
-    sw_report.html.j2
-  io.py                 # SW 进程检测 / 等关闭轮询 / tkinter 对话框包装
+    sw_report.html.j2   # 三段式 HTML 模板，CSS 内联无外链
+  io.py                 # SW 进程/文档检测 + 等关闭轮询 + tkinter.filedialog 包装 + STEP 深度校验（cadquery/OCP warn-only）
 
-tests/test_sw_preflight_*.py    # 至少 5 个文件覆盖：matrix / dry_run / user_provided / report / io
+tests/test_sw_preflight_*.py         # 6 文件：matrix / dry_run / user_provided / report / io / diagnosis
 ```
 
 ### 修改
 
 ```
-src/cad_spec_gen/cli/cad_spec.py            # +5-10 行：strict=False 调用
-src/cad_spec_gen/cli/gen_std_parts.py       # +10-15 行：strict=True + dry_run + emit_report
-src/cad_spec_gen/cli/cad_pipeline.py        # +5 行：串联无新逻辑
-.claude/skills/cad-spec/SKILL.md            # 文档化 strict=False 提示行为 + 审查范围透明化
-.claude/skills/cad-codegen/SKILL.md         # 文档化 M 体检 + P2 报告路径
+cad_spec_gen.py                              # +15-25 行：sw_preflight.run_preflight(strict=False) + 审查范围透明化提示
+codegen/gen_std_parts.py                     # +20-30 行：run_preflight(strict=True) + dry_run_bom + prompt_user_provided + emit_report
+cad_pipeline.py                              # +5-10 行：串联（不新加体检逻辑，复用上面两个的策略）
+adapters/solidworks/sw_detect.py             # +SwInfo.edition: Literal['Standard','Pro','Premium','unknown'] 字段
+                                             # +reset_cache() API（清 _cached_info；自动修后必调）
+.claude/skills/cad-spec/SKILL.md             # 文档化 strict=False 预告行为 + 审查范围透明化
+.claude/skills/cad-codegen/SKILL.md          # 文档化 M 体检 + P2 报告路径 + dry-run 三选一
 ```
 
-### 不动
+### 不动（保留现有 API 契约）
 
-- `adapters/solidworks/` 6 个文件（保留现有 API 契约）
-- `adapters/parts/sw_toolbox_adapter.py`
-- `parts_library.default.yaml`（已 ship 的 mapping 不动；用户级 yaml 追加是 user_provided.py 的事）
+- `adapters/solidworks/` 其它 5 个文件（sw_com_session / sw_probe / sw_material_bridge / sw_toolbox_catalog / sw_convert_worker）
+- `adapters/parts/` 全部（sw_toolbox_adapter / step_pool_adapter / bd_warehouse_adapter / vendor_synthesizer / parts_resolver / parts_library_loader / jinja_primitive_adapter / base）
+- `parts_library.default.yaml`（已 ship mapping 不动；用户级 `parts_library.yaml` 追加是 user_provided.py 的事，不影响 default）
 
 ---
 
