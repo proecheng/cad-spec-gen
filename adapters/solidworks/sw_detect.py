@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 
 @dataclass
@@ -62,6 +62,9 @@ class SwInfo:
     toolbox_addin_enabled: bool = False
     """Toolbox Add-In 是否在 SW Tools → Add-Ins 里启用（v4 决策 #13）"""
 
+    edition: Literal["Standard", "Pro", "Premium", "unknown"] = "unknown"
+    """SolidWorks 版本级别（Standard/Pro/Premium），注册表读不到时为 'unknown'。"""
+
 
 # 进程级缓存
 _cached_info: Optional[SwInfo] = None
@@ -84,9 +87,20 @@ def detect_solidworks() -> SwInfo:
 
 
 def _reset_cache() -> None:
-    """清除进程级缓存，供测试使用。"""
+    """清除进程级缓存，供测试使用（历史私有 API，保留反引兼容）。"""
     global _cached_info
     _cached_info = None
+
+
+def reset_cache() -> None:
+    """清除进程级缓存的公开 API（Task 4 新增）。
+
+    用途：sw_preflight 一键修复后必须调此函数，否则 detect_solidworks()
+    会返回修复前的旧 SwInfo（_cached_info 存着）导致假成功。
+
+    实现等价于 _reset_cache()，只是语义公开化。
+    """
+    _reset_cache()
 
 
 def _detect_impl() -> SwInfo:
@@ -144,6 +158,9 @@ def _detect_impl() -> SwInfo:
 
     # --- 检测 Toolbox Add-In 启用状态（v4 决策 #13）---
     info.toolbox_addin_enabled = _check_toolbox_addin_enabled(winreg, info.version_year)
+
+    # --- 检测 edition（Standard / Pro / Premium，Task 4）---
+    info.edition = _find_edition(winreg, info.version_year)
 
     return info
 
@@ -252,6 +269,53 @@ def _find_toolbox_dir(winreg, version_year: int) -> str:
                 return str(browser_dir)
 
     return ""
+
+
+def _find_edition(
+    winreg, version_year: int
+) -> Literal["Standard", "Pro", "Premium", "unknown"]:
+    """从注册表读取 SolidWorks edition 字段（Task 4）。
+
+    路径：``HKLM\\SOFTWARE\\SolidWorks\\SOLIDWORKS <year>\\Setup\\Edition``
+    （也兼容旧键名 ``SolidWorks <year>``）。
+
+    归一化规则：
+    - "Professional" → "Pro"
+    - "Standard" / "Pro" / "Premium" 原样保留
+    - 任何其他值 / 读不到 / 异常 → "unknown"
+
+    Args:
+        winreg: winreg 模块引用。
+        version_year: SolidWorks 年份版本。
+
+    Returns:
+        归一化后的 edition 字面量。
+    """
+    key_patterns = [
+        r"SOFTWARE\SolidWorks\SolidWorks {year}\Setup",
+        r"SOFTWARE\SolidWorks\SOLIDWORKS {year}\Setup",
+    ]
+
+    for pattern in key_patterns:
+        key_path = pattern.format(year=version_year)
+        raw = _read_registry_value(
+            winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Edition"
+        )
+        if not raw:
+            continue
+
+        # 归一化（大小写不敏感）
+        normalized = raw.strip()
+        lower = normalized.lower()
+        if lower == "professional" or lower == "pro":
+            return "Pro"
+        if lower == "standard":
+            return "Standard"
+        if lower == "premium":
+            return "Premium"
+        # 读到但值异常 → 继续尝试下一个 key pattern 或最终返回 unknown
+
+    return "unknown"
 
 
 def _find_sldmat_files(install_dir: str) -> list[str]:
