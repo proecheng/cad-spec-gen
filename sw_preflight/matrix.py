@@ -583,3 +583,47 @@ def make_diagnosis(code: DiagnosisCode, context: dict = None) -> DiagnosisInfo:
     if template is None:
         raise ValueError(f"未知 DiagnosisCode: {code}")
     return template(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Task 26：一键修 dispatch helper（run_preflight 调用入口）
+# ---------------------------------------------------------------------------
+def try_one_click_fix(
+    failed_check: str,
+    diagnosis: Optional[DiagnosisInfo],  # noqa: ARG001 — 保留形参供未来按 code 细分
+) -> Optional[FixRecord]:
+    """按 failed_check 名字 dispatch 到具体 fix_* 函数。不可修返 None。
+
+    映射规则（与 CHECK_ORDER 7 项一一对应）：
+      - platform          → None（无法改 OS，只能让用户换机器）
+      - pywin32           → fix_pywin32
+      - sw_installed      → None（用户必须装 SW）
+      - toolbox_supported → None（edition 升级属用户行为）
+      - com_healthy       → fix_rot_orphan（COM 不健康尝试释放 ROT）
+      - addin_enabled     → fix_addin_enable
+      - toolbox_path      → None（路径问题需用户在 SW GUI 里改）
+
+    Args:
+        failed_check: `run_all_checks` 返回的 `failed_check` 名字。
+        diagnosis: 对应的 DiagnosisInfo（暂未使用，保留供未来按 code 细分 fix 策略）。
+
+    Returns:
+        FixRecord: 成功修复时的记录；无法修复或修复途中异常均返回 None。
+    """
+    fix_map: dict[str, Optional[Callable[[], FixRecord]]] = {
+        'platform': None,
+        'pywin32': fix_pywin32,
+        'sw_installed': None,
+        'toolbox_supported': None,
+        'com_healthy': fix_rot_orphan,
+        'addin_enabled': fix_addin_enable,
+        'toolbox_path': None,
+    }
+    fn = fix_map.get(failed_check)
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 — 修复失败（如 pywin32 网络失败）静默返 None，
+        # 由上层 preflight 按 strict 决定卡还是只告警
+        return None
