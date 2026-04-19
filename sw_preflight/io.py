@@ -22,6 +22,7 @@ tkinter dialog / STEP 校验等属 Task 10/11，不归这里。
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import Tk, filedialog
 from typing import Literal, Optional
@@ -141,3 +142,58 @@ def three_choice_prompt(missing_count: int) -> Literal["provide", "stand_in", "s
         if choice == "3":
             return "skip"
         print("无效输入，请输入 1、2 或 3")
+
+
+# ---------------------------------------------------------------------------
+# Task 11 — STEP 三层校验（扩展名 / 大小 / 魔数头）
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StepValidateResult:
+    """STEP 校验结果。
+
+    kind 取值：
+    - 'valid'        — 三层都通过
+    - 'invalid_ext'  — 扩展名不是 .step/.stp
+    - 'too_small'    — 文件 < MIN_SIZE（10KB）
+    - 'too_large'    — 文件 > MAX_SIZE（500MB）
+    - 'invalid_magic'— 前 50 字节不含 'ISO-10303' 魔数
+    - 'parse_warn'   — cadquery 能打开但有警告（Task 24 再引入本分类）
+    """
+
+    kind: Literal[
+        "valid", "invalid_ext", "too_small", "too_large", "invalid_magic", "parse_warn"
+    ]
+
+
+# 校验阈值 — 10KB 下限防用户拖错文件（空文件或几行字），
+# 500MB 上限防单个 STEP 撑爆内存（SW 导出的结构件罕见超 200MB）。
+MIN_SIZE = 10 * 1024
+MAX_SIZE = 500 * 1024 * 1024
+
+
+def validate_step_file(path: Path) -> StepValidateResult:
+    """三层校验：扩展名 → 大小 → 魔数头（cadquery 解析在 Task 24 再补第四层）。
+
+    Args:
+        path: 已存在的待校验文件路径（由 ask_step_file 返回，或 BOM 里命中的 STEP）。
+
+    Returns:
+        StepValidateResult — 第一个失败的层决定 kind；全通过返 'valid'。
+
+    魔数头：STEP 文件（ISO 10303-21）首行应以 'ISO-10303-21;' 开头；这里松
+    检查"前 50 字节是否包含 'ISO-10303'"是为了兼容 BOM 前缀 / 不同换行符
+    头部偏移的情况，代价是偶尔漏过头部有 ISO-10303 注释的垃圾文件。
+    """
+    if path.suffix.lower() not in (".step", ".stp"):
+        return StepValidateResult(kind="invalid_ext")
+    size = path.stat().st_size
+    if size < MIN_SIZE:
+        return StepValidateResult(kind="too_small")
+    if size > MAX_SIZE:
+        return StepValidateResult(kind="too_large")
+    head = path.read_bytes()[:50]
+    if b"ISO-10303" not in head:
+        return StepValidateResult(kind="invalid_magic")
+    return StepValidateResult(kind="valid")
