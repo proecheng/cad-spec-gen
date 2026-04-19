@@ -5,7 +5,10 @@
 2. `elevate_with_runas()` 调用 ShellExecuteW 且第二参数 = 'runas'
 3. `handle_admin_required()` 用户选 [2] 时返回 'manual'
 """
+import sys
 from unittest.mock import patch
+
+import pytest
 
 
 def test_is_admin_returns_bool() -> None:
@@ -15,6 +18,10 @@ def test_is_admin_returns_bool() -> None:
     assert isinstance(result, bool)
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="ctypes.windll 仅 Windows 存在；产品 Windows-only，CI 跑 Linux 仅为防 import 炸",
+)
 def test_elevate_with_runas_called(monkeypatch) -> None:
     """elevate_with_runas 调 ShellExecuteW 时第二参数必须是 'runas'。"""
     from sw_preflight.matrix import elevate_with_runas

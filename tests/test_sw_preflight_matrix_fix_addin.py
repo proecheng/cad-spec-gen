@@ -12,9 +12,16 @@ RuntimeError → OpenKey 永远不被调 → assertion 空跑 vacuous-true。
 """
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch, MagicMock
 
+import pytest
 
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="winreg 仅 Windows 存在；产品 Windows-only，CI 跑 Linux 仅为防 import 炸",
+)
 def test_addin_enable_writes_hkcu_only():
     """Add-In enable 必须写 HKCU，不写 HKLM（避免 admin 需求）。"""
     import winreg
@@ -46,6 +53,10 @@ def test_addin_enable_writes_hkcu_only():
             )
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="winreg 仅 Windows 存在；产品 Windows-only，CI 跑 Linux 仅为防 import 炸",
+)
 def test_addin_enable_idempotent():
     """已启用 → 跳过写入（不重复调 SetValueEx）。"""
     from sw_preflight.matrix import fix_addin_enable

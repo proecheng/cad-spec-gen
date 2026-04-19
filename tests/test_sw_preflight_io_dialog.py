@@ -5,10 +5,17 @@
 - ask_step_file 用户取消（askopenfilename 返回空字符串）→ None
 - three_choice_prompt 解析 '2' → 'stand_in'
 """
+import sys
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
+import pytest
 
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="tkinter.Tk() 需要 display；产品 Windows-only，CI 跑 Linux 仅为防 import 炸",
+)
 def test_ask_step_file_returns_path():
     with patch('sw_preflight.io.filedialog.askopenfilename',
                return_value='C:/Users/foo/m6x20.step'):
@@ -17,6 +24,10 @@ def test_ask_step_file_returns_path():
         assert result == Path('C:/Users/foo/m6x20.step')
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="tkinter.Tk() 需要 display；产品 Windows-only，CI 跑 Linux 仅为防 import 炸",
+)
 def test_ask_step_file_returns_none_on_cancel():
     with patch('sw_preflight.io.filedialog.askopenfilename', return_value=''):
         from sw_preflight.io import ask_step_file

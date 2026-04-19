@@ -23,6 +23,7 @@
 """
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -41,9 +42,16 @@ RESPONSES = ['Y', 'N', 'Q', 'TIMEOUT']
 
 
 def _valid_case(interaction: str, response: str) -> bool:
-    """TIMEOUT 仅对 wait_close_assembly 有意义；其它组合 skip 掉避免虚假冗余。"""
+    """TIMEOUT 仅对 wait_close_assembly 有意义；其它组合 skip 掉避免虚假冗余。
+
+    addin_enable_prompt 走 `sw_preflight.matrix.fix_addin_enable` → `import winreg`，
+    非 Windows 平台直接 ModuleNotFoundError，因此非 Windows 下对该交互点整体 skip
+    （产品 Windows-only，CI 跑 Linux 仅为防 import 炸）。
+    """
     if response == 'TIMEOUT':
         return interaction == 'wait_close_assembly'
+    if interaction == 'addin_enable_prompt' and sys.platform != 'win32':
+        return False  # winreg 非 Windows 不可用 → skip
     return True
 
 
