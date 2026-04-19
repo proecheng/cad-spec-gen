@@ -1,236 +1,319 @@
-# Skills 重构设计 — 单一真相源 + 跨 LLM + 双语可选
+# Skills 重构设计 v3 — 保守修补路线（方向 B）
 
 **日期**：2026-04-19
-**状态**：设计稿 v2（经 3 角色审查修订，待 review → writing-plans）
-**作者**：brainstorming session 8 续作 + 3 角色并行审查
+**状态**：设计稿 v3（推翻 v2，改走方向 B 保守路线）
+**作者**：brainstorming session 8 + 3 角色审查 + 深度现状核查
 **依赖**：PR #9（sw-zero-config-experience）已合入或并行推进
+
+## 0. 版本说明（为什么有 v3）
+
+- **v1**（@ `ab84034`，333 行）：初稿，假设 `.claude/commands/` 是中文 SoT；设计 `skills/<id>/{zh,en}.md` 新目录
+- **v2**（@ `7783479`，497 行）：3 角色审查后扩充到 497 行；但**未核对现有 `hatch_build.py` + `scripts/dev_sync.py` + `.pre-commit-config.yaml`**
+- **深度核查发现**：现有基础设施已有 SoT + 双向同步 + pre-commit 守护——**v2 提议的 `skills/<id>/` SoT 重建会推翻 ~11 KB 高质量基础设施**
+- **v3（本版，方向 B）**：保留现有 `.claude/commands/*.md` 作 zh SoT，只**增量**补齐 en 同步 + metadata 拆分 + AGENTS.md 生成。工作量降至 v2 的 1/5
 
 ## 1. 背景与问题
 
-### 1.1 现状
+### 1.1 现状（已核实，含基础设施）
 
-cad-spec-gen 有 5 个 skill（cad-spec / cad-codegen / cad-enhance / cad-help / mechdesign），维护在 **4 处副本**：
+cad-spec-gen 有 5 个 skill（cad-spec / cad-codegen / cad-enhance / cad-help / mechdesign）。现有 SoT + 同步链：
 
-| 位置 | 角色 | 语言 |
+| 位置 | 角色 | 谁在用 |
 |---|---|---|
-| `.claude/commands/*.md` | Claude Code 加载（仓库根，入 git） | 中文 |
-| `src/cad_spec_gen/data/commands/zh/*.md` | pip install 用户装包（packaged，入 git） | 中文 |
-| `src/cad_spec_gen/data/commands/en/*.md` | 同上，英文版（入 git） | 英文 |
-| `src/cad_spec_gen/data/skill.json` | metadata 汇总，`description` 字段内联 5 个 skill 长文本 | 英文 |
+| `.claude/commands/*.md` | **中文 SoT**（手维护） | Claude Code 直接加载 |
+| `skill_cad_help.md`（根目录） | cad-help 的中文 knowledge SoT | dev_sync/hatch 镜像到 data/knowledge/ |
+| `skill_mech_design.md`（根目录） | mechdesign 的中文 knowledge SoT | 同上 |
+| `system_prompt.md`（根目录） | 系统提示中文 SoT | 同上 |
+| `src/cad_spec_gen/data/commands/zh/*.md` | zh 镜像 | `cad-skill-setup --lang zh` 消费 |
+| `src/cad_spec_gen/data/commands/en/*.md` | **en 手维护副本**（漂移根源） | `cad-skill-setup --lang en` 消费 |
+| `src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md` 等 | zh 镜像 | skill_register |
+| `src/cad_spec_gen/data/skill.json` | metadata 入口（内联 500 字 description） | pip / LLM 消费 |
 
-### 1.2 痛点
+同步基础设施：
 
-1. **漂移不可避免**：session 8 Task 35 只改了 `.claude/commands/cad-spec.md + cad-codegen.md` 的"SW 装即用集成"段落，**未同步到 packaged zh/en + skill.json**。历史多次发生。
-2. **维护者改一处需 4 次同步**：违反 DRY；`skill.json.description` 字段与对应 `.md` body 重复 80%。
-3. **非 Claude LLM 无文档索引**：Codex / Cursor / Zed / GLM 等读不到 `.claude/commands/`；`AGENTS.md` 不存在。
-4. **双语切换无机制 for maintainer**：运行时通过 `cad-skill-setup --lang` 已解决（用户侧），但 maintainer 侧没有统一源。
+| 组件 | 现状 | 触发 |
+|---|---|---|
+| `hatch_build.py`（4302 B） | `python -m build` 时同步 zh → data/ | wheel 构建 |
+| `scripts/dev_sync.py`（6901 B） | 每次 commit 前跑；和 hatch_build 常量一致（AST parse） | pre-commit |
+| `.pre-commit-config.yaml` | 已配 `dev-sync` hook | `git commit` |
 
-### 1.3 已有资产（重构必须复用）
+### 1.2 真正的问题（现状给出，不是虚构）
 
-- **`cad-skill-setup`** CLI 支持 `--lang zh|en --target --update`
-- **6-step wizard**（`src/cad_spec_gen/wizard/wizard.py`）
-- **`skill_register.py`** 255 行：复制 `data/commands/{lang}/` → `.claude/commands/`；`.cad_skill_version.json` 版本标记；MD5 hash 用户修改检测；update 模式
-- **`i18n.py`** 翻译层
-- **build backend**：hatchling
+1. **en 没自动同步**：`hatch_build.py:61` 注释原文 "en hand-written in data/commands/en/" → Task 35 zh 漂移时 en 不会自动更新 → 漂移根源
+2. **zh knowledge 有 en 缺失**：`skill_cad_help_en.md` / `skill_mech_design_en.md` 不存在；`cad-skill-setup --lang en` 安装 knowledge 时走 zh 兜底或报错
+3. **`skill.json` description 内联 500 字**：跟 .md body 内容重复 ~80%；改 md 时 json 不会更；也是漂移源
+4. **无 AGENTS.md**：Codex CLI / Cursor 等非 Claude LLM 消费方无顶层索引
+5. **翻译术语漂移风险**：en.md 手维护导致代码标识符（`PartCategory` / `GATE-3.5` / `sw_preflight`）可能翻译错
+
+### 1.3 已有资产（重构零改动）
+
+- `src/cad_spec_gen/cli.py` 的 `main_setup` / `main_check`
+- `src/cad_spec_gen/wizard/{wizard,skill_register,env_detect,i18n,ui,dep_installer,blender_setup,config_gen}.py`
+- `src/cad_spec_gen/data/skill.json` → 重构后内容结构改（description 缩到 200 字），但文件位置和消费路径保留
+- pip install 后用户体验完全不变
 
 ## 2. 目标与非目标
 
 ### 2.1 目标
 
-1. **单一真相源**：`skills/<id>/{skill.yaml,zh.md,en.md[,knowledge.{zh,en}.md]}`，其他副本由 SoT 生成
-2. **防漂移**：pre-commit hook + CI 二道防线检测未同步改动，commit / merge 双重拒绝
-3. **Claude + Codex CLI 兼容**：生成 `AGENTS.md` 供 Codex CLI 原生消费；Cursor / Cline / Zed / GLM 等其他 LLM 可读 `AGENTS.md` 作为**尽力兜底**（不保证跨版本稳定）
-4. **双语可选**：maintainer 维护双语 SoT；用户通过 `cad-skill-setup --lang zh|en` 选一次（已有机制）；`build --lang en` 同步切换 `.claude/commands/` + `AGENTS.md`
-5. **零用户侵入**：pip 用户体验 100% 不变（`cad-skill-setup` / `.claude/commands/` 消费路径不改）
+1. **en 漂移根治**：zh.md 改 → en.md 有**术语白名单守护**（自动检测代码标识符一致性）+ pre-commit 提醒"en 未同步"
+2. **metadata 拆分**：`skill.json` 的 `description` 字段从 500 字内联 → 200 字摘要；长内容在 `.md` body
+3. **AGENTS.md 跨 LLM**：生成一份顶层 `AGENTS.md`（Codex CLI 原生消费；其他 LLM 尽力兜底，不保证）
+4. **en knowledge 补齐**：新建 `skill_cad_help_en.md` + `skill_mech_design_en.md` 根目录英文版
+5. **零推翻**：`hatch_build.py` + `scripts/dev_sync.py` 增量扩展，不重写
 
 ### 2.2 非目标
 
-- **不改 skill 内容**（P 方案 — 纯结构迁移 + 修 Task 35 漂移）
-- **不新增 CLI**（`cad-skill-setup` 已完美匹配）
-- **不做运行时语言切换**（安装时一次选）
-- **不重构 wizard/skill_register**（继续消费 `data/commands/{lang}/`）
-- **不做第三种语言**（schema 开放但不预装 ja/fr/…）
-- **不支持 Cursor / Cline / Zed 的原生 rules 格式**（只给 AGENTS.md 兜底，未来单独 spec 扩展）
-- **不做外行用户 UX**（首次体验走查 / `--lang` 自动检测 / 业务场景示例 / 从 JPG 到 3D 的 onboarding 路径 → 独立 UX spec 承载，不在本技术重构范围）
+- **不重写** `hatch_build.py` + `scripts/dev_sync.py`（保留现有架构）
+- **不推翻** `.claude/commands/*.md` 的 SoT 地位（继续中文权威）
+- **不建** `skills/<id>/` 新目录（v2 方案废弃）
+- **不新增** CLI（`cad-skill-setup` 已有 `--lang`）
+- **不改 skill 内容**（P 方案，最小侵入）
+- **不做外行用户 UX**（独立 UX spec 承载）
+- **不支持 Cursor / Cline / Zed 的原生 rules 格式**（只 AGENTS.md 尽力兜底）
 
-### 2.3 首要用户（按优先级）
+### 2.3 首要用户
 
-| 用户 | 身份 | 方便 = 什么 |
-|---|---|---|
-| **2 — Repo maintainer** | 改 skill 内容的人 | 单一源、改一处、pre-commit 自动校验 |
-| **3a — pip install 开发者/集成者** | 会 terminal、会 Python、为自己或团队部署 | 装完能用、双语可选、非 Claude 也能看懂 |
-| 3b — 外行终端用户（非本 spec 范围） | 不会 terminal、不懂 slash command | **由独立 UX spec 承载**，本 spec 不服务 |
-| 1 — Claude Code dev | 日常 `/cad-spec` 调用者 | （本次不优化） |
+| 用户 | 方便 = 什么 |
+|---|---|
+| **2 — Repo maintainer** | 改 zh.md 时 en.md 漂移被 pre-commit 抓 |
+| **3a — pip 开发者/集成者** | `cad-skill-setup --lang en` 装英文版能拿到完整 5 skill + knowledge |
 
 ## 3. 设计
 
-### 3.1 目录结构（重构后）
+### 3.1 文件布局变更（最小增量）
+
+**新增 6 类文件**（标 ★）：
 
 ```
-cad-spec-gen/                              # 仓库根
-├── skills/                                # ★ SoT（单一真相源，入 git）
-│   ├── cad-spec/
-│   │   ├── skill.yaml                     # metadata
-│   │   ├── zh.md                          # 中文正文（slash command body）
-│   │   └── en.md                          # 英文正文
-│   ├── cad-codegen/…
-│   ├── cad-enhance/…
-│   ├── cad-help/                          # 额外含 knowledge files
-│   │   ├── skill.yaml
-│   │   ├── zh.md
-│   │   ├── en.md
-│   │   ├── knowledge.zh.md                # 技术百科，cad-help 专用
-│   │   └── knowledge.en.md
-│   └── mechdesign/                        # 同上
+cad-spec-gen/
+├── .claude/
+│   ├── commands/                        # 现状保留 — zh SoT
+│   │   ├── cad-spec.md
+│   │   ├── cad-codegen.md
+│   │   ├── cad-enhance.md
+│   │   ├── cad-help.md
+│   │   └── mechdesign.md
+│   │
+│   └── commands-en/                     # ★ 新增 — en SoT
+│       ├── cad-spec.md
+│       ├── cad-codegen.md
+│       ├── cad-enhance.md
+│       ├── cad-help.md
+│       └── mechdesign.md
 │
-├── build/
-│   ├── sync_skills.py                     # 构建脚本（4 子命令）
-│   ├── hatch_sync_hook.py                 # hatchling build hook（wheel build 兜底）
-│   └── targets/                           # 预留扩展槽（未来加 cursor.py / cline.py）
+├── skill_cad_help.md                    # 现状 — zh knowledge SoT
+├── skill_cad_help_en.md                 # ★ 新增 — en knowledge SoT
+├── skill_mech_design.md                 # 现状
+├── skill_mech_design_en.md              # ★ 新增
+├── system_prompt.md                     # 现状（语言中性，不做双语）
 │
-├── .gitattributes                         # *.md text eol=lf（统一换行符）
-├── .pre-commit-config.yaml                # sync check hook
+├── skills_metadata.yaml                 # ★ 新增 — 5 skill metadata SoT（取代 skill.json 手维护）
 │
-├── .claude/commands/                      # Claude Code 消费（入 git，默认 zh）
-│   └── *.md                               # 首行含"auto-generated"警示
+├── AGENTS.md                            # ★ 新增 — 跨 LLM 兜底（自动生成）
 │
-├── AGENTS.md                              # 跨 LLM 消费（入 git，默认 zh）
-│                                          # 首行含"auto-generated"警示
+├── hatch_build.py                       # 改动 — 增加 en 同步 + AGENTS.md 生成 + skill.json 生成
+├── scripts/dev_sync.py                  # 改动 — 同上（保持和 hatch 一致）
 │
-└── src/cad_spec_gen/data/                 # pip 打包资源（★ 全部入 git，放弃 gitignore 方案）
-    ├── commands/
-    │   ├── zh/*.md                        # ✅ 入 git，由 sync 生成 + pre-commit 守护一致性
-    │   └── en/*.md                        # ✅ 入 git，同上
-    ├── skill.json                         # ✅ 入 git，由 sync 生成 + pre-commit 守护
-    ├── skill_cad_help_{zh,en}.md          # ✅ 入 git，由 sync 生成（skill_register 消费）
-    └── skill_mech_design_{zh,en}.md       # ✅ 入 git，由 sync 生成
+├── .gitattributes                       # ★ 新增 — *.md text eol=lf
+├── .pre-commit-config.yaml              # 现状保留 — dev-sync hook 不变（因 dev_sync 已扩展）
+│
+└── src/cad_spec_gen/data/               # 全 gitignore 或全入 git（见 §3.7 决策）
+    ├── commands/zh/                     # 生成自 .claude/commands/
+    ├── commands/en/                     # 生成自 .claude/commands-en/
+    ├── knowledge/skill_cad_help_zh.md   # 生成自 skill_cad_help.md
+    ├── knowledge/skill_cad_help_en.md   # ★ 生成自 skill_cad_help_en.md
+    ├── knowledge/skill_mech_design_zh.md
+    ├── knowledge/skill_mech_design_en.md # ★
+    ├── system_prompt.md                 # 现状同步
+    ├── python_tools/                    # 现状同步
+    ├── codegen/ config/ templates/      # 现状同步
+    ├── parts_library.default.yaml       # 现状同步
+    └── skill.json                       # ★ 改为生成 — 来自 skills_metadata.yaml（metadata compile）
 ```
-
-**关键决策变更（B2 决策 A）**：原 spec 计划 `data/commands/{zh,en}/` 和 `skill.json` gitignore + hatch hook 生成——但 `pip install -e .`（editable 模式）不跑 build backend，会导致 dev checkout 后 `cad-skill-setup` 找不到文件 FileNotFoundError。改为：**全部产物入 git，由 pre-commit 守护与 SoT 一致**。代价是 PR 多一份冗余；回报是 dev 体验永远不坏 + editable install 零配置。
 
 ### 3.2 数据流
 
 ```
-skills/<id>/{skill.yaml,zh.md,en.md[,knowledge.{zh,en}.md]}   ← SoT（唯一维护点）
+.claude/commands/*.md         ← zh SoT（手维护，现状）
+.claude/commands-en/*.md      ← en SoT（新增，手维护）
+skill_cad_help.md             ← zh knowledge SoT（现状）
+skill_cad_help_en.md          ← en knowledge SoT（新增）
+skill_mech_design{,_en}.md    ← mechdesign knowledge SoT
+skills_metadata.yaml          ← metadata SoT（新增）
      │
-     ├── [manual] cad-sync build（pyproject.toml [project.scripts] 暴露的短命令）
+     ├── [pre-commit] python scripts/dev_sync.py   → 有变更 exit 1
+     ├── [hatch] python -m build                   → wheel 构建同步
      │
-     ├─── 生成产物（全部入 git）：
-     │    ├── .claude/commands/*.md              （默认 zh）
-     │    ├── AGENTS.md                          （默认 zh）
-     │    ├── src/cad_spec_gen/data/commands/{zh,en}/*.md
-     │    ├── src/cad_spec_gen/data/skill.json
-     │    └── src/cad_spec_gen/data/skill_{cad_help,mech_design}_{zh,en}.md
-     │
-     ├── [pre-commit] cad-sync check       → exit 1 if drift detected
-     ├── [CI] cad-sync check              → 二道防线（防 --no-verify 绕过）
-     └── [pip install 后] cad-skill-setup --lang zh|en → 用户项目 .claude/commands/（skill_register 现有逻辑）
-
-可选：hatch_sync_hook.py 在 `python -m build` 时再跑一次 sync
-     （兜底：若维护者漏跑 sync 就 push，wheel build 还能自动修复）
+     └─── 生成产物：
+          ├── src/cad_spec_gen/data/commands/{zh,en}/*.md
+          ├── src/cad_spec_gen/data/knowledge/skill_{cad_help,mech_design}_{zh,en}.md
+          ├── src/cad_spec_gen/data/skill.json               # 从 skills_metadata.yaml 编译
+          ├── AGENTS.md（仓库根，入 git）                    # 从 skills_metadata.yaml + .md body 摘要生成
+          └── .claude/commands/*.md + .claude/commands-en/*.md 不变（它们是 SoT）
 ```
 
-### 3.3 skill.yaml schema
+### 3.3 `skills_metadata.yaml` schema
+
+单文件 5 section：
 
 ```yaml
-id: cad-spec                              # 必填，全局唯一
-trigger: /cad-spec                        # 必填，Claude slash trigger
-name:
-  zh: CAD Spec 生成器                     # 必填
-  en: CAD Spec Generator                  # 必填
-description:                              # 必填，≤ 200 字给列表/AGENTS.md 用
-  zh: "Phase 1: 从设计文档提取 9 类结构化数据到 CAD_SPEC.md。"
-  en: "Phase 1: Extract 9 categories..."
-entry_point: python cad_pipeline.py spec  # 可选，非 Claude LLM 的 CLI 入口
-knowledge_file: skill_cad_help            # 可选，仅 cad-help/mechdesign 用
-                                          # 语义：生成产物的文件名前缀（不含 _zh/_en 后缀和 .md）
-                                          # 生成到 data/skill_cad_help_zh.md + data/skill_cad_help_en.md
-                                          # skill_register 按 lang 选一份改名为 skill_cad_help.md 写到 target
-# 以下字段为 v1 扩展预留（I1）
-version: 1.0                              # 可选，skill 独立语义版本（不随包版本漂移）
-tags: [cad, spec, phase1]                 # 可选，分类标签（AGENTS.md 索引 / 未来搜索用）
-deprecated: false                         # 可选，布尔；true 则 AGENTS.md 生成时打删除线 + 提示替代
-aliases: [/spec]                          # 可选，slash 别名（Claude Code 暂不支持但预留）
+# skills_metadata.yaml — 5 skill metadata 单一真相源
+# 由 scripts/dev_sync.py 读取生成 src/cad_spec_gen/data/skill.json 和 AGENTS.md
+
+version: "2.10.0"                      # 项目版本（跟 pyproject.toml 一致）
+homepage: https://github.com/proecheng/cad-spec-gen
+license: MIT
+requires:
+  python: ">=3.10"
+  jinja2: ">=3.0"
+
+skills:
+  - id: cad-spec
+    trigger: /cad-spec
+    name:
+      zh: CAD Spec 生成器
+      en: CAD Spec Generator
+    description:                       # ≤ 200 字
+      zh: "Phase 1: 从设计文档提取 9 类结构化数据到 CAD_SPEC.md。v2.10: §6.4 envelopes P7 backfill + §9.2 constraints。支持 --review 模式产出 DESIGN_REVIEW.md。"
+      en: "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.10: §6.4 envelopes P7 backfill + §9.2 constraints. Supports --review mode."
+    entry_point: python cad_pipeline.py spec
+    tags: [cad, spec, phase1]
+
+  - id: cad-codegen
+    trigger: /cad-codegen
+    name:
+      zh: CAD Code 生成器
+      en: CAD Code Generator
+    description:
+      zh: "Phase 2: 从 CAD_SPEC.md 生成 CadQuery 脚手架（params/build_all/assembly/part/std 5 类模块）。v2.10: consumes §6.3/6.4/9.1/9.2；GATE-3.5 assembly validation。"
+      en: "Phase 2: Generate CadQuery scaffolds from CAD_SPEC.md (5 generator families). v2.10: consumes §6.3/6.4/9.1/9.2; GATE-3.5 assembly validation."
+    entry_point: python cad_pipeline.py codegen
+    tags: [cad, codegen, phase2]
+
+  - id: cad-enhance
+    trigger: /cad-enhance
+    name:
+      zh: AI 增强
+      en: AI Enhancement
+    description:
+      zh: "Phase 5: Blender 渲染 PNG → 照片级 JPG（4 后端：gemini/fal/comfyui/engineering）。几何锁定仅换皮。多视图一致性 via viewpoint lock。"
+      en: "Phase 5: Blender PNG → photorealistic JPG (4 backends: gemini/fal/comfyui/engineering). Geometry locked, reskin only."
+    tags: [render, ai, phase5]
+
+  - id: cad-help
+    trigger: /cad-help
+    name:
+      zh: Pipeline 助手
+      en: Pipeline Assistant
+    description:
+      zh: "自然语言管线助手（16 意图：环境/配置/材料/相机/渲染/AI 增强/故障排查/文件结构/状态/BOM/Spec/codegen/设计审查）"
+      en: "Natural-language pipeline assistant covering 16 intents."
+    knowledge_file: skill_cad_help       # 生成 data/knowledge/skill_cad_help_{zh,en}.md
+    tags: [help, assistant]
+
+  - id: mechdesign
+    trigger: /mechdesign
+    name:
+      zh: 参数化机械设计
+      en: Parametric Mechanical Design
+    description:
+      zh: "手动参数化机械子系统工作流（params.py → CadQuery 3D → GB/T 2D 图纸 → Blender 渲染 → AI 增强 6 阶段）"
+      en: "Manual parametric mechanical workflow (6 phases)."
+    entry_point: python cad_pipeline.py mechdesign
+    knowledge_file: skill_mech_design
+    tags: [mechanical, parametric]
 ```
 
-**5 个 skill metadata**：
+**forward-compat**：dev_sync.py 读时忽略未知字段，允许未来扩展 `version` / `deprecated` / `aliases`。
 
-| skill | trigger | entry_point | knowledge_file |
-|---|---|---|---|
-| cad-spec | `/cad-spec` | `python cad_pipeline.py spec` | - |
-| cad-codegen | `/cad-codegen` | `python cad_pipeline.py codegen` | - |
-| cad-enhance | `/cad-enhance` | - | - |
-| cad-help | `/cad-help` | - | `skill_cad_help` |
-| mechdesign | `/mechdesign` | `python cad_pipeline.py mechdesign` | `skill_mech_design` |
+### 3.4 `hatch_build.py` + `scripts/dev_sync.py` 改动
 
-**Schema forward-compat**：`validate` 子命令忽略未识别字段（不 fail），允许未来无痛扩展。
-
-**跨语言约束（v1）**：`trigger` / `entry_point` / `id` 跨语言共享（单一值）；`name` / `description` 必双语；`tags` / `aliases` 单语（英文）。
-
-### 3.4 `build/sync_skills.py` CLI
-
-| 子命令 | 行为 | 用途 |
-|---|---|---|
-| `build [--lang zh\|en]` | 从 SoT 生成全 6 类产物；默认 lang=zh | 维护者、hatchling hook、切语言 |
-| `check` | 对比生成内容与磁盘 5 类入 git 产物，不一致 exit 1 | pre-commit + CI |
-| `list` | 列所有 skill（id/trigger/description 一行） | 开发辅助 |
-| `validate` | 校验 skill.yaml schema + .md 非空 + 5 skill 齐全 + 代码标识符术语白名单（I4） | 开发辅助 |
-
-**Script entry（N2）**：`pyproject.toml` 的 `[project.scripts]` 加 `cad-sync = "build.sync_skills:main"`，装完 `cad-sync build` / `cad-sync check` 一行跑通，不用记 `python build/sync_skills.py` 长路径。
-
-**生成的 6 类产物（全部入 git，B2 决策 A）**：
-
-| # | 目标 | 来源 | 入 git |
-|---|---|---|---|
-| 1 | `.claude/commands/<id>.md` | `skills/<id>/<lang>.md` + auto-gen 首行 | ✅ |
-| 2 | `AGENTS.md` | `skill.yaml` × 5 汇总 + auto-gen 首行 | ✅ |
-| 3 | `src/cad_spec_gen/data/commands/zh/<id>.md` | `skills/<id>/zh.md` | ✅ |
-| 4 | `src/cad_spec_gen/data/commands/en/<id>.md` | `skills/<id>/en.md` | ✅ |
-| 5 | `src/cad_spec_gen/data/skill.json` | `skill.yaml` × 5 metadata compile | ✅ |
-| 6 | `src/cad_spec_gen/data/skill_{cad_help,mech_design}_{zh,en}.md`（4 files） | `skills/{cad-help,mechdesign}/knowledge.{zh,en}.md` | ✅ |
-
-**`check` 子命令换行符归一化规则（B3）**：
+**增量添加**（不重写）：
 
 ```python
-def _normalize(content: str) -> str:
-    """归一化用于 diff 对比。"""
-    # 1. 统一换行符 LF（读文件用 open(newline='')；实际内容里的 \r\n → \n）
-    content = content.replace('\r\n', '\n').replace('\r', '\n')
-    # 2. 去尾换行归一化为恰好 1 个
-    content = content.rstrip('\n') + '\n'
-    return content
+# hatch_build.py 改动（约 +40 行）
+
+# 新增：en commands 源
+COMMAND_SOURCE_EN = ".claude/commands-en"
+
+# 新增：en knowledge 源（根目录）
+EN_KNOWLEDGE_FILES = {
+    "skill_cad_help_en.md": "knowledge/skill_cad_help_en.md",
+    "skill_mech_design_en.md": "knowledge/skill_mech_design_en.md",
+}
+
+# 新增：skills_metadata.yaml → skill.json 编译
+def _compile_skill_json(root: Path, data_dir: Path) -> None:
+    import yaml as pyyaml
+    meta = pyyaml.safe_load((root / "skills_metadata.yaml").read_text(encoding='utf-8'))
+    # 生成 skill.json 结构（保持现有 consumer 兼容）
+    # ...
+    (data_dir / "skill.json").write_text(json.dumps(...), encoding='utf-8')
+
+# 新增：AGENTS.md 生成
+def _generate_agents_md(root: Path) -> None:
+    """从 skills_metadata.yaml 生成 AGENTS.md 到仓库根。"""
+    # ...
+    (root / "AGENTS.md").write_text(..., encoding='utf-8')
+
+class CustomBuildHook(BuildHookInterface):
+    def initialize(self, version, build_data):
+        # ... 现有逻辑（zh commands / knowledge / python_tools / dirs / system_prompt / parts_library）
+
+        # ★ 新增：en commands
+        cmd_src_en = root / COMMAND_SOURCE_EN
+        cmd_en = data_dir / "commands" / "en"
+        cmd_en.mkdir(parents=True, exist_ok=True)
+        if cmd_src_en.is_dir():
+            for md in cmd_src_en.glob("*.md"):
+                shutil.copy2(md, cmd_en / md.name)
+
+        # ★ 新增：en knowledge
+        for src_name, dst_rel in EN_KNOWLEDGE_FILES.items():
+            src = root / src_name
+            if src.exists():
+                shutil.copy2(src, data_dir / dst_rel)
+
+        # ★ 新增：skill.json 编译 + AGENTS.md 生成
+        _compile_skill_json(root, data_dir)
+        _generate_agents_md(root)
 ```
 
-仓库根 `.gitattributes` 加：
+`scripts/dev_sync.py` 镜像上述改动（保持 AST parse 常量对齐机制）。
+
+**术语白名单守护**（I4）：
+
+```python
+# scripts/dev_sync.py 新增函数
+CODE_IDENTIFIERS = [
+    "PartCategory", "GATE-3.5", "sw_preflight", "parts_library.yaml",
+    "CAD_SPEC.md", "DESIGN_REVIEW.md", "cad_pipeline.py",
+    # ... (从 skills_metadata.yaml 可配置)
+]
+
+def _check_code_identifier_consistency(zh: str, en: str) -> list[str]:
+    """zh.md 和 en.md 里代码标识符出现次数必须相等；否则返回不一致项。"""
+    errors = []
+    for ident in CODE_IDENTIFIERS:
+        if zh.count(ident) != en.count(ident):
+            errors.append(f"'{ident}' zh={zh.count(ident)} en={en.count(ident)}")
+    return errors
 ```
-*.md text eol=lf
-```
-确保 Windows 维护者 clone 后 checkout 是 LF；提交时不被 git 自动转 CRLF。
 
-**规模估算（O1）**：`sync_skills.py` ~500 LOC（含 load skills / render Jinja2 / 写 6 类产物 / 4 子命令 / schema 校验 / 术语白名单）；`hatch_sync_hook.py` ~20 LOC。
+dev_sync.py 跑完 sync 后对每对 `.claude/commands/<id>.md` + `.claude/commands-en/<id>.md` 跑 `_check_code_identifier_consistency`；不一致 exit 1 + 提示 maintainer。
 
-### 3.5 hatchling build hook（兜底角色）
+### 3.5 AGENTS.md 生成
 
-B2 决策 A 后，hatch hook 不再是主路径（`data/commands/` 已入 git）。但仍作为**兜底**：
-
-```toml
-[tool.hatch.build.hooks.custom]
-path = "build/hatch_sync_hook.py"
-```
-
-`build/hatch_sync_hook.py` 跑 `sync_skills.py build`，若 SoT 跟磁盘 commit 产物不一致就**修复**——理论上被 pre-commit + CI 挡住了，但若真漂进 main（force push 场景），wheel build 还能自愈。
-
-### 3.6 AGENTS.md 结构
-
-模板（≈ 80 行，从 `skill.yaml` × 5 生成）：
+模板（≈ 80 行，从 `skills_metadata.yaml` + 每个 skill 的 zh.md 头部摘要抽）：
 
 ```markdown
-<!-- AUTO-GENERATED by build/sync_skills.py — DO NOT EDIT -->
-<!-- Source: skills/*/skill.yaml + skills/*/{lang}.md -->
+<!-- AUTO-GENERATED by scripts/dev_sync.py — DO NOT EDIT -->
+<!-- Source: skills_metadata.yaml + .claude/commands/*.md -->
 
 # AGENTS.md — cad-spec-gen 代理指南
 
-> 请勿手改；变更在 `skills/<id>/{skill.yaml,zh.md,en.md}` 提交后跑 `cad-sync build`。
+> 请勿手改；变更在 `skills_metadata.yaml` 或 `.claude/commands/*.md` 后跑 `python scripts/dev_sync.py`。
 > Generated from git rev: {{rev_label}}
 
 ## 项目概述
@@ -248,166 +331,91 @@ cad-spec-gen 是 6 阶段 CAD 混合渲染管线。仓库：https://github.com/p
 ### {{trigger}} — {{name.zh}}
 {{description.zh}}
 
-**典型调用**：
-```
-{{trigger}} ...（示例从 skills/<id>/<lang>.md 抓）
-```
-
-完整用法：见 `skills/<id>/<lang>.md`。
+完整用法：见 `.claude/commands/{{id}}.md`。
 
 ## 约定
 
 - 所有输出中文（代码标识符除外）
 - 测试：`.venv/Scripts/python.exe -m pytest`
 - commit：`<type>(<scope>): <中文描述>`
-- 零硬编码：`sw_preflight/` 子包禁止路径/版本字面值
 
 ## 开发者
 
-改 skill 走 `skills/<id>/{zh,en}.md`；跑 `cad-sync build` 生成所有产物。
-pre-commit 自动 check；CI 二道守护。
+改 skill 正文走 `.claude/commands/{id}.md`（中文）或 `.claude/commands-en/{id}.md`（英文）；
+改 metadata 走 `skills_metadata.yaml`；
+跑 `python scripts/dev_sync.py` 同步所有产物；pre-commit 自动守护。
 
 ---
-_v{{skill_json.version}}_
+_v{{version}}_
 ```
 
-**`{{rev_label}}` fallback 策略（I2 + N4）**：
+**`{{rev_label}}` fallback 策略**（跟 v2 一致）：git → `GITHUB_SHA` → `"unknown"`；dirty 时加后缀。
 
-```python
-def _get_rev_label() -> str:
-    # 1. 优先读 git rev-parse
-    try:
-        sha = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
-        # dirty 检测
-        dirty = bool(subprocess.check_output(
-            ['git', 'status', '--porcelain'],
-            stderr=subprocess.DEVNULL
-        ).decode().strip())
-        return f"{sha}-dirty" if dirty else sha
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
-    # 2. fallback: CI 环境变量
-    if sha := os.environ.get('GITHUB_SHA'):
-        return sha[:7]
-    # 3. final fallback
-    return 'unknown'
+**AGENTS.md 默认语言**：zh（跟 `.claude/commands/` 对齐）。`build --lang en` 暂不实现（方向 B 不做语言切换控制，用户需要英文 AGENTS.md 自己切 zh/en section）。
+
+### 3.6 `cad-skill-setup` 衔接（零改动）
+
+现有 `skill_register.py` 消费 `data/commands/{lang}/*.md` + `data/knowledge/skill_*_{lang}.md`——改造后：
+
+- `data/commands/en/*.md` 将由 dev_sync/hatch 自动生成（之前是手维护，现在是 SoT 镜像）
+- `data/knowledge/skill_cad_help_en.md` + `skill_mech_design_en.md` 将由 dev_sync/hatch 自动生成（之前缺失，现在补齐）
+
+**用户体验零变化**：`cad-skill-setup --lang en` 现在能装到完整的英文 skill + knowledge（以前 knowledge 会 fallback 到 zh 或报错）。
+
+### 3.7 `src/cad_spec_gen/data/` 是否入 git（v3 的 B2 答案）
+
+v3 继承 v2 B2 决策 A：**全部入 git + pre-commit 守护**。理由同 v2：editable install 不跑 build hook，gitignore 会炸 dev 体验。
+
+**已有** `dev_sync.py` + `.pre-commit-config.yaml` 完美支持此决策（现有机制本来就是这么做的——dev_sync 有 diff 就 exit 1 强制 re-commit）。零改动需求。
+
+### 3.8 `.gitattributes`（B3）
+
+新增：
+```
+*.md text eol=lf
 ```
 
-**`build --lang en` 行为（O2）**：同时覆盖 `.claude/commands/*.md` + `AGENTS.md` 两个顶层文件为英文；`data/commands/{zh,en}/` 保持双份。
+防 Windows CRLF 让 dev_sync 误报漂移。
 
-**确定性**：`{{rev_label}}` 不走 timestamp；`AGENTS.md` 字节级稳定（L2 测试 + L6 golden snapshot 守护）。
+### 3.9 CI 二道防线（I6）
 
-### 3.7 pre-commit hook + CI 二道防线（I6）
+dev_sync.py 现有只在 pre-commit 跑（本地）。新增 CI job：
 
-**`.pre-commit-config.yaml`**：
 ```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: sync-skills-check
-        name: sync-skills drift check
-        entry: cad-sync check      # 用 project.scripts 短命令
-        language: system
-        files: ^(skills/|\.claude/commands/|AGENTS\.md$|src/cad_spec_gen/data/)
-        pass_filenames: false
-```
-
-`pre-commit` 加到 dev deps；`README.md` 文档化 `pre-commit install`。
-
-**CI 二道防线**：`.github/workflows/` 的主 CI job（或新加 `sync-check.yml`）在 Linux + Windows 两个 runner 上跑：
-```yaml
-- name: Skills SoT drift check
-  shell: bash
-  run: cad-sync check
+# .github/workflows/skills-sync.yml（新建或合并到现有 workflow）
+jobs:
+  check-sync:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python scripts/dev_sync.py || (echo "::error::dev_sync detected drift"; exit 1)
 ```
 
 CI 防止 `git commit --no-verify` 或 fork PR 绕过 pre-commit。
 
-### 3.8 `cad-skill-setup` 衔接 + 增强要求
+## 4. 迁移计划（1 个 PR）
 
-**现有逻辑零改**——`cad-skill-setup` 继续消费 `data/commands/{lang}/*.md`。
+v3 方向 B 工作量小，**1 个 PR 就够**（不分 3 个）。
 
-**本 spec 新增要求（给后续 cad-skill-setup spec 接单）**：
+1. 新建 `.claude/commands-en/*.md` × 5（从现有 `data/commands/en/*.md` 拷贝；**同步修 Task 35 漂移**：给 `.claude/commands-en/cad-spec.md` + `cad-codegen.md` 加"SW 装即用集成" 段英文翻译，代码标识符反引号锁）
+2. 新建 `skill_cad_help_en.md` + `skill_mech_design_en.md`（根目录，翻译自现有 zh 版）
+3. 新建 `skills_metadata.yaml`（从现有 `data/skill.json` 抽 + 裁剪 description 到 ≤ 200 字）
+4. 新建 `.gitattributes`（`*.md text eol=lf`）
+5. 改 `hatch_build.py`：加 en commands + en knowledge + skill.json 编译 + AGENTS.md 生成（约 +50 行）
+6. 改 `scripts/dev_sync.py`：镜像上述改动 + 代码标识符白名单守护（约 +60 行）
+7. 跑 `python scripts/dev_sync.py` 生成 `data/commands/en/*.md`（现有手写 en 版被覆盖为 SoT 镜像）+ `data/knowledge/*_en.md` + `data/skill.json`（从 yaml 编译）+ `AGENTS.md`
+8. 验证 `pip install -e . --force-reinstall` + `cad-skill-setup --lang en --target /tmp/test` 能装出完整英文 5 skill + 2 knowledge
+9. 加 `.github/workflows/skills-sync.yml`（CI 二道防线）
+10. `README.md` 加"多语言团队"说明：每人本地 `cad-skill-setup --lang xx` 不 commit
 
-1. **OneDrive / 共享盘检测（B4）**：setup 前检测 `target` 路径，命中 `OneDrive` / UNC `\\server\share` / known cloud sync pattern → 警告 + 要求 `--force` 确认
-2. **多语言团队说明（I5）**：`README.md` 文档化：
-   > "多语言团队：每位开发者本地 `cad-skill-setup --lang xx --target .` 覆盖自己的 `.claude/commands/`；**不要 commit 回仓库**（仓库的 `.claude/commands/` 是维护者默认中文，个人语言切换是本地事项）。如果确需整仓改英文，maintainer 跑 `cad-sync build --lang en` 并 commit。"
-
-这两项**不由本 spec 实现**，但 spec 登记需求；后续由 `cad-skill-setup` 独立 spec 追加。
-
-### 3.9 "Auto-generated" 头部约定（B7）
-
-生成的 `.claude/commands/*.md` 首行加：
-```markdown
-<!-- AUTO-GENERATED from skills/cad-spec/zh.md — DO NOT EDIT; change source and run `cad-sync build` -->
-<!-- 本文件由 build/sync_skills.py 自动生成自 skills/<id>/<lang>.md；手改会被 sync 覆盖 -->
-
-# /cad-spec — 从设计文档生成 CAD Spec
-...（原 body）
-```
-
-Claude Code 的 slash command markdown 正常忽略 HTML 注释（不参与指令解析），零副作用。
-
-`AGENTS.md` 同样约定（§3.6 模板首行已含）。
-
-### 3.10 漂移段锚点（N3）
-
-为让 L3 "字节对等"测试能自动识别**预期漂移**（Task 35 "SW 装即用集成"等），SoT 源文件里的漂移段前后加注释锚点：
-
-```markdown
-<!-- drift:sw-install-ready start -->
-## SW 装即用集成 (spec 2026-04-19)
-...
-<!-- drift:sw-install-ready end -->
-```
-
-测试按锚点切片比对非漂移段字节对等，漂移段单独验证已更新。
-
-## 4. 迁移计划（分 3 PR）
-
-### PR1 — 建立 SoT + sync 脚本 + pre-commit（合并原 PR1+PR3，避免循环依赖 B1）
-1. 建 `skills/<id>/` × 5 目录：
-   - 从 `skill.json` 抽 metadata → `skill.yaml`
-   - 从 `.claude/commands/<id>.md` 拷 → `skills/<id>/zh.md`
-   - 从 `data/commands/en/<id>.md` 拷 → `skills/<id>/en.md`
-   - 从 `data/skill_cad_help_{zh,en}.md` 拷 → `skills/cad-help/knowledge.{zh,en}.md`
-   - 从 `data/skill_mech_design_{zh,en}.md` 拷 → `skills/mechdesign/knowledge.{zh,en}.md`
-2. 修 Task 35 漂移（"SW 装即用集成"段同步到 `skills/cad-spec/en.md` + `cad-codegen/en.md`，含代码标识符反引号锁）
-3. 加漂移段锚点（N3）到 `skills/*/zh.md` + `en.md`
-4. 写 `build/sync_skills.py`（4 子命令 + 换行归一化 + Jinja2 渲染 + 术语白名单）
-5. 写 `build/hatch_sync_hook.py`（兜底）
-6. 加 `.gitattributes`（`*.md text eol=lf`）
-7. 改 `pyproject.toml`：
-   - 加 `cad-sync` scripts entry
-   - 加 hatch custom build hook
-   - 加 `pre-commit` 到 dev deps
-8. 写 `.pre-commit-config.yaml`
-9. **原子操作**：
-   - `git rm .claude/commands/*.md` + `git rm src/cad_spec_gen/data/commands/{zh,en}/*.md` + `git rm src/cad_spec_gen/data/skill.json` + `git rm src/cad_spec_gen/data/skill_{cad_help,mech_design}_{zh,en}.md`
-   - 跑 `cad-sync build` 重新生成全 6 类产物（含 auto-gen 首行注释）
-   - `git add` 全部
-10. 字节对等验证：Phase 9 生成的 `.claude/commands/*.md`（去 auto-gen 首行）= 迁移前 `.claude/commands/*.md`（除漂移段，按 drift 锚点切片比）
-11. `README.md` 加 "pre-commit install" 步骤 + 多语言团队说明（I5）
-
-**PR1 合入后**：完整 SoT + 自动同步 + 守护全就位。原"分 3 PR"简化为 1 个大 PR。
-
-### PR2 — AGENTS.md（可与 PR1 合并或分开）
-12. `sync_skills.py build` 生成 `AGENTS.md`
-13. `git add AGENTS.md` commit
-14. 验证 `AGENTS.md` 含 5 skill + 约定段 + `{{rev_label}}` 正确解析
-
-PR2 可以 squash 进 PR1，也可以独立（让 PR1 先 review 通过再加 AGENTS.md）。**推荐独立**（PR 大小可控）。
-
-### PR3 — CI 二道防线（可选独立）
-15. 加 `.github/workflows/sync-check.yml`（Linux + Windows 两 runner 跑 `cad-sync check`）
-16. 验证：故意改 `skills/cad-spec/zh.md` 不跑 sync → push PR → CI fail
-
-### 回滚策略
-- PR1 若出问题（hatch hook 冲突 / pre-commit 误判 / 字节对等不过）→ `git revert` 回到 PR#9 tip
-- PR2/PR3 独立，各自可 revert 不影响 PR1
+### 回滚
+PR 合入后若出问题 → `git revert` 回到 PR#9 tip。
 
 ## 5. 测试策略
 
@@ -415,20 +423,15 @@ PR2 可以 squash 进 PR1，也可以独立（让 PR1 先 review 通过再加 AG
 
 | Layer | 目标 | 文件 |
 |---|---|---|
-| L1 单元 | `sync_skills.py` 各子命令逻辑 | `tests/test_sync_skills.py` |
+| L1 单元 | dev_sync.py 新增函数（en sync / AGENTS.md 生成 / skill.json 编译 / 术语白名单） | `tests/test_dev_sync_en.py` |
 | L2 确定性 | AGENTS.md 无 timestamp / 连跑字节稳定 | `tests/test_agents_md_deterministic.py` |
-| L3 迁移回归 | `.claude/commands/*.md` 字节对等（按漂移锚点切片，除 auto-gen 首行）+ cad-skill-setup regression | `tests/test_migration_byte_parity.py` |
-| L4 pre-commit | hook 正确阻塞 / 放行 | `tests/test_pre_commit_hook.py` |
-| L5 hatch hook | `python -m build` 触发 sync + wheel 含 generated（Linux + Windows 双跑） | `tests/test_hatch_build_hook.py` |
+| L3 回归 | hatch_build.py 产出的 zh 副本字节对等（现状保留） + en 新产物齐全 | `tests/test_hatch_build_parity.py` |
+| L4 pre-commit | 改 zh.md 不改 en.md 被抓（术语漂移）/ 改 en.md 不跑 sync 被抓 | `tests/test_pre_commit_drift.py` |
+| L5 hatch build | `python -m build` 触发 hatch_build 完整路径（Linux + Windows） | `tests/test_hatch_build_wheel.py` |
 | L6 golden snapshot | `tests/golden/AGENTS.md` 跟 sync 输出字节相等 | `tests/test_agents_md_golden.py` |
+| L7 安装回归 | `cad-skill-setup --lang en --target tmp` 产出 5 md + 2 knowledge | `tests/test_skill_setup_en_install.py` |
 
-### 5.2 测试夹具
-
-`tests/fixtures/sample_skills/` — 2 个假 skill（foo / bar），含 skill.yaml + zh.md + en.md，驱动 L1/L2/L4/L6 单元测试。
-
-L3/L5 用真 `skills/`（验证真迁移/真 build），tmp_path + git worktree 隔离。
-
-### 5.3 CI matrix（I3）
+### 5.2 CI matrix
 
 ```yaml
 strategy:
@@ -436,16 +439,10 @@ strategy:
     os: [ubuntu-latest, windows-latest]
     python-version: ['3.10', '3.12']
 env:
-  PYTHONIOENCODING: utf-8       # Windows 默认 cp936 常坑中文
+  PYTHONIOENCODING: utf-8
 ```
 
-Windows runner 必须覆盖——本项目北极星 "Windows-only"，CI 不跑 Windows 等于没测。
-
-### 5.4 覆盖率
-- `build/sync_skills.py` 行覆盖 ≥ 90%
-- 关键路径（build/check/validate）100%
-
-### 5.5 不测
+### 5.3 不测
 - `.md` body 内容（P 方案不改内容）
 - Claude Code 真实 slash 触发
 - 跨 LLM 对 AGENTS.md 的实际消费
@@ -454,44 +451,44 @@ Windows runner 必须覆盖——本项目北极星 "Windows-only"，CI 不跑 W
 
 | 风险 | 触发 | 缓解 |
 |---|---|---|
-| hatch hook 在 `python -m build` 失败 | sync_skills.py bug | fail-fast；L5 覆盖；CI matrix 跑 Linux+Windows |
-| pre-commit 阻止紧急 hotfix | hook 误判 | 临时 `--no-verify` 绕过；README 文档化；CI 二道防线兜底 |
-| 漂移检测误报（CRLF / 尾换行） | Windows 编辑器 | `_normalize` 函数 + `.gitattributes`；L3 测试跨平台验证 |
-| `{{rev_label}}` 浅克隆 / sdist 场景坏 | `fetch-depth:1` / pip install from sdist | fallback 到 `GITHUB_SHA` → `"unknown"`；L2 测试覆盖 |
-| `data/commands/` 入 git 导致 PR 冗余 | B2 决策 A 的代价 | 接受；pre-commit 确保改 SoT 必改副本，review 看 diff 知道是"代码在变"；将来 PR 大可 squash |
-| OneDrive 写锁 | 用户装到云盘 | `cad-skill-setup` OneDrive 检测（§3.8）；不是本 spec 实现 |
-| 英文 en.md 代码标识符翻译错 | 手动翻译漂移 | 反引号锁 + `validate` 白名单；L3 术语一致性测试 |
-| Cursor/Cline/Zed 用户投诉 AGENTS.md 不起作用 | 超出 v1 承诺 | §2.1 明确不保证；`build/targets/` 预留槽，未来单独 spec |
+| 现有 `data/commands/en/*.md` 被 sync 覆盖 | PR1 第 7 步 | Task 1 先从 `data/commands/en/` 拷到 `.claude/commands-en/` 作 SoT；然后允许覆盖（产物 = SoT 镜像） |
+| 手维护的 en 版跟 zh 已有深度漂移（不仅 Task 35） | 未知长度 | L3 测试显示 diff；维护者 review 决定保留哪版；实际 PR 时先 diff 审一遍 |
+| `skill.json` 现有消费方（现在包含 500 字 description）依赖长文本 | LLM 消费 description 但 spec 只给 200 字摘要 | 检查现有 skill.json 实际消费方（大概率只是 pip 元数据，不是 LLM 上下文）；若真依赖长文本，保留长字段在 skill.yaml 里以 `description_long` 命名 |
+| `.claude/commands-en/` 新路径 `cad-skill-setup` 识别 | `skill_register.py:51 COMMAND_FILES` 只认文件名 | 不需要改 register；因为它读的是 `data/commands/{lang}/`，SoT 位置它不关心 |
+| CI Windows runner 上 dev_sync.py 行为漂移 | encoding / CRLF | `.gitattributes` + `PYTHONIOENCODING=utf-8` + L5 测试覆盖 |
+| 术语白名单维护成本 | 代码标识符随项目演化 | `skills_metadata.yaml` 里加 `code_identifiers:` 段，维护者扩展 |
+| 5 个 skill 的英文 body 与 zh 长期漂移 | 业务扩展 | 术语白名单只防代码标识符；业务语义漂移靠 human review；spec 承认这点 |
 
 ## 7. 开放问题 — 已清
 
 | # | 问题 | 决议 |
 |---|---|---|
-| O1 | sync_skills.py 规模 | 500 LOC 估算；plan 按此拆 task |
-| O2 | AGENTS.md 是否分 zh/en | 跟 `.claude/commands/` 共享 `--lang` 开关；默认 zh；`build --lang en` 同时覆盖 |
-| O3 | knowledge_file 字段语义 | **生成产物文件名前缀**（不含 `_zh/_en.md`）；`sync build` 生成 `data/skill_cad_help_{zh,en}.md`；`skill_register` 按 lang 选一份改名 `skill_cad_help.md` 写 target |
-| O4 | SW 操作员建议 `--doctor` / per-skill lang / 版本 hash | 全部**不纳入本 spec**；登记给 `cad-skill-setup` 独立迭代 |
+| O1 | dev_sync.py 扩展规模 | ~+60 行（远小于 v2 的 500 行 sync_skills.py）|
+| O2 | AGENTS.md 是否分 zh/en | **v3 不做双语切换**；默认 zh；用户要英文自己从 en SoT 生成本地版本 |
+| O3 | knowledge_file 字段语义 | `skills_metadata.yaml.skills[].knowledge_file` = 文件名前缀（不含 _zh/_en.md）；dev_sync 生成 `data/knowledge/<prefix>_{zh,en}.md` |
+| O4 | skill.json 从手维护变生成后，现有消费方是否受影响 | 检查后决定保留/删除/缩 description 字段 |
 
-## 8. 附录：用户回答的关键决策
+## 8. 附录：用户关键决策
 
 | 问题 | 选择 |
 |---|---|
-| 跨 LLM 目标平台 | Claude + Codex CLI 原生（AGENTS.md）；其他 LLM 不保证 |
+| 跨 LLM 目标 | Claude + Codex CLI（AGENTS.md）；其他不保证 |
 | 语言选择时机 | 安装时（`cad-skill-setup --lang`，已有） |
-| SoT 布局 | X — skill-per-folder + 语言并列 |
-| 构建产物入 git | **丙修正版**：全部入 git + pre-commit 守护（B2 决策 A） |
-| 首要用户 | 2 + 3a（maintainer + 会 terminal 的 pip 用户）；**3b 外行划出范围** |
-| pip 交付机制 | γ — 复用现有 `cad-skill-setup` |
+| SoT 布局（v3 方向 B） | `.claude/commands/` zh + `.claude/commands-en/` en；根目录 knowledge 双版；`skills_metadata.yaml` 单文件 metadata |
+| 构建产物入 git | 全部入 git + pre-commit 守护（复用现有机制） |
+| 首要用户 | maintainer + 会 terminal 的 pip 用户 |
+| pip 交付 | 复用现有 `cad-skill-setup` |
 | 内容重构深度 | P — 最小侵入 |
-| 3 方向性决策（审查后） | B2=A / B6=A（Claude+Codex only）/ B5=A（外行 UX 划出） |
+| 推翻 v2 改走方向 B | 保留 `hatch_build.py` + `scripts/dev_sync.py`（~11 KB 投资）|
 
 ## 9. 附录：审查历史
 
-- **初稿** 2026-04-19 （brainstorming 7 节对话产出）
-- **v1 committed** @ `ab84034`（333 行）
-- **3 角色审查**（Skill 程序员 + SW 操作员 + 外行潜在用户）并行返 ~30 项 findings
-- **v2 修订**（本文件）：纳入 7 项 blocker + 6 项 important + 4 项 nit + 4 项 open 的决议；整体扩 ~100 行
+- **v1**（@ `ab84034`，333 行）：brainstorming 初稿
+- **3 角色审查**（Skill 程序员 + SW 操作员 + 外行用户）并行返 ~30 项
+- **v2**（@ `7783479`，497 行）：纳入 17 项 findings；设计 `skills/<id>/` 新 SoT + `build/sync_skills.py`（500 LOC）
+- **深度现状核查**：发现 `hatch_build.py` + `scripts/dev_sync.py` + `.pre-commit-config.yaml` 已存在并提供完整 SoT + 同步链；v2 会推翻高价值基础设施
+- **v3（本版，方向 B）**：推翻 v2；改走保守路线——**保留 `.claude/commands/*.md` zh SoT、新增 `.claude/commands-en/*.md` en SoT、扩展现有 dev_sync/hatch 而不重写**。工作量 v2 的 1/5。
 
 ---
 
-_下一步：用户 approve v2 后，调 `superpowers:writing-plans` skill 产出实施 plan。_
+_下一步：用户 approve v3 后，调 `superpowers:writing-plans` skill 产出实施 plan。_
