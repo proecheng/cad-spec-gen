@@ -1,5 +1,8 @@
-"""用户手动提供 STEP 文件流程 — prompt 主入口 + 三选一 (Task 22)"""
-from sw_preflight.types import UserChoiceResult
+"""用户手动提供 STEP 文件流程 — prompt 主入口 + 三选一 (Task 22) + 按 PartCategory 分流复制 (Task 23)"""
+import shutil
+import re
+from pathlib import Path
+from sw_preflight.types import UserChoiceResult, PartCategory
 from sw_preflight import io
 
 
@@ -41,3 +44,36 @@ def prompt_user_provided(missing_rows: list[dict], copy_files: bool = True) -> U
             provided[_bom_key(row)] = path
     return UserChoiceResult(provided_files=provided, stand_in_keys=stand_in,
                             skipped_keys=skipped)
+
+
+def _safe_filename(name: str) -> str:
+    """BOM name_cn → 安全文件名"""
+    return re.sub(r'[^\w\-.]', '_', name)[:80]
+
+
+# PartCategory → 子目录映射；None 表示走 std_parts/custom/
+CATEGORY_TO_SUBDIR = {
+    PartCategory.STANDARD_FASTENER: 'standard',
+    PartCategory.STANDARD_BEARING: 'standard',
+    PartCategory.STANDARD_SEAL: 'standard',
+    PartCategory.STANDARD_LOCATING: 'standard',
+    PartCategory.STANDARD_ELASTIC: 'standard',
+    PartCategory.STANDARD_TRANSMISSION: 'standard',
+    PartCategory.STANDARD_OTHER: 'standard',
+    PartCategory.VENDOR_PURCHASED: 'vendor',
+    PartCategory.CUSTOM: None,  # 走 std_parts/custom/
+}
+
+
+def copy_to_user_provided(src: Path, row: dict, category: PartCategory) -> Path:
+    """复制文件到 ./std_parts/user_provided/{standard,vendor}/ 或 ./std_parts/custom/"""
+    sub = CATEGORY_TO_SUBDIR.get(category)
+    if sub is None:
+        dest_dir = Path('./std_parts/custom')
+    else:
+        dest_dir = Path(f'./std_parts/user_provided/{sub}')
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fname = _safe_filename(row.get('name_cn', 'unknown')) + '.step'
+    dest = dest_dir / fname
+    shutil.copy2(src, dest)
+    return dest
