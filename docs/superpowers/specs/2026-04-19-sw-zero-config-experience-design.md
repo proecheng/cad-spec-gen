@@ -131,6 +131,43 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
 **新增（orchestrator 层）**：
 - `sw_preflight/`（"判断 + 修复 + 呈现 + 诊断"集中处）
 
+### 3.5 通用性约束（零硬编码 + 自主发现）
+
+> **铁律**：sw_preflight 任何代码、文档、测试**禁止**硬编码以下任一项。所有信息必须**运行时自主发现**。违者 plan 阶段 code-review 直接 reject。
+>
+> **来由**：memory `solidworks_asset_extraction.md` 已记录"SW 真路径 `C:\Program Files\` 非 `D:\`"事故；不同用户安装位置 / 版本 / 授权 / 网络环境差异巨大，硬编码会让 skill 在用户机器上静默失败。
+
+#### 3.5.1 禁止硬编码清单
+
+| 信息 | 禁止 | 必须 |
+|---|---|---|
+| SW 安装路径 | `C:\Program Files\SOLIDWORKS Corp\...` / `D:\...` | 注册表 / COM ApplicationDirectory API / Shell ProgID 反查 |
+| SW 版本年份 | `2020` / `2024` 等具体年份 | 注册表枚举所有 `SOLIDWORKS <year>` 子键 / `ISldWorks::RevisionNumber()` |
+| Toolbox 数据库路径 | 任何字面路径 | `ISldWorks::GetUserPreferenceStringValue(swToolboxFolder)` 或 SW 选项 API |
+| 授权 edition | "Pro 必有 Toolbox" 等假设 | 注册表 edition 字段 + **运行时 sw_toolbox_adapter.is_available() 真测兜底** |
+| pywin32 安装路径 | `site-packages/win32com` 等 | `importlib.util.find_spec('win32com')` |
+| Add-In GUID | SW Toolbox Add-In 的具体 GUID 字面值 | 复用 `sw_toolbox_adapter` 现有发现机制（不要在 sw_preflight 重复一份） |
+| 注册表 hive 选择 | 仅查 HKLM 或仅查 HKCU | **HKCU 优先 → HKLM 兜底**（用户级 add-in 配置覆盖系统级） |
+
+#### 3.5.2 自主发现策略（多源交叉验证）
+
+每项关键信息**至少 2 个独立来源**，结果不一致时记 P2 警告但不 fail：
+
+| 信息 | 主源 | 兜底源 | 不一致时 |
+|---|---|---|---|
+| SW 是否安装 | 注册表 `SOFTWARE\SolidWorks\Setup\SOLIDWORKS *` 子键存在 | COM ProgID `SldWorks.Application` 可解析 | 任一命中即"装"，记 P2 |
+| SW 版本号 | 注册表 `Setup\<year>` 子键名 | `ISldWorks::RevisionNumber()` 实运行返回 | 不一致 → 优先信运行时 |
+| SW 安装路径 | 注册表 `SOFTWARE\SolidWorks\SOLIDWORKS <ver>\Setup\SolidWorks Folder` | COM `ISldWorks.GetExecutablePath()` 实运行 | 同上 |
+| Toolbox 路径 | SW 选项 API 运行时取 | 注册表 `Toolbox\<ver>\Folder` | 同上 |
+| edition (Std/Pro/Premium) | 注册表 `Setup\<year>\Edition` | sw_toolbox_adapter.is_available() 真测：能 Add-In + 能列零件 = 至少 Pro | 真测优先（注册表可能滞后于授权切换） |
+| 多版本共存 | 注册表枚举所有 `SOLIDWORKS *` 年份子键 | — | 默认选**最新**版本；P2 报告头显示"检测到多版本：[2022, 2024]，本次用 2024" |
+
+#### 3.5.3 工具函数边界
+
+所有"自主发现"逻辑**集中**在 `adapters/solidworks/sw_detect.py` 内（本 spec 在那里加 `reset_cache()` + `edition` 字段时顺手把多源发现也补全），sw_preflight 仅消费 `SwInfo` dataclass，不直接读注册表 / 不直接调底层 API——保持职责分层。
+
+> 这条约束的副作用是**本 spec 顺手清理 sw_detect.py 现有的任何硬编码**（如果 audit 阶段发现）——plan 阶段第一个 task。
+
 ### 3.3 接入点（修改 3 处 CLI 入口）
 
 | 入口 | 实际文件路径 | strict | dry-run | P2 报告 | 备注 |
@@ -155,17 +192,24 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
 |---|---|
 | Windows 平台 | `sys.platform == 'win32'` ✓ |
 | pywin32 已装且 postinstall 已跑 | `import win32com` 成功 + `pythoncom` 可初始化 ✓ |
-| SOLIDWORKS 已安装 | `sw_detect.detect_solidworks().installed` ✓ |
-| SW 版本支持 Toolbox | `SwInfo.edition in {'Pro', 'Premium'}` ✓³ |
+| SOLIDWORKS 已安装（任一版本） | `sw_detect.detect_solidworks().installed` ✓（多源交叉验证，见 §3.5.2） |
+| 多版本共存检测 | 注册表枚举所有 `SOLIDWORKS *` 子键，默认用**最新**版；P2 报告显式列出所有版本与本次选择 |
+| SW 版本支持 Toolbox（**真测，不查年份**） | `sw_toolbox_adapter.is_available()` 真跑 6 项 = ✓ ³ |
+| 授权状态可用 | COM 实例化无 license 异常 + Toolbox API 可调用 ⁵ |
 | SLDWORKS COM 可用 | `sw_com_session.is_healthy()` ✓⁴ |
 | Toolbox Add-In 已启用 | `sw_toolbox_adapter.is_available()` ✓ |
-| Toolbox 数据库路径有效 | `SwInfo.toolbox_dir` 存在 + 可读 ✓ |
+| Toolbox 数据库路径有效 | `SwInfo.toolbox_dir`（运行时由 SW 选项 API 取，不假设路径）存在 + 可读 ✓ |
 
 全过 → M 静默通过，pipeline 直接进入主任务。
 
-> **³ SwInfo.edition 字段当前缺失**：现有 `sw_detect.SwInfo` 无 edition 字段，`sw_toolbox_adapter` 仅按 `version_year < 2024` 判 Toolbox 支持，**无法区分 Standard / Pro / Premium**。本 spec 在 §11 列改动：`sw_detect.py` 增加 `edition: Literal['Standard', 'Pro', 'Premium', 'unknown']`（plan 阶段单独 task；从注册表 `HKLM\SOFTWARE\SolidWorks\SOLIDWORKS <ver>\Setup` 读 edition / 或回退查 license 文件）。
+> **³ Toolbox 支持判定 = 真测，不查版本年份**：旧 `sw_toolbox_adapter` 用 `version_year < 2024` 做硬编码判定——**违反 §3.5 通用性约束**，本 spec 顺手清理。新规则：
+> - 不论 SW 是哪一年的（2018 / 2020 / 2024 / 2025+），统一调 `sw_toolbox_adapter.is_available()` 6 项检查
+> - `SwInfo.edition` 字段（新增）仅作为**辅助信息**写进报告头，不参与可用性决策
+> - 这样 SW 出新版本（如 2026 / 2027）不需要改本 spec 任何代码
 >
-> **⁴ sw_com_session 不暴露 dispatch 对象**：现 subprocess-per-convert 模式（`adapters/solidworks/sw_com_session.py` Part 2c P0 重写注释），无持久 dispatch 暴露给上层。体检通过 `is_healthy()` 间接验证 COM 可用——若 `is_healthy()` 不足以覆盖"CLSID 可实例化"，sw_preflight 内做一次 spawn-test-die 子进程探测（`subprocess.run([python, '-c', 'import win32com.client; win32com.client.Dispatch("SldWorks.Application")'])`），不污染 sw_com_session 现有 API。
+> **⁴ sw_com_session 不暴露 dispatch 对象**：现 subprocess-per-convert 模式，体检通过 `is_healthy()` 间接验证 COM 可用——若不足以覆盖"CLSID 可实例化"，sw_preflight 内做一次 spawn-test-die 子进程探测（`subprocess.run([python, '-c', 'import win32com.client; win32com.client.Dispatch("SldWorks.Application")'])`），不污染 sw_com_session 现有 API。
+>
+> **⁵ 授权多样性兜底**：用户机器上 SW 可能是 Standard / Pro / Premium / 教育版 / 试用版 / 网络浮动 / 借用授权 / 临时授权——种类太多无法逐种分支。统一策略：**任何 license 异常都归一到 `LICENSE_PROBLEM` 诊断码**（见 §4.3），让用户打开 SOLIDWORKS GUI 一次看具体报错（SW 自己的 license 报错最权威），修后重跑。
 
 ### 4.2 一键修（H 策略 — 弹一行话 + 回车）
 
@@ -177,12 +221,22 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
 [Q] 退出我自己处理
 ```
 
-| 异常 | 一键动作 | 是否需要等关 SW |
-|---|---|---|
-| pywin32 未装 | `pip install pywin32 && python Scripts/pywin32_postinstall.py -install` | ❌ 不需要 |
-| ROT 中有僵死 SW 实例¹ | 自动 release + 重摸 ROT | ❌ 不需要（**静默自愈**，不弹提示，记 P2） |
-| Toolbox Add-In 未启用 | 通过 `SldWorks.EnableAddIn` 强制开 | ✅ 需要 |
-| SW 后台进程未启动（仅 Add-In 启用需要时） | 自动启 SW 后台进程（不弹界面） | ❌ 不需要（启新进程） |
+| 异常 | 一键动作 | 需要等关 SW | 需要管理员权限 |
+|---|---|---|---|
+| pywin32 未装 | `pip install pywin32 && python Scripts/pywin32_postinstall.py -install` | ❌ | 取决于 Python 环境（venv 用户级不需要 / 系统 Python 需要） |
+| ROT 中有僵死 SW 实例¹ | 自动 release + 重摸 ROT | ❌（**静默自愈**，不弹提示，记 P2） | ❌ |
+| Toolbox Add-In 未启用 | 通过 `SldWorks.EnableAddIn` 强制开 | ✅ | 取决于 Add-In 注册位置（HKCU 不需要 / HKLM 需要） |
+| SW 后台进程未启动（仅 Add-In 启用需要时） | 自动启 SW 后台进程（不弹界面） | ❌（启新进程） | ❌ |
+
+> **管理员权限不足时的退化（H 策略增强）**：执行修复前用 `ctypes.windll.shell32.IsUserAnAdmin()` 检测当前进程权限。若修复需要管理员权限但当前不是 admin：
+> ```
+> ⚠️ 此修复步骤需要管理员权限。
+>    [1] 以管理员身份重启本工具（系统会弹 UAC 确认）
+>    [2] 我自己手动修（按报告里的 GUI 步骤）
+>    [Q] 退出
+> ```
+> 选 [1] → `ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)` 重启当前进程为 admin。当前进程干净退出，新进程从 M 体检重新开始。
+> 选 [2] → 退化为 §4.3 卡住类 `INSUFFICIENT_PRIVILEGES` 诊断 + GUI 步骤。
 
 > **¹ "僵死 SW 实例" 定义**：Running Object Table 里登记的 `SldWorks.Application` COM 对象，但对应进程已退出（孤儿引用）；或对应进程存在但 `IsConnected()` / 任意 API 调用返回 RPC_E_DISCONNECTED。检测靠 sw_com_session 的 health probe（已有逻辑）。
 
@@ -200,9 +254,12 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
 |---|---|---|---|
 | `PLATFORM_NOT_WINDOWS` | 本工具仅支持 Windows — 检测到 platform=darwin/linux | 在 Windows 机器上重跑 | 北极星平台边界 |
 | `SW_NOT_INSTALLED` | 未检测到 SolidWorks 安装 | 请先安装 SolidWorks Pro 或 Premium。本工具的标准件几何来自 SW Toolbox。 | 装 SW 需要序列号 + 几 GB 安装包 |
-| `SW_STANDARD_NO_TOOLBOX` | 检测到 SW Standard — 该版本不含 Toolbox | 请联系授权管理员升级到 Pro/Premium | 授权问题 |
+| `SW_TOOLBOX_NOT_SUPPORTED` | 检测到 SW（版本 `<runtime version>`）但 Toolbox 不可用——可能是 Standard 版本或 Toolbox 模块未安装 | 请打开 SOLIDWORKS → 帮助 → 关于 → 查看许可证类型；若为 Standard 请联系授权管理员升级，若为 Pro/Premium 请运行 SW installer 修改安装勾选 Toolbox 模块 | 授权或安装范围问题（**不假设是 Standard，让用户自己看 SW 报告的实际类型**） |
+| `LICENSE_PROBLEM` | SW 已安装但 license 异常（实例化失败 / Toolbox API 报错） | 请双击桌面 SOLIDWORKS 图标启动一次，查看 SW 自己弹的 license 报错（过期 / 服务器不通 / 未激活 / 借用到期 等），按 SW 提示修复后重跑本工具 | license 异常类型太多（网络浮动 / 单机 / 试用 / 教育 / 借用 / 临时），逐种分支不现实——SW 自己的报错最权威 |
 | `COM_REGISTRATION_BROKEN` | SW COM 接口异常（CLSID 实例化失败） | 控制面板 → 程序 → SOLIDWORKS → 修改 → 修复安装 | 装坏了得用 SW installer 修复 |
-| `TOOLBOX_PATH_INVALID` | Toolbox 数据库路径不可访问：`<path>` | SOLIDWORKS → 工具 → 选项 → 系统选项 → 异型孔向导/Toolbox → 把路径改到本地非同步目录 | 用户系统配置问题 |
+| `TOOLBOX_PATH_INVALID` | Toolbox 数据库路径不可访问：`<runtime path>` | SOLIDWORKS → 工具 → 选项 → 系统选项 → 异型孔向导/Toolbox → 把路径改到本地非同步目录 | 用户系统配置问题 |
+| `MULTIPLE_SW_VERSIONS_AMBIGUOUS` | 检测到多个 SW 版本 `[<v1>, <v2>, ...]`，最新版 `<vN>` 不可用，回退候选也都失败 | 请打开期望使用的 SW 版本一次（确认它能正常启动），或卸载坏的版本 | 多版本场景下自动选最新失败，需人工裁决 |
+| `INSUFFICIENT_PRIVILEGES` | 修复需要管理员权限（写 HKLM 注册表 / 系统目录） | 重新以"以管理员身份运行"启动终端再跑本工具，或按报告中的 GUI 步骤手动修复 | 当前进程权限不足，无法静默 elevate（需用户授权） |
 
 **诊断行规范**：一句问题 + 一句"建议怎么做"，没有技术名词；建议必须是 GUI 操作步骤（用户在 SW / 控制面板里点哪几下），不是命令行。
 
@@ -463,9 +520,19 @@ adapters/solidworks/sw_detect.py             # +SwInfo.edition: Literal['Standar
 ### AC-2：一键修流程正确
 
 - AC-2.1 pywin32 未装：自动 pip install + postinstall，不要求等关 SW
-- AC-2.2 Toolbox Add-In 未启用：先等关 SW、再 enable、再重跑体检
+- AC-2.2 Toolbox Add-In 未启用：先等关 SW、再 enable、调 sw_detect.reset_cache()、再重跑体检
 - AC-2.3 ROT 僵死：静默自愈，不打扰用户，记 P2
-- AC-2.4 修不动场景（SW 未装 / Standard / COM 损坏）：清晰诊断 + GUI 操作步骤
+- AC-2.4 修不动场景（SW 未装 / Toolbox 不支持 / license 异常 / COM 损坏）：清晰诊断 + GUI 操作步骤
+- AC-2.5 **管理员权限不足时**：检测 IsUserAnAdmin → 弹"以管理员重启 / 手动修 / 退出"三选一
+- AC-2.6 **多 SW 版本共存**：默认选最新；最新不可用时回退候选；全失败 → `MULTIPLE_SW_VERSIONS_AMBIGUOUS`
+
+### AC-2.5：通用性铁律（零硬编码）
+
+- AC-2.5.1 grep `sw_preflight/` 全部代码 + 测试，**不得**出现 `Program Files` / `D:\\` / `2024` / `2025` 等具体路径或年份字面值
+- AC-2.5.2 SW 安装路径 / 版本号 / Toolbox 路径 / edition 全部由运行时 API / 注册表枚举发现
+- AC-2.5.3 Toolbox 支持判定**仅**靠 `sw_toolbox_adapter.is_available()`，不查版本年份
+- AC-2.5.4 注册表读取 HKCU 优先 HKLM 兜底
+- AC-2.5.5 多源交叉验证：装机/版本/路径每项至少 2 来源，不一致时记 P2 警告
 
 ### AC-3：用户指定文件流正确
 
@@ -512,7 +579,13 @@ adapters/solidworks/sw_detect.py             # +SwInfo.edition: Literal['Standar
 | Toolbox 数据库路径在 OneDrive 锁定（公司常见） | 卡住 + GUI 操作建议改本地路径 |
 | BOM dry-run 在大型 BOM（500+ 行）耗时长 | M 阶段加进度条；router 缓存优化（plan 阶段评估） |
 | tkinter 在 Python embedded 环境不可用 | 退化为 CLI 路径输入（带 tab 补全） |
-| 用户系统多版本 SW 共存 | sw_detect 选最新；P2 报告显示用了哪个版本 |
+| **多版本 SW 共存自动选最新失败** | P2 报告显式列出所有版本；`MULTIPLE_SW_VERSIONS_AMBIGUOUS` 诊断码引导用户人工裁决 |
+| **管理员权限不足** | §4.2 加 IsUserAnAdmin 检测 + ShellExecute "runas" 二选一退化 |
+| **license 异常类型多（网络/单机/教育/试用/借用）** | 统一归 `LICENSE_PROBLEM` 诊断码，让用户在 SW GUI 里看具体报错（SW 自己最权威） |
+| **用户机器有 Toolbox 自定义路径（企业网络共享/重命名）** | SW 选项 API 运行时取，不假设路径；网络路径不可达则 `TOOLBOX_PATH_INVALID` |
+| **用户机器装的是非 SOLIDWORKS Corp 厂家定制版** | sw_detect 多源交叉（注册表 + COM ProgID）任一命中即"装"；不识别 edition 时归 unknown 但不阻断 |
+| **未来 SW 出新版本（2026/2027）spec 失效** | §3.5 + §4.1 ³ 明确不查年份、按运行时真测——新版本无需改 spec |
+| **注册表 hive 选错（HKLM vs HKCU）** | §3.5.1 强制 HKCU 优先 → HKLM 兜底，避免漏读用户级 Add-In 配置 |
 
 ---
 
