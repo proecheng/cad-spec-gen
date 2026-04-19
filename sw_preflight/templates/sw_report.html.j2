@@ -1,0 +1,52 @@
+<!-- sw_preflight/templates/sw_report.html.j2 -->
+<!-- SW 资产报告三段式模板 — 标准件 / 外购件 / 自定义件 + 后台修复记录（技术细节折叠） -->
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>SW 资产报告</title>
+<style>
+body{font-family:sans-serif;max-width:900px;margin:2em auto;color:#222}
+h1{font-size:1.4em;border-bottom:2px solid #333;padding-bottom:.3em}
+.status-card{background:#eef;padding:.5em 1em;border-radius:6px}
+.section{margin:1.5em 0;border:1px solid #ccc;border-radius:6px;overflow:hidden}
+.section-head{background:#f4f4f4;padding:.5em 1em;font-weight:bold}
+.row{padding:.4em 1em;border-top:1px solid #eee}
+.ok{color:#2a7}.warn{color:#c80}.err{color:#c33}
+details{margin-top:.3em;font-size:.85em;color:#666}
+</style></head><body>
+
+<h1>SW 资产报告 — {{ ran_at }}  耗时 {{ elapsed }}</h1>
+<div class="status-card">SW 状态：✅ {{ sw_status.edition }} |
+Toolbox: {{ '✅' if sw_status.toolbox else '❌' }} |
+pywin32: {{ '✅' if sw_status.pywin32 else '❌' }}</div>
+
+<div class="section">
+  <div class="section-head">标准件 ({{ standard_rows|length }} 行)</div>
+  {% for r in standard_rows %}
+  <div class="row"><span class="{{ 'ok' if r.status=='✅' else 'warn' if r.status=='⚠️' else 'err' }}">{{ r.status }}</span>
+  {{ r.name }} → {{ r.adapter }}{% if r.reason %}<br>原因: {{ r.reason }}<br>建议: {{ r.suggestion }}{% endif %}</div>
+  {% endfor %}
+</div>
+
+<div class="section">
+  <div class="section-head">外购件 ({{ vendor_rows|length }} 行)</div>
+  {% for r in vendor_rows %}
+  <div class="row"><span class="{{ 'ok' if r.status=='✅' else 'warn' if r.status=='⚠️' else 'err' }}">{{ r.status }}</span>
+  {{ r.name }} → {{ r.adapter }}</div>
+  {% endfor %}
+</div>
+
+<div class="section">
+  <div class="section-head">自定义件 ({{ custom_rows|length }} 行)</div>
+  {% for r in custom_rows %}
+  <div class="row"><span class="ok">{{ r.status }}</span> {{ r.name }} → {{ r.adapter }}</div>
+  {% endfor %}
+</div>
+
+<div class="section">
+  <div class="section-head">后台修复记录 ({{ fix_records|length }} 项)</div>
+  {% for f in fix_records %}
+  <div class="row">🛠️ {{ f.action }} ({{ '%.1f'|format(f.elapsed_ms/1000) }}s)
+  <details><summary>技术细节</summary>{{ f.detail }}</details></div>
+  {% endfor %}
+</div>
+
+</body></html>

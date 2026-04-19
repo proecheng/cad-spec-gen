@@ -34,6 +34,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional
 
+# Task 7：ResolveResult.category 用 9 类 PartCategory 做权威路由
+# sw_preflight.types 只依赖 diagnosis，没有反向 import parts_resolver，
+# 故直接 import 无循环风险（若将来出现循环再改 TYPE_CHECKING + 字符串注解）
+from sw_preflight.types import PartCategory
+
 __all__ = [
     "PartQuery",
     "ResolveResult",
@@ -87,10 +92,18 @@ class ResolveResult:
     source_tag: str = ""                    # human-readable origin
     warnings: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)  # adapter-specific extras
+    # Task 7：9 类零件分类。默认 CUSTOM（兜底），resolve() 命中后由
+    # _infer_category(rule, adapter) 覆写成更具体的 PartCategory。
+    category: PartCategory = PartCategory.CUSTOM
 
     @classmethod
     def miss(cls) -> "ResolveResult":
-        return cls(status="miss", kind="miss", adapter="")
+        return cls(
+            status="miss",
+            kind="miss",
+            adapter="",
+            category=PartCategory.CUSTOM,
+        )
 
 
 # ─── Adapter protocol ─────────────────────────────────────────────────────
@@ -166,6 +179,8 @@ class PartsResolver:
                          f"on {query.part_no}: {e} — falling through")
                 continue
             if result.status == "hit":
+                # Task 7：按 mapping + adapter 类型推断分类
+                result.category = _infer_category(rule, adapter)
                 self._decision_log.append(
                     (query.part_no, adapter_name, result.source_tag))
                 return result
@@ -176,6 +191,8 @@ class PartsResolver:
             result = fallback.resolve(query, spec={})
             if result.status == "hit":
                 result.status = "fallback"
+                # Task 7：兜底 fallback 统一 CUSTOM（规则视角无 match/spec 线索）
+                result.category = PartCategory.CUSTOM
                 self._decision_log.append(
                     (query.part_no, "jinja_primitive", result.source_tag))
                 return result
@@ -387,6 +404,58 @@ def _match_rule(match: dict, query: PartQuery) -> bool:
             return False
 
     return True
+
+
+# ─── Category inference (Task 7) ──────────────────────────────────────────
+
+
+# 优先级 1：rule["match"]["category"] 显式分类关键字 → 标准件 6 细分
+# Task 7 只覆盖现有 yaml 已用的 fastener / bearing；其余 4 档（seal/locating/
+# elastic/transmission）等 Task 8 在 yaml 里补规则后自然生效（dict 里已登记）。
+_MATCH_CATEGORY_TO_PART: dict[str, PartCategory] = {
+    "fastener": PartCategory.STANDARD_FASTENER,
+    "bearing": PartCategory.STANDARD_BEARING,
+    "seal": PartCategory.STANDARD_SEAL,
+    "locating": PartCategory.STANDARD_LOCATING,
+    "elastic": PartCategory.STANDARD_ELASTIC,
+    "transmission": PartCategory.STANDARD_TRANSMISSION,
+}
+
+# 优先级 2：仅由 adapter 名字直接决定（不需看 spec）
+# jinja_primitive 永远是 CUSTOM（参数化原语兜底）
+_ADAPTER_NAME_TO_PART: dict[str, PartCategory] = {
+    "jinja_primitive": PartCategory.CUSTOM,
+}
+
+
+def _infer_category(rule: dict, adapter) -> PartCategory:
+    """推断命中规则的 PartCategory（Task 7）。
+
+    优先级（从高到低）：
+      1. rule["match"]["category"] 直接关键字映射 → 6 个 STANDARD_* 之一
+      2. adapter.name == "step_pool" 且 rule["spec"] 含 "synthesizer"
+         → VENDOR_PURCHASED（skill-shipped vendor STEP 合成件）
+      3. adapter.name 直接映射（当前仅 jinja_primitive → CUSTOM）
+      4. 兜底：CUSTOM
+    """
+    match = rule.get("match", {}) or {}
+    match_category = match.get("category")
+    if isinstance(match_category, str):
+        mapped = _MATCH_CATEGORY_TO_PART.get(match_category)
+        if mapped is not None:
+            return mapped
+
+    adapter_name = getattr(adapter, "name", "") or ""
+    if adapter_name == "step_pool":
+        spec = rule.get("spec", {}) or {}
+        if "synthesizer" in spec:
+            return PartCategory.VENDOR_PURCHASED
+
+    direct = _ADAPTER_NAME_TO_PART.get(adapter_name)
+    if direct is not None:
+        return direct
+
+    return PartCategory.CUSTOM
 
 
 # ─── Registry loading ─────────────────────────────────────────────────────

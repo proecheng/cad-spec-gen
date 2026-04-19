@@ -54,6 +54,15 @@ jobs:
         with:
           clean: true  # 显式（D4 long-lived runner 的清场保证）
 
+      - name: 零硬编码静态校验 (AC-2.5.1)
+        shell: bash
+        run: |
+          if git grep -nE 'Program Files|D:\\\\|"20(2[0-9]|3[0-9])"' -- sw_preflight/ ; then
+            echo "::error::sw_preflight/ 含禁用的硬编码字面值"
+            exit 1
+          fi
+          echo "✅ 零硬编码校验通过"
+
       - name: Setup CAD env (composite)
         uses: ./.github/actions/setup-cad-env
 

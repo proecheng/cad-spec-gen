@@ -334,6 +334,24 @@ def main():
                         help="Path to parts_library.yaml (overrides default search)")
     args = parser.parse_args()
 
+    # ─── Task 30: sw_preflight 接入（strict=True — codegen 阶段 SW 异常必须卡） ───
+    # 延迟 import：只在 main 调用时触发，保持模块顶部 import 面干净。
+    from datetime import datetime
+    from pathlib import Path as _Path
+    from sw_preflight.preflight import run_preflight
+    from sw_preflight.cache import read_cache
+    run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    cache_path = _Path(f'./artifacts/{run_id}/sw_preflight_cache.json')
+    preflight_result = None
+    cached = read_cache(cache_path)
+    if cached and cached.get('preflight_result', {}).get('passed'):
+        print(f"[preflight] 复用 cache（TTL 内）: {cache_path}")
+        # 简化：cache 命中直接跳过 — PreflightResult 反序列化留给 Task 34 按需补；
+        # 走到 dry_run / emit_report 时 preflight_result=None 会进入 fallback 分支。
+    else:
+        preflight_result = run_preflight(strict=True, run_id=run_id, entry='cad-codegen')
+    # ─── /Task 30 ───
+
     if args.parts_library:
         os.environ["CAD_PARTS_LIBRARY"] = args.parts_library
 
@@ -342,6 +360,28 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     generated, skipped = generate_std_part_files(spec_path, output_dir, mode=args.mode)
+
+    # ─── Task 30: dry_run BOM + emit_report（只读分析，不反向驱动 codegen） ───
+    # 失败不阻 codegen 产物；三选一 prompt + user_choice 覆盖 router 留 Task 34 重评。
+    try:
+        from sw_preflight.dry_run import dry_run_bom
+        from sw_preflight.report import emit_report
+        _bom = parse_bom_tree(spec_path)  # 已在模块顶部 import（line 37）
+        _dry = dry_run_bom(_bom)
+        # 若 preflight_result 为 None（走了 cache 命中分支），构造最小 fallback 供 emit_report 使用
+        if preflight_result is None:
+            from sw_preflight.types import PreflightResult
+            preflight_result = PreflightResult(
+                passed=True, sw_info=None,
+                fixes_applied=[], diagnosis=None, per_step_ms={},
+            )
+        _report_path = emit_report(_bom, _dry, preflight_result, _Path(f'./artifacts/{run_id}'))
+        print(f"📋 SW 资产报告 → {_report_path}")
+    except Exception as _e:
+        # 任何 dry_run / emit_report 异常不阻 codegen 成功出产物
+        print(f"[report] 生成跳过（{type(_e).__name__}: {_e}）")
+    # ─── /Task 30 ───
+
     print(f"[gen_std_parts] Generated {len(generated)} standard part scaffold(s), "
           f"skipped {len(skipped)} existing")
     for f in generated:

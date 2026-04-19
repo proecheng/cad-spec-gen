@@ -278,6 +278,47 @@ mappings:
       subcategories: ["bolts", "nuts", "screws", "washers"]
       part_category: fastener
 
+  # ─── 密封件 STANDARD_SEAL —— O 圈 / 油封 / 垫片（Task 8） ─────────────
+  # 命中条件：category=seal；走 sw_toolbox（GB O 圈 / 油封 / 垫片标准件）
+  - match:
+      category: seal
+    adapter: sw_toolbox
+    spec:
+      standard: [GB, GB/T]
+      subcategories: ["o_rings", "oil_seals", "gaskets"]
+      part_category: seal
+
+  # ─── 定位件 STANDARD_LOCATING —— 销 / 键（Task 8） ───────────────────
+  # 命中条件：category=locating；走 sw_toolbox（GB 销/键标准件）
+  - match:
+      category: locating
+    adapter: sw_toolbox
+    spec:
+      standard: [GB, GB/T]
+      subcategories: ["dowel_pins", "taper_pins", "keys"]
+      part_category: locating
+
+  # ─── 弹性件 STANDARD_ELASTIC —— 弹簧（Task 8） ─────────────────────
+  # 命中条件：category=elastic；走 jinja_primitive（SW Toolbox 弹簧覆盖不全，
+  # 统一走参数化模板保证零配置装即用）
+  - match:
+      category: elastic
+    adapter: jinja_primitive
+    spec:
+      standard: [GB, GB/T]
+      subcategories: ["compression_springs", "extension_springs"]
+      part_category: elastic
+
+  # ─── 传动件 STANDARD_TRANSMISSION —— 齿轮 / 链轮（Task 8） ───────────
+  # 命中条件：category=transmission；走 jinja_primitive（齿轮需按模数/齿数参数化生成）
+  - match:
+      category: transmission
+    adapter: jinja_primitive
+    spec:
+      standard: [GB, GB/T]
+      subcategories: ["spur_gears", "sprockets"]
+      part_category: transmission
+
   # ─── Everything else falls through to jinja_primitive ───────────────
   # This rule is the terminal fallback. Without it, parts that don't
   # match a library source would return "miss" and gen_std_parts.py
