@@ -369,6 +369,33 @@ def _find_edition(
     return "unknown"
 
 
+def probe_toolbox_path_reachability(
+    path: str,
+) -> Literal["ok", "invalid", "not_accessible"]:
+    """Task 6：区分本地路径不存在 vs UNC/网络不可达。
+
+    - UNC 路径（``\\\\server\\share\\...``）：
+      - exists() + os.R_OK 通过 → ``'ok'``
+      - 否则 / OSError → ``'not_accessible'``（诊断归类为网络/权限问题）
+    - 本地路径（含磁盘盘符或相对）：
+      - exists() + os.R_OK 通过 → ``'ok'``
+      - 否则 → ``'invalid'``（诊断归类为用户配置错误）
+
+    Args:
+        path: 待校验的文件系统路径字符串。
+
+    Returns:
+        三态字面量：``'ok'`` / ``'invalid'`` / ``'not_accessible'``。
+    """
+    p = Path(path)
+    if str(p).startswith("\\\\"):  # UNC
+        try:
+            return "ok" if p.exists() and os.access(p, os.R_OK) else "not_accessible"
+        except OSError:
+            return "not_accessible"
+    return "ok" if p.exists() and os.access(p, os.R_OK) else "invalid"
+
+
 def _find_sldmat_files(install_dir: str) -> list[str]:
     """扫描安装目录下所有语言目录中的 .sldmat 文件。
 
