@@ -509,3 +509,77 @@ def handle_admin_required(action_desc: str) -> str:
             return 'manual'
         if choice == 'Q':
             sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# Task 18：DiagnosisCode → DiagnosisInfo 模板工厂（9 个诊断码）
+# ---------------------------------------------------------------------------
+# 模板按 DiagnosisCode 分发；每个模板是 lambda ctx → DiagnosisInfo。
+# context dict 用 .get(key, default) 防守缺 key 场景，避免 KeyError。
+# 本 task 只覆盖 plan 1679-1723 行列出的 9 个 code；其余 7 个 code
+# （PYWIN32_MISSING / PYWIN32_INSTALL_FAILED / ADDIN_DISABLED /
+#  BOM_ROW_NO_MATCH / BOM_ROW_FELL_THROUGH_TO_STAND_IN /
+#  USER_PROVIDED_SOURCE_HASH_MISMATCH / USER_PROVIDED_SCHEMA_INVALID）
+# plan 未要求模板化——make_diagnosis 遇未覆盖 code 会 raise ValueError。
+DIAGNOSIS_TEMPLATES = {
+    DiagnosisCode.PLATFORM_NOT_WINDOWS: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.PLATFORM_NOT_WINDOWS,
+        reason=f"本工具仅支持 Windows — 检测到 platform={ctx.get('platform','?')}",
+        suggestion="在 Windows 机器上重跑", severity='block'),
+    DiagnosisCode.SW_NOT_INSTALLED: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.SW_NOT_INSTALLED,
+        reason="未检测到 SolidWorks 安装",
+        suggestion="请先安装 SolidWorks Pro 或 Premium", severity='block'),
+    DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED,
+        reason=f"检测到 SW 但 Toolbox 不可用",
+        suggestion="请打开 SOLIDWORKS → 帮助 → 关于 → 查看许可证类型；按需升级 Pro/Premium 或用 SW installer 修改安装勾选 Toolbox",
+        severity='block'),
+    DiagnosisCode.LICENSE_PROBLEM: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.LICENSE_PROBLEM,
+        reason="SW 已安装但 license 异常",
+        suggestion="请双击桌面 SOLIDWORKS 图标启动一次，查看 SW 自己弹的 license 报错并按提示修复",
+        severity='block'),
+    DiagnosisCode.COM_REGISTRATION_BROKEN: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.COM_REGISTRATION_BROKEN,
+        reason="SW COM 接口异常 (CLSID 实例化失败)",
+        suggestion="控制面板 → 程序 → SOLIDWORKS → 修改 → 修复安装",
+        severity='block'),
+    DiagnosisCode.TOOLBOX_PATH_INVALID: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.TOOLBOX_PATH_INVALID,
+        reason=f"Toolbox 数据库路径配置无效 (本地路径不存在): {ctx.get('path','?')}",
+        suggestion="SOLIDWORKS → 工具 → 选项 → 异型孔向导/Toolbox → 把路径改到本地非同步目录",
+        severity='block'),
+    DiagnosisCode.TOOLBOX_PATH_NOT_ACCESSIBLE: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.TOOLBOX_PATH_NOT_ACCESSIBLE,
+        reason=f"Toolbox 路径配置存在但访问失败 (UNC/网络不可达): {ctx.get('path','?')}",
+        suggestion="检查网络连接、VPN、共享映射；联系 IT 管理员确认权限",
+        severity='block'),
+    DiagnosisCode.MULTIPLE_SW_VERSIONS_AMBIGUOUS: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.MULTIPLE_SW_VERSIONS_AMBIGUOUS,
+        reason=f"检测到多个 SW 版本 {ctx.get('versions','?')}，自动选择失败",
+        suggestion="请打开期望使用的 SW 版本一次（确认它能正常启动），或卸载坏的版本",
+        severity='block'),
+    DiagnosisCode.INSUFFICIENT_PRIVILEGES: lambda ctx: DiagnosisInfo(
+        code=DiagnosisCode.INSUFFICIENT_PRIVILEGES,
+        reason="修复需要管理员权限",
+        suggestion="重新以'以管理员身份运行'启动终端再跑本工具，或按报告中的 GUI 步骤手动修复",
+        severity='block'),
+}
+
+
+def make_diagnosis(code: DiagnosisCode, context: dict = None) -> DiagnosisInfo:
+    """按 DiagnosisCode 查模板、注入 context、构造 DiagnosisInfo。
+
+    Args:
+        code: 诊断码；必须存在于 DIAGNOSIS_TEMPLATES 中。
+        context: 可选的上下文 dict，模板用 .get(key, default) 读取（容错缺 key）。
+
+    Raises:
+        ValueError: code 未在 DIAGNOSIS_TEMPLATES 中注册（即本 task 9 个码之外）。
+    """
+    ctx = context or {}
+    template = DIAGNOSIS_TEMPLATES.get(code)
+    if template is None:
+        raise ValueError(f"未知 DiagnosisCode: {code}")
+    return template(ctx)
