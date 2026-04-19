@@ -1,6 +1,9 @@
-"""用户手动提供 STEP 文件流程 — prompt 主入口 + 三选一 (Task 22) + 按 PartCategory 分流复制 (Task 23)"""
+"""用户手动提供 STEP 文件流程 — prompt 主入口 + 三选一 (Task 22) + 按 PartCategory 分流复制 (Task 23) + yaml mapping 追加 + provenance (Task 24)"""
 import shutil
 import re
+import hashlib
+import yaml as pyyaml
+from datetime import datetime, timezone
 from pathlib import Path
 from sw_preflight.types import UserChoiceResult, PartCategory
 from sw_preflight import io
@@ -77,3 +80,46 @@ def copy_to_user_provided(src: Path, row: dict, category: PartCategory) -> Path:
     dest = dest_dir / fname
     shutil.copy2(src, dest)
     return dest
+
+
+def _file_sha256(path: Path) -> str:
+    """计算文件 sha256 摘要（截短 16 字符），用于 provenance 一致性校验"""
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return f'sha256:{h.hexdigest()[:16]}...'
+
+
+def append_yaml_mapping(row: dict, dest_path: Path, source_path: Path) -> None:
+    """在 parts_library.yaml 的 mappings 列表里追加一条 step_pool 规则 + provenance；
+    插入位置在第一个 {any: true} 兜底规则之前；yaml 损坏时抛 ValueError（含语法错/schema 错）"""
+    yaml_path = Path('./parts_library.yaml')
+    cfg = {'mappings': []}
+    if yaml_path.exists():
+        try:
+            cfg = pyyaml.safe_load(yaml_path.read_text(encoding='utf-8'))
+        except pyyaml.YAMLError as e:
+            raise ValueError(f"YAML 语法错误: {e}")
+    if not isinstance(cfg.get('mappings'), list):
+        raise ValueError("mappings 应为列表（list），当前是 " + type(cfg.get('mappings')).__name__)
+    # 构造新 mapping（含 provenance 五字段）
+    src_stat = source_path.stat()
+    new_mapping = {
+        'match': {'keyword_contains': [row.get('name_cn', '')]},
+        'adapter': 'step_pool',
+        'spec': {'file': str(dest_path).replace('\\', '/')},
+        'provenance': {
+            'provided_by_user': True,
+            'provided_at': datetime.now(timezone.utc).isoformat(),
+            'source_path': str(source_path),
+            'source_hash': _file_sha256(source_path),
+            'source_mtime': datetime.fromtimestamp(src_stat.st_mtime, timezone.utc).isoformat(),
+        },
+    }
+    # 找第一个 {any: true} 兜底位置，新规则插在它之前
+    insert_idx = len(cfg['mappings'])
+    for i, m in enumerate(cfg['mappings']):
+        if m.get('match', {}).get('any') is True:
+            insert_idx = i
+            break
+    cfg['mappings'].insert(insert_idx, new_mapping)
+    yaml_path.write_text(pyyaml.dump(cfg, allow_unicode=True), encoding='utf-8')
