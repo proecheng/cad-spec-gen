@@ -15,10 +15,18 @@ adapters/solidworks/sw_detect.py — SolidWorks 安装检测模块。
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
+
+# Task 5：多版本优先级读取 preference.json 时使用模块引用（而非 from...import），
+# 确保测试可用 monkeypatch.setattr("sw_preflight.preference.read_preference", ...) 命中。
+from sw_preflight import preference as _preference
+
+# Task 5：env 变量名 — 用户 / CI 指定常用 SW 年份版本。
+_ENV_PREFERRED_YEAR = "CAD_SPEC_GEN_SW_PREFERRED_YEAR"
 
 
 @dataclass
@@ -126,10 +134,16 @@ def _detect_impl() -> SwInfo:
     # --- 检测 pywin32 可用性 ---
     info.pywin32_available = _check_pywin32()
 
-    # --- 从注册表查找安装目录 ---
-    install_dir, version_year, version_str = _find_install_from_registry(winreg)
+    # --- 选版本：env > preference.json > 最新已安装（Task 5）---
+    version_year = _select_version(winreg)
+    if version_year is None:
+        # 注册表中无任何已安装 SW
+        return info
+
+    # --- 取该年份的 install_dir（Task 5 拆出 _find_install_for_year）---
+    install_dir, version_str = _find_install_for_year(winreg, version_year)
     if not install_dir:
-        # 注册表中未找到 SolidWorks 安装
+        # 该年份注册表子键存在但 install_dir 读不到 / 目录不存在
         return info
 
     info.installed = True
@@ -203,42 +217,79 @@ def _enumerate_registered_years(winreg) -> list[int]:
     return sorted(years, reverse=True)
 
 
-def _find_install_from_registry(winreg) -> tuple[str, int, str]:
-    """从注册表查找 SolidWorks 安装目录。
+def _select_version(winreg) -> Optional[int]:
+    """Task 5：按三档优先级裁决 SolidWorks 年份版本。
 
-    动态枚举 HKLM\\SOFTWARE\\SolidWorks 下所有子键（无年份上界硬编码），
-    双路查询两种键名格式（SolidWorks / SOLIDWORKS），返回最新已安装版本。
+    优先级（严格顺序，跳档仅在"当前档为空或目标年份未安装"时发生）：
+
+    1. 环境变量 ``CAD_SPEC_GEN_SW_PREFERRED_YEAR`` — int 字符串，
+       解析失败 / 不在 _enumerate_registered_years 列表 → 降级下一档。
+    2. ``sw_preflight.preference.read_preference()`` — 用户持久化偏好，
+       None / 不在 _enumerate_registered_years 列表 → 降级下一档。
+    3. ``_enumerate_registered_years(winreg)`` 第一项 — 降序排列，即最新已安装版。
 
     Args:
         winreg: winreg 模块引用。
 
     Returns:
-        (install_dir, version_year, version_str) 三元组，
-        未找到时返回 ("", 0, "")。
+        选中的年份 int；注册表中无任何 SW 子键时返回 None。
     """
-    # 两种注册表键名格式
+    installed_years = _enumerate_registered_years(winreg)
+    if not installed_years:
+        return None
+
+    # 档 1：env var
+    env_raw = os.environ.get(_ENV_PREFERRED_YEAR)
+    if env_raw:
+        try:
+            env_year = int(env_raw.strip())
+        except (ValueError, TypeError):
+            env_year = None
+        if env_year is not None and env_year in installed_years:
+            return env_year
+        # env 设了但无效 → 继续降级
+
+    # 档 2：preference.json（模块引用，支持 monkeypatch）
+    pref_year = _preference.read_preference()
+    if pref_year is not None and pref_year in installed_years:
+        return pref_year
+
+    # 档 3：最新（降序第一项）
+    return installed_years[0]
+
+
+def _find_install_for_year(winreg, year: int) -> tuple[str, str]:
+    """Task 5：查某个具体年份的 install_dir + version 字符串。
+
+    双路查询两种键名格式（SolidWorks / SOLIDWORKS），任一命中即返回。
+
+    Args:
+        winreg: winreg 模块引用。
+        year: 目标 SolidWorks 年份版本。
+
+    Returns:
+        (install_dir, version_str) 二元组；目录不存在 / 读不到 → ("", "")。
+    """
     key_patterns = [
         r"SOFTWARE\SolidWorks\SolidWorks {year}\Setup",
         r"SOFTWARE\SolidWorks\SOLIDWORKS {year}\Setup",
     ]
 
-    for year in _enumerate_registered_years(winreg):
-        for pattern in key_patterns:
-            key_path = pattern.format(year=year)
-            install_dir = _read_registry_value(
-                winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "SolidWorks Folder"
-            )
-            if install_dir and Path(install_dir).is_dir():
-                # 尝试读取版本号
-                version_str = (
-                    _read_registry_value(
-                        winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Version"
-                    )
-                    or ""
+    for pattern in key_patterns:
+        key_path = pattern.format(year=year)
+        install_dir = _read_registry_value(
+            winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "SolidWorks Folder"
+        )
+        if install_dir and Path(install_dir).is_dir():
+            version_str = (
+                _read_registry_value(
+                    winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Version"
                 )
-                return install_dir, year, version_str
+                or ""
+            )
+            return install_dir, version_str
 
-    return "", 0, ""
+    return "", ""
 
 
 def _find_toolbox_dir(winreg, version_year: int) -> str:
