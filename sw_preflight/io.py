@@ -22,6 +22,9 @@ tkinter dialog / STEP 校验等属 Task 10/11，不归这里。
 from __future__ import annotations
 
 import time
+from pathlib import Path
+from tkinter import Tk, filedialog
+from typing import Literal, Optional
 
 
 def _count_open_assemblies() -> int:
@@ -79,3 +82,62 @@ def wait_for_assembly_close(
             return True
         time.sleep(poll_interval)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — tkinter.filedialog 包装 + 三选一 prompt
+# ---------------------------------------------------------------------------
+
+
+def ask_step_file(title: str) -> Optional[Path]:
+    """弹 Windows 原生文件对话框，让用户选一个 STEP 文件。
+
+    Args:
+        title: 对话框标题，通常带 "为 <零件名> 选择 STEP (i/N)" 进度提示。
+
+    Returns:
+        用户选中的路径；用户取消（askopenfilename 返回空字符串）则返 None。
+
+    实现：建一个隐藏的 Tk root（withdraw），让对话框不带主窗口弹出；
+    finally 里 destroy 防 Tcl 资源泄漏。filetypes 同时列 .step/.stp 和
+    All files，后者给用户应付非标扩展名的兜底。
+    """
+    root = Tk()
+    root.withdraw()
+    try:
+        path = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("STEP files", "*.step *.stp"), ("All files", "*.*")],
+        )
+        return Path(path) if path else None
+    finally:
+        root.destroy()
+
+
+def three_choice_prompt(missing_count: int) -> Literal["provide", "stand_in", "skip"]:
+    """全局三选一 prompt — BOM 里有 SW 库未命中的行时问用户怎么办。
+
+    Args:
+        missing_count: 未命中的 BOM 行数，仅用于提示文案。
+
+    Returns:
+        'provide'   — 用户愿意逐个指定 STEP（走 ask_step_file 循环）
+        'stand_in'  — 全部降级到参数化 stand-in（精度低但保出图）
+        'skip'      — 全部跳过（这些零件不出现在渲染结果）
+
+    循环直到用户输入合法，期间无效输入只打印提示不退出。
+    """
+    print(f"\n⚠️ BOM 中 {missing_count} 行 SW 库未直接命中。")
+    print("如何处理?")
+    print("  [1] 我来指定 STEP 文件 (依次弹文件对话框, 单行可跳过)")
+    print("  [2] 全部用参数化 stand-in (精度低但能跑)")
+    print("  [3] 全部跳过 (这些零件不出现在渲染中)")
+    while True:
+        choice = input("请选 [1/2/3]: ").strip()
+        if choice == "1":
+            return "provide"
+        if choice == "2":
+            return "stand_in"
+        if choice == "3":
+            return "skip"
+        print("无效输入，请输入 1、2 或 3")
