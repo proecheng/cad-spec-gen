@@ -1060,6 +1060,17 @@ def main():
                         help="Auto-fill computable missing values (units, torques, Ra) into CAD_SPEC.md")
     args = parser.parse_args()
 
+    # ─── Task 29: sw_preflight 接入（strict=False — spec 阶段 SW 异常不卡） ───
+    from datetime import datetime
+    from sw_preflight.preflight import run_preflight
+    run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    try:
+        run_preflight(strict=False, run_id=run_id, entry='cad-spec')
+    except Exception as exc:
+        # preflight strict=False 设计上不抛 — 但第三方环境下任何异常都不该卡 cad-spec
+        print(f"[preflight] 跳过（{exc}）")
+    # ─── /Task 29 ───
+
     # Load config
     global SUBSYSTEM_MAP
     config = load_config(args.config)
@@ -1119,6 +1130,23 @@ def main():
               f"{r.get('fasteners', 0)} fasteners {c}C/{w}W{tag}")
     for r in skipped:
         print(f"  [Skipped] {Path(r['output_path']).name}: {r.get('reason', '')}")
+
+    # ─── Task 29: --review 模式追加"未覆盖"声明（审查范围透明化） ───
+    if args.review:
+        print()
+        print("✅ 本次审查覆盖:")
+        print("   - 机械参数完整性 / 装配关系完整性 / 材料指定完整性")
+        print("   - 公差 / 表面粗糙度 / 配合等级")
+        print()
+        print("⚠️ 本次审查 *未* 覆盖（需要几何引擎，当前阶段做不到）:")
+        print("   - 元件重叠 / 碰撞检测")
+        print("   - 元件悬浮（无支撑结构）")
+        print("   - 紧固件配合间隙")
+        print("   - 装配可行性（拆装顺序 / 避让空间）")
+        print()
+        print("💡 这些检查计划在未来版本由 SOLIDWORKS 几何引擎自动完成")
+        print("   （已装 SW 即可用，无需额外配置）")
+    # ─── /Task 29 ───
 
 
 if __name__ == "__main__":
