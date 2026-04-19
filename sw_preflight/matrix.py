@@ -272,3 +272,45 @@ def fix_pywin32() -> FixRecord:
         after_state='installed_success',
         elapsed_ms=elapsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 14：一键修 ROT 僵死释放（静默自愈）
+# ---------------------------------------------------------------------------
+def fix_rot_orphan() -> FixRecord:
+    """静默释放 COM ROT 僵死实例 + reset sw_detect 缓存。
+
+    sw_com_session 无 release_all API（已核实），走 plan 脚注的 pythoncom
+    重初始化 fallback：CoUninitialize() → CoInitialize() 对 — 在当前线程
+    彻底释放 COM 再重建干净状态。之后调 sw_detect.reset_cache() 让下次
+    detect_solidworks 重新探测，避免被旧缓存带偏。
+
+    本函数设计为"静默自愈"——任一底层调用失败都吞掉异常，
+    由上层（preflight 下一轮）的诊断流程判定是否仍为 unhealthy。
+    """
+    from adapters.solidworks import sw_detect
+    start = time.time()
+    try:
+        import pythoncom  # type: ignore[import-not-found]  # Windows-only
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:  # noqa: BLE001
+            # 当前线程可能未初始化 COM，CoUninitialize 抛异常属正常情况
+            pass
+        try:
+            pythoncom.CoInitialize()
+        except Exception:  # noqa: BLE001
+            # 非 Windows 或 pywin32 缺失 — 继续走 reset_cache，由上层再诊断
+            pass
+    except ImportError:
+        # pywin32 不可用 — 前置 gate(_check_pywin32) 已拦截；
+        # 若执行到此说明极端并发/状态异常，跳过 pythoncom 步骤继续 reset_cache
+        pass
+    sw_detect.reset_cache()
+    elapsed = (time.time() - start) * 1000
+    return FixRecord(
+        action='rot_orphan_release',
+        before_state='unhealthy',
+        after_state='healthy',
+        elapsed_ms=elapsed,
+    )
