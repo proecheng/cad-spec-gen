@@ -148,3 +148,10 @@ CAD_SPEC.md 生成后，建议用户：
 - **`/cad-codegen <子系统>`** → 自动生成 CadQuery 脚手架代码（Phase 2）
 - **`python cad_pipeline.py full`** → 一键执行全部 6 阶段管线
 - **`/mechdesign <子系统>`** → 手动参数化建模流程（需要更精细的几何控制时）
+
+## SW 装即用 集成 (spec 2026-04-19)
+
+cad-spec 入口在启动时跑 `sw_preflight.run_preflight(strict=False)`：
+- 正常情况静默通过
+- SW 状态异常时 stdout 末尾打 1 行温和预告，不卡用户编辑
+- `--review` 模式输出末尾追加"审查范围透明化"段（说明几何审查未覆盖）

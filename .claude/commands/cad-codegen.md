@@ -207,3 +207,11 @@ cad_pipeline.py build       (Phase 3: 构建)
 cad_pipeline.py render      (Phase 4: 渲染)
 cad_pipeline.py full        (一键全流程)
 ```
+
+## SW 装即用 集成 (spec 2026-04-19)
+
+cad-codegen 入口在启动时跑 `sw_preflight.run_preflight(strict=True)`：
+- SW 未就绪时直接退出（非零 exit code），避免下游 codegen 基于坏环境生成坏产物
+- 跨入口 cache 复用：若同一构建目录内 cad-spec 刚跑过 preflight 且缓存新鲜（TTL 内），直接复用结果，不重复探测
+- 失败会生成 `sw_report.html` 三段式报告（症状 / 影响 / 一键修），折叠技术细节
+- 一键修成功后自动重跑 preflight 验证

@@ -40,3 +40,8 @@ graphify-out/
 /setup-runner-task.ps1
 /pc7-baseline.ps1
 /f2-evidence-*/
+
+# ─── sw_preflight 中间产物（Task 35） ───
+artifacts/*/sw_preflight_cache.json
+artifacts/*/sw_report.html
+artifacts/*/sw_report_data.json
