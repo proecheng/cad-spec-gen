@@ -454,3 +454,58 @@ def fix_sw_launch_background() -> FixRecord:
             pythoncom.CoUninitialize()
     except Exception as e:  # noqa: BLE001 — 统一包装为 RuntimeError 供上层诊断
         raise RuntimeError(f"SW_LAUNCH_FAILED: {type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Task 17：管理员权限检测 + ShellExecute "runas" 退化 + 三选一 prompt
+# ---------------------------------------------------------------------------
+import ctypes  # noqa: E402 — 按任务分段组织；仅 Task 17 相关函数使用
+
+
+def is_user_admin() -> bool:
+    """检测当前进程是否以管理员身份运行。
+
+    走 `shell32.IsUserAnAdmin`；非 Windows 或 ctypes 调用抛异常时兜底为 False
+    （产品范围 Windows-only，非 Windows 路径上游已由 platform gate 拦截）。
+    """
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:  # noqa: BLE001 — 非 Windows / 不支持环境均视为"非管理员"
+        return False
+
+
+def elevate_with_runas() -> int:
+    """通过 ShellExecute "runas" 重启当前进程为管理员（弹 UAC 确认）。
+
+    返回 ShellExecuteW 的原始返回码（> 32 表示成功调度）；调用方可据此判断
+    是否需要降级到手动指引。实际进程重启由 Windows Shell 完成，本函数不阻塞。
+    """
+    return ctypes.windll.shell32.ShellExecuteW(
+        None, 'runas', sys.executable, ' '.join(sys.argv), None, 1
+    )
+
+
+def handle_admin_required(action_desc: str) -> str:
+    """非 admin 时弹三选一 prompt：[1] 重启 admin / [2] 手动修 / [Q] 退出。
+
+    - 选 [1]：调 `elevate_with_runas()` 然后 `sys.exit(0)`（当前进程让位给 admin 进程）
+    - 选 [2]：返回 'manual'，调用方走手动 GUI 指引降级路径
+    - 选 [Q]：`sys.exit(2)` 用户主动放弃
+    非法输入循环再询，直到得到有效选择。
+
+    Args:
+        action_desc: 动作的中文描述（如 "Add-In 启用"），用于 prompt 提示。
+    """
+    print(f"\n⚠️ 此修复 ({action_desc}) 需要管理员权限。")
+    print("  [1] 以管理员身份重启本工具（系统会弹 UAC 确认）")
+    print("  [2] 我自己手动修（按报告里的 GUI 步骤）")
+    print("  [Q] 退出")
+    while True:
+        choice = input("请选 [1/2/Q]: ").strip().upper()
+        if choice == '1':
+            elevate_with_runas()
+            sys.exit(0)
+        if choice == '2':
+            return 'manual'
+        if choice == 'Q':
+            sys.exit(2)
