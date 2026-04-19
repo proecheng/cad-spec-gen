@@ -239,6 +239,10 @@ class TestDetectImplToolboxAddinIntegration:
         # glob 返回空列表（无 .sldmat 文件）
         monkeypatch.setattr("pathlib.Path.glob", lambda self, pat: iter([]))
 
+        # monkeypatch _enumerate_registered_years 返回固定年份列表（避免 EnumKey mock 复杂性）
+        monkeypatch.setattr(
+            sw_detect_mod, "_enumerate_registered_years", lambda winreg: [2024]
+        )
         # 关键：monkeypatch _check_toolbox_addin_enabled 返回 True
         monkeypatch.setattr(
             sw_detect_mod, "_check_toolbox_addin_enabled", lambda winreg, year: True

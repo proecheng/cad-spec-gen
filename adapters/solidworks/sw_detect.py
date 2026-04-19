@@ -94,7 +94,7 @@ def _detect_impl() -> SwInfo:
 
     检测流程：
     1. 非 Windows 平台 → 立即返回 installed=False
-    2. 遍历注册表查找安装目录（年份从 2030 降序到 2020）
+    2. 动态枚举注册表子键查找安装目录（无年份范围硬编码）
     3. 读取 Toolbox 目录
     4. 扫描 sldmat 材质库文件
     5. 检查纹理和 P2M 目录
@@ -148,11 +148,49 @@ def _detect_impl() -> SwInfo:
     return info
 
 
+def _enumerate_registered_years(winreg) -> list[int]:
+    """枚举注册表 HKLM\\SOFTWARE\\SolidWorks 下所有子键的年份，无范围硬编码。
+
+    匹配 'SolidWorks XXXX' 或 'SOLIDWORKS XXXX'（大小写不敏感），
+    提取四位数字年份，降序返回。
+
+    Args:
+        winreg: winreg 模块引用。
+
+    Returns:
+        找到的年份列表（降序），未找到时返回空列表。
+    """
+    import re
+
+    years: list[int] = []
+    pattern = re.compile(r"SOLIDWORKS\s+(\d{4})", re.IGNORECASE)
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\SolidWorks",
+            0,
+            winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        ) as root:
+            i = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(root, i)
+                    m = pattern.match(name)
+                    if m:
+                        years.append(int(m.group(1)))
+                    i += 1
+                except OSError:
+                    break
+    except OSError:
+        pass
+    return sorted(years, reverse=True)
+
+
 def _find_install_from_registry(winreg) -> tuple[str, int, str]:
     """从注册表查找 SolidWorks 安装目录。
 
-    双路查询两种注册表键名格式（SolidWorks / SOLIDWORKS），
-    年份从 2030 降序到 2020，返回找到的最新版本。
+    动态枚举 HKLM\\SOFTWARE\\SolidWorks 下所有子键（无年份上界硬编码），
+    双路查询两种键名格式（SolidWorks / SOLIDWORKS），返回最新已安装版本。
 
     Args:
         winreg: winreg 模块引用。
@@ -167,7 +205,7 @@ def _find_install_from_registry(winreg) -> tuple[str, int, str]:
         r"SOFTWARE\SolidWorks\SOLIDWORKS {year}\Setup",
     ]
 
-    for year in range(2030, 2019, -1):
+    for year in _enumerate_registered_years(winreg):
         for pattern in key_patterns:
             key_path = pattern.format(year=year)
             install_dir = _read_registry_value(
