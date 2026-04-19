@@ -123,3 +123,18 @@ def append_yaml_mapping(row: dict, dest_path: Path, source_path: Path) -> None:
             break
     cfg['mappings'].insert(insert_idx, new_mapping)
     yaml_path.write_text(pyyaml.dump(cfg, allow_unicode=True), encoding='utf-8')
+
+
+def check_provenance_validity(mapping: dict) -> str:
+    """返回 'valid' | 'changed' | 'source_missing' | 'no_provenance' —
+    用户手动提供的 STEP 文件在源处若已删除/改动，返回对应标记供上层提示重新选择"""
+    prov = mapping.get('provenance')
+    if not prov:
+        return 'no_provenance'
+    src = Path(prov.get('source_path', ''))
+    if not src.exists():
+        return 'source_missing'
+    expected_hash = prov.get('source_hash', '')
+    if _file_sha256(src) != expected_hash:
+        return 'changed'
+    return 'valid'
