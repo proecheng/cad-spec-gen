@@ -314,3 +314,78 @@ def fix_rot_orphan() -> FixRecord:
         after_state='healthy',
         elapsed_ms=elapsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 15：一键修 Toolbox Add-In enable（HKCU 幂等）
+# ---------------------------------------------------------------------------
+def _is_addin_enabled() -> bool:
+    """委托 sw_detect 的已知机制检查 Toolbox Add-In 启用状态。
+
+    直接读 `SwInfo.toolbox_addin_enabled`——detect_solidworks 已做过
+    HKCU AddInsStartup 枚举（与 fix 写回的路径互为反函数）。
+    任何异常视为"未启用"，让调用方走写入路径；写入幂等性由此前置判断保证。
+    """
+    try:
+        from adapters.solidworks.sw_detect import detect_solidworks
+        return detect_solidworks().toolbox_addin_enabled
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def fix_addin_enable() -> FixRecord:
+    """一键修：HKCU\\Software\\SolidWorks\\AddInsStartup 下写 GUID=1。
+
+    流程：
+    1. 已启用 → 直接返回 no_op（幂等守护）
+    2. 等关装配体（避免修改 registry 时 SW 正在读）
+    3. 通过 sw_toolbox_adapter.get_toolbox_addin_guid 拿到 Toolbox GUID
+    4. 写 HKCU（绝不触 HKLM——避免 admin 需求）；value name = GUID，value = 1
+
+    路径对齐：与 `sw_detect._check_toolbox_addin_enabled` 读取路径完全一致
+    （`AddInsStartup` 下以 GUID 为 value name 的 REG_DWORD），否则会"写了
+    但 detect 读不到 → 预检仍判 unhealthy"的 bug。plan 原写的
+    `Addins\\{guid}\\(default)` 与读路径不符，此处按实现一致性修正。
+
+    失败模式：
+    - 等装配体超时 → RuntimeError("ADDIN_ENABLE_FAILED: 等关装配体超时")
+    - 注册表里没发现 Toolbox GUID（从未装过 Toolbox）→
+      RuntimeError("ADDIN_ENABLE_FAILED: Toolbox Add-in GUID not discoverable from registry")
+    """
+    from sw_preflight.io import wait_for_assembly_close
+    from adapters.parts.sw_toolbox_adapter import get_toolbox_addin_guid
+    import winreg  # type: ignore[import-not-found]  # Windows-only
+
+    if _is_addin_enabled():
+        return FixRecord(
+            action='addin_enable',
+            before_state='already_enabled',
+            after_state='no_op',
+            elapsed_ms=0.0,
+        )
+
+    if not wait_for_assembly_close(timeout_sec=300):
+        raise RuntimeError("ADDIN_ENABLE_FAILED: 等关装配体超时")
+
+    guid = get_toolbox_addin_guid()
+    if guid is None:
+        raise RuntimeError(
+            "ADDIN_ENABLE_FAILED: Toolbox Add-in GUID not discoverable from registry"
+        )
+
+    start = time.time()
+    # 写 HKCU AddInsStartup 下的 GUID value（REG_DWORD=1）——与 detect 读路径对齐
+    with winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\SolidWorks\AddInsStartup",
+        0,
+        winreg.KEY_SET_VALUE,
+    ) as k:
+        winreg.SetValueEx(k, guid, 0, winreg.REG_DWORD, 1)
+    elapsed = (time.time() - start) * 1000
+    return FixRecord(
+        action='addin_enable',
+        before_state='disabled',
+        after_state='enabled_hkcu',
+        elapsed_ms=elapsed,
+    )

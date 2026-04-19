@@ -508,6 +508,59 @@ def _is_toolbox_guid(name: str) -> bool:
     return any(h in lowered for h in _TOOLBOX_GUID_HINTS)
 
 
+def find_toolbox_addin_guid() -> Optional[str]:
+    """枚举 HKCU AddInsStartup，返回 Toolbox Add-In 的 GUID 值名（含花括号）。
+
+    这是 `_check_toolbox_addin_enabled` 中"发现"逻辑的公开镜像——返回完整
+    value name（而非仅"是否启用"），供 sw_preflight 的 fix_addin_enable
+    写回同一 value name（read/write 必须互为反函数）。
+
+    匹配规则与 `_check_toolbox_addin_enabled` 保持一致：
+    - 值名必须以 '{' 开头（合法 GUID 形状）
+    - 值名含 'toolbox' 子串（大小写不敏感）或命中 `_is_toolbox_guid` 前缀
+
+    未找到（或非 Windows / 未装 SW / 注册表路径缺失）→ 返回 None。
+
+    §3.5.1 零硬编码守护：本函数依赖 registry 枚举 + `_TOOLBOX_GUID_HINTS`
+    前缀提示（v4 决策 #13 已允许的保守识别），无写死路径。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore[import-not-found]  # Windows-only
+    except ImportError:
+        return None
+
+    # 与 _check_toolbox_addin_enabled 一致的 2 条候选路径（非 SW-year 后缀 + 带后缀）。
+    info = detect_solidworks()
+    candidates = [r"Software\SolidWorks\AddInsStartup"]
+    if info.version_year:
+        candidates.append(
+            rf"Software\SolidWorks\SOLIDWORKS {info.version_year}\AddInsStartup"
+        )
+
+    for subkey in candidates:
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_READ
+            ) as key:
+                i = 0
+                while True:
+                    try:
+                        name, _value, _type = winreg.EnumValue(key, i)
+                    except OSError:
+                        break
+                    i += 1
+                    if not name.startswith("{"):
+                        continue
+                    if "toolbox" in name.lower() or _is_toolbox_guid(name):
+                        return name
+        except (OSError, FileNotFoundError):
+            continue
+
+    return None
+
+
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 
