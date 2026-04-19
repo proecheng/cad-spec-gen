@@ -110,3 +110,55 @@ def pytest_collection_modifyitems(config, items):
     skip = pytest.mark.skip(reason=reason)
     for it in needs_sw:
         it.add_marker(skip)
+
+
+# ─── Task 32: sw_preflight mock fixtures ───
+
+
+@pytest.fixture
+def mock_sw_registry_versions():
+    """注入虚假注册表多版本数据（测试三档版本优先级时用）"""
+    from unittest.mock import patch
+
+    def _inject(years: list[int]):
+        return patch(
+            "adapters.solidworks.sw_detect._enumerate_registered_years",
+            return_value=years,
+        )
+
+    return _inject
+
+
+@pytest.fixture
+def mock_filedialog():
+    """mock tkinter.filedialog.askopenfilename（避免真弹窗卡测试）"""
+    from unittest.mock import patch
+
+    with patch("sw_preflight.io.filedialog") as m:
+        yield m
+
+
+@pytest.fixture
+def mock_admin():
+    """mock is_user_admin 返回值（测 admin 退化路径时用）"""
+    from unittest.mock import patch
+
+    def _set(is_admin: bool):
+        return patch("sw_preflight.matrix.is_user_admin", return_value=is_admin)
+
+    return _set
+
+
+@pytest.fixture
+def mock_provenance(tmp_path):
+    """快速构造 provenance 测试源文件 fixture"""
+
+    def _make(content: bytes = b"ISO-10303\n" + b"\n" * 20000):
+        src = tmp_path / "src.step"
+        src.write_bytes(content)
+        return src
+
+    return _make
+
+
+# ─── /Task 32 ───
