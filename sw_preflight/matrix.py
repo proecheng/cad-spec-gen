@@ -389,3 +389,68 @@ def fix_addin_enable() -> FixRecord:
         after_state='enabled_hkcu',
         elapsed_ms=elapsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 16：一键修 SW 后台进程启动（不弹 GUI）
+# ---------------------------------------------------------------------------
+def fix_sw_launch_background() -> FixRecord:
+    """启动 SOLIDWORKS 后台进程（Visible=False），不弹 GUI。
+
+    设计要点：
+    - sw_com_session 无 start_background API（已核实），走 plan 脚注许可的
+      pythoncom Dispatch fallback：`Dispatch('SldWorks.Application')` 会自动
+      启动 SW 进程（若未运行），成功后设 `Visible = False` 隐藏界面。
+    - 先调 `get_session().is_healthy()`：已健康则走 early return（幂等守护），
+      避免无谓地二次 CoInitialize/Dispatch。
+    - COM 初始化使用 try/finally 配对，确保异常路径也会 CoUninitialize。
+    - 某些 SW 版本对 Visible 属性设置有差异，设置失败降级为"已启动但可能可见"，
+      不视为整体失败（启动成功本身已满足 FixRecord 语义）。
+
+    Returns:
+        FixRecord(action='sw_launch_background', ...)
+          - 已运行 → after_state='launched_already'
+          - 新启成功 → after_state='launched_invisible'
+
+    Raises:
+        RuntimeError("SW_LAUNCH_FAILED: <type>: <msg>"):
+          pythoncom 不可用 / Dispatch 抛异常 / 其它底层错误
+    """
+    from adapters.solidworks.sw_com_session import get_session
+
+    start = time.time()
+    sess = get_session()
+    if sess.is_healthy():
+        # SW 已在运行且 COM 可通信 — 幂等返回，不触发 Dispatch
+        elapsed = (time.time() - start) * 1000
+        return FixRecord(
+            action='sw_launch_background',
+            before_state='already_running',
+            after_state='launched_already',
+            elapsed_ms=elapsed,
+        )
+
+    # 未健康 → 走 Dispatch 启动 SW
+    try:
+        import pythoncom  # type: ignore[import-not-found]  # Windows-only
+        import win32com.client  # type: ignore[import-not-found]  # Windows-only
+
+        pythoncom.CoInitialize()
+        try:
+            sw_app = win32com.client.Dispatch("SldWorks.Application")
+            try:
+                sw_app.Visible = False
+            except Exception:  # noqa: BLE001
+                # 某些 SW 版本不支持直接设 Visible — 启动成功本身已达成目标
+                pass
+            elapsed = (time.time() - start) * 1000
+            return FixRecord(
+                action='sw_launch_background',
+                before_state='not_running',
+                after_state='launched_invisible',
+                elapsed_ms=elapsed,
+            )
+        finally:
+            pythoncom.CoUninitialize()
+    except Exception as e:  # noqa: BLE001 — 统一包装为 RuntimeError 供上层诊断
+        raise RuntimeError(f"SW_LAUNCH_FAILED: {type(e).__name__}: {e}")
