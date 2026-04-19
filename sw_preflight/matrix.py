@@ -230,3 +230,45 @@ def run_all_checks() -> dict:
         if not ok:
             return {'passed': False, 'failed_check': name, 'diagnosis': diag}
     return {'passed': True, 'failed_check': None, 'diagnosis': None}
+
+
+# ---------------------------------------------------------------------------
+# Task 13：一键修 pywin32
+# ---------------------------------------------------------------------------
+import subprocess
+import sys
+import time
+
+from sw_preflight.types import FixRecord
+
+
+def fix_pywin32() -> FixRecord:
+    """一键修复 pywin32 缺失：pip install + postinstall import 验证。
+
+    成功 → 返回 FixRecord(action='pywin32_install', after_state='installed_success', ...)
+    失败 → raise RuntimeError("PYWIN32_INSTALL_FAILED: ...") 带具体原因
+    """
+    start = time.time()
+    # 第一步：pip install pywin32
+    r = subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', 'pywin32'],
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"PYWIN32_INSTALL_FAILED: pip install 失败: {r.stderr}")
+    # 第二步：postinstall 验证 — 新子进程 import win32com 确认已装好
+    r2 = subprocess.run(
+        [sys.executable, '-c', 'import win32com'],
+        capture_output=True,
+        text=True,
+    )
+    if r2.returncode != 0:
+        raise RuntimeError("PYWIN32_INSTALL_FAILED: postinstall 后 import 仍失败")
+    elapsed = (time.time() - start) * 1000
+    return FixRecord(
+        action='pywin32_install',
+        before_state='missing',
+        after_state='installed_success',
+        elapsed_ms=elapsed,
+    )
