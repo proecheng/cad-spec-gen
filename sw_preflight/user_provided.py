@@ -68,8 +68,13 @@ CATEGORY_TO_SUBDIR = {
 }
 
 
-def copy_to_user_provided(src: Path, row: dict, category: PartCategory) -> Path:
-    """复制文件到 ./std_parts/user_provided/{standard,vendor}/ 或 ./std_parts/custom/"""
+def copy_to_user_provided(src: Path, row: dict,
+                          category: PartCategory = PartCategory.CUSTOM) -> Path:
+    """复制文件到 ./std_parts/user_provided/{standard,vendor}/ 或 ./std_parts/custom/
+
+    category 缺省走 CUSTOM 分流——`prompt_user_provided` 循环里没有 category 上下文，
+    按"自定义件"归档是保守默认；调用方若知道 category 应显式传入。
+    """
     sub = CATEGORY_TO_SUBDIR.get(category)
     if sub is None:
         dest_dir = Path('./std_parts/custom')

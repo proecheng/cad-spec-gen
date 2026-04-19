@@ -3,6 +3,21 @@ from sw_preflight.types import PartCategory
 from pathlib import Path
 
 
+def test_copy_default_category_falls_to_custom(tmp_path, monkeypatch):
+    """省略 category 参数 → 默认 CUSTOM → 走 std_parts/custom/
+
+    守护 prompt_user_provided 里 copy_to_user_provided(path, row) 只传 2 参的调用点——
+    没有 category 上下文时按保守默认归档到 custom/，不抛 TypeError。
+    """
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / 'no_category.step'
+    src.write_bytes(b'ISO-10303\n' + b'\n' * 20000)
+    from sw_preflight.user_provided import copy_to_user_provided
+    dest = copy_to_user_provided(src, {'name_cn': '未知件'})  # 2 参调用
+    assert dest.exists()
+    assert 'std_parts/custom' in str(dest).replace('\\', '/')
+
+
 def test_copy_standard_to_user_provided_standard(tmp_path, monkeypatch):
     """STANDARD_FASTENER → ./std_parts/user_provided/standard/"""
     monkeypatch.chdir(tmp_path)
