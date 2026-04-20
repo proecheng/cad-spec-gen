@@ -53,6 +53,11 @@ from cad_paths import (
     get_gemini_script,
 )
 
+# A1-3：SW 检测函数。非 Windows / pywin32 缺失均被 sw_detect 内部短路成
+# SwInfo(installed=False)，本导入对跨平台无害。top-level 是必需——
+# `mock.patch('cad_pipeline.detect_solidworks')` 需要名字存在于本模块命名空间。
+from adapters.solidworks.sw_detect import detect_solidworks
+
 log = logging.getLogger("cad_pipeline")
 
 CAD_DIR = os.path.join(PROJECT_ROOT, "cad")
@@ -193,6 +198,37 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
             if matches:
                 return matches[0]
     return None
+
+
+def _build_blender_env():
+    """A1-3 Track A §3.3：构造 Blender subprocess 的环境变量。
+
+    基于父进程 env 的拷贝，如果检测到 SW 安装且 textures_dir 在磁盘上真实
+    存在，就注入 SW_TEXTURES_DIR 让 Blender 子进程（render_3d.py 内的
+    _resolve_texture_path 查找链）能找到 SW 的 530 张 PBR 贴图。
+
+    SW 未装 / textures_dir 空 / 目录不存在 → 不注入（create_pbr_material
+    走 miss→scalar 降级分支，老行为零回归）。
+
+    lazy import：非 Windows 平台 detect_solidworks() 立即返 installed=False；
+    pywin32 缺失也按"未装"处理，不抛异常。
+    """
+    env = os.environ.copy()
+    try:
+        sw = detect_solidworks()
+    except Exception as exc:
+        # 探测本身抛（非典型：非 Windows / pywin32 缺都已被 detect_solidworks
+        # 内部短路）— 不阻塞 render，退回裸父进程 env
+        log.debug("SW detection skipped (%s): %s", type(exc).__name__, exc)
+        return env
+    if (
+        getattr(sw, "installed", False)
+        and getattr(sw, "textures_dir", "")
+        and os.path.isdir(sw.textures_dir)
+    ):
+        env["SW_TEXTURES_DIR"] = sw.textures_dir
+        log.info("SW_TEXTURES_DIR -> %s (injected into Blender env)", sw.textures_dir)
+    return env
 
 
 def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None, env=None):
@@ -1439,6 +1475,10 @@ def cmd_render(args):
         if os.path.isdir(_renders_dir_pre)
         else set()
     )
+
+    # A1-3：Blender subprocess 环境——注入 SW_TEXTURES_DIR 让 render_3d.py
+    # 里 A1-1/A1-2 的 _resolve_texture_path 能查到 SW 的 PBR 贴图目录
+    _blender_env = _build_blender_env()
     render_args = []
     if os.path.isfile(config_path):
         render_args = ["--config", config_path]
@@ -1474,7 +1514,8 @@ def cmd_render(args):
         script, extra = _script_for_view(args.view)
         cmd = [blender, "-b", "-P", script, "--"] + render_args + extra
         ok, _ = _run_subprocess(
-            cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200
+            cmd, f"render {args.view}", dry_run=args.dry_run, timeout=1200,
+            env=_blender_env,
         )
         if not ok:
             failures += 1
@@ -1482,7 +1523,8 @@ def cmd_render(args):
         # All views — run standard first, then any exploded/section scripts present
         cmd = [blender, "-b", "-P", render_script, "--"] + render_args + ["--all"]
         ok, _ = _run_subprocess(
-            cmd, "render standard views", dry_run=args.dry_run, timeout=1200
+            cmd, "render standard views", dry_run=args.dry_run, timeout=1200,
+            env=_blender_env,
         )
         if not ok:
             failures += 1
@@ -1490,7 +1532,8 @@ def cmd_render(args):
         if os.path.isfile(exploded_script):
             cmd = [blender, "-b", "-P", exploded_script, "--"] + render_args
             ok, _ = _run_subprocess(
-                cmd, "render exploded view", dry_run=args.dry_run, timeout=600
+                cmd, "render exploded view", dry_run=args.dry_run, timeout=600,
+                env=_blender_env,
             )
             if not ok:
                 failures += 1
@@ -1498,7 +1541,8 @@ def cmd_render(args):
         if os.path.isfile(section_script):
             cmd = [blender, "-b", "-P", section_script, "--"] + render_args
             ok, _ = _run_subprocess(
-                cmd, "render section view", dry_run=args.dry_run, timeout=600
+                cmd, "render section view", dry_run=args.dry_run, timeout=600,
+                env=_blender_env,
             )
             if not ok:
                 failures += 1

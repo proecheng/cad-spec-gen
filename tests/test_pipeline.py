@@ -52,6 +52,93 @@ class TestCLIParsing(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class TestBuildBlenderEnv(unittest.TestCase):
+    """A1-3：`_build_blender_env()` 构造 Blender subprocess 环境变量。
+
+    契约（Track A §3.3）：
+      - 父进程 env 完整继承（PATH 等不丢）
+      - SW 装 + textures_dir 存在 → 注入 SW_TEXTURES_DIR
+      - SW 未装 / textures_dir 空 / 磁盘上目录不存在 → 不注入
+    """
+
+    def test_returns_copy_of_parent_env(self):
+        os.environ["__A1_3_SENTINEL__"] = "keep"
+        try:
+            env = cad_pipeline._build_blender_env()
+            self.assertIn(
+                "__A1_3_SENTINEL__", env, "父进程 env 必须继承，不可凭空新造"
+            )
+            self.assertEqual(env["__A1_3_SENTINEL__"], "keep")
+        finally:
+            os.environ.pop("__A1_3_SENTINEL__", None)
+
+    @mock.patch("cad_pipeline.detect_solidworks")
+    def test_injects_sw_textures_dir_when_available(self, mock_detect):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            mock_detect.return_value = SimpleNamespace(
+                installed=True, textures_dir=td
+            )
+            env = cad_pipeline._build_blender_env()
+            self.assertEqual(
+                env.get("SW_TEXTURES_DIR"),
+                td,
+                "SW 装 + textures_dir 存在时必须注入 SW_TEXTURES_DIR",
+            )
+
+    @mock.patch("cad_pipeline.detect_solidworks")
+    def test_no_injection_when_not_installed(self, mock_detect):
+        mock_detect.return_value = SimpleNamespace(installed=False, textures_dir="")
+        os.environ.pop("SW_TEXTURES_DIR", None)
+        env = cad_pipeline._build_blender_env()
+        self.assertNotIn(
+            "SW_TEXTURES_DIR", env, "SW 未装时不得自作主张设 SW_TEXTURES_DIR"
+        )
+
+    @mock.patch("cad_pipeline.detect_solidworks")
+    def test_no_injection_when_textures_dir_empty(self, mock_detect):
+        mock_detect.return_value = SimpleNamespace(installed=True, textures_dir="")
+        os.environ.pop("SW_TEXTURES_DIR", None)
+        env = cad_pipeline._build_blender_env()
+        self.assertNotIn("SW_TEXTURES_DIR", env)
+
+    @mock.patch("cad_pipeline.detect_solidworks")
+    def test_no_injection_when_textures_dir_missing_on_disk(self, mock_detect):
+        # 注册表说有 textures_dir 但磁盘上真的不存在（用户卸载残留 / UNC 不可达）
+        mock_detect.return_value = SimpleNamespace(
+            installed=True, textures_dir=r"C:\definitely\missing\textures_path"
+        )
+        os.environ.pop("SW_TEXTURES_DIR", None)
+        env = cad_pipeline._build_blender_env()
+        self.assertNotIn(
+            "SW_TEXTURES_DIR",
+            env,
+            "textures_dir 磁盘上不存在时不该注入，否则 Blender 侧 open 会炸",
+        )
+
+
+class TestCmdRenderInjectsEnv(unittest.TestCase):
+    """A1-3 结构性：cmd_render 必须把 _build_blender_env() 结果透传给
+    所有 _run_subprocess 调用，否则 A1-2 的贴图桥拿不到 SW_TEXTURES_DIR。"""
+
+    def test_cmd_render_calls_build_blender_env(self):
+        import inspect
+        src = inspect.getsource(cad_pipeline.cmd_render)
+        self.assertIn(
+            "_build_blender_env", src,
+            "cmd_render 必须调用 _build_blender_env() 构造子进程环境",
+        )
+
+    def test_cmd_render_passes_env_kwarg_to_run_subprocess(self):
+        import inspect
+        src = inspect.getsource(cad_pipeline.cmd_render)
+        self.assertIn(
+            "env=", src,
+            "cmd_render 至少有一个 _run_subprocess 调用必须带 env= kwarg",
+        )
+
+
 class TestRunSubprocessEnvPassthrough(unittest.TestCase):
     """A1-0b: _run_subprocess 必须接受可选 env 参数并透传 subprocess.run。
 
