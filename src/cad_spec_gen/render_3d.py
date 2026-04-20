@@ -323,7 +323,30 @@ def import_glb(filepath):
 
 
 def create_pbr_material(name, params):
-    """Create a Principled BSDF material with given PBR parameters."""
+    """Create a Principled BSDF material with given PBR parameters.
+
+    A1-2（Track A §3.2）：支持 4 类贴图字段——
+      - params['base_color_texture']  (sRGB)
+      - params['normal_texture']      (Non-Color + NormalMap 节点)
+      - params['roughness_texture']   (Non-Color)
+      - params['metallic_texture']    (Non-Color)
+      - params['texture_scale']       (Mapping.Scale，默认 1.0)
+
+    文件查找走 _resolve_texture_path（A1-1，相对路径靠 CAD_SPEC_GEN_TEXTURE_DIR /
+    SW_TEXTURES_DIR env）；miss 则 log.warning + 退回标量（老字段仍生效，不抛）。
+
+    法线约定靠 _detect_normal_convention（文件名后缀 → 'dx' / 'gl'）；当前版本
+    两约定都落到 NormalMap(TANGENT) 节点（肉眼正确率 ~80%，SW 默认 DX 是本 repo
+    主流）。DX→GL 的 Y-flip 转换链（SeparateRGB + Invert + CombineRGB）留到 A1-5。
+
+    节点拓扑（无 UV 降级）：
+        TexCoord.Generated → Mapping(Scale) → TexImage(BOX, blend=0.2)
+                                                     │
+                                                     ├─ Color → BSDF.Base Color
+                                                     ├─ Color → BSDF.Roughness
+                                                     ├─ Color → BSDF.Metallic
+                                                     └─ Color → NormalMap → BSDF.Normal
+    """
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -355,6 +378,88 @@ def create_pbr_material(name, params):
         if "sss_color" in params:
             sc = params["sss_color"]
             bsdf.inputs["Subsurface Radius"].default_value = (sc[0], sc[1], sc[2])
+
+    # ─── A1-2 纹理桥（Track A §3.2） ─────────────────────────────────────────
+    resolved = {}
+    for field in (
+        "base_color_texture",
+        "normal_texture",
+        "roughness_texture",
+        "metallic_texture",
+    ):
+        rel = params.get(field)
+        if not rel:
+            continue
+        path = _resolve_texture_path(rel)
+        if path is None:
+            log.warning(
+                "texture miss: %s -> %s (material=%s, falling back to scalar)",
+                field, rel, name,
+            )
+            continue
+        resolved[field] = path
+
+    if resolved:
+        tex_coord = nodes.new("ShaderNodeTexCoord")
+        tex_coord.location = (-600, 0)
+        mapping = nodes.new("ShaderNodeMapping")
+        mapping.location = (-400, 0)
+        scale = params.get("texture_scale", 1.0)
+        mapping.inputs["Scale"].default_value = (scale, scale, scale)
+        links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
+
+        # (socket_name, colorspace, location)；normal 单独走 NormalMap 节点
+        tex_specs = {
+            "base_color_texture": ("Base Color", "sRGB", (-200, 200)),
+            "roughness_texture": ("Roughness", "Non-Color", (-200, 0)),
+            "metallic_texture": ("Metallic", "Non-Color", (-200, -200)),
+        }
+
+        for field, resolved_path in resolved.items():
+            if field == "normal_texture":
+                continue
+            socket_name, colorspace, loc = tex_specs[field]
+            tex = nodes.new("ShaderNodeTexImage")
+            tex.location = loc
+            tex.projection = "BOX"
+            tex.projection_blend = 0.2
+            try:
+                tex.image = bpy.data.images.load(
+                    str(resolved_path), check_existing=True
+                )
+                tex.image.colorspace_settings.name = colorspace
+            except RuntimeError as exc:
+                log.warning(
+                    "bpy.data.images.load failed for %s: %s", resolved_path, exc
+                )
+                continue
+            links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
+            links.new(tex.outputs["Color"], bsdf.inputs[socket_name])
+
+        if "normal_texture" in resolved:
+            n_path = resolved["normal_texture"]
+            convention = _detect_normal_convention(str(n_path))
+            log.info("normal map convention=%s for material=%s", convention, name)
+            ntex = nodes.new("ShaderNodeTexImage")
+            ntex.location = (-200, -400)
+            ntex.projection = "BOX"
+            ntex.projection_blend = 0.2
+            try:
+                ntex.image = bpy.data.images.load(
+                    str(n_path), check_existing=True
+                )
+                ntex.image.colorspace_settings.name = "Non-Color"
+            except RuntimeError as exc:
+                log.warning(
+                    "bpy.data.images.load failed for normal %s: %s", n_path, exc
+                )
+            else:
+                links.new(mapping.outputs["Vector"], ntex.inputs["Vector"])
+                normal_map = nodes.new("ShaderNodeNormalMap")
+                normal_map.location = (0, -400)
+                links.new(ntex.outputs["Color"], normal_map.inputs["Color"])
+                links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    # ─── /A1-2 ───────────────────────────────────────────────────────────────
 
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
     return mat
