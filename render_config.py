@@ -160,7 +160,7 @@ MATERIAL_PRESETS = {
         "roughness": 0.75,
         "sss": 0.05,
         "appearance": (
-            "black rubber/elastomer, matte deep black, very diffuse with almost "
+            "black rubber or elastomer, matte deep black, very diffuse with almost "
             "no specular highlight, Shore A ~70 hardness appearance"
         ),
     },

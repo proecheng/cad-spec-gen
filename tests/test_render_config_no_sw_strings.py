@@ -14,7 +14,7 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import render_config as rcfg
+import render_config as rcfg  # noqa: E402
 
 
 # 允许的 preset 字段白名单（v2.11 原有 + 3 新 preset 可能用的）
@@ -58,13 +58,12 @@ def test_preset_fields_are_all_pbr_scalars():
 
 
 def test_no_sw_path_string_in_preset_values():
-    """更严：preset 字符串值里不应出现 SW 纹理目录结构常见字符串（不检查 appearance 说明文字）。"""
+    """更严：preset 字符串值里不应出现 SW 纹理目录结构常见字符串。"""
     sw_markers = ("metal/", "plastic/", "painted/", "rubber/", "fibers/", "_bump.jpg")
     violations = []
     for name, params in rcfg.MATERIAL_PRESETS.items():
         for field, value in params.items():
-            # appearance 字段可能包含材料关键字名词，仅检查其他字符串字段
-            if isinstance(value, str) and field != "appearance":
+            if isinstance(value, str):
                 for marker in sw_markers:
                     if marker in value:
                         violations.append(f"{name}.{field}={value!r} 含 SW 标记 {marker!r}")
