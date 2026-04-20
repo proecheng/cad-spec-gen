@@ -227,6 +227,11 @@ MATERIAL_PRESETS = {
             "injection-molded white nylon PA66, slightly warm off-white, "
             "satin-matte surface, broad soft highlight, no edge reflection"
         ),
+        # ── Track A1-4 纹理回填 ──
+        "base_color_texture": "plastic/smooth/sgray.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "polycarbonate_clear": {
         "color": (0.95, 0.95, 0.97, 1.0),
@@ -237,6 +242,26 @@ MATERIAL_PRESETS = {
             "transparent polycarbonate, near-clear with faint blue-white tint, "
             "sharp specular highlight from high IOR, visible refraction at edges"
         ),
+        # ── Track A1-4 纹理回填 ──
+        "base_color_texture": "plastic/polished/pplastic.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
+    },
+    # ── Track A1-4 新增：塑料分类补足至 ≥3 ──
+    "abs_matte_gray": {
+        "color": (0.55, 0.55, 0.55, 1.0),
+        "metallic": 0.0,
+        "roughness": 0.60,
+        "appearance": (
+            "ABS engineering plastic, matte mid-gray, fine diffuse surface, "
+            "broad soft highlight without specular sparkle, typical 3D-print "
+            "or injection-molded housing finish"
+        ),
+        "base_color_texture": "plastic/smooth/sgray.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
 }
 
