@@ -349,7 +349,11 @@ def main():
         # 简化：cache 命中直接跳过 — PreflightResult 反序列化留给 Task 34 按需补；
         # 走到 dry_run / emit_report 时 preflight_result=None 会进入 fallback 分支。
     else:
-        preflight_result = run_preflight(strict=True, run_id=run_id, entry='cad-codegen')
+        # strict=False：当 SW Add-in 未就绪 / 一键修不可行时，打 [INFO] 预告
+        # 后继续走降级路径（std parts 脚手架仍产出；STEP 缓存由 sw-warmup 独立阶段
+        # 兜底）。硬门会让整个 codegen 阶段退出 2，连自制件也产不出来，与
+        # 北极星"装即用 + 傻瓜式"相左。
+        preflight_result = run_preflight(strict=False, run_id=run_id, entry='cad-codegen')
     # ─── /Task 30 ───
 
     if args.parts_library:

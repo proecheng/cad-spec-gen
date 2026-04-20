@@ -624,6 +624,15 @@ def try_one_click_fix(
         return None
     try:
         return fn()
-    except Exception:  # noqa: BLE001 — 修复失败（如 pywin32 网络失败）静默返 None，
-        # 由上层 preflight 按 strict 决定卡还是只告警
+    except Exception as exc:  # noqa: BLE001
+        # silent-failure-hunter 反模式守护：修复失败**必须**打印根因到 stderr，
+        # 否则用户只看到 preflight 给的通用"建议：手动 xxx"却不知道"一键修其实
+        # 抛了 ADDIN_ENABLE_FAILED: GUID not discoverable"这种可诊断信息。
+        # 上层 preflight 仍按 strict 决定 exit/告警；返回 None 的契约保持不变。
+        import sys as _sys
+        print(
+            f"[preflight] 一键修 {failed_check} 抛异常（不阻断上层决策）: "
+            f"{type(exc).__name__}: {exc}",
+            file=_sys.stderr,
+        )
         return None

@@ -64,13 +64,15 @@ def run_preflight(
     # 第三步：仍异常 → 按 strict 决定
     if not check['passed']:
         diag = check['diagnosis']
+        # Windows GBK 控制台无法编码 emoji（\u2139 / \u274c），用 ASCII 前缀
+        # 保证 print 不抛 UnicodeEncodeError 把流程搞崩。
         if strict:
-            print(f"\n❌ {diag.reason if diag else '预检失败'}")
+            print(f"\n[FAIL] {diag.reason if diag else '预检失败'}")
             if diag:
                 print(f"   建议: {diag.suggestion}")
             sys.exit(2)
         else:
-            print(f"\nℹ️ SW 状态预告: {diag.reason if diag else '预检失败'}")
+            print(f"\n[INFO] SW 状态预告: {diag.reason if diag else '预检失败'}")
             print("   后续 cad-codegen 会自动提示修复。当前编辑不受影响。")
 
     # 第四步：收集 SwInfo（detect 异常吞掉 — 测试 mock / 非 Windows 均兜底为 None）

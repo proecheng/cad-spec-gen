@@ -535,6 +535,21 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
     materials = rc.setdefault("materials", {})
     changed = False
 
+    # Sync glb_file to the name gen_assembly actually exports
+    # (assembly_part_no = f"{prefix_short}-000" in templates/assembly.py.j2).
+    # Init-time placeholder "end_effector_assembly.glb" does not match — if the
+    # discrepancy is not repaired here, render_3d.py hits FileNotFoundError and
+    # Blender's Python harness *swallows* the exception (exit 0), so the pipeline
+    # thinks render succeeded while producing zero PNGs.
+    subsystem_block = rc.setdefault("subsystem", {})
+    prefix = subsystem_block.get("part_prefix", "")
+    if prefix:
+        prefix_short = prefix.split("-")[-1] if "-" in prefix else prefix
+        expected_glb = f"{prefix_short}-000_assembly.glb"
+        if subsystem_block.get("glb_file") != expected_glb:
+            subsystem_block["glb_file"] = expected_glb
+            changed = True
+
     for assy in assemblies:
         pno = assy["part_no"]
         name_cn = assy["name_cn"]
@@ -1513,6 +1528,19 @@ def cmd_render(args):
                 len(_new_files),
                 ", partial" if failures > 0 else "",
             )
+        elif failures == 0:
+            # silent-failure-hunter: blender -b swallows Python exceptions and
+            # returns exit 0, so _run_subprocess cannot see render failures.
+            # If every sub-command "succeeded" yet renders/ has zero new PNGs,
+            # the run is actually broken — escalate to failure so Phase 5 does
+            # not blindly enhance a stale/empty dir.
+            log.error(
+                "render phase produced 0 new PNGs in %s — "
+                "likely a Blender Python crash hidden behind exit 0 "
+                "(check GLB path / render_config.json schema)",
+                _renders_dir,
+            )
+            return 1
 
     return 1 if failures else 0
 
@@ -2509,12 +2537,11 @@ def cmd_init(args):
         log.error("--subsystem is required for init")
         return 1
 
-    # Determine output dir
-    config = _load_config()
-    output_dir = config.get("output_dir", "./output")
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(PROJECT_ROOT, output_dir)
-    sub_dir = os.path.join(output_dir, sub_name)
+    # Subsystem scaffolds live under PROJECT_ROOT/cad/<name>/ — same dir that
+    # get_subsystem_dir() resolves for codegen/build/render phases. The historic
+    # "output_dir" config key was never read by other phases and caused init
+    # artifacts to land in the spec-stage scratch area, breaking codegen lookup.
+    sub_dir = os.path.join(PROJECT_ROOT, "cad", sub_name)
 
     if os.path.exists(sub_dir) and not args.force:
         log.error("Directory already exists: %s  (use --force to overwrite)", sub_dir)
@@ -2626,9 +2653,7 @@ ASSEMBLY_NAME    = "{sub_name}_assembly"
         log.info("  Skipped (exists): params.py")
 
     # ── design doc placeholder ───────────────────────────────────────────────
-    doc_base = config.get("doc_dir", "docs/design")
-    if not os.path.isabs(doc_base):
-        doc_base = os.path.join(PROJECT_ROOT, doc_base)
+    doc_base = os.path.join(PROJECT_ROOT, "docs", "design")
     os.makedirs(doc_base, exist_ok=True)
     doc_path = os.path.join(doc_base, f"XX-{sub_name}.md")
     doc_content = f"""# {args.name_cn or sub_name} 设计文档
