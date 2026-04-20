@@ -266,13 +266,13 @@ MATERIAL_MAP = {
 # 此处加载覆盖内置 MATERIAL_MAP（仅当前进程副本，源码不被污染）——
 # rcfg 在有 --config 路径下已 import；无 config 时按需 import。
 try:
-    _rcfg_rt = rcfg  # type: ignore[name-defined]  # noqa: F821
+    _rcfg_rt = rcfg  # type: ignore[name-defined]  # rcfg 是条件 import（有 --config 时于上方绑定；无时此处未定义，属预期）
 except NameError:
     try:
         sys.path.insert(0, SCRIPT_DIR)
-        import render_config as _rcfg_rt  # type: ignore[assignment]
+        import render_config as _rcfg_rt  # type: ignore[assignment]  # _rcfg_rt 从 None 改赋 module 对象，类型切换属预期流程
     except ImportError:
-        _rcfg_rt = None  # type: ignore[assignment]
+        _rcfg_rt = None  # type: ignore[assignment]  # 同上，回退 None 后反复赋值 module 或 None，mypy 无法推断但逻辑正确
 
 if _rcfg_rt is not None:
     _runtime_override = _rcfg_rt.load_runtime_materials_override()
