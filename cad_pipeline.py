@@ -201,18 +201,23 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
 
 
 def _build_blender_env():
-    """A1-3 Track A §3.3：构造 Blender subprocess 的环境变量。
+    """A1-3 + A1 重构 Track A §3.3：构造 Blender subprocess 的环境变量。
 
-    基于父进程 env 的拷贝，如果检测到 SW 安装且 textures_dir 在磁盘上真实
-    存在，就注入 SW_TEXTURES_DIR 让 Blender 子进程（render_3d.py 内的
-    _resolve_texture_path 查找链）能找到 SW 的 530 张 PBR 贴图。
+    基于父进程 env 的拷贝。若 SW 装了 + textures_dir 有效：
+      1. 注入 SW_TEXTURES_DIR（原 A1-3 行为，render_3d.py 的
+         _resolve_texture_path 依赖它做相对路径 → 绝对路径解析）
+      2. 调 adapters.solidworks.sw_texture_backfill.backfill_presets_for_sw()
+         给 MATERIAL_PRESETS 副本合并 SW 纹理字段 → 落盘
+         artifacts/{run}/runtime_materials.json → env CAD_RUNTIME_MATERIAL_PRESETS_JSON
+         指该路径，让 Blender 子进程 render_3d.py 启动时加载覆盖内置 preset
 
-    SW 未装 / textures_dir 空 / 目录不存在 → 不注入（create_pbr_material
-    走 miss→scalar 降级分支，老行为零回归）。
+    SW 未装 / textures_dir 空 / 目录不存在 → 两条都不注入。
+    Blender 子进程 env 缺 → MATERIAL_PRESETS 保持纯 PBR（preset 定义层干净）。
 
     lazy import：非 Windows 平台 detect_solidworks() 立即返 installed=False；
     pywin32 缺失也按"未装"处理，不抛异常。
     """
+    import json as _json  # 模块内局部 import，避免全局 import 顺序影响
     env = os.environ.copy()
     try:
         sw = detect_solidworks()
@@ -221,13 +226,48 @@ def _build_blender_env():
         # 内部短路）— 不阻塞 render，退回裸父进程 env
         log.debug("SW detection skipped (%s): %s", type(exc).__name__, exc)
         return env
-    if (
+
+    if not (
         getattr(sw, "installed", False)
         and getattr(sw, "textures_dir", "")
         and os.path.isdir(sw.textures_dir)
     ):
-        env["SW_TEXTURES_DIR"] = sw.textures_dir
-        log.info("SW_TEXTURES_DIR -> %s (injected into Blender env)", sw.textures_dir)
+        return env
+
+    # —— (1) SW_TEXTURES_DIR（A1-3 原有）——
+    env["SW_TEXTURES_DIR"] = sw.textures_dir
+    log.info("SW_TEXTURES_DIR -> %s (injected into Blender env)", sw.textures_dir)
+
+    # —— (2) runtime_materials.json（A1 重构）——
+    try:
+        import sys as _sys
+        _here = os.path.abspath(os.path.dirname(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        import render_config as _rcfg
+        from adapters.solidworks.sw_texture_backfill import backfill_presets_for_sw
+
+        backfilled = backfill_presets_for_sw(_rcfg.MATERIAL_PRESETS, sw)
+
+        # 落盘到 artifacts/{run_id}/runtime_materials.json
+        # CAD_RUN_ARTIFACTS_DIR 由 pipeline orchestrator 提前 set；缺则写到 tmp
+        artifact_dir = os.environ.get("CAD_RUN_ARTIFACTS_DIR")
+        if artifact_dir and os.path.isdir(artifact_dir):
+            json_path = os.path.join(artifact_dir, "runtime_materials.json")
+        else:
+            import tempfile
+            json_path = os.path.join(tempfile.gettempdir(), "runtime_materials.json")
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            _json.dump(
+                {k: dict(v) for k, v in backfilled.items()},
+                f, ensure_ascii=False, indent=2,
+            )
+        env["CAD_RUNTIME_MATERIAL_PRESETS_JSON"] = json_path
+        log.info("CAD_RUNTIME_MATERIAL_PRESETS_JSON -> %s", json_path)
+    except Exception as exc:
+        log.warning("runtime_materials.json 回填失败（preset 将走 v2.11 纯色）：%s", exc)
+
     return env
 
 
