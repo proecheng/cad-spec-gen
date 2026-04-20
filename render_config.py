@@ -47,6 +47,11 @@ MATERIAL_PRESETS = {
             "bright anisotropic streaks perpendicular to brush direction, "
             "strong white edge reflection at grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/brushed/brush.jpg",
+        "normal_texture": "metal/wire_bump.jpg",
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "anodized_blue": {
         "color": (0.35, 0.55, 0.75, 1.0),
@@ -56,6 +61,11 @@ MATERIAL_PRESETS = {
             "blue anodized aluminum, saturated medium-blue with subtle metallic sheen, "
             "soft diffuse highlights, faint silver edge sheen at grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "painted/powdercoat_light.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "anodized_green": {
         "color": (0.15, 0.50, 0.25, 1.0),
@@ -65,6 +75,11 @@ MATERIAL_PRESETS = {
             "green anodized aluminum, deep forest-green with metallic undertone, "
             "soft diffuse highlights, faint silver edge sheen at grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "painted/powdercoat_light.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "anodized_purple": {
         "color": (0.50, 0.18, 0.65, 1.0),
@@ -74,6 +89,11 @@ MATERIAL_PRESETS = {
             "purple anodized aluminum, rich violet with metallic luster, "
             "soft diffuse highlights, faint silver edge sheen at grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "painted/powdercoat_light.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "anodized_red": {
         "color": (0.75, 0.15, 0.15, 1.0),
@@ -83,6 +103,11 @@ MATERIAL_PRESETS = {
             "red anodized aluminum, deep crimson with metallic sheen, "
             "soft diffuse highlights, faint silver edge sheen at grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "painted/powdercoat_light.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "black_anodized": {
         "color": (0.05, 0.05, 0.05, 1.0),
@@ -93,6 +118,11 @@ MATERIAL_PRESETS = {
             "soft elongated highlights at ~30deg grazing angle, "
             "faint silver-grey edge sheen at extreme grazing angles"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "painted/powdercoat_dark.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "bronze": {
         "color": (0.70, 0.42, 0.20, 1.0),
@@ -102,6 +132,11 @@ MATERIAL_PRESETS = {
             "cast bronze, warm reddish-brown with subtle patina, "
             "medium-sharp specular highlights, warm golden edge reflection"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/cast/cast_iron.jpg",
+        "normal_texture": "metal/cast/cast_bump.jpg",
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "copper": {
         "color": (0.85, 0.45, 0.18, 1.0),
@@ -111,6 +146,11 @@ MATERIAL_PRESETS = {
             "polished copper, warm reddish-orange with high reflectivity, "
             "sharp bright specular highlights, strong warm edge reflection"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/polished/chrome1.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "gunmetal": {
         "color": (0.18, 0.18, 0.20, 1.0),
@@ -120,6 +160,11 @@ MATERIAL_PRESETS = {
             "gunmetal finish, very dark blue-grey metallic, "
             "medium-sharp specular highlights, cool silver edge reflection"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/rough/rmetal3.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "dark_steel": {
         "color": (0.15, 0.15, 0.17, 1.0),
@@ -129,6 +174,11 @@ MATERIAL_PRESETS = {
             "dark carbon steel, near-black with slight blue-grey tint, "
             "soft diffuse highlights, subtle cool edge sheen"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/steelplaincarbon_diffusemap.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "stainless_304": {
         "color": (0.75, 0.75, 0.77, 1.0),
@@ -138,6 +188,11 @@ MATERIAL_PRESETS = {
             "stainless steel 304, bright silver with brushed satin finish, "
             "sharp elongated highlights along grain, strong white edge reflection"
         ),
+        # ── Track A1-4 纹理回填（相对 SW_TEXTURES_DIR）──
+        "base_color_texture": "metal/polished/polishedsteel_diffusemap.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     # ── Plastics / Rubber ──
     "peek_amber": {
