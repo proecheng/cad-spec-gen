@@ -195,7 +195,7 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
     return None
 
 
-def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None):
+def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None, env=None):
     """Run a subprocess with error capture. Returns (success, elapsed).
 
     Parameters
@@ -206,6 +206,12 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None
         a WARNING-level line with the trailing stderr so the pipeline
         continues. Used by gen_parts.py (exit 2 = scaffolds emitted with
         unfilled TODO markers — valid scaffolds, just not yet hand-finalized).
+    env : dict | None
+        Optional environment variable mapping passed through to subprocess.run.
+        None (default) preserves the historical behavior of inheriting the
+        parent process env. Used by Track A §3.3 SW texture bridge (A1) to
+        inject SW_TEXTURES_DIR into the Blender subprocess so render_3d.py
+        can resolve SolidWorks-installed PBR textures.
     """
     if dry_run:
         log.info("  [DRY-RUN] Would run: %s", " ".join(cmd[:6]))
@@ -223,6 +229,7 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            env=env,
         )
         elapsed = time.time() - t0
         if result.returncode in warn_codes:
