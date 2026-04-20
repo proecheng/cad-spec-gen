@@ -19,10 +19,84 @@ import logging
 import math
 import os
 import sys
+from pathlib import Path
 from mathutils import Vector, Euler
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 log = logging.getLogger("render_3d")
+
+
+# ── A1-1 SW 纹理桥 · 纯 Python helpers（Track A §3.3）────────────────────────
+# 放在 bpy / argparse / mathutils 使用之前，源码级隔离（tests 可 AST 抽取 + exec
+# 到干净 namespace 直接调用，不需要启 Blender）。依赖仅 stdlib：os / pathlib /
+# logging。引入任何 bpy 依赖会打破可测性契约。
+
+def _resolve_texture_path(rel_or_abs):
+    """把 preset 里的 base_color_texture/normal_texture 等字符串解析成磁盘路径。
+
+    查找顺序（Track A §3.3）：
+      1. 绝对路径 → 存在即返回；不存在返回 None
+      2. 相对路径 + CAD_SPEC_GEN_TEXTURE_DIR env → 拼接并检查存在
+      3. 相对路径 + SW_TEXTURES_DIR env（由 cmd_render 从 SwInfo.textures_dir
+         注入）→ 拼接并检查存在
+      4. 以上全 miss → None（上层按材质打 warning 并降级纯色）
+
+    Parameters
+    ----------
+    rel_or_abs : str or None
+        preset 里声明的 texture 路径（可空 / 可绝对 / 可相对）
+
+    Returns
+    -------
+    Path or None
+        真实磁盘路径（Path 对象）；空输入或全部 miss 返回 None。
+    """
+    if not rel_or_abs:
+        return None
+    candidate = Path(rel_or_abs)
+    if candidate.is_absolute():
+        return candidate if candidate.is_file() else None
+
+    for env_name in ("CAD_SPEC_GEN_TEXTURE_DIR", "SW_TEXTURES_DIR"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        joined = Path(base) / rel_or_abs
+        if joined.is_file():
+            return joined
+
+    return None
+
+
+def _detect_normal_convention(normal_filename):
+    """根据文件名推断 normal map 是 DirectX (Y-) 还是 OpenGL (Y+) 约定。
+
+    SW 的 PBR 导出默认 DirectX，故默认值设 `'dx'`。匹配规则（大小写无关）：
+      - 文件名含 `_gl` / `opengl` → `'gl'`
+      - 文件名含 `_dx` / `directx` → `'dx'`
+      - 其他 → `'dx'`（SW 默认）
+
+    Blender 渲染时约定不匹配会让法线 Y 轴翻转，表面凹凸感倒置。本函数提供
+    per-file 明确标记机会；如果 SW 纹理库混存两种约定，Track A §3.2 的节点图
+    会按本函数结果切换 Normal Map 节点的 space 参数。
+
+    Parameters
+    ----------
+    normal_filename : str
+        normal map 文件名（可带路径前缀）
+
+    Returns
+    -------
+    str
+        `'dx'` 或 `'gl'`
+    """
+    if not normal_filename:
+        return "dx"
+    name = str(normal_filename).lower()
+    if "_gl" in name or "opengl" in name:
+        return "gl"
+    return "dx"
+
 
 # ── Parse CLI args (after "--") ──────────────────────────────────────────────
 argv = sys.argv
