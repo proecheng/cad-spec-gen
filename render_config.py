@@ -224,6 +224,34 @@ MATERIAL_PRESETS = {
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Runtime override loader（Track A1 重构：从 env 指向的 JSON 加载 SW 回填结果）
+# ═════════════════════════════════════════════════════════════════════════════
+
+def load_runtime_materials_override():
+    """从 CAD_RUNTIME_MATERIAL_PRESETS_JSON env 指的路径加载 runtime preset 覆盖。
+
+    由 cad_pipeline._build_blender_env 在 SW 装了的场景下落盘；Blender 子进程
+    里 render_3d.py 启动时读本 helper 合并到 MATERIAL_PRESETS 副本。
+
+    Returns
+    -------
+    dict | None
+        成功 → dict（preset_name → params）；env 缺失 / 文件缺失 / JSON 无效 → None。
+    """
+    path = os.environ.get("CAD_RUNTIME_MATERIAL_PRESETS_JSON")
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Config loading & validation
 # ═════════════════════════════════════════════════════════════════════════════
 
