@@ -218,6 +218,11 @@ MATERIAL_PRESETS = {
             "black rubber/elastomer, matte deep black, very diffuse with almost "
             "no specular highlight, Shore A ~70 hardness appearance"
         ),
+        # ── Track A1-4 纹理回填 ──
+        "base_color_texture": "rubber/texture/tire tread.jpg",
+        "normal_texture": "rubber/texture/tire tread bump.jpg",
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "white_nylon": {
         "color": (0.92, 0.92, 0.90, 1.0),
@@ -259,6 +264,23 @@ MATERIAL_PRESETS = {
             "or injection-molded housing finish"
         ),
         "base_color_texture": "plastic/smooth/sgray.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
+    },
+    # ── Track A1-4 新增：橡胶·陶瓷分类补足至 ≥2 ──
+    "ceramic_white": {
+        "color": (0.95, 0.95, 0.93, 1.0),
+        "metallic": 0.0,
+        "roughness": 0.15,
+        "ior": 1.52,
+        "specular": 0.8,
+        "appearance": (
+            "glazed white ceramic, near-pure white with subtle warm undertone, "
+            "sharp mirror-like specular highlight, smooth glassy surface, "
+            "clean bright edge reflection from high IOR glaze"
+        ),
+        "base_color_texture": "plastic/polished/pplastic.jpg",
         "normal_texture": None,
         "roughness_texture": None,
         "metallic_texture": None,
