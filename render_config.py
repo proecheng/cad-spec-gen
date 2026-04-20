@@ -208,6 +208,11 @@ MATERIAL_PRESETS = {
             "subsurface scattering glow in thin sections, smooth polished surface, "
             "moderate specular highlight from high IOR"
         ),
+        # ── Track A1-4 纹理回填 ──
+        "base_color_texture": "plastic/bumpy/plasticmt11030_bump.jpg",
+        "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
     },
     "black_rubber": {
         "color": (0.03, 0.03, 0.03, 1.0),
@@ -282,6 +287,23 @@ MATERIAL_PRESETS = {
         ),
         "base_color_texture": "plastic/polished/pplastic.jpg",
         "normal_texture": None,
+        "roughness_texture": None,
+        "metallic_texture": None,
+    },
+    # ── Track A1-4 新增：PEEK·复合分类补足至 ≥2 ──
+    "carbon_fiber_weave": {
+        "color": (0.12, 0.12, 0.14, 1.0),
+        "metallic": 0.30,
+        "roughness": 0.40,
+        "anisotropic": 0.3,
+        "appearance": (
+            "carbon fiber composite, woven twill pattern in near-black with "
+            "subtle dark iridescence, directional anisotropic highlights along "
+            "weave axis, epoxy-resin matte gloss, typical aerospace or "
+            "high-end mechanical composite appearance"
+        ),
+        "base_color_texture": "fibers/glassfibre_bump.jpg",
+        "normal_texture": "fibers/glassfibre_bump.jpg",
         "roughness_texture": None,
         "metallic_texture": None,
     },
