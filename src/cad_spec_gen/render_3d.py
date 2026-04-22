@@ -262,6 +262,36 @@ MATERIAL_MAP = {
     },
 }
 
+# —— A1 重构：SW 装了时 _build_blender_env 落了 runtime_materials.json；
+# 此处加载覆盖内置 MATERIAL_MAP（仅当前进程副本，源码不被污染）——
+# rcfg 在有 --config 路径下已 import；无 config 时按需 import。
+try:
+    _rcfg_rt = rcfg  # type: ignore[name-defined]  # rcfg 是条件 import（有 --config 时于上方绑定；无时此处未定义，属预期）
+except NameError:
+    try:
+        sys.path.insert(0, SCRIPT_DIR)
+        import render_config as _rcfg_rt  # type: ignore[assignment]  # _rcfg_rt 从 None 改赋 module 对象，类型切换属预期流程
+    except ImportError:
+        _rcfg_rt = None  # type: ignore[assignment]  # 同上，回退 None 后反复赋值 module 或 None，mypy 无法推断但逻辑正确
+
+if _rcfg_rt is not None:
+    _runtime_override = _rcfg_rt.load_runtime_materials_override()
+    if _runtime_override:
+        _merged = dict(MATERIAL_MAP)
+        for _name, _params in _runtime_override.items():
+            if _name in _merged:
+                _entry = dict(_merged[_name])
+                _entry.update(_params)
+                _merged[_name] = _entry
+            else:
+                _merged[_name] = dict(_params)
+        log.info("runtime preset override loaded: %d entries", len(_runtime_override))
+        _MATERIAL_PRESETS_RUNTIME = _merged
+    else:
+        _MATERIAL_PRESETS_RUNTIME = MATERIAL_MAP
+else:
+    _MATERIAL_PRESETS_RUNTIME = MATERIAL_MAP
+
 # ── Camera presets (§4.10.4) ─────────────────────────────────────────────────
 CAMERA_PRESETS = {
     "V1": {
@@ -471,7 +501,7 @@ def assign_materials():
     Uses render_config.py's resolve_bom_materials() for bom_id→material bridging.
     Priority: bom_id prefix match > material pattern substring > default gray.
     """
-    source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else MATERIAL_MAP
+    source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else _MATERIAL_PRESETS_RUNTIME
 
     materials = {}
     for pattern, params in source.items():

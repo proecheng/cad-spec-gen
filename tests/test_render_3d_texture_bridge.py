@@ -22,6 +22,9 @@
 from __future__ import annotations
 
 import ast
+import json as _json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -132,7 +135,157 @@ class TestCreatePbrMaterialStructural:
         )
 
 
-# ───────────── Blender headless smoke —— 留给下一 commit ──────────────────────
-# 需要 (a) 在 Blender 子进程内生成真 1x1 PNG、(b) env 注入 CAD_SPEC_GEN_TEXTURE_DIR、
-# (c) 节点图拓扑断言（ShaderNodeTexImage in graph）。独立 commit 做，避免把
-# TDD 循环拖长 + 避免 smoke 在 miss 路径下误 PASS。
+# ───────────── Blender headless smoke（A1 重构：env + runtime_materials.json）──
+
+
+def _blender_available() -> bool:
+    try:
+        _REPO = Path(__file__).parent.parent
+        if str(_REPO) not in sys.path:
+            sys.path.insert(0, str(_REPO))
+        from cad_paths import get_blender_path
+
+        return get_blender_path() is not None
+    except Exception:
+        return False
+
+
+@pytest.mark.blender
+@pytest.mark.skipif(
+    not _blender_available(),
+    reason="Blender not found via cad_paths.get_blender_path()",
+)
+class TestCreatePbrMaterialBlenderSmoke:
+    """真启 Blender 子进程验证 create_pbr_material 节点图（env 注入 vs 无注入）。"""
+
+    def _make_1x1_png(self, path: Path, rgb: tuple[int, int, int] = (200, 50, 50)) -> None:
+        """stdlib 手搓 1×1 PNG（不引 PIL 依赖）。"""
+        import struct
+        import zlib
+
+        def _chunk(tag: bytes, data: bytes) -> bytes:
+            return (
+                struct.pack(">I", len(data))
+                + tag
+                + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+            )
+
+        sig = b"\x89PNG\r\n\x1a\n"
+        ihdr = _chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        raw = b"\x00" + bytes(rgb)
+        idat = _chunk(b"IDAT", zlib.compress(raw))
+        iend = _chunk(b"IEND", b"")
+        path.write_bytes(sig + ihdr + idat + iend)
+
+    def test_env_injected_runtime_json_produces_tex_nodes(self, tmp_path):
+        """env 指向 runtime_materials.json 时 → 节点图含 TexImage + Mapping + TexCoord。"""
+        from cad_paths import get_blender_path
+
+        blender = get_blender_path()
+
+        tex_dir = tmp_path / "textures"
+        tex_dir.mkdir()
+        png_path = tex_dir / "diffuse.png"
+        self._make_1x1_png(png_path)
+
+        # 构造 runtime_materials.json：一个带 base_color_texture 的 preset
+        runtime_json = tmp_path / "runtime_materials.json"
+        payload = {
+            "smoke_preset": {
+                "color": (0.8, 0.2, 0.2, 1.0),
+                "metallic": 0.0,
+                "roughness": 0.5,
+                "base_color_texture": "diffuse.png",
+            }
+        }
+        runtime_json.write_text(_json.dumps(payload), encoding="utf-8")
+
+        # 部署 render_3d + render_config
+        (tmp_path / "render_3d.py").write_text(
+            (_REPO_ROOT / "src" / "cad_spec_gen" / "render_3d.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        (tmp_path / "render_config.py").write_text(
+            (_REPO_ROOT / "render_config.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        expr = (
+            "import sys, os; "
+            f"sys.path.insert(0, {str(tmp_path)!r}); "
+            f"os.environ['CAD_SPEC_GEN_TEXTURE_DIR'] = {str(tex_dir)!r}; "
+            f"os.environ['CAD_RUNTIME_MATERIAL_PRESETS_JSON'] = {str(runtime_json)!r}; "
+            "import render_3d; "
+            "params = {'color': (0.8, 0.2, 0.2, 1.0), 'metallic': 0.0, 'roughness': 0.5, 'base_color_texture': 'diffuse.png'}; "
+            "mat = render_3d.create_pbr_material('smoke', params); "
+            "kinds = sorted({n.bl_idname for n in mat.node_tree.nodes}); "
+            "print('NODE_KINDS=' + ','.join(kinds)); "
+            "print('SMOKE_OK')"
+        )
+
+        result = subprocess.run(
+            [blender, "--background", "--python-expr", expr],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+        assert "SMOKE_OK" in result.stdout, (
+            f"stdout: {result.stdout[-1500:]}\nstderr: {result.stderr[-1500:]}"
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("NODE_KINDS="):
+                kinds = set(line.split("=", 1)[1].split(","))
+                break
+        else:
+            pytest.fail("未发现 NODE_KINDS 诊断行")
+
+        for required in ("ShaderNodeTexImage", "ShaderNodeMapping", "ShaderNodeTexCoord"):
+            assert required in kinds, f"{required} 缺失，kinds={sorted(kinds)}"
+
+    def test_no_env_pure_scalar_graph(self, tmp_path):
+        """无 CAD_RUNTIME_MATERIAL_PRESETS_JSON env → 纯标量 BSDF 节点图，无 TexImage。"""
+        from cad_paths import get_blender_path
+
+        blender = get_blender_path()
+
+        (tmp_path / "render_3d.py").write_text(
+            (_REPO_ROOT / "src" / "cad_spec_gen" / "render_3d.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        (tmp_path / "render_config.py").write_text(
+            (_REPO_ROOT / "render_config.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        expr = (
+            "import sys; "
+            f"sys.path.insert(0, {str(tmp_path)!r}); "
+            "import render_3d; "
+            "params = {'color': (0.5, 0.5, 0.5, 1.0), 'metallic': 0.0, 'roughness': 0.5}; "
+            "mat = render_3d.create_pbr_material('scalar', params); "
+            "kinds = sorted({n.bl_idname for n in mat.node_tree.nodes}); "
+            "print('NODE_KINDS=' + ','.join(kinds)); "
+            "print('SMOKE_OK')"
+        )
+
+        result = subprocess.run(
+            [blender, "--background", "--python-expr", expr],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+        assert "SMOKE_OK" in result.stdout
+        for line in result.stdout.splitlines():
+            if line.startswith("NODE_KINDS="):
+                kinds = set(line.split("=", 1)[1].split(","))
+                break
+        else:
+            pytest.fail("未发现 NODE_KINDS 诊断行")
+
+        assert "ShaderNodeTexImage" not in kinds, f"无 env 应无 TexImage：{sorted(kinds)}"
+        assert "ShaderNodeBsdfPrincipled" in kinds
