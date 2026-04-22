@@ -217,7 +217,6 @@ def _build_blender_env():
     lazy import：非 Windows 平台 detect_solidworks() 立即返 installed=False；
     pywin32 缺失也按"未装"处理，不抛异常。
     """
-    import json as _json  # 模块内局部 import，避免全局 import 顺序影响
     env = os.environ.copy()
     try:
         sw = detect_solidworks()
@@ -259,7 +258,7 @@ def _build_blender_env():
             json_path = os.path.join(tempfile.gettempdir(), "runtime_materials.json")
 
         with open(json_path, "w", encoding="utf-8") as f:
-            _json.dump(
+            json.dump(
                 {k: dict(v) for k, v in backfilled.items()},
                 f, ensure_ascii=False, indent=2,
             )

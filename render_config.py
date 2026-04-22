@@ -2,7 +2,7 @@
 Render Configuration Engine — stdlib-only helper for Blender Python.
 
 Provides:
-  - MATERIAL_PRESETS: 15 common engineering material PBR definitions
+  - MATERIAL_PRESETS: 18 common engineering material PBR definitions
   - load_config(path): load render_config.json with validation
   - validate_config(config): JSON Schema validation (optional, needs jsonschema)
   - resolve_material(entry): preset name → full PBR params (with overrides)
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Material Presets — 15 common engineering materials (W6: embedded, not file)
+# Material Presets — 18 common engineering materials (W6: embedded, not file)
 # ═════════════════════════════════════════════════════════════════════════════
 
 MATERIAL_PRESETS = {
