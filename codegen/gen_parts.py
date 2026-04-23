@@ -14,7 +14,6 @@ import argparse
 import os
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import jinja2
@@ -43,12 +42,17 @@ sys.path.insert(0, _SRC)
 
 try:
     from cad_spec_gen.parts_routing import (
-        GeomInfo, route, discover_templates, locate_builtin_templates_dir,
+        GeomInfo,
+        route,
+        discover_templates,
+        locate_builtin_templates_dir,
     )
+
     _PARTS_ROUTING_AVAILABLE = True
 except ImportError as _exc:
     _PARTS_ROUTING_AVAILABLE = False
     import logging as _log
+
     _log.getLogger(__name__).debug("parts_routing unavailable: %s", _exc)
 
 if sys.platform == "win32":
@@ -94,8 +98,8 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
                 # = 40mm. Platform extends ±20mm in Y (40×40 cross section)
                 # while the arm itself is 12mm × 8mm (W × thickness).
                 arm_l = max(20.0, round(w * 0.45, 1))
-                arm_w = 12.0   # arm cross-section width (Y direction)
-                arm_t = 8.0    # arm cross-section thickness (Z direction)
+                arm_w = 12.0  # arm cross-section width (Y direction)
+                arm_t = 8.0  # arm cross-section thickness (Z direction)
                 arm_count = 4  # default
                 if "十字" in name_cn or "四" in name_cn:
                     arm_count = 4
@@ -103,53 +107,113 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
                     arm_count = 3
                 elif "六" in name_cn:
                     arm_count = 6
-                return {"type": "disc_arms", "d": w, "arm_l": arm_l,
-                        "arm_w": arm_w, "arm_t": arm_t, "t": h,
-                        "arm_count": arm_count,
-                        "envelope_w": w + arm_l * 2,
-                        "envelope_d": d + arm_l * 2,
-                        "envelope_h": h}
+                return {
+                    "type": "disc_arms",
+                    "d": w,
+                    "arm_l": arm_l,
+                    "arm_w": arm_w,
+                    "arm_t": arm_t,
+                    "t": h,
+                    "arm_count": arm_count,
+                    "envelope_w": w + arm_l * 2,
+                    "envelope_d": d + arm_l * 2,
+                    "envelope_h": h,
+                }
             if "环" in name_cn or "绝缘" in name_cn:
-                return {"type": "ring", "od": w, "id": round(w * 0.75, 1), "h": h,
-                        "envelope_w": w, "envelope_d": d, "envelope_h": h}
-            return {"type": "cylinder", "d": w, "h": h,
-                    "envelope_w": w, "envelope_d": d, "envelope_h": h}
+                return {
+                    "type": "ring",
+                    "od": w,
+                    "id": round(w * 0.75, 1),
+                    "h": h,
+                    "envelope_w": w,
+                    "envelope_d": d,
+                    "envelope_h": h,
+                }
+            return {
+                "type": "cylinder",
+                "d": w,
+                "h": h,
+                "envelope_w": w,
+                "envelope_d": d,
+                "envelope_h": h,
+            }
         else:
             if "支架" in name_cn and ("L" in name_cn or "抱箍" in name_cn):
-                return {"type": "l_bracket", "w": w, "d": d, "h": h, "t": 3.0,
-                        "envelope_w": w, "envelope_d": d, "envelope_h": h}
-            return {"type": "box", "w": w, "d": d, "h": h,
-                    "envelope_w": w, "envelope_d": d, "envelope_h": h}
+                return {
+                    "type": "l_bracket",
+                    "w": w,
+                    "d": d,
+                    "h": h,
+                    "t": 3.0,
+                    "envelope_w": w,
+                    "envelope_d": d,
+                    "envelope_h": h,
+                }
+            return {
+                "type": "box",
+                "w": w,
+                "d": d,
+                "h": h,
+                "envelope_w": w,
+                "envelope_d": d,
+                "envelope_h": h,
+            }
 
     # ── Priority 1: Parse explicit dimensions from material text ──
     # Cylinder: Φ38×280mm or φ38x280mm
     m_cyl = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", material)
     if m_cyl:
         d, h = float(m_cyl.group(1)), float(m_cyl.group(2))
-        return {"type": "cylinder", "d": d, "h": h,
-                "envelope_w": d, "envelope_d": d, "envelope_h": h}
+        return {
+            "type": "cylinder",
+            "d": d,
+            "h": h,
+            "envelope_w": d,
+            "envelope_d": d,
+            "envelope_h": h,
+        }
 
     # Box: 140×100×55mm (three dimensions with ×)
     m_box = re.search(
         r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm",
-        material)
+        material,
+    )
     if m_box:
         w, d, h = float(m_box.group(1)), float(m_box.group(2)), float(m_box.group(3))
-        return {"type": "box", "w": w, "d": d, "h": h,
-                "envelope_w": w, "envelope_d": d, "envelope_h": h}
+        return {
+            "type": "box",
+            "w": w,
+            "d": d,
+            "h": h,
+            "envelope_w": w,
+            "envelope_d": d,
+            "envelope_h": h,
+        }
 
     # Diameter only: Φ90mm (no height) → flat disc
     m_dia = re.search(r"[Φφ](\d+(?:\.\d+)?)\s*mm", material)
     if m_dia:
         d = float(m_dia.group(1))
         h = max(5.0, round(d * 0.25, 1))
-        return {"type": "cylinder", "d": d, "h": h,
-                "envelope_w": d, "envelope_d": d, "envelope_h": h}
+        return {
+            "type": "cylinder",
+            "d": d,
+            "h": h,
+            "envelope_w": d,
+            "envelope_d": d,
+            "envelope_h": h,
+        }
 
     # ── Priority 2: Keyword heuristics (generic types) ──
-    if ("壳体" in name_cn or "筒" in name_cn or "缸" in name_cn):
-        return {"type": "cylinder", "d": 50.0, "h": 60.0,
-                "envelope_w": 50.0, "envelope_d": 50.0, "envelope_h": 60.0}
+    if "壳体" in name_cn or "筒" in name_cn or "缸" in name_cn:
+        return {
+            "type": "cylinder",
+            "d": 50.0,
+            "h": 60.0,
+            "envelope_w": 50.0,
+            "envelope_d": 50.0,
+            "envelope_h": 60.0,
+        }
 
     if "法兰" in name_cn and "悬臂" in name_cn:
         arm_count = 4  # default
@@ -159,38 +223,95 @@ def _guess_geometry(name_cn: str, material: str, envelope: tuple = None) -> dict
             arm_count = 3
         elif "六" in name_cn:
             arm_count = 6
-        return {"type": "disc_arms", "d": 80.0, "arm_l": 40.0, "arm_w": 12.0,
-                "arm_t": 8.0, "t": 20.0, "arm_count": arm_count,
-                "envelope_w": 160.0, "envelope_d": 160.0, "envelope_h": 20.0}
+        return {
+            "type": "disc_arms",
+            "d": 80.0,
+            "arm_l": 40.0,
+            "arm_w": 12.0,
+            "arm_t": 8.0,
+            "t": 20.0,
+            "arm_count": arm_count,
+            "envelope_w": 160.0,
+            "envelope_d": 160.0,
+            "envelope_h": 20.0,
+        }
 
     if "法兰" in name_cn or "盘" in name_cn:
-        return {"type": "cylinder", "d": 80.0, "h": 20.0,
-                "envelope_w": 80.0, "envelope_d": 80.0, "envelope_h": 20.0}
+        return {
+            "type": "cylinder",
+            "d": 80.0,
+            "h": 20.0,
+            "envelope_w": 80.0,
+            "envelope_d": 80.0,
+            "envelope_h": 20.0,
+        }
 
     if "环" in name_cn or "绝缘段" in name_cn:
         d = 80.0
-        return {"type": "ring", "od": d, "id": round(d * 0.75, 1), "h": 5.0,
-                "envelope_w": d, "envelope_d": d, "envelope_h": 5.0}
+        return {
+            "type": "ring",
+            "od": d,
+            "id": round(d * 0.75, 1),
+            "h": 5.0,
+            "envelope_w": d,
+            "envelope_d": d,
+            "envelope_h": 5.0,
+        }
 
     if "支架" in name_cn and ("L" in name_cn or "抱箍" in name_cn):
-        return {"type": "l_bracket", "w": 50.0, "d": 40.0, "h": 25.0, "t": 3.0,
-                "envelope_w": 50.0, "envelope_d": 40.0, "envelope_h": 25.0}
+        return {
+            "type": "l_bracket",
+            "w": 50.0,
+            "d": 40.0,
+            "h": 25.0,
+            "t": 3.0,
+            "envelope_w": 50.0,
+            "envelope_d": 40.0,
+            "envelope_h": 25.0,
+        }
 
     if "支架" in name_cn:
-        return {"type": "box", "w": 50.0, "d": 40.0, "h": 25.0,
-                "envelope_w": 50.0, "envelope_d": 40.0, "envelope_h": 25.0}
+        return {
+            "type": "box",
+            "w": 50.0,
+            "d": 40.0,
+            "h": 25.0,
+            "envelope_w": 50.0,
+            "envelope_d": 40.0,
+            "envelope_h": 25.0,
+        }
 
     if "适配" in name_cn:
-        return {"type": "cylinder", "d": 60.0, "h": 10.0,
-                "envelope_w": 60.0, "envelope_d": 60.0, "envelope_h": 10.0}
+        return {
+            "type": "cylinder",
+            "d": 60.0,
+            "h": 10.0,
+            "envelope_w": 60.0,
+            "envelope_d": 60.0,
+            "envelope_h": 10.0,
+        }
 
     if "板" in name_cn:
-        return {"type": "box", "w": 60.0, "d": 40.0, "h": 10.0,
-                "envelope_w": 60.0, "envelope_d": 40.0, "envelope_h": 10.0}
+        return {
+            "type": "box",
+            "w": 60.0,
+            "d": 40.0,
+            "h": 10.0,
+            "envelope_w": 60.0,
+            "envelope_d": 40.0,
+            "envelope_h": 10.0,
+        }
 
     # Default fallback
-    return {"type": "box", "w": 40.0, "d": 40.0, "h": 20.0,
-            "envelope_w": 40.0, "envelope_d": 40.0, "envelope_h": 20.0}
+    return {
+        "type": "box",
+        "w": 40.0,
+        "d": 40.0,
+        "h": 20.0,
+        "envelope_w": 40.0,
+        "envelope_d": 40.0,
+        "envelope_h": 20.0,
+    }
 
 
 def _parse_spec_title(spec_path: str) -> tuple:
@@ -209,15 +330,15 @@ def _parse_spec_title(spec_path: str) -> tuple:
 
 # A2-0: 语义前缀→零件类别关键词映射表
 _TOL_PREFIX_CATEGORY: dict[str, str] = {
-    "FLANGE":   "法兰",
-    "HOUSING":  "壳体",
-    "SPRING":   "弹簧",
-    "ARM":      "悬臂",
-    "BRACKET":  "支架",
-    "SLEEVE":   "套筒",
-    "CLAMP":    "夹",
-    "PLATE":    "板",
-    "COVER":    "盖",
+    "FLANGE": "法兰",
+    "HOUSING": "壳体",
+    "SPRING": "弹簧",
+    "ARM": "悬臂",
+    "BRACKET": "支架",
+    "SLEEVE": "套筒",
+    "CLAMP": "夹",
+    "PLATE": "板",
+    "COVER": "盖",
 }
 
 
@@ -226,6 +347,9 @@ def _tol_belongs_to_part(tol_name: str, part_name_cn: str) -> bool:
 
     命中前缀 → 检查零件 name_cn 是否含对应关键词。
     未命中任何前缀 → 通用条目，保留给所有零件。
+
+    约定：tolerance 名称前缀应属于单一类别（不应出现如 SLEEVE_CLAMP_OD 这类
+    跨类别复合前缀）。出现时，首个命中的前缀类别生效（dict 插入顺序）。
     """
     for prefix, keyword in _TOL_PREFIX_CATEGORY.items():
         if tol_name.upper().startswith(prefix):
@@ -243,6 +367,7 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     Returns dict with dim_tolerances, gdt, surfaces filtered for this part.
     """
     from cad_spec_extractors import extract_tolerances
+
     text = Path(spec_path).read_text(encoding="utf-8")
     tol_data = extract_tolerances(text.splitlines())
 
@@ -250,15 +375,20 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     dim_tols = tol_data.get("dim_tols", [])
     if _dim_filter_enabled() and part_name:
         dim_tols = [
-            t for t in dim_tols
-            if _tol_belongs_to_part(t.get("name", ""), part_name)
+            t for t in dim_tols if _tol_belongs_to_part(t.get("name", ""), part_name)
         ]
     # Filter GD&T — keep entries matching this part name
-    gdt = [g for g in tol_data.get("gdt", [])
-           if not g.get("parts") or part_name in g["parts"]]
+    gdt = [
+        g
+        for g in tol_data.get("gdt", [])
+        if not g.get("parts") or part_name in g["parts"]
+    ]
     # Filter surfaces — keep entries matching this part name
-    surfaces = [s for s in tol_data.get("surfaces", [])
-                if not s.get("part") or part_name in s["part"]]
+    surfaces = [
+        s
+        for s in tol_data.get("surfaces", [])
+        if not s.get("part") or part_name in s["part"]
+    ]
 
     return {
         "dim_tolerances": dim_tols,
@@ -267,7 +397,9 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     }
 
 
-def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold") -> list:
+def generate_part_files(
+    spec_path: str, output_dir: str, mode: str = "scaffold"
+) -> list:
     """Generate part module scaffolds for all custom-made leaf parts.
 
     Args:
@@ -282,8 +414,10 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
     # Parse project/subsystem name from spec title
     project_name, subsystem_name = _parse_spec_title(spec_path)
     if not subsystem_name:
-        print(f"  WARNING: Could not extract subsystem name from spec title in {os.path.basename(spec_path)} "
-              f"— expected '# CAD Spec — <name>' on first line")
+        print(
+            f"  WARNING: Could not extract subsystem name from spec title in {os.path.basename(spec_path)} "
+            f"— expected '# CAD Spec — <name>' on first line"
+        )
 
     # Parse §2 annotation metadata (once for all parts)
     try:
@@ -302,10 +436,13 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
     # Parse §6.4 envelope dimensions (most accurate source)
     from codegen.gen_assembly import parse_envelopes
+
     envelopes_raw = parse_envelopes(spec_path)
     # Legacy callers expect bare tuples: unwrap the new dict shape.
-    envelopes = {pno: (e["dims"] if isinstance(e, dict) else e)
-                 for pno, e in envelopes_raw.items()}
+    envelopes = {
+        pno: (e["dims"] if isinstance(e, dict) else e)
+        for pno, e in envelopes_raw.items()
+    }
 
     for p in parts:
         # Only generate for custom-made leaf parts
@@ -334,8 +471,11 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
                     envelope_w=float(geom.get("envelope_w") or 0),
                     envelope_d=float(geom.get("envelope_d") or 0),
                     envelope_h=float(geom.get("envelope_h") or 0),
-                    extras={k: v for k, v in geom.items()
-                            if k not in {"type", "envelope_w", "envelope_d", "envelope_h"}},
+                    extras={
+                        k: v
+                        for k, v in geom.items()
+                        if k not in {"type", "envelope_w", "envelope_d", "envelope_h"}
+                    },
                 )
                 _tier1 = locate_builtin_templates_dir()
                 _search = [_tier1] if _tier1 else []
@@ -356,10 +496,13 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA
+
         mat_type = classify_material_type(p["material"])
         if mat_type is None:
-            print(f"  WARNING: Cannot classify material '{p['material']}' for {p['part_no']}, "
-                  f"defaulting to 'al'")
+            print(
+                f"  WARNING: Cannot classify material '{p['material']}' for {p['part_no']}, "
+                f"defaulting to 'al'"
+            )
             mat_type = "al"
 
         # Per-part annotation meta
@@ -375,7 +518,7 @@ def generate_part_files(spec_path: str, output_dir: str, mode: str = "scaffold")
         content = template.render(
             part_name_cn=p["name_cn"],
             part_no=p["part_no"],
-            source_ref=f"CAD_SPEC.md §5 BOM",
+            source_ref="CAD_SPEC.md §5 BOM",
             material=p["material"],
             func_name=func_name,
             param_imports=[],  # Empty — user adds specific params
@@ -423,15 +566,23 @@ def scan_todos(files: list) -> dict:
     return result
 
 
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate part module scaffolds from CAD_SPEC.md §5 BOM")
+        description="Generate part module scaffolds from CAD_SPEC.md §5 BOM"
+    )
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
-    parser.add_argument("--output-dir", "-o", default=None,
-                        help="Output directory (default: same dir as spec)")
-    parser.add_argument("--mode", choices=["scaffold", "force"], default="scaffold",
-                        help="scaffold=skip existing, force=overwrite")
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        default=None,
+        help="Output directory (default: same dir as spec)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["scaffold", "force"],
+        default="scaffold",
+        help="scaffold=skip existing, force=overwrite",
+    )
     args = parser.parse_args()
 
     spec_path = os.path.abspath(args.spec)
@@ -439,8 +590,10 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     generated, skipped = generate_part_files(spec_path, output_dir, mode=args.mode)
-    print(f"[gen_parts] Generated {len(generated)} part scaffold(s), "
-          f"skipped {len(skipped)} existing")
+    print(
+        f"[gen_parts] Generated {len(generated)} part scaffold(s), "
+        f"skipped {len(skipped)} existing"
+    )
     for f in generated:
         print(f"  + {os.path.basename(f)}")
     if skipped:
@@ -450,7 +603,9 @@ def main():
     todos = scan_todos(generated)
     if todos:
         print(f"\n[gen_parts] WARNING: {len(todos)} file(s) have unfilled TODO markers")
-        print("  Fill these before running 'cad_pipeline.py build' or orientation_check will fail:")
+        print(
+            "  Fill these before running 'cad_pipeline.py build' or orientation_check will fail:"
+        )
         for fpath, items in todos.items():
             print(f"  {os.path.basename(fpath)}:")
             for lineno, text in items:
