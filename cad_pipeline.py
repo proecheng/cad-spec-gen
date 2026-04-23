@@ -2998,6 +2998,12 @@ def main():
         action="store_true",
         help="输出机读 JSON 而非彩色文本",
     )
+    p_sw_inspect.add_argument(
+        "--resolve-report",
+        metavar="PATH",
+        default=None,
+        help="展示指定 resolve_report.json 的路由诊断摘要",
+    )
 
     args = parser.parse_args()
 

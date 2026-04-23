@@ -120,6 +120,9 @@ def _print_text(payload: dict) -> None:
 
 def run_sw_inspect(args: argparse.Namespace) -> int:
     """sw-inspect 主入口。返回退出码。"""
+    if getattr(args, "resolve_report", None):
+        return _cmd_show_resolve_report(args.resolve_report)
+
     t_start = time.perf_counter()
 
     sw_cfg = load_registry().get("solidworks_toolbox", {})
@@ -186,3 +189,33 @@ def run_sw_inspect(args: argparse.Namespace) -> int:
         _print_text(payload)
 
     return exit_code
+
+
+def _cmd_show_resolve_report(path: str) -> int:
+    """打印 resolve_report.json 的路由摘要。"""
+    import json
+    import sys
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.is_file():
+        print(f"[sw-inspect] resolve_report.json 不存在: {path}", file=sys.stderr)
+        return 1
+
+    data = json.loads(p.read_text(encoding="utf-8"))
+    schema = data.get("schema_version", "?")
+    if schema != 1:
+        print(f"[sw-inspect] 未知 schema_version={schema}，展示原始字段")
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"Routing report — run_id: {data.get('run_id', '?')} | "
+          f"total_rows: {data.get('total_rows', '?')}")
+    print()
+    hits = data.get("adapter_hits", {})
+    width = max((len(n) for n in hits), default=10)
+    for name, hit in hits.items():
+        reason = hit.get("unavailable_reason") or ""
+        suffix = f"  ← {reason}" if reason else ""
+        print(f"  {name:<{width}}  {hit['count']:>4} 命中{suffix}")
+    return 0
