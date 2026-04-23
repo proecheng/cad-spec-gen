@@ -102,7 +102,7 @@ def _check_toolbox_supported() -> tuple[bool, Optional[DiagnosisInfo]]:
             suggestion="可继续使用 stand-in 标准件占位",
             severity='warn',
         )
-    if info.edition == 'Standard':
+    if info.edition == 'standard':
         return False, DiagnosisInfo(
             code=DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED,
             reason="SolidWorks Standard 版本不包含 Toolbox 标准件库",

@@ -70,8 +70,8 @@ class SwInfo:
     toolbox_addin_enabled: bool = False
     """Toolbox Add-In 是否在 SW Tools → Add-Ins 里启用（v4 决策 #13）"""
 
-    edition: Literal["Standard", "Pro", "Premium", "unknown"] = "unknown"
-    """SolidWorks 版本级别（Standard/Pro/Premium），注册表读不到时为 'unknown'。"""
+    edition: Literal["standard", "professional", "premium", "trial", "educational", "unknown"] = "unknown"
+    """SolidWorks 版本级别（归一化小写完整词），注册表读不到时为 'unknown'。"""
 
 
 # 进程级缓存
@@ -174,7 +174,7 @@ def _detect_impl() -> SwInfo:
     info.toolbox_addin_enabled = _check_toolbox_addin_enabled(winreg, info.version_year)
 
     # --- 检测 edition（Standard / Pro / Premium，Task 4）---
-    info.edition = _find_edition(winreg, info.version_year)
+    info.edition = _find_edition(winreg, info.version_year, info.install_dir)
 
     return info
 
@@ -323,24 +323,22 @@ def _find_toolbox_dir(winreg, version_year: int) -> str:
 
 
 def _find_edition(
-    winreg, version_year: int
-) -> Literal["Standard", "Pro", "Premium", "unknown"]:
-    """从注册表读取 SolidWorks edition 字段（Task 4）。
+    winreg, version_year: int, install_dir: str = ""
+) -> Literal["standard", "professional", "premium", "trial", "educational", "unknown"]:
+    """从注册表或文件系统读取 SolidWorks edition 字段（Track B0 三探针）。
 
-    路径：``HKLM\\SOFTWARE\\SolidWorks\\SOLIDWORKS <year>\\Setup\\Edition``
-    （也兼容旧键名 ``SolidWorks <year>``）。
-
-    归一化规则：
-    - "Professional" → "Pro"
-    - "Standard" / "Pro" / "Premium" 原样保留
-    - 任何其他值 / 读不到 / 异常 → "unknown"
+    探针顺序：
+      Probe 1 — 注册表 Setup\\Edition value（快，命中率高）
+      Probe 2 — 文件系统：install_dir\\AddIns\\Toolbox*\\ 下 .dll 存在 → professional
+      全 miss  — install_dir 存在 → 'standard'；install_dir 空 → 'unknown'
 
     Args:
         winreg: winreg 模块引用。
         version_year: SolidWorks 年份版本。
+        install_dir: SolidWorks 安装目录，用于文件系统 fallback 探针。
 
     Returns:
-        归一化后的 edition 字面量。
+        归一化后的 edition 字面量（全小写完整词）。
     """
     key_patterns = [
         r"SOFTWARE\SolidWorks\SolidWorks {year}\Setup",
@@ -354,17 +352,27 @@ def _find_edition(
         )
         if not raw:
             continue
-
-        # 归一化（大小写不敏感）
-        normalized = raw.strip()
-        lower = normalized.lower()
-        if lower == "professional" or lower == "pro":
-            return "Pro"
+        lower = raw.strip().lower()
+        if lower in ("professional", "pro"):
+            return "professional"
         if lower == "standard":
-            return "Standard"
+            return "standard"
         if lower == "premium":
-            return "Premium"
-        # 读到但值异常 → 继续尝试下一个 key pattern 或最终返回 unknown
+            return "premium"
+        if lower == "trial":
+            return "trial"
+        if lower == "educational":
+            return "educational"
+
+    # Probe 2: 文件系统 Toolbox DLL 存在性
+    if install_dir:
+        from pathlib import Path as _Path
+        for sub in ("toolbox", "Toolbox"):
+            d = _Path(install_dir) / "AddIns" / sub
+            if d.is_dir() and any(d.glob("*.dll")):
+                return "professional"
+        # install_dir 存在但无 Toolbox DLL → Standard 版
+        return "standard"
 
     return "unknown"
 

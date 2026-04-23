@@ -36,3 +36,16 @@ def test_first_fail_returns_diagnosis():
                 assert result['passed'] is False
                 assert result['failed_check'] == 'sw_installed'
                 assert result['diagnosis'].code == DiagnosisCode.SW_NOT_INSTALLED
+
+
+def test_check_toolbox_supported_standard_edition(monkeypatch):
+    """edition == 'standard'（小写）→ _check_toolbox_supported 返 False。"""
+    from adapters.solidworks import sw_detect
+    from sw_preflight import matrix
+
+    sw_detect._reset_cache()
+    fake = sw_detect.SwInfo(installed=True, version_year=2024, edition='standard')
+    monkeypatch.setattr(sw_detect, 'detect_solidworks', lambda: fake)
+    ok, diag = matrix._check_toolbox_supported()
+    assert ok is False
+    assert diag is not None
