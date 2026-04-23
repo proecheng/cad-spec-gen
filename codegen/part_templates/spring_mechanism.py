@@ -1,4 +1,4 @@
-"""弹簧机构工厂函数：空心圆柱 + 两端法兰 + 外部分段凸缘（近似弹簧轮廓，面数 ≥20）。"""
+"""弹簧机构工厂函数：空心圆柱 + 两端法兰 + 外部分段凸缘（近似弹簧轮廓，面数 ≥30）。"""
 
 
 def make_spring_mechanism(
@@ -10,8 +10,8 @@ def make_spring_mechanism(
 ) -> str | None:
     """生成弹簧机构 L2 几何代码字符串。
 
-    采用"空心圆柱 + 两端法兰 + n/2 段外部分节凸缘"方案，
-    面数稳定 ≥20，无需 Wire.makeHelix 高级 API。
+    采用"空心圆柱 + 两端法兰 + n 段外部分节凸缘"方案，
+    面数稳定 ≥30，无需 Wire.makeHelix 高级 API。
     """
     if any(v is None or v <= 0 for v in [od, free_length]):
         return None
@@ -24,7 +24,7 @@ def make_spring_mechanism(
     flange_od = round(od * 1.25, 4)
     flange_h = round(min(free_length * 0.08, wire_d * 1.5), 4)
     # 分节凸缘参数（模拟弹簧圈外轮廓）
-    n_segment = max(coil_n // 2, 2)
+    n_segment = max(coil_n, 4)
     seg_h = round(free_length / n_segment, 4)
     seg_offset = round(seg_h * 0.2, 4)
     seg_od = round(od + wire_d * 0.8, 4)

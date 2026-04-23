@@ -15,7 +15,7 @@ def make_arm(
     if any(v is None or v <= 0 for v in [length, width, thickness]):
         return None
     if end_hole_d is None or end_hole_d <= 0:
-        end_hole_d = round(min(width, thickness) * 0.5, 2)
+        end_hole_d = 8.0
 
     margin = round(end_hole_d * 1.2, 2)
     rib_w = round(thickness * 0.35, 2)

@@ -86,10 +86,10 @@ class TestMakeBracket:
         code = make_bracket(width=60, height=80, thickness=6)
         assert isinstance(code, str) and "body" in code
 
-    def test_face_count_ge_20(self):
+    def test_face_count_ge_30(self):
         code = make_bracket(width=60, height=80, thickness=6)
         body = _exec_template(code)
-        assert body.faces().size() >= 20
+        assert body.faces().size() >= 30
 
 
 class TestMakeSpringMechanism:
@@ -103,10 +103,10 @@ class TestMakeSpringMechanism:
         code = make_spring_mechanism(od=20, id=8, free_length=40)
         assert isinstance(code, str) and "body" in code
 
-    def test_face_count_ge_20(self):
+    def test_face_count_ge_30(self):
         code = make_spring_mechanism(od=20, id=8, free_length=40, coil_n=8)
         body = _exec_template(code)
-        assert body.faces().size() >= 20
+        assert body.faces().size() >= 30
 
 
 class TestMakeSleeve:
