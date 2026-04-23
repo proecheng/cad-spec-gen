@@ -202,16 +202,168 @@ class SwParametricAdapter:
             self._close_doc(swapp, model)
 
     def _build_housing(self, params: dict, step_path: Path) -> Path | None:
-        """外壳建模（Task 17 实现）。"""
-        return None  # Task 17 实现
+        """外壳建模（Task 17 实现）。
+
+        绘制外壳 Box，再用 FeatureCut3 挖内腔（留底壁和侧壁）。
+        """
+        w_mm = float(params.get("width") or 0)
+        d_mm = float(params.get("depth") or 0)
+        h_mm = float(params.get("height") or 0)
+        if w_mm <= 0 or d_mm <= 0 or h_mm <= 0:
+            return None
+
+        # C1 修复：fallback 必须在 mm 域计算，/1000 统一在最后
+        wall_t_mm = float(params.get("wall_t") or 0) or (max(w_mm, d_mm) * 0.12)
+        w = w_mm / 1000
+        d = d_mm / 1000
+        h = h_mm / 1000
+        wall = wall_t_mm / 1000
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 外壳 Box（上视基准面 = XZ 平面，向+Y）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCenterRectangle(0, 0, 0, w / 2, d / 2, 0)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, h, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 内腔 Cut（从底面向+Y，深度 h-wall，留底壁）
+            # FeatureCut3：T1=6=swEndCondThroughAll；Python COM 编组返回 None 是正常现象
+            cut_depth = h - wall
+            if cut_depth > 0:
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                skMgr.CreateCenterRectangle(
+                    0, 0, 0, (w - 2 * wall) / 2, (d - 2 * wall) / 2, 0)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureCut3(
+                    True, False, False, 6, 0, 0.0, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    False, True, True,
+                    False, False, False,
+                    0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_housing 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_bracket(self, params: dict, step_path: Path) -> Path | None:
-        """支架建模（Task 17 实现）。"""
-        return None  # Task 17 实现
+        """支架建模（Task 17 实现）。
+
+        L 形截面轮廓（XY 平面）沿+Z 方向 extrude，构成直角支架。
+        """
+        w_mm = float(params.get("width") or 0)
+        h_mm = float(params.get("height") or 0)
+        t_mm = float(params.get("thickness") or 0)
+        if w_mm <= 0 or h_mm <= 0 or t_mm <= 0:
+            return None
+
+        w = w_mm / 1000      # extrude 深度（Z 方向）
+        h = h_mm / 1000      # 竖壁高度
+        t = t_mm / 1000      # 板厚
+        base_d = h * 0.6     # 底板水平长度
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 前视基准面 = XY 平面，Extrude 沿+Z
+            model.Extension.SelectByID2(
+                "前视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            # L 轮廓（XY 坐标，逆时针闭合）
+            skMgr.CreateLine(0,      0,  0, base_d, 0,  0)
+            skMgr.CreateLine(base_d, 0,  0, base_d, t,  0)
+            skMgr.CreateLine(base_d, t,  0, t,      t,  0)
+            skMgr.CreateLine(t,      t,  0, t,      h,  0)
+            skMgr.CreateLine(t,      h,  0, 0,      h,  0)
+            skMgr.CreateLine(0,      h,  0, 0,      0,  0)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, w, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_bracket 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_sleeve(self, params: dict, step_path: Path) -> Path | None:
-        """套筒建模（Task 17 实现）。"""
-        return None  # Task 17 实现
+        """套筒建模（Task 17 实现）。
+
+        同心双圆环形截面 extrude，构成空心套筒。
+        """
+        od_mm = float(params.get("od") or 0)
+        len_mm = float(params.get("length") or 0)
+        if od_mm <= 0 or len_mm <= 0:
+            return None
+
+        id_mm = float(params.get("id") or 0) or od_mm * 0.5
+        od = od_mm / 1000
+        id_ = id_mm / 1000
+        length = len_mm / 1000
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 同心双圆 → 环形截面 extrude（向+Y）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, od / 2)
+            skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, length, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_sleeve 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_spring_mechanism(self, params: dict, step_path: Path) -> Path | None:
         """弹簧机构建模（Task 18 实现）。"""

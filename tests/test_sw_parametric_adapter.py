@@ -66,3 +66,48 @@ class TestCloseDocUsesGetTitle:
         mock_swapp = MagicMock()
         adapter._close_doc(mock_swapp, None)  # 不能抛异常
         mock_swapp.CloseDoc.assert_not_called()
+
+
+@pytest.mark.requires_solidworks
+class TestBuildHousing:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "housing",
+            {"width": 60.0, "depth": 40.0, "height": 30.0, "wall_t": 5.0},
+            tmp_path, "HOUSING-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
+
+
+@pytest.mark.requires_solidworks
+class TestBuildBracket:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "bracket",
+            {"width": 50.0, "height": 40.0, "thickness": 4.0},
+            tmp_path, "BRACKET-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
+
+
+@pytest.mark.requires_solidworks
+class TestBuildSleeve:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "sleeve",
+            {"od": 30.0, "id": 15.0, "length": 50.0},
+            tmp_path, "SLEEVE-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024

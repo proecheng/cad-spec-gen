@@ -598,9 +598,10 @@ def _extract_params(tpl_type: str, part_meta: dict, envelope: tuple | None) -> d
         }
     if tpl_type == "cover":
         return {
-            "od": dim_map.get("COVER_OD") or max(env_w, env_d),
+            "od":        dim_map.get("COVER_OD") or max(env_w, env_d),
             "thickness": dim_map.get("COVER_T") or env_h,
-            "id": dim_map.get("COVER_ID") or None,
+            "id":        dim_map.get("COVER_ID") or None,
+            "n_hole":    int(dim_map.get("COVER_BOLT_N", 4)),  # 螺栓孔数，默认 4
         }
     return {}
 
