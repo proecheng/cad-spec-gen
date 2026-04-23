@@ -1,4 +1,5 @@
 """法兰工厂函数：生成 CadQuery 代码字符串（4 空格缩进，适合嵌入函数体）。"""
+
 import math
 
 
@@ -20,6 +21,9 @@ def make_flange(
         return None
     if id >= od:
         return None
+    # bolt_pcd >= od 时密封台阶数学产生负几何，直接返回 None
+    if bolt_pcd >= od:
+        return None
 
     bolt_hole_r = round(bolt_pcd * 0.04, 2)
     cbore_r = round(bolt_hole_r * 1.8, 2)
@@ -39,45 +43,45 @@ def make_flange(
 
     lines = [
         f"    # 法兰 L2: OD={od}mm ID={id}mm T={thickness}mm PCD={bolt_pcd}mm×{bolt_count}孔",
-        f"    body = (",
+        "    body = (",
         f"        cq.Workplane('XY').circle({od / 2}).extrude({thickness})",
         f"        .cut(cq.Workplane('XY').circle({id / 2}).extrude({thickness}))",
-        f"    )",
-        f"    # 顶面定位密封台阶",
-        f"    _seat = (",
+        "    )",
+        "    # 顶面定位密封台阶",
+        "    _seat = (",
         f"        cq.Workplane('XY').transformed(offset=(0, 0, {thickness}))",
         f"        .circle({seating_r + seating_w / 2}).extrude({seating_h})",
         f"        .cut(cq.Workplane('XY').transformed(offset=(0, 0, {thickness}))",
         f"             .circle({seating_r - seating_w / 2}).extrude({seating_h}))",
-        f"    )",
-        f"    body = body.union(_seat)",
+        "    )",
+        "    body = body.union(_seat)",
     ]
 
     for bx, by in positions:
         total_h = round(thickness + seating_h, 4)
         lines += [
-            f"    # 通孔",
-            f"    body = body.cut(",
-            f"        cq.Workplane('XY')",
+            "    # 通孔",
+            "    body = body.cut(",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=cq.Vector({bx}, {by}, 0))",
             f"        .circle({bolt_hole_r}).extrude({total_h})",
-            f"    )",
-            f"    # 沉孔",
-            f"    body = body.cut(",
-            f"        cq.Workplane('XY')",
+            "    )",
+            "    # 沉孔",
+            "    body = body.cut(",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=cq.Vector({bx}, {by}, {thickness - cbore_depth}))",
             f"        .circle({cbore_r}).extrude({cbore_depth + seating_h})",
-            f"    )",
+            "    )",
         ]
 
     if boss_h and boss_h > 0:
         boss_od = round(id * 1.8, 2)
         lines += [
-            f"    _boss = (",
+            "    _boss = (",
             f"        cq.Workplane('XY').circle({boss_od / 2}).extrude({thickness + boss_h})",
             f"        .cut(cq.Workplane('XY').circle({id / 2}).extrude({thickness + boss_h}))",
-            f"    )",
-            f"    body = body.union(_boss)",
+            "    )",
+            "    body = body.union(_boss)",
         ]
 
     return "\n".join(lines)

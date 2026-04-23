@@ -17,7 +17,9 @@ def make_sleeve(
         return None
 
     keyway_w = round(od * 0.18, 2)
-    keyway_d = round(od * 0.09, 2)
+    # 键槽可行性守卫：键槽深度须小于孔径且键槽径向长度 > 0
+    keyway_d = round(od * 0.15, 2)
+    keyway_l = round((od - id) / 2 * 0.6, 2)
     keyway_start = round(length * 0.1, 4)
     keyway_len = round(length * 0.8, 4)
     # 键槽偏置：从内孔壁往外切
@@ -25,45 +27,44 @@ def make_sleeve(
 
     lines = [
         f"    # 套筒 L2: OD={od}mm ID={id}mm L={length}mm",
-        f"    body = (",
+        "    body = (",
         f"        cq.Workplane('XY').circle({od / 2}).extrude({length})",
         f"        .cut(cq.Workplane('XY').circle({id / 2}).extrude({length}))",
-        f"    )",
-        f"    # 键槽 1（+Y 方向）",
-        f"    _kw1 = (",
-        f"        cq.Workplane('XY')",
-        f"        .transformed(offset=(0, {keyway_offset_y}, {keyway_start}))",
-        f"        .box({keyway_w}, {keyway_d}, {keyway_len},",
-        f"             centered=(True, True, False))",
-        f"    )",
-        f"    try:",
-        f"        body = body.cut(_kw1)",
-        f"    except Exception:",
-        f"        pass",
-        f"    # 键槽 2（-Y 方向，对称）",
-        f"    _kw2 = (",
-        f"        cq.Workplane('XY')",
-        f"        .transformed(offset=(0, -{keyway_offset_y}, {keyway_start}))",
-        f"        .box({keyway_w}, {keyway_d}, {keyway_len},",
-        f"             centered=(True, True, False))",
-        f"    )",
-        f"    try:",
-        f"        body = body.cut(_kw2)",
-        f"    except Exception:",
-        f"        pass",
+        "    )",
     ]
+
+    # 仅在键槽几何可行时生成键槽代码（避免切穿内孔或壁厚不足）
+    if keyway_l > 0 and keyway_d < id:
+        lines += [
+            "    # 键槽 1（+Y 方向）",
+            "    _kw1 = (",
+            "        cq.Workplane('XY')",
+            f"        .transformed(offset=(0, {keyway_offset_y}, {keyway_start}))",
+            f"        .box({keyway_w}, {keyway_d}, {keyway_len},",
+            "             centered=(True, True, False))",
+            "    )",
+            "    body = body.cut(_kw1)",
+            "    # 键槽 2（-Y 方向，对称）",
+            "    _kw2 = (",
+            "        cq.Workplane('XY')",
+            f"        .transformed(offset=(0, -{keyway_offset_y}, {keyway_start}))",
+            f"        .box({keyway_w}, {keyway_d}, {keyway_len},",
+            "             centered=(True, True, False))",
+            "    )",
+            "    body = body.cut(_kw2)",
+        ]
 
     if chamfer > 0:
         lines += [
-            f"    # 两端倒角",
-            f"    try:",
+            "    # 两端倒角",
+            "    try:",
             f"        body = body.faces('<Z').edges().chamfer({chamfer})",
-            f"    except Exception:",
-            f"        pass",
-            f"    try:",
+            "    except Exception:",
+            "        pass",
+            "    try:",
             f"        body = body.faces('>Z').edges().chamfer({chamfer})",
-            f"    except Exception:",
-            f"        pass",
+            "    except Exception:",
+            "        pass",
         ]
 
     return "\n".join(lines)

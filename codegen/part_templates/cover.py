@@ -1,4 +1,5 @@
 """端盖/盖板工厂函数：圆盘 + O 形圈密封槽 + 可选中心孔 + 紧固孔环 + 倒角（面数 ≥20）。"""
+
 import math
 
 
@@ -35,14 +36,14 @@ def make_cover(
     lines = [
         f"    # 端盖 L2: OD={od}mm T={thickness}mm {n_hole}紧固孔 + O 形密封槽",
         f"    body = cq.Workplane('XY').circle({od / 2}).extrude({thickness})",
-        f"    # O 形圈密封槽（顶面环形切槽）",
-        f"    _groove = (",
+        "    # O 形圈密封槽（顶面环形切槽）",
+        "    _groove = (",
         f"        cq.Workplane('XY').transformed(offset=(0, 0, {thickness - groove_d}))",
         f"        .circle({groove_r + groove_w / 2}).extrude({groove_d})",
         f"        .cut(cq.Workplane('XY').transformed(offset=(0, 0, {thickness - groove_d}))",
         f"             .circle({groove_r - groove_w / 2}).extrude({groove_d}))",
-        f"    )",
-        f"    body = body.cut(_groove)",
+        "    )",
+        "    body = body.cut(_groove)",
     ]
 
     if id and id > 0 and id < od:
@@ -52,25 +53,25 @@ def make_cover(
 
     for px, py in positions:
         lines += [
-            f"    body = body.cut(",
-            f"        cq.Workplane('XY')",
+            "    body = body.cut(",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=({px}, {py}, 0))",
             f"        .circle({bolt_hole_r}).extrude({thickness})",
-            f"    )",
+            "    )",
         ]
 
     # 两平面倒角增加面数（先底面再顶面，顶面有密封槽故用较小 chamfer）
     top_chamfer = round(fillet_r * 0.5, 2)
     if fillet_r > 0:
         lines += [
-            f"    try:",
+            "    try:",
             f"        body = body.faces('<Z').edges().chamfer({fillet_r})",
-            f"    except Exception:",
-            f"        pass",
-            f"    try:",
+            "    except Exception:",
+            "        pass",
+            "    try:",
             f"        body = body.faces('>Z').edges().chamfer({top_chamfer})",
-            f"    except Exception:",
-            f"        pass",
+            "    except Exception:",
+            "        pass",
         ]
 
     return "\n".join(lines)

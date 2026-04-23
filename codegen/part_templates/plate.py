@@ -26,31 +26,31 @@ def make_plate(
     lines = [
         f"    # 板件 L2: {width}×{depth}×{thickness}mm {n_hole}安装孔（带倒角）",
         f"    body = cq.Workplane('XY').box({width}, {depth}, {thickness},",
-        f"                                   centered=(True, True, False))",
+        "                                   centered=(True, True, False))",
     ]
 
     for px, py in positions:
         lines += [
             f"    # 孔 ({px},{py}): 带倒角 → 每孔 3 face",
-            f"    _hole = (",
-            f"        cq.Workplane('XY')",
+            "    _hole = (",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=({px}, {py}, 0))",
             f"        .circle({hole_d / 2}).extrude({thickness})",
-            f"    )",
-            f"    try:",
+            "    )",
+            "    try:",
             f"        _hole = _hole.faces('>Z').edges().chamfer({chamfer_size})",
             f"        _hole = _hole.faces('<Z').edges().chamfer({chamfer_size})",
-            f"    except Exception:",
-            f"        pass",
-            f"    body = body.cut(_hole)",
+            "    except Exception:",
+            "        pass",
+            "    body = body.cut(_hole)",
         ]
 
     if fillet_r > 0:
         lines += [
-            f"    try:",
+            "    try:",
             f"        body = body.edges('|Z').fillet({fillet_r})",
-            f"    except Exception:",
-            f"        pass",
+            "    except Exception:",
+            "        pass",
         ]
 
     return "\n".join(lines)

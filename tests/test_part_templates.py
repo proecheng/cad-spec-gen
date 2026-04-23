@@ -1,11 +1,12 @@
 """工厂函数测试：exec 生成代码并检查 face 数。"""
+
 import sys
 import textwrap
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "codegen"))
 
 import cadquery as cq
-import pytest
 from part_templates.flange import make_flange
 from part_templates.housing import make_housing
 from part_templates.bracket import make_bracket
@@ -39,6 +40,9 @@ class TestMakeFlange:
     def test_returns_none_when_id_ge_od(self):
         assert make_flange(od=20, id=25, thickness=10, bolt_pcd=15) is None
 
+    def test_returns_none_when_bolt_pcd_ge_od(self):
+        assert make_flange(od=60, id=10, thickness=8, bolt_pcd=60) is None
+
     def test_returns_code_string(self):
         code = make_flange(od=90, id=22, thickness=30, bolt_pcd=70)
         assert isinstance(code, str)
@@ -67,6 +71,10 @@ class TestMakeHousing:
 
     def test_returns_none_when_wall_t_missing(self):
         assert make_housing(width=50, depth=50, height=60, wall_t=None) is None
+
+    def test_returns_none_when_wall_too_thick(self):
+        # wall_t >= min(width, depth) / 2 → 内腔消失，返回 None
+        assert make_housing(width=50, depth=50, height=60, wall_t=30) is None
 
     def test_returns_code_string(self):
         code = make_housing(width=50, depth=50, height=60, wall_t=4)
@@ -171,3 +179,8 @@ class TestMakeCover:
         code = make_cover(od=60, thickness=5, id=20)
         body = _exec_template(code)
         assert body.faces().size() >= 20
+
+    def test_center_hole_silently_skipped_when_id_ge_od(self):
+        # id >= od 时中心孔被静默跳过（guard: id < od），仍返回有效代码
+        code = make_cover(od=60, thickness=5, id=60)
+        assert code is not None  # 仍返回代码，只是没有中心孔

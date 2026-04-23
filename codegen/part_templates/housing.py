@@ -24,29 +24,29 @@ def make_housing(
 
     lines = [
         f"    # 壳体 L2: {width}×{depth}×{height}mm 壁厚={wall_t}mm",
-        f"    body = (",
+        "    body = (",
         f"        cq.Workplane('XY').box({width}, {depth}, {height}, centered=(True, True, False))",
-        f"        .cut(cq.Workplane('XY')",
+        "        .cut(cq.Workplane('XY')",
         f"             .transformed(offset=(0, 0, {wall_t}))",
         f"             .box({inner_w}, {inner_d}, {height}, centered=(True, True, False)))",
-        f"    )",
+        "    )",
     ]
 
     for mx, my in mount_positions:
         lines += [
-            f"    body = body.union(",
-            f"        cq.Workplane('XY')",
+            "    body = body.union(",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=({mx}, {my}, {wall_t}))",
             f"        .circle({boss_r}).extrude({boss_h})",
-            f"    )",
+            "    )",
         ]
 
     if fillet_r > 0:
         lines += [
-            f"    try:",
+            "    try:",
             f"        body = body.edges('|Z').fillet({fillet_r})",
-            f"    except Exception:",
-            f"        pass",
+            "    except Exception:",
+            "        pass",
         ]
 
     return "\n".join(lines)

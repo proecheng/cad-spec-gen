@@ -31,59 +31,59 @@ def make_bracket(
     lines = [
         f"    # 支架 L2: {width}×{height}mm 厚={thickness}mm",
         f"    _base = cq.Workplane('XY').box({width}, {thickness}, {thickness},",
-        f"                                    centered=(True, False, False))",
-        f"    _wall = (",
-        f"        cq.Workplane('XY')",
+        "                                    centered=(True, False, False))",
+        "    _wall = (",
+        "        cq.Workplane('XY')",
         f"        .transformed(offset=(0, 0, {thickness}))",
         f"        .box({width}, {thickness}, {height}, centered=(True, False, False))",
-        f"    )",
-        f"    body = _base.union(_wall)",
+        "    )",
+        "    body = _base.union(_wall)",
         # 主矩形加强筋（内侧，连接底板与竖板）
-        f"    _rib = (",
-        f"        cq.Workplane('XZ')",
+        "    _rib = (",
+        "        cq.Workplane('XZ')",
         f"        .transformed(offset=(0, {thickness}, 0))",
         f"        .box({rib_w}, {rib_h}, {rib_t}, centered=(True, False, False))",
-        f"    )",
-        f"    body = body.union(_rib)",
+        "    )",
+        "    body = body.union(_rib)",
         # 底部唇边（底板前缘加固）
-        f"    _lip = (",
-        f"        cq.Workplane('XY')",
+        "    _lip = (",
+        "        cq.Workplane('XY')",
         f"        .transformed(offset=(0, -{lip_h}, 0))",
         f"        .box({width}, {lip_h}, {lip_w}, centered=(True, False, False))",
-        f"    )",
-        f"    body = body.union(_lip)",
+        "    )",
+        "    body = body.union(_lip)",
         # 左侧耳片（进一步增面）
-        f"    _ear_l = (",
-        f"        cq.Workplane('YZ')",
+        "    _ear_l = (",
+        "        cq.Workplane('YZ')",
         f"        .transformed(offset=(0, {ear_h / 2 + thickness}, -{width / 2 + ear_t}))",
         f"        .box({ear_w}, {ear_h}, {ear_t}, centered=(True, True, False))",
-        f"    )",
-        f"    body = body.union(_ear_l)",
+        "    )",
+        "    body = body.union(_ear_l)",
         # 右侧耳片
-        f"    _ear_r = (",
-        f"        cq.Workplane('YZ')",
+        "    _ear_r = (",
+        "        cq.Workplane('YZ')",
         f"        .transformed(offset=(0, {ear_h / 2 + thickness}, {width / 2}))",
         f"        .box({ear_w}, {ear_h}, {ear_t}, centered=(True, True, False))",
-        f"    )",
-        f"    body = body.union(_ear_r)",
+        "    )",
+        "    body = body.union(_ear_r)",
     ]
 
     for i in range(n_hole):
         hx = round(-width / 2 + hole_spacing * (i + 1), 4)
         lines += [
-            f"    body = body.cut(",
-            f"        cq.Workplane('XY')",
+            "    body = body.cut(",
+            "        cq.Workplane('XY')",
             f"        .transformed(offset=({hx}, {thickness / 2}, 0))",
             f"        .circle({hole_r}).extrude({thickness})",
-            f"    )",
+            "    )",
         ]
 
     if fillet_r > 0:
         lines += [
-            f"    try:",
+            "    try:",
             f"        body = body.edges('>>Y').fillet({fillet_r})",
-            f"    except Exception:",
-            f"        pass",
+            "    except Exception:",
+            "        pass",
         ]
 
     return "\n".join(lines)

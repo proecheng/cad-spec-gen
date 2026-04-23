@@ -32,27 +32,27 @@ def make_spring_mechanism(
 
     lines = [
         f"    # 弹簧机构 L2: OD={od}mm ID={id}mm L={free_length}mm {coil_n}圈",
-        f"    # 主体：空心圆柱",
-        f"    body = (",
+        "    # 主体：空心圆柱",
+        "    body = (",
         f"        cq.Workplane('XY').circle({od / 2}).extrude({free_length})",
         f"        .cut(cq.Workplane('XY').circle({id / 2}).extrude({free_length}))",
-        f"    )",
-        f"    # 底端法兰",
-        f"    _bot = (",
+        "    )",
+        "    # 底端法兰",
+        "    _bot = (",
         f"        cq.Workplane('XY').transformed(offset=(0, 0, -{flange_h}))",
         f"        .circle({flange_od / 2}).extrude({flange_h})",
         f"        .cut(cq.Workplane('XY').transformed(offset=(0, 0, -{flange_h}))",
         f"             .circle({id / 2}).extrude({flange_h}))",
-        f"    )",
-        f"    body = body.union(_bot)",
-        f"    # 顶端法兰",
-        f"    _top = (",
+        "    )",
+        "    body = body.union(_bot)",
+        "    # 顶端法兰",
+        "    _top = (",
         f"        cq.Workplane('XY').transformed(offset=(0, 0, {free_length}))",
         f"        .circle({flange_od / 2}).extrude({flange_h})",
         f"        .cut(cq.Workplane('XY').transformed(offset=(0, 0, {free_length}))",
         f"             .circle({id / 2}).extrude({flange_h}))",
-        f"    )",
-        f"    body = body.union(_top)",
+        "    )",
+        "    body = body.union(_top)",
     ]
 
     # 添加分节外部凸缘（模拟弹簧圈轮廓）
@@ -64,7 +64,7 @@ def make_spring_mechanism(
             f"        .circle({seg_od / 2}).extrude({seg_len})",
             f"        .cut(cq.Workplane('XY').transformed(offset=(0, 0, {z_start}))",
             f"             .circle({od / 2}).extrude({seg_len}))",
-            f"    )",
+            "    )",
             f"    body = body.union(_seg{seg_i})",
         ]
 
