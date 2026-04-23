@@ -84,28 +84,44 @@ class TestIsAvailable:
         ok, _ = a.is_available()
         assert ok is False
 
-    def test_addin_disabled_returns_false(self, monkeypatch):
-        """v4 决策 #13: Toolbox Add-In 未启用 → False。"""
+    def test_addin_disabled_no_longer_blocks(self, monkeypatch, tmp_path):
+        """Track B 决策 B-2: Toolbox Add-In 未启用 → is_available 仍可返 True（advisory）。"""
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
-        from adapters.solidworks import sw_detect
+        from adapters.solidworks import sw_detect, sw_com_session
+
+        # 创建健康 toolbox_dir
+        (tmp_path / "swbrowser.sldedb").write_bytes(b"SQLite")
+        (tmp_path / "GB").mkdir()
+        (tmp_path / "GB" / "p.sldprt").write_bytes(b"\x00")
 
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
             installed=True,
             version_year=2024,
             pywin32_available=True,
-            toolbox_dir="C:/fake",
+            toolbox_dir=str(tmp_path),
             toolbox_addin_enabled=False,
+            edition="professional",
         )
+        monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
-        a = SwToolboxAdapter()
-        ok, _ = a.is_available()
-        assert ok is False
+
+        class FakeSession:
+            def is_healthy(self): return True
+        monkeypatch.setattr(sw_com_session, "get_session", lambda: FakeSession())
+
+        ok, reason = SwToolboxAdapter().is_available()
+        assert ok is True   # Add-in 硬门已解耦，未启用不再返 False
 
     def test_unhealthy_session_returns_false(self, monkeypatch, tmp_path):
         """v4 决策 #22: SwComSession 熔断 → False。"""
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect, sw_com_session
+
+        # 创建健康 toolbox_dir，避免在路径健康检查处提前返回
+        (tmp_path / "swbrowser.sldedb").write_bytes(b"SQLite")
+        (tmp_path / "GB").mkdir()
+        (tmp_path / "GB" / "p.sldprt").write_bytes(b"\x00")
 
         sw_detect._reset_cache()
         fake_info = sw_detect.SwInfo(
@@ -114,7 +130,9 @@ class TestIsAvailable:
             pywin32_available=True,
             toolbox_dir=str(tmp_path),
             toolbox_addin_enabled=True,
+            edition="professional",
         )
+        monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         sw_com_session.reset_session()
         sess = sw_com_session.get_session()
@@ -126,6 +144,11 @@ class TestIsAvailable:
     def test_all_checks_pass_returns_true(self, monkeypatch, tmp_path):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_detect, sw_com_session
+
+        # 创建健康 toolbox_dir，B-8 路径健康检查需要
+        (tmp_path / "swbrowser.sldedb").write_bytes(b"SQLite")
+        (tmp_path / "GB").mkdir()
+        (tmp_path / "GB" / "p.sldprt").write_bytes(b"\x00")
 
         # is_available() 第一项检查是 sys.platform == "win32"；Linux CI runner 上
         # 必须先把平台改成 win32，后续 mock 才有意义（其余 TestIsAvailable 用例
@@ -139,6 +162,7 @@ class TestIsAvailable:
             pywin32_available=True,
             toolbox_dir=str(tmp_path),
             toolbox_addin_enabled=True,
+            edition="professional",
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()

@@ -49,42 +49,60 @@ class SwToolboxAdapter(PartsAdapter):
             validate_size_patterns(size_patterns)
 
     def is_available(self) -> tuple[bool, Optional[str]]:
-        """v4 §5.3: 6 项检查全通过。
+        """B-2 重写：解耦 Add-in 硬门，Add-in 未启用降为 advisory。
 
-        检查顺序（短路优先）：
-        1. 非 Windows 平台 → False
-        2. SolidWorks 未安装 → False
-        3. 版本低于 2024 → False
+        检查顺序：
+        1. 非 Windows → False
+        2. SW 未安装 → False
+        3. 版本 < 2024 → False
         4. pywin32 不可用 → False
-        5. Toolbox 目录为空 → False
-        6. Toolbox Add-In 未启用 → False（v4 决策 #13）
-        7. SwComSession 熔断 → False（v4 决策 #22）
+        5. toolbox_dir 为空 → False
+        6. Standard 版（B-13）→ False
+        7. toolbox 物理路径不健康（B-8）→ False
+        8. Add-in 未启用 → advisory log only（B-2），不 return False
+        9. SwComSession 熔断 → False（v4 决策 #22）
         """
         if sys.platform != "win32":
-            return False, None
+            return False, "not windows"
 
         try:
-            from adapters.solidworks.sw_detect import detect_solidworks
+            from adapters.solidworks.sw_detect import detect_solidworks, check_toolbox_path_healthy
             from adapters.solidworks.sw_com_session import get_session
-        except ImportError:
-            return False, None
+        except ImportError as e:
+            return False, f"import failed: {e}"
 
         info = detect_solidworks()
         if not info.installed:
-            return False, None
+            return False, "SW not installed"
         if info.version_year < 2024:
-            return False, None
+            return False, f"SW {info.version_year} too old (need 2024+)"
         if not info.pywin32_available:
-            return False, None
+            return False, "pywin32 not available"
         if not info.toolbox_dir:
-            return False, None
-        if not info.toolbox_addin_enabled:
-            return False, None
+            return False, "toolbox_dir empty"
 
-        # v4 决策 #22: 熔断委托给 SwComSession
+        # B-13: Standard 版直接拒
+        if info.edition == "standard":
+            return False, "SW Standard edition does not ship Toolbox Browser DLL"
+
+        # B-8: 物理路径健康校验
+        healthy, path_reason = check_toolbox_path_healthy(info)
+        if not healthy:
+            return False, f"toolbox path unhealthy: {path_reason}"
+
+        # B-2: Add-in 未启用 → advisory log，不阻断
+        if not info.toolbox_addin_enabled:
+            log.info(
+                "SwToolboxAdapter: Toolbox Add-in 未在 SW 菜单里启用 —— "
+                "将通过 COM 直接打开 sldprt，不经 Add-in Browser（Track B 决策 B-2）。"
+            )
+
+        # v4 决策 #22: 熔断
         session = get_session()
         if not session.is_healthy():
-            return False, None
+            return False, (
+                f"SwComSession circuit breaker tripped; edition={info.edition}"
+            )
 
         return True, None
 
