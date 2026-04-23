@@ -371,6 +371,8 @@ class SwParametricAdapter:
 
         主体：中空圆柱（外径 od，内径 id，高度 free_length）向+Y extrude。
         底端法兰：外径 flange_od = od*1.25，厚度 flange_h = wire_d*2，向-Y extrude。
+        顶端法兰：同外径，向+Y extrude。
+        coil_n 外凸环：外径 od + wire_d*0.8，薄壁环，每段独立 try，失败只记 warning。
         """
         od_mm = float(params.get("od") or 0)
         fl_mm = float(params.get("free_length") or 0)
@@ -379,6 +381,7 @@ class SwParametricAdapter:
 
         id_mm = float(params.get("id") or 0) or od_mm * 0.5
         wire_d_mm = float(params.get("wire_d") or 0) or od_mm * 0.08
+        coil_n = int(params.get("coil_n") or 6)
 
         od = od_mm / 1000
         id_ = id_mm / 1000
@@ -422,6 +425,38 @@ class SwParametricAdapter:
                 False, False, False, False, 0.0, 0.0,
                 False, False, False, False,
                 True, True, True, 0, 0.0, False)
+
+            # 顶端法兰（同平面 Flip=False 向+Y）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, flange_od / 2)
+            skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, flange_h, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # coil_n 外凸环段（每段独立 try，失败只记 warning 继续）
+            seg_od = od + wire_d * 0.8
+            seg_h = min(fl / max(coil_n, 1) * 0.4, wire_d * 3)
+            for _ in range(coil_n):
+                try:
+                    model.Extension.SelectByID2(
+                        "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                    skMgr.InsertSketch(True)
+                    skMgr.CreateCircleByRadius(0, 0, 0, seg_od / 2)
+                    skMgr.CreateCircleByRadius(0, 0, 0, od / 2 * 0.98)
+                    skMgr.InsertSketch(True)
+                    ftMgr.FeatureExtrusion3(
+                        True, False, False, 0, 0, seg_h, 0.0,
+                        False, False, False, False, 0.0, 0.0,
+                        False, False, False, False,
+                        True, True, True, 0, 0.0, False)
+                except Exception as exc:
+                    log.warning("_build_spring_mechanism 外环段失败（跳过）: %s", exc)
 
             if not self._export_step(model, step_path):
                 return None

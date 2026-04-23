@@ -141,7 +141,9 @@ class TestBuildSpringMechanism:
              "wire_d": 2.0, "coil_n": 6},
             tmp_path, "SPRING-001",
         )
-        assert step is not None and Path(step).exists()
+        assert step is not None
+        assert Path(step).exists()
+        assert Path(step).suffix.lower() == ".step"
         assert Path(step).stat().st_size > 1024
 
 
@@ -156,7 +158,9 @@ class TestBuildPlate:
             {"width": 80.0, "depth": 60.0, "thickness": 5.0, "n_hole": 4},
             tmp_path, "PLATE-001",
         )
-        assert step is not None and Path(step).exists()
+        assert step is not None
+        assert Path(step).exists()
+        assert Path(step).suffix.lower() == ".step"
         assert Path(step).stat().st_size > 1024
 
 
@@ -172,7 +176,9 @@ class TestBuildArm:
              "end_hole_d": 8.0},
             tmp_path, "ARM-001",
         )
-        assert step is not None and Path(step).exists()
+        assert step is not None
+        assert Path(step).exists()
+        assert Path(step).suffix.lower() == ".step"
         assert Path(step).stat().st_size > 1024
 
 
@@ -187,5 +193,7 @@ class TestBuildCover:
             {"od": 60.0, "thickness": 8.0, "id": 0.0, "n_hole": 4},
             tmp_path, "COVER-001",
         )
-        assert step is not None and Path(step).exists()
+        assert step is not None
+        assert Path(step).exists()
+        assert Path(step).suffix.lower() == ".step"
         assert Path(step).stat().st_size > 1024
