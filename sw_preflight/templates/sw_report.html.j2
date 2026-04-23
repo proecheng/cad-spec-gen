@@ -49,4 +49,21 @@ pywin32: {{ '✅' if sw_status.pywin32 else '❌' }}</div>
   {% endfor %}
 </div>
 
+{% if resolve_report %}
+<div class="section">
+  <div class="section-head">Routing attempts（零件库路由诊断）</div>
+  <table style="width:100%;border-collapse:collapse;">
+    <tr style="text-align:left;"><th>Adapter</th><th>命中数</th><th>不可用原因</th></tr>
+    {% for name, hit in resolve_report.adapter_hits.items() %}
+    <tr>
+      <td>{{ name }}</td>
+      <td>{{ hit.count }}</td>
+      <td>{{ hit.unavailable_reason or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p style="margin-top:8px;">总行数: {{ resolve_report.total_rows }} | Run ID: {{ resolve_report.run_id }}</p>
+</div>
+{% endif %}
+
 </body></html>

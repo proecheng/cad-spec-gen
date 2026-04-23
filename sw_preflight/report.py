@@ -29,7 +29,8 @@ def _friendly_detail(record: FixRecord) -> str:
 
 
 def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
-                preflight: PreflightResult, output_dir: Path) -> Path:
+                preflight: PreflightResult, output_dir: Path,
+                resolve_report=None) -> Path:
     """生成 sw_report.html + sw_report_data.json，返回 HTML 路径"""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,7 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
         vendor_rows=vendor_rows,
         custom_rows=custom_rows,
         fix_records=fix_records,
+        resolve_report=resolve_report.to_dict() if resolve_report is not None else None,
     )
     html_path = output_dir / 'sw_report.html'
     html_path.write_text(html, encoding='utf-8')
