@@ -39,6 +39,7 @@ class PreflightResult:
     fixes_applied: list[FixRecord]
     diagnosis: Optional['DiagnosisInfo']
     per_step_ms: dict[str, float]
+    advisory_failures: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

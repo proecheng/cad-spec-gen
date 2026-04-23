@@ -214,22 +214,53 @@ CHECK_ORDER: list[tuple[str, str]] = [
     ('toolbox_path', '_check_toolbox_path'),
 ]
 
+_BLOCKING_CHECKS: frozenset[str] = frozenset({
+    "platform",
+    "pywin32",
+    "sw_installed",
+    "toolbox_supported",
+    "com_healthy",
+    "toolbox_path",
+    # addin_enabled 故意不在此集合 —— B-5 advisory only
+})
+
 
 def run_all_checks() -> dict:
-    """按 CHECK_ORDER 顺序跑 7 项检查；遇第一失败短路返回；全过返回 passed=True。
+    """按 CHECK_ORDER 顺序跑全部检查；不短路，全量收集结果。
 
     Returns:
-        - 失败：``{'passed': False, 'failed_check': <name>, 'diagnosis': DiagnosisInfo}``
-        - 全过：``{'passed': True, 'failed_check': None, 'diagnosis': None}``
+        {
+          'passed': bool,                   # True 当且仅当所有 _BLOCKING_CHECKS 中的 check 都通过
+          'failed_check': Optional[str],    # 第一个 blocking 失败的 check 名
+          'diagnosis': Optional[DiagnosisInfo],  # 第一个 blocking 失败的诊断
+          'advisory_failures': dict[str, Optional[DiagnosisInfo]],  # 非 blocking 失败集合
+        }
     """
     import sys
     this_module = sys.modules[__name__]
+
+    first_blocking_fail: Optional[str] = None
+    first_blocking_diag = None
+    advisory_failures: dict = {}
+
     for name, attr in CHECK_ORDER:
         check: CheckFn = getattr(this_module, attr)
         ok, diag = check()
         if not ok:
-            return {'passed': False, 'failed_check': name, 'diagnosis': diag}
-    return {'passed': True, 'failed_check': None, 'diagnosis': None}
+            if name in _BLOCKING_CHECKS:
+                if first_blocking_fail is None:
+                    first_blocking_fail = name
+                    first_blocking_diag = diag
+            else:
+                advisory_failures[name] = diag
+
+    passed = first_blocking_fail is None
+    return {
+        "passed": passed,
+        "failed_check": first_blocking_fail,
+        "diagnosis": first_blocking_diag,
+        "advisory_failures": advisory_failures,
+    }
 
 
 # ---------------------------------------------------------------------------
