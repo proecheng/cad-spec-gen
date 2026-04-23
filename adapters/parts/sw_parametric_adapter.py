@@ -367,20 +367,285 @@ class SwParametricAdapter:
             self._close_doc(swapp, model)
 
     def _build_spring_mechanism(self, params: dict, step_path: Path) -> Path | None:
-        """弹簧机构建模（Task 18 实现）。"""
-        return None  # Task 18 实现
+        """弹簧机构建模（Task 18 实现）。
+
+        主体：中空圆柱（外径 od，内径 id，高度 free_length）向+Y extrude。
+        底端法兰：外径 flange_od = od*1.25，厚度 flange_h = wire_d*2，向-Y extrude。
+        """
+        od_mm = float(params.get("od") or 0)
+        fl_mm = float(params.get("free_length") or 0)
+        if od_mm <= 0 or fl_mm <= 0:
+            return None
+
+        id_mm = float(params.get("id") or 0) or od_mm * 0.5
+        wire_d_mm = float(params.get("wire_d") or 0) or od_mm * 0.08
+
+        od = od_mm / 1000
+        id_ = id_mm / 1000
+        fl = fl_mm / 1000
+        wire_d = wire_d_mm / 1000
+        flange_od = od * 1.25
+        flange_h = wire_d * 2
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 主体中空圆柱（向+Y，高度 fl）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, od / 2)
+            skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            # FeatureExtrusion3 参数（23 params）— SW 2024 实机验证
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, fl, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 底端法兰（同平面 Flip=True 向-Y）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, flange_od / 2)
+            skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, True, False, 0, 0, flange_h, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_spring_mechanism 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_plate(self, params: dict, step_path: Path) -> Path | None:
-        """平板建模（Task 18 实现）。"""
-        return None  # Task 18 实现
+        """平板建模（Task 18 实现）。
+
+        矩形平板 Box，n_hole 个均匀分布穿透孔（FeatureCut3 Through All）。
+        """
+        w_mm = float(params.get("width") or 0)
+        d_mm = float(params.get("depth") or 0)
+        t_mm = float(params.get("thickness") or 0)
+        if w_mm <= 0 or d_mm <= 0 or t_mm <= 0:
+            return None
+
+        n_hole = int(params.get("n_hole") or 4)
+        hole_d_mm = min(w_mm, d_mm) * 0.08
+        margin_mm = hole_d_mm * 2
+
+        w = w_mm / 1000
+        d = d_mm / 1000
+        t = t_mm / 1000
+        hole_d = hole_d_mm / 1000
+        margin = margin_mm / 1000
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            import math
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 平板 Box
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCenterRectangle(0, 0, 0, w / 2, d / 2, 0)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, t, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 均匀分布孔 Cut（FeatureCut3 Through All）
+            if n_hole > 0 and hole_d > 0:
+                if n_hole == 4:
+                    cx, cz = w / 2 - margin, d / 2 - margin
+                    positions = [(cx, cz), (-cx, cz), (cx, -cz), (-cx, -cz)]
+                else:
+                    r = min(w, d) / 2 - margin
+                    positions = [
+                        (r * math.cos(2 * math.pi * i / n_hole),
+                         r * math.sin(2 * math.pi * i / n_hole))
+                        for i in range(n_hole)
+                    ]
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                for cx, cz in positions:
+                    skMgr.CreateCircleByRadius(cx, cz, 0, hole_d / 2)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureCut3(
+                    True, False, False, 6, 0, 0.0, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    False, True, True,
+                    False, False, False,
+                    0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_plate 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_arm(self, params: dict, step_path: Path) -> Path | None:
-        """臂型件建模（Task 18 实现）。"""
-        return None  # Task 18 实现
+        """臂型件建模（Task 18 实现）。
+
+        矩形臂体（长 l 沿 X，宽 w 沿 Z，高 t 沿 Y），两端穿透孔 Cut。
+        """
+        l_mm = float(params.get("length") or 0)
+        w_mm = float(params.get("width") or 0)
+        t_mm = float(params.get("thickness") or 0)
+        if l_mm <= 0 or w_mm <= 0 or t_mm <= 0:
+            return None
+
+        end_hole_d_mm = float(params.get("end_hole_d") or 0) or w_mm * 0.3
+        l = l_mm / 1000
+        w = w_mm / 1000
+        t = t_mm / 1000
+        end_hole_d = end_hole_d_mm / 1000
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 矩形臂体（长 l 沿 X，宽 w 沿 Z，高 t 沿 Y）
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCenterRectangle(0, 0, 0, l / 2, w / 2, 0)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, t, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 两端孔 Cut（Through All，孔轴沿 Y 方向）
+            offset = l / 2 - end_hole_d
+            if end_hole_d > 0 and offset > 0:
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                skMgr.CreateCircleByRadius(offset,  0, 0, end_hole_d / 2)
+                skMgr.CreateCircleByRadius(-offset, 0, 0, end_hole_d / 2)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureCut3(
+                    True, False, False, 6, 0, 0.0, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    False, True, True,
+                    False, False, False,
+                    0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_arm 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_cover(self, params: dict, step_path: Path) -> Path | None:
-        """盖板建模（Task 18 实现）。"""
-        return None  # Task 18 实现
+        """盖板建模（Task 18 实现）。
+
+        圆盘（可含内孔）extrude，n_hole 个均匀紧固孔 Cut（Through All）。
+        """
+        od_mm = float(params.get("od") or 0)
+        t_mm = float(params.get("thickness") or 0)
+        if od_mm <= 0 or t_mm <= 0:
+            return None
+
+        id_mm = float(params.get("id") or 0)
+        n_hole = int(params.get("n_hole") or 4)
+        bolt_pcd_mm = od_mm * 0.75
+        bolt_d_mm = max(od_mm * 0.07, 4.0)
+
+        od = od_mm / 1000
+        t = t_mm / 1000
+        id_ = id_mm / 1000 if id_mm > 0 else 0
+        bolt_pcd = bolt_pcd_mm / 1000
+        bolt_d = bolt_d_mm / 1000
+
+        swapp = self._get_swapp()
+        model = None
+        try:
+            import math
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 圆盘（可含内孔）Extrude
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, od / 2)
+            if id_ > 0:
+                skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, t, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 紧固孔环 Cut（Through All）
+            if n_hole > 0:
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                for i in range(n_hole):
+                    angle = 2 * math.pi * i / n_hole
+                    cx = bolt_pcd / 2 * math.cos(angle)
+                    cz = bolt_pcd / 2 * math.sin(angle)
+                    skMgr.CreateCircleByRadius(cx, cz, 0, bolt_d / 2)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureCut3(
+                    True, False, False, 6, 0, 0.0, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    False, True, True,
+                    False, False, False,
+                    0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_cover 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     # ── SW API 工具方法 ────────────────────────────────────────────────────
 

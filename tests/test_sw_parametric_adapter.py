@@ -127,3 +127,65 @@ class TestExtractParamsCover:
         meta = {"dim_tolerances": [{"name": "COVER_BOLT_N", "nominal": "6"}]}
         result = _extract_params("cover", meta, (60.0, 60.0, 8.0))
         assert result["n_hole"] == 6
+
+
+@pytest.mark.requires_solidworks
+class TestBuildSpringMechanism:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "spring_mechanism",
+            {"od": 20.0, "id": 10.0, "free_length": 40.0,
+             "wire_d": 2.0, "coil_n": 6},
+            tmp_path, "SPRING-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
+
+
+@pytest.mark.requires_solidworks
+class TestBuildPlate:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "plate",
+            {"width": 80.0, "depth": 60.0, "thickness": 5.0, "n_hole": 4},
+            tmp_path, "PLATE-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
+
+
+@pytest.mark.requires_solidworks
+class TestBuildArm:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "arm",
+            {"length": 120.0, "width": 20.0, "thickness": 10.0,
+             "end_hole_d": 8.0},
+            tmp_path, "ARM-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
+
+
+@pytest.mark.requires_solidworks
+class TestBuildCover:
+    def test_creates_step(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok
+        step = adapter.build_part(
+            "cover",
+            {"od": 60.0, "thickness": 8.0, "id": 0.0, "n_hole": 4},
+            tmp_path, "COVER-001",
+        )
+        assert step is not None and Path(step).exists()
+        assert Path(step).stat().st_size > 1024
