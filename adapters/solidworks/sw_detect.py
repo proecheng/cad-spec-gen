@@ -723,6 +723,30 @@ def _scan_addin_dll_clsid() -> Optional[str]:
     return found_guid
 
 
+def discover_toolbox_addin_guid() -> tuple[Optional[str], str]:
+    """三段式发现 Toolbox Add-In 的 GUID（Track B1）。
+
+    Returns:
+        (guid, source)，source ∈ {"startup", "registry_fullscan", "filesystem", "none"}。
+    """
+    # Stage 1: 老路径（快，历史用户命中率高）
+    guid = find_toolbox_addin_guid()
+    if guid:
+        return guid, "startup"
+
+    # Stage 2: 全量 AddIns registry 扫描（4 条路径，Description/Title/name 三口径）
+    guid = _scan_all_addins_by_description()
+    if guid:
+        return guid, "registry_fullscan"
+
+    # Stage 3: 文件系统扫描反查 CLSID（慢，但覆盖新装机无 AddInsStartup 条目的场景）
+    guid = _scan_addin_dll_clsid()
+    if guid:
+        return guid, "filesystem"
+
+    return None, "none"
+
+
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 

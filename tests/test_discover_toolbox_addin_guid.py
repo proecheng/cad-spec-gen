@@ -144,3 +144,52 @@ class TestScanAddinDllClsid:
         monkeypatch.setattr(winreg, "OpenKey", fake_open_key)
         result = sw_detect._scan_addin_dll_clsid()
         assert result is None
+
+
+class TestDiscoverToolboxAddinGuid:
+    def test_stage1_hit_returns_startup_source(self, monkeypatch):
+        """Stage 1 命中 → 返回 (guid, 'startup')。"""
+        from adapters.solidworks import sw_detect
+        monkeypatch.setattr(sw_detect, "find_toolbox_addin_guid",
+                            lambda: "{AAAA-STAGE1}")
+        guid, source = sw_detect.discover_toolbox_addin_guid()
+        assert guid == "{AAAA-STAGE1}"
+        assert source == "startup"
+
+    def test_stage2_hit_when_stage1_miss(self, monkeypatch):
+        """Stage 1 miss，Stage 2 命中 → ('registry_fullscan')。"""
+        from adapters.solidworks import sw_detect
+        monkeypatch.setattr(sw_detect, "find_toolbox_addin_guid", lambda: None)
+        monkeypatch.setattr(sw_detect, "_scan_all_addins_by_description",
+                            lambda: "{BBBB-STAGE2}")
+        guid, source = sw_detect.discover_toolbox_addin_guid()
+        assert guid == "{BBBB-STAGE2}"
+        assert source == "registry_fullscan"
+
+    def test_stage3_hit_when_stage1_2_miss(self, monkeypatch):
+        """Stage 1/2 miss，Stage 3 命中 → ('filesystem')。"""
+        from adapters.solidworks import sw_detect
+        monkeypatch.setattr(sw_detect, "find_toolbox_addin_guid", lambda: None)
+        monkeypatch.setattr(sw_detect, "_scan_all_addins_by_description", lambda: None)
+        monkeypatch.setattr(sw_detect, "_scan_addin_dll_clsid",
+                            lambda: "{CCCC-STAGE3}")
+        guid, source = sw_detect.discover_toolbox_addin_guid()
+        assert guid == "{CCCC-STAGE3}"
+        assert source == "filesystem"
+
+    def test_all_miss_returns_none(self, monkeypatch):
+        """三段全 miss → (None, 'none')。"""
+        from adapters.solidworks import sw_detect
+        monkeypatch.setattr(sw_detect, "find_toolbox_addin_guid", lambda: None)
+        monkeypatch.setattr(sw_detect, "_scan_all_addins_by_description", lambda: None)
+        monkeypatch.setattr(sw_detect, "_scan_addin_dll_clsid", lambda: None)
+        guid, source = sw_detect.discover_toolbox_addin_guid()
+        assert guid is None
+        assert source == "none"
+
+    def test_old_find_toolbox_addin_guid_signature_unchanged(self):
+        """向后兼容：find_toolbox_addin_guid() 签名和返回类型不变。"""
+        from adapters.solidworks.sw_detect import find_toolbox_addin_guid
+        import inspect
+        sig = inspect.signature(find_toolbox_addin_guid)
+        assert len(sig.parameters) == 0  # 无参数

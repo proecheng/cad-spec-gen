@@ -20,17 +20,14 @@ log = logging.getLogger(__name__)
 
 
 def get_toolbox_addin_guid() -> Optional[str]:
-    """对外暴露的 Toolbox Add-In GUID 发现入口（Task 15）。
+    """对外暴露的 Toolbox Add-In GUID 发现入口（Track B1 更新）。
 
-    薄 wrapper——delegate 到 `sw_detect.find_toolbox_addin_guid()`，
-    供 `sw_preflight.matrix.fix_addin_enable` 写回注册表时使用
-    （契约："GUID 由 sw_toolbox_adapter 暴露，不在 sw_preflight 重复硬编码"）。
-
-    未发现时返回 None，调用方决定如何处理（raise / 降级）。
+    使用三段式 discover_toolbox_addin_guid()，覆盖历史用户 + 新装机场景。
     """
-    from adapters.solidworks.sw_detect import find_toolbox_addin_guid
+    from adapters.solidworks.sw_detect import discover_toolbox_addin_guid
 
-    return find_toolbox_addin_guid()
+    guid, _ = discover_toolbox_addin_guid()
+    return guid
 
 
 class SwToolboxAdapter(PartsAdapter):

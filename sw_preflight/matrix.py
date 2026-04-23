@@ -370,7 +370,8 @@ def fix_addin_enable() -> FixRecord:
     guid = get_toolbox_addin_guid()
     if guid is None:
         raise RuntimeError(
-            "ADDIN_ENABLE_FAILED: Toolbox Add-in GUID not discoverable from registry"
+            "ADDIN_DLL_NOT_FOUND: install_dir 下找不到 Toolbox Add-in DLL — "
+            "可能是 Standard 版未装 Toolbox Library"
         )
 
     start = time.time()
