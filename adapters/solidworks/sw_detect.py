@@ -366,9 +366,8 @@ def _find_edition(
 
     # Probe 2: 文件系统 Toolbox DLL 存在性
     if install_dir:
-        from pathlib import Path as _Path
         for sub in ("toolbox", "Toolbox"):
-            d = _Path(install_dir) / "AddIns" / sub
+            d = Path(install_dir) / "AddIns" / sub
             if d.is_dir() and any(d.glob("*.dll")):
                 return "professional"
         # install_dir 存在但无 Toolbox DLL → Standard 版

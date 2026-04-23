@@ -70,7 +70,7 @@ def test_three_consecutive_runs_only_first_fixes(tmp_path, monkeypatch) -> None:
                 with patch(
                     'adapters.solidworks.sw_detect.detect_solidworks',
                     return_value=MagicMock(
-                        installed=True, version_year=2024, edition='Pro'
+                        installed=True, version_year=2024, edition='professional'
                     ),
                 ):
                     from sw_preflight.preflight import run_preflight

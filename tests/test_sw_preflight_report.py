@@ -7,7 +7,7 @@ from sw_preflight.types import (PreflightResult, BomDryRunResult, RowOutcome,
 
 
 def test_emit_report_generates_html_and_json(tmp_path):
-    pre = PreflightResult(passed=True, sw_info=MagicMock(edition='Pro', version_year=2024),
+    pre = PreflightResult(passed=True, sw_info=MagicMock(edition='professional', version_year=2024),
                           fixes_applied=[FixRecord(action='rot_orphan_release',
                                                     before_state='unhealthy',
                                                     after_state='healthy', elapsed_ms=1200)],
