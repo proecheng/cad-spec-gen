@@ -46,9 +46,9 @@ _TOL_PREFIX_CATEGORY: dict[str, str] = {
 
 ### 2.2 模板几何层次：L2（精细）
 
-**决策**：4 类模板均生成 L2 几何（≥30 面），而非 L1 简化几何。
+**决策**：全部 8 类模板均生成 L2 几何（≥20 面），而非 L1 简化几何。
 
-**L1**（圆盘 + 孔）视觉上刚好"像"该类零件但细节不足；**L2** 加入凸台、圆角、加强筋、线圈端面等特征，在 Track C（精确几何）实现前提供足够辨识度。
+**L1**（圆盘 + 孔）视觉上刚好"像"该类零件但细节不足；**L2** 加入凸台、圆角、加强筋、线圈端面等特征，在 Track C（精确几何）实现前提供足够辨识度。sleeve/plate/arm/cover 4 类新增模板面数要求放宽到 ≥20（几何相对简单）。
 
 ### 2.3 参数缺失策略：主填/次默（方案 Y）
 
@@ -65,6 +65,33 @@ _TOL_PREFIX_CATEGORY: dict[str, str] = {
 两套"路由"职责明确：
 - `route()` → SW toolbox 选 `.j2` 模板文件（Track B 用途）
 - `match_semi_parametric_template()` → 几何代码生成选工厂函数（Track A 用途）
+
+### 2.5 用户级命名覆盖：`template_mapping.json`
+
+**决策**：在项目根目录（CAD_SPEC.md 旁边）支持可选的 `template_mapping.json`，用户可声明自己的命名习惯，无需改代码。
+
+**动机**：不同用户对同一类零件命名差异很大（"连接盘"/"固定盘"/"法兰" 均指 flange）。内置关键词表只能覆盖常见命名，`template_mapping.json` 提供零配置扩展出口。
+
+```json
+{
+  "连接盘":  "flange",
+  "固定盘":  "flange",
+  "外壳":    "housing",
+  "机箱":    "housing",
+  "限力器":  "spring_mechanism",
+  "缓冲件":  "spring_mechanism",
+  "轴套":    "sleeve",
+  "衬套":    "sleeve",
+  "底板":    "plate",
+  "安装板":  "plate",
+  "端盖":    "cover",
+  "盖板":    "cover",
+  "连杆":    "arm",
+  "摇臂":    "arm"
+}
+```
+
+查找顺序：`template_mapping.json`（用户覆盖，精确匹配） → 内置 `_TEMPLATE_KEYWORDS`（包含匹配） → `None`（fallback）。文件不存在时静默跳过，行为与原来一致。
 
 ---
 
@@ -84,21 +111,24 @@ part_meta["dim_tolerances"]（已净化）
 §6.4 envelope bbox ─────────────────┤
 §6.3 serial_chain.axis ─────────────┤
                                     ▼
-match_semi_parametric_template(name_cn)         ← A2-3 新增
-    │  法兰→"flange" / 壳体→"housing" / 支架→"bracket" / 弹簧→"spring_mechanism"
+match_semi_parametric_template(name_cn, mapping_path)   ← A2-3 新增
+    │  1. template_mapping.json 精确匹配（用户覆盖）
+    │  2. 内置 _TEMPLATE_KEYWORDS 包含匹配（法兰/壳体/套筒/板/盖/悬臂…）
     │  无匹配 → None → 保持 envelope primitive
     ▼
 _apply_template_decision(geom, tpl_type, part_meta, envelope)   ← A2-3 新增
     │  主尺寸缺失 → 返回原 geom + warning
     │  次级参数缺失 → 固定默认值
     ▼
-codegen/part_templates/{flange,housing,bracket,spring_mechanism}.py
-    │  make_flange(**params) / make_housing(**params) / ...
+codegen/part_templates/{flange,housing,bracket,spring_mechanism,sleeve,plate,arm,cover}.py
+    │  make_flange / make_housing / make_bracket / make_spring_mechanism
+    │  make_sleeve / make_plate / make_arm / make_cover
     │  返回 CadQuery 表达式字符串（或 None 表示主尺寸缺失）
     ▼
-part_module.py.j2 {% elif geom_type == "flange" %} 等新增分支
+part_module.py.j2 {% elif geom_type == "flange" %} 等 8 个新增分支
     ▼
 ee_001_01.py（L2 几何，≥30 face）
+ee_001_02.py（sleeve L2，≥20 face）  ← 新覆盖
 ```
 
 ---
@@ -167,6 +197,54 @@ L2 几何特征：L 形板 + 加强筋 + 安装孔。
 
 L2 几何特征：螺旋弹簧线圈 + 端部平磨面（active coil + dead coil）。
 
+### 4.6 `make_sleeve`
+
+| 参数 | 类型 | 来源 |
+|---|---|---|
+| `od` | 必填 | `SLEEVE_OD` 或 envelope max(w,d) |
+| `id` | 必填 | `SLEEVE_ID` 或 od×0.5 |
+| `length` | 必填 | `SLEEVE_L` 或 envelope h |
+| `chamfer` | 次级 | 默认 0.5mm（两端倒角） |
+
+L2 几何特征：同轴圆柱抠孔（中心孔）+ 两端倒角。覆盖：套筒/轴套/绝缘段/衬套。
+
+### 4.7 `make_plate`
+
+| 参数 | 类型 | 来源 |
+|---|---|---|
+| `width` | 必填 | `PLATE_W` 或 envelope w |
+| `depth` | 必填 | `PLATE_D` 或 envelope d |
+| `thickness` | 必填 | `PLATE_T` 或 envelope h |
+| `n_hole` | 次级 | `PLATE_HOLE_N` 或默认 4（角孔） |
+| `hole_d` | 次级 | 默认 5mm |
+| `fillet_r` | 次级 | 默认 2mm |
+
+L2 几何特征：矩形板 + 四角安装孔 + 圆角。覆盖：底板/安装板/盖板/固定板。
+
+### 4.8 `make_arm`
+
+| 参数 | 类型 | 来源 |
+|---|---|---|
+| `length` | 必填 | `ARM_L` 或 envelope max(w,d,h) |
+| `width` | 必填 | `ARM_W` 或 envelope 次大轴 |
+| `thickness` | 必填 | `ARM_T` 或 envelope min 轴 |
+| `end_hole_d` | 次级 | `ARM_END_HOLE_D` 或默认 8mm（端部连接孔） |
+| `fillet_r` | 次级 | 默认 2mm |
+
+L2 几何特征：细长梁 + 两端连接孔 + 圆角。覆盖：悬臂/连杆/摇臂/延伸臂。
+
+### 4.9 `make_cover`
+
+| 参数 | 类型 | 来源 |
+|---|---|---|
+| `od` | 必填 | `COVER_OD` 或 envelope max(w,d)（圆形盖） |
+| `thickness` | 必填 | `COVER_T` 或 envelope h |
+| `id` | 次级 | `COVER_ID` 或默认 0（实心，无中心孔） |
+| `n_hole` | 次级 | 默认 4（紧固孔数） |
+| `fillet_r` | 次级 | 默认 1mm |
+
+L2 几何特征：圆盘/矩形盖板 + 可选中心孔 + 紧固孔环 + 倒角。覆盖：端盖/密封盖/盖板/压板。
+
 ---
 
 ## 5. 新增文件与修改范围
@@ -177,17 +255,22 @@ L2 几何特征：螺旋弹簧线圈 + 端部平磨面（active coil + dead coil
 - `codegen/part_templates/housing.py`（`make_housing`）
 - `codegen/part_templates/bracket.py`（`make_bracket`）
 - `codegen/part_templates/spring_mechanism.py`（`make_spring_mechanism`）
-- 预留目录占位（`sleeve.py` 等 future 模板，空实现）
+- `codegen/part_templates/sleeve.py`（`make_sleeve`）
+- `codegen/part_templates/plate.py`（`make_plate`）
+- `codegen/part_templates/arm.py`（`make_arm`）
+- `codegen/part_templates/cover.py`（`make_cover`）
+- `template_mapping.json`（项目根目录，可选，用户命名覆盖）
+- `codegen/template_mapping_loader.py`（加载 + 合并内置关键词）
 
 **修改**：
 - `codegen/gen_parts.py`：`_parse_annotation_meta`（A2-0 过滤）+ `match_semi_parametric_template` + `_apply_template_decision` + `generate_part_files` 集成调用
-- `templates/part_module.py.j2`：新增 4 个 `{% elif geom_type %}` 分支
+- `templates/part_module.py.j2`：新增 8 个 `{% elif geom_type %}` 分支
 - `tests/test_gen_parts.py`（或同级）：A2-0 回归 + 各 task 单测
 
 **不修改**：
 - routing 系统（`parts_resolver.py`、`route()`）
-- `cad_spec_extractors.py`（不改数据源格式，方案 B 已放弃）
-- 现有 `ee_*.py`（除 A2-4 的 `ee_001_01.py` 重新生成用于验收）
+- `cad_spec_extractors.py`（不改数据源格式）
+- 现有 `ee_*.py`（除 A2-4 的 `ee_001_01.py` 和 A2-6 验收件重新生成）
 
 ---
 
@@ -195,10 +278,12 @@ L2 几何特征：螺旋弹簧线圈 + 端部平磨面（active coil + dead coil
 
 1. **A2-0 回归**：`ee_001_01.py` 的 `dim_tolerances` 不含 `SPRING_PIN_BORE`、`ARM_L_2` 等非法兰条目
 2. **DXF 快照**：`ee_001_01_sheet.dxf` 标注条目数比 A2-0 前减少，且 > 0
-3. **面数达标**：重新生成的 `ee_001_01.py` 执行后 face 数 ≥ 30
-4. **降级保底**：无模板匹配的件维持 envelope primitive，`resolve_report.json` 含 `fallback_reason`
-5. **全量回归**：990+ 现有测试继续通过
-6. **`CAD_SPEC_GEN_DIM_FILTER=off`**：设置后 dim_tolerances 恢复全量返回，行为与 A2-0 前一致
+3. **面数达标（原 4 类）**：重新生成的 `ee_001_01.py` face 数 ≥ 30
+4. **面数达标（新 4 类）**：sleeve/plate/arm/cover 各自验收件 face 数 ≥ 20
+5. **mapping.json 路由**：在项目根放 `template_mapping.json`（含 `"连接盘": "flange"`），gen_parts 对含"连接盘"的件正确路由到 flange 模板
+6. **降级保底**：无模板匹配的件维持 envelope primitive，`resolve_report.json` 含 `fallback_reason`
+7. **全量回归**：990+ 现有测试继续通过
+8. **`CAD_SPEC_GEN_DIM_FILTER=off`**：设置后 dim_tolerances 恢复全量返回，行为与 A2-0 前一致
 
 ---
 
@@ -209,8 +294,12 @@ L2 几何特征：螺旋弹簧线圈 + 端部平磨面（active coil + dead coil
 | A2-0 | `_TOL_PREFIX_CATEGORY` 映射表 + `_parse_annotation_meta` 过滤逻辑 + 环境变量开关 + 单测 + DXF 快照更新 | 0.75d |
 | A2-1 | `codegen/part_templates/flange.py::make_flange` + 单测（正常路径 + 主尺寸缺失路径） | 0.5d |
 | A2-2 | `housing.py` / `bracket.py` / `spring_mechanism.py` + 各自单测 | 1.5d |
-| A2-3 | `match_semi_parametric_template` + `_apply_template_decision` + `generate_part_files` 集成 + `part_module.py.j2` 新分支 + 单测 | 0.5d |
-| A2-4 | 集成验收：`ee_001_01.py` 重新生成，face ≥ 30；人工目测 + 全量回归 | 0.5d |
+| A2-3 | `match_semi_parametric_template`（含 mapping.json 加载）+ `_apply_template_decision` + `generate_part_files` 集成 + `part_module.py.j2` 8 个分支 + 单测 | 0.75d |
+| A2-4 | 集成验收：`ee_001_01.py` 重新生成，face ≥ 30；mapping.json 路由测试；人工目测 + 全量回归 | 0.5d |
+| A2-5 | `template_mapping_loader.py` + `template_mapping.json` 示例文件 + 单测（精确匹配覆盖内置/文件不存在静默跳过） | 0.5d |
+| A2-6 | `sleeve.py` / `plate.py` / `arm.py` / `cover.py` + 各自单测 + `part_module.py.j2` 对应分支 | 1.5d |
+| A2-7 | 集成验收（新 4 类）：`ee_001_02.py`（sleeve）重新生成，face ≥ 20；全量回归 | 0.5d |
+| **合计** | | **~6.5d** |
 
 ---
 
@@ -218,7 +307,10 @@ L2 几何特征：螺旋弹簧线圈 + 端部平磨面（active coil + dead coil
 
 | 风险 | 缓解 |
 |---|---|
-| 前缀映射表遗漏用户自定义前缀 | `CAD_SPEC_GEN_DIM_FILTER=off` 逃生口；后续可扩展映射表 |
-| 弹簧线圈 CadQuery 实现复杂（螺旋扫掠） | A2-2 优先实现简化版（圆柱 + 端面标记），L2 精细版留 TODO |
+| 前缀映射表遗漏用户自定义前缀 | `template_mapping.json` 用户覆盖 + `CAD_SPEC_GEN_DIM_FILTER=off` 逃生口 |
+| 弹簧线圈 CadQuery 实现复杂（螺旋扫掠） | A2-2 优先实现简化版（圆柱 + 端面标记），L2 螺旋版留 TODO |
 | A2-0 改 `_parse_annotation_meta` 影响 DXF 产物快照 | 同步更新快照文件作为 A2-0 验收的一部分 |
 | 主尺寸全靠 envelope 推算时精度不足 | warning 明确提示，resolve_report 记录 fallback_reason |
+| `template_mapping.json` 中错误键值导致错误路由 | 加载时 validate 值只能是已知模板名（8 个），否则 warn + 忽略该条 |
+| arm 模板主轴方向歧义（length 对应 w/d/h 哪轴） | 取 envelope max 轴；`match_semi_parametric_template` 同时回传 axis 信息供 `_apply_template_decision` 消歧 |
+| 新 4 类模板扩展后覆盖率仍达不到用户预期 | 在 resolve_report 中明确列出 fallback 件及其 fallback_reason，让用户知道哪些件需要手工 Track C 填充 |
