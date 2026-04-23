@@ -19,6 +19,13 @@ _VALID_TEMPLATES = {
     "sleeve", "plate", "arm", "cover",
 }
 
+try:
+    import win32com.client as _wc
+    import pythoncom as _pc
+    _VARIANT_NULL = _wc.VARIANT(_pc.VT_DISPATCH, None)
+except ImportError:
+    _VARIANT_NULL = None  # 非 Windows；_build_* 仅在 is_available()=True 后调用
+
 
 def detect_solidworks():
     """封装 sw_detect.detect_solidworks，便于测试 patch。"""
@@ -91,8 +98,107 @@ class SwParametricAdapter:
     # ── 各模板 SW 建模方法（Task 16-18 实现） ──────────────────────────────
 
     def _build_flange(self, params: dict, step_path: Path) -> Path | None:
-        """法兰建模（Task 16 实现）。"""
-        return None  # Task 16 实现
+        """法兰建模（Task 16 实现）。
+
+        SW COM API 实机验证约定（SW 2024）：
+        - FeatureExtrusion3 有 23 个参数（含 UseFeatScope/UseAutoSelect/T0/StartOffset/FlipStartOffset）
+        - FeatureCut3 有 26 个参数（含 NormalCut/AssemblyFeatureScope/AutoSelectComponents/PropagateFeatureToParts）
+        - swEndCondBlind=0，swEndCondThroughAll=6
+        - FeatureCut3 在 Python 中返回 None 是正常的 COM 编组行为，特征实际已创建
+        """
+        od_mm = float(params.get("od") or 0)
+        thick_mm = float(params.get("thickness") or 0)
+        if od_mm <= 0 or thick_mm <= 0:
+            return None
+
+        id_mm = float(params.get("id") or 0)
+        pcd_mm = float(params.get("bolt_pcd") or 0) or od_mm * 0.75
+        bolt_n = int(params.get("bolt_count") or 6)
+        boss_h_mm = float(params.get("boss_h") or 0)
+        bolt_d_mm = max(od_mm * 0.07, 5.0)
+
+        od = od_mm / 1000
+        thick = thick_mm / 1000
+        id_ = id_mm / 1000 if id_mm > 0 else od * 0.25
+        pcd = pcd_mm / 1000
+        bolt_d = bolt_d_mm / 1000
+        boss_h = boss_h_mm / 1000
+
+        swapp = self._get_swapp()
+        model = self._new_part_doc(swapp)
+        if model is None:
+            return None
+        try:
+            import math
+            ftMgr = model.FeatureManager
+            skMgr = model.SketchManager
+
+            # 法兰盘体：外圆 + 内孔同草图 → 环形截面 extrude（向+Y）
+            # FeatureExtrusion3 参数：Sd, Flip, Dir, T1, T2, D1, D2,
+            #   Dchk1, Dchk2, Ddir1, Ddir2, Dang1, Dang2,
+            #   OffsetReverse1, OffsetReverse2, TranslateSurface1, TranslateSurface2,
+            #   Merge, UseFeatScope, UseAutoSelect, T0, StartOffset, FlipStartOffset
+            model.Extension.SelectByID2(
+                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius(0, 0, 0, od / 2)
+            skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, thick, 0.0,
+                False, False, False, False, 0.0, 0.0,
+                False, False, False, False,
+                True, True, True, 0, 0.0, False)
+
+            # 螺栓孔 Cut（Through All = swEndCondThroughAll = 6）
+            # FeatureCut3 参数：Sd, Flip, Dir, T1, T2, D1, D2,
+            #   Dchk1, Dchk2, Ddir1, Ddir2, Dang1, Dang2,
+            #   OffsetReverse1, OffsetReverse2, TranslateSurface1, TranslateSurface2,
+            #   NormalCut, UseFeatScope, UseAutoSelect,
+            #   AssemblyFeatureScope, AutoSelectComponents, PropagateFeatureToParts,
+            #   T0, StartOffset, FlipStartOffset
+            # 注：Python COM 编组 FeatureCut3 返回 None 但特征已创建（SW 2024 实机验证）
+            if bolt_n > 0 and pcd > 0:
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                for i in range(bolt_n):
+                    angle = 2 * math.pi * i / bolt_n
+                    cx = pcd / 2 * math.cos(angle)
+                    cz = pcd / 2 * math.sin(angle)
+                    skMgr.CreateCircleByRadius(cx, cz, 0, bolt_d / 2)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureCut3(
+                    True, False, False, 6, 0, 0.0, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    False, True, True,
+                    False, False, False,
+                    0, 0.0, False)
+
+            # Boss 凸台（可选，Flip=True 向-Y 方向）
+            if boss_h > 0:
+                boss_od = min(id_ * 1.5, od * 0.5) if id_ > 0 else od * 0.4
+                model.Extension.SelectByID2(
+                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                skMgr.InsertSketch(True)
+                skMgr.CreateCircleByRadius(0, 0, 0, boss_od / 2)
+                skMgr.CreateCircleByRadius(0, 0, 0, id_ / 2)
+                skMgr.InsertSketch(True)
+                ftMgr.FeatureExtrusion3(
+                    True, True, False, 0, 0, boss_h, 0.0,
+                    False, False, False, False, 0.0, 0.0,
+                    False, False, False, False,
+                    True, True, True, 0, 0.0, False)
+
+            if not self._export_step(model, step_path):
+                return None
+            return step_path
+        except Exception as exc:
+            log.warning("_build_flange 失败: %s", exc, exc_info=True)
+            return None
+        finally:
+            self._close_doc(swapp, model)
 
     def _build_housing(self, params: dict, step_path: Path) -> Path | None:
         """外壳建模（Task 17 实现）。"""
@@ -125,22 +231,30 @@ class SwParametricAdapter:
     # ── SW API 工具方法 ────────────────────────────────────────────────────
 
     def _get_swapp(self):
-        """获取 ISldWorks Application 对象（通过 sw_com_session）。"""
-        from adapters.solidworks.sw_com_session import get_session
-        session = get_session()
-        return session.sldworks  # ISldWorks IDispatch
+        """直连 SldWorks COM Application 对象。"""
+        import win32com.client
+        return win32com.client.Dispatch("SldWorks.Application")
 
     def _new_part_doc(self, swapp) -> object:
-        """新建空白零件文档，返回 IModelDoc2。"""
-        # swDocumentTypes_Part = 1
-        template = swapp.GetUserPreferenceStringValue(9)  # swUserPreferenceStringValue_DefaultPartTemplate = 9
-        doc = swapp.NewDocument(template, 1, 0, 0)
-        return doc
+        """新建 GB 零件文档（动态搜索 gb_part.prtdot，避免中文版返回空路径）。"""
+        import glob as _glob
+        import os.path as _osp
+        tpl = r"C:\ProgramData\SolidWorks\SOLIDWORKS 2024\templates\gb_part.prtdot"
+        if not _osp.exists(tpl):
+            candidates = (
+                _glob.glob(r"C:\ProgramData\SolidWorks\SOLIDWORKS *\templates\gb_part.prtdot")
+                + _glob.glob(r"C:\ProgramData\SolidWorks\SOLIDWORKS *\templates\Part.prtdot")
+            )
+            tpl = candidates[0] if candidates else ""
+        return swapp.NewDocument(tpl, 1, 0, 0)
 
-    def _close_doc(self, swapp, path: str) -> None:
-        """静默关闭文档（不保存）。"""
+    def _close_doc(self, swapp, model) -> None:
+        """通过 GetTitle（COM 属性，不加括号）关闭新建文档。"""
         try:
-            swapp.CloseDoc(path)
+            if model is not None:
+                title = model.GetTitle  # BSTR property，非方法调用
+                if title:
+                    swapp.CloseDoc(title)
         except Exception:
             pass
 

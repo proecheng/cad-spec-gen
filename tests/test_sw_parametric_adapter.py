@@ -34,7 +34,6 @@ class TestSwParametricAdapterAvailability:
 
 
 @pytest.mark.requires_solidworks
-@pytest.mark.xfail(reason="Task 16 尚未实现：_build_flange 当前为 stub，返回 None", strict=False)
 class TestSwParametricAdapterBuildFlange:
     def test_build_flange_creates_step_file(self, tmp_path):
         adapter = SwParametricAdapter()
@@ -42,10 +41,28 @@ class TestSwParametricAdapterBuildFlange:
         assert ok, "SW 不可用，跳过（应由 marker 保护）"
         step = adapter.build_part(
             "flange",
-            {"od": 90.0, "id": 22.0, "thickness": 30.0, "bolt_pcd": 70.0, "bolt_count": 6, "boss_h": 5.0},
+            {"od": 90.0, "id": 22.0, "thickness": 30.0,
+             "bolt_pcd": 70.0, "bolt_count": 6, "boss_h": 5.0},
             tmp_path,
             "TEST-001",
         )
         assert step is not None
         assert Path(step).exists()
         assert Path(step).suffix.lower() == ".step"
+        assert Path(step).stat().st_size > 1024
+
+
+class TestCloseDocUsesGetTitle:
+    def test_uses_get_title_property(self):
+        adapter = SwParametricAdapter()
+        mock_swapp = MagicMock()
+        mock_model = MagicMock()
+        mock_model.GetTitle = "Part1"   # COM BSTR 属性，直接赋字符串
+        adapter._close_doc(mock_swapp, mock_model)
+        mock_swapp.CloseDoc.assert_called_once_with("Part1")
+
+    def test_skips_when_model_is_none(self):
+        adapter = SwParametricAdapter()
+        mock_swapp = MagicMock()
+        adapter._close_doc(mock_swapp, None)  # 不能抛异常
+        mock_swapp.CloseDoc.assert_not_called()
