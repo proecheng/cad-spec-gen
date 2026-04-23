@@ -417,7 +417,8 @@ def _apply_template_decision(
 
     import sys as _sys_inner
 
-    # ── SW COM API 优先路径 ───────────────────────────────────────────────
+    # SW COM API 优先路径（adapters/parts/sw_parametric_adapter.py 在 Task 15 实现）
+    # ImportError on missing adapter falls through to CadQuery silently.
     if _sys_inner.platform == "win32" and output_dir and part_no:
         try:
             from adapters.parts.sw_parametric_adapter import SwParametricAdapter
@@ -437,8 +438,10 @@ def _apply_template_decision(
                     updated["kind"] = "step_import"
                     updated["step_path"] = f"sw_parts/{part_no}.step"
                     return updated
+        except ImportError:
+            pass  # SW adapter not yet installed (Task 15); silently fall through
         except Exception as _exc:
-            _log.getLogger(__name__).debug("SW 参数化建模失败，回退 CadQuery: %s", _exc)
+            print(f"  [template] SW 参数化建模失败，回退 CadQuery: {_exc}")
 
     # ── CadQuery 工厂函数回退路径 ─────────────────────────────────────────
     dim_map: dict[str, float] = {}
