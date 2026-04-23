@@ -692,7 +692,7 @@ def _scan_addin_dll_clsid() -> Optional[str]:
                 try:
                     with winreg.OpenKey(clsid_root, f"{guid_str}\\{server}") as sk:
                         srv_path = winreg.QueryValue(sk, "")
-                        if srv_path.lower() in dll_paths:
+                        if isinstance(srv_path, str) and srv_path.lower() in dll_paths:
                             found_guid = (
                                 guid_str
                                 if guid_str.startswith("{")
@@ -708,8 +708,9 @@ def _scan_addin_dll_clsid() -> Optional[str]:
         return None
 
     # B-17：DLL 物理存在 + GUID 已知 → 写 HKCU AddInsStartup 让 SW 下次启动自动加载
+    # 用 CreateKeyEx（而非 OpenKey）确保键不存在时自动创建，覆盖新装机场景
     try:
-        with winreg.OpenKey(
+        with winreg.CreateKeyEx(
             winreg.HKEY_CURRENT_USER,
             r"Software\SolidWorks\AddInsStartup",
             0,

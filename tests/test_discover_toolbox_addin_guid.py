@@ -64,7 +64,7 @@ class TestScanAllAddinsByDescription:
             def __enter__(self): return self
             def __exit__(self, *_): pass
 
-        def fake_open_key(hive, path, access=0):
+        def fake_open_key(hive, path, *args):
             call_log.append(path)
             if path == r"SOFTWARE\SolidWorks\AddIns":
                 return FakeRootKey()
