@@ -4,9 +4,9 @@ adapters/parts/bd_warehouse_adapter.py — Phase A adapter for bd_warehouse.
 bd_warehouse ships parametric bearings, fasteners, and threaded parts. This
 adapter:
 
-1. Uses a static catalog YAML (`catalogs/bd_warehouse_catalog.yaml`) to
-   answer `is_available()` and `can_resolve()` WITHOUT importing bd_warehouse
-   — essential for CI environments where bd_warehouse is not installed.
+1. Uses a static catalog YAML (`catalogs/bd_warehouse_catalog.yaml`) + a lazy
+   bd_warehouse import probe to answer `is_available()` — essential for CI
+   environments to probe availability without unnecessary side effects.
 2. Lazy-imports bd_warehouse only inside `resolve()` / `probe_dims()` when a
    match has been confirmed.
 3. Emits `ResolveResult.kind="python_import"` so gen_std_parts.py produces

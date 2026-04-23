@@ -146,8 +146,8 @@ class PartsResolver:
         """Register an adapter. Order matters: adapters are tried in order."""
         self.adapters.append(adapter)
 
-    def available_adapter_names(self) -> list:
-        return [a.name for a in self.adapters if a.is_available()]
+    def available_adapter_names(self) -> list[str]:
+        return [a.name for a in self.adapters if a.is_available()[0]]
 
     # ---- core resolve loop ------------------------------------------------
 

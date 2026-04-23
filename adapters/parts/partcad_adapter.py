@@ -96,7 +96,10 @@ class PartCADAdapter(PartsAdapter):
     # ---- PartsAdapter interface -------------------------------------------
 
     def is_available(self) -> tuple[bool, Optional[str]]:
-        """Return (True, None) only if explicitly enabled in the registry."""
+        """Return (True, None) only if explicitly enabled in the registry.
+
+        Does not import partcad — that would pull in a big dep chain to check.
+        """
         if not self.config.get("enabled"):
             return False, "partcad.enabled=false in yaml"
         return True, None
