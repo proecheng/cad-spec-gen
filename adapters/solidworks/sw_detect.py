@@ -610,7 +610,7 @@ def _scan_all_addins_by_description() -> Optional[str]:
 
     for hive, path in _addins_candidates(info.version_year):
         try:
-            with winreg.OpenKey(hive, path, access=winreg.KEY_READ) as root:
+            with winreg.OpenKey(hive, path, 0, winreg.KEY_READ) as root:
                 i = 0
                 while True:
                     try:
@@ -619,13 +619,17 @@ def _scan_all_addins_by_description() -> Optional[str]:
                     except OSError:
                         break
 
+                    # 合法 GUID 必须以 '{' 开头（与 Stage 1 口径对齐）
+                    if not guid.startswith("{"):
+                        continue
+
                     # 口径 (b)/(c)：GUID 子键名匹配
                     if "toolbox" in guid.lower() or _is_toolbox_guid(guid):
                         return guid
 
                     # 口径 (a)：读 Description / Title value
                     try:
-                        with winreg.OpenKey(root, guid, access=winreg.KEY_READ) as gk:
+                        with winreg.OpenKey(root, guid, 0, winreg.KEY_READ) as gk:
                             for val_name in ("Description", "Title"):
                                 try:
                                     val, _ = winreg.QueryValueEx(gk, val_name)
