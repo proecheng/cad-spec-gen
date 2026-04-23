@@ -204,7 +204,8 @@ class SwParametricAdapter:
     def _build_housing(self, params: dict, step_path: Path) -> Path | None:
         """外壳建模（Task 17 实现）。
 
-        绘制外壳 Box，再用 FeatureCut3 挖内腔（留底壁和侧壁）。
+        绘制外壳 Box，再用 FeatureExtrusion3 盲切挖内腔（留底壁和侧壁）。
+        结果：开顶盒体 — 4 侧壁 + 1 底壁，无顶盖。
         """
         w_mm = float(params.get("width") or 0)
         d_mm = float(params.get("depth") or 0)
@@ -240,8 +241,8 @@ class SwParametricAdapter:
                 False, False, False, False,
                 True, True, True, 0, 0.0, False)
 
-            # 内腔 Cut（从底面向+Y，深度 h-wall，留底壁）
-            # FeatureCut3：T1=6=swEndCondThroughAll；Python COM 编组返回 None 是正常现象
+            # 内腔 Cut（从顶面向下盲切，深度 h-wall，留底壁）
+            # FeatureExtrusion3：T1=0=swEndCondBlind，Dir=True（反向切入）；SW 2024 实机验证
             cut_depth = h - wall
             if cut_depth > 0:
                 model.Extension.SelectByID2(
@@ -250,13 +251,13 @@ class SwParametricAdapter:
                 skMgr.CreateCenterRectangle(
                     0, 0, 0, (w - 2 * wall) / 2, (d - 2 * wall) / 2, 0)
                 skMgr.InsertSketch(True)
-                ftMgr.FeatureCut3(
-                    True, False, False, 6, 0, 0.0, 0.0,
+                # FeatureExtrusion3 参数（23 params）同 _build_flange — SW 2024 实机验证
+                # 第 3 参数 True = 反向（切入实体），T1=0 = Blind，D1=cut_depth
+                ftMgr.FeatureExtrusion3(
+                    True, False, True, 0, 0, cut_depth, 0.0,
                     False, False, False, False, 0.0, 0.0,
                     False, False, False, False,
-                    False, True, True,
-                    False, False, False,
-                    0, 0.0, False)
+                    True, True, True, 0, 0.0, False)
 
             if not self._export_step(model, step_path):
                 return None

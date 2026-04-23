@@ -111,3 +111,19 @@ class TestBuildSleeve:
         )
         assert step is not None and Path(step).exists()
         assert Path(step).stat().st_size > 1024
+
+
+class TestExtractParamsCover:
+    """验证 _extract_params("cover") 正确返回 n_hole 键。"""
+
+    def test_extract_params_cover_includes_n_hole(self):
+        from codegen.gen_parts import _extract_params
+        result = _extract_params("cover", {"dim_tolerances": []}, (60.0, 60.0, 8.0))
+        assert "n_hole" in result
+        assert result["n_hole"] == 4  # 默认值
+
+    def test_extract_params_cover_respects_cover_bolt_n(self):
+        from codegen.gen_parts import _extract_params
+        meta = {"dim_tolerances": [{"name": "COVER_BOLT_N", "nominal": "6"}]}
+        result = _extract_params("cover", meta, (60.0, 60.0, 8.0))
+        assert result["n_hole"] == 6
