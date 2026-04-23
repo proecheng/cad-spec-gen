@@ -245,7 +245,7 @@ def generate_std_part_files(
     spec_path: str,
     output_dir: str,
     mode: str = "scaffold",
-) -> tuple:
+) -> tuple[list, list, "PartsResolver"]:
     """Generate simplified CadQuery files for purchased standard parts.
 
     Args:
@@ -365,6 +365,23 @@ def main():
 
     generated, skipped, resolver = generate_std_part_files(spec_path, output_dir, mode=args.mode)
 
+    # ─── A3: resolve_report.json（必须在 emit_report 前完成，供 HTML routing 区块使用）───
+    _rr = None
+    try:
+        import json as _json
+        _bom_for_rr = parse_bom_tree(spec_path)
+        _rr = resolver.resolve_report(_bom_for_rr, run_id=run_id)
+        _rr_path = Path(f"./artifacts/{run_id}/resolve_report.json")
+        _rr_path.parent.mkdir(parents=True, exist_ok=True)
+        _rr_path.write_text(
+            _json.dumps(_rr.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"[gen_std_parts] 路由报告 → {_rr_path}")
+    except Exception as _rr_exc:
+        print(f"[gen_std_parts] resolve_report 生成跳过（{type(_rr_exc).__name__}: {_rr_exc}）")
+    # ─── /A3 ───
+
     # ─── Task 30: dry_run BOM + emit_report（只读分析，不反向驱动 codegen） ───
     # 失败不阻 codegen 产物；三选一 prompt + user_choice 覆盖 router 留 Task 34 重评。
     try:
@@ -379,28 +396,13 @@ def main():
                 passed=True, sw_info=None,
                 fixes_applied=[], diagnosis=None, per_step_ms={},
             )
-        _report_path = emit_report(_bom, _dry, preflight_result, _Path(f'./artifacts/{run_id}'))
+        _report_path = emit_report(_bom, _dry, preflight_result, _Path(f'./artifacts/{run_id}'),
+                                   resolve_report=_rr)
         print(f"📋 SW 资产报告 → {_report_path}")
     except Exception as _e:
         # 任何 dry_run / emit_report 异常不阻 codegen 成功出产物
         print(f"[report] 生成跳过（{type(_e).__name__}: {_e}）")
     # ─── /Task 30 ───
-
-    # ─── A3: resolve_report.json ───
-    try:
-        import json as _json
-        _parts_for_rr = parse_bom_tree(spec_path)
-        _rr = resolver.resolve_report(_parts_for_rr, run_id=run_id)
-        _rr_path = Path(f"./artifacts/{run_id}/resolve_report.json")
-        _rr_path.parent.mkdir(parents=True, exist_ok=True)
-        _rr_path.write_text(
-            _json.dumps(_rr.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        print(f"[gen_std_parts] 路由报告 → {_rr_path}")
-    except Exception as _rr_exc:
-        print(f"[gen_std_parts] resolve_report 生成跳过（{type(_rr_exc).__name__}: {_rr_exc}）")
-    # ─── /A3 ───
 
     print(f"[gen_std_parts] Generated {len(generated)} standard part scaffold(s), "
           f"skipped {len(skipped)} existing")

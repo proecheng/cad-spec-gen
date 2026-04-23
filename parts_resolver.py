@@ -234,6 +234,8 @@ class PartsResolver:
             except Exception as e:
                 self.log(f"  [resolver] adapter '{adapter_name}' raised "
                          f"on {query.part_no}: {e} — falling through")
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(error)")
                 continue
             if result.status == "hit":
                 # Task 7：按 mapping + adapter 类型推断分类
@@ -279,6 +281,9 @@ class PartsResolver:
             adapter_name = rule.get("adapter", "")
             adapter = self._find_adapter(adapter_name)
             if adapter is None:
+                continue
+            _ok, _ = adapter.is_available()
+            if not _ok:
                 continue
             try:
                 dims = adapter.probe_dims(query, rule.get("spec", {}))

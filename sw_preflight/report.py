@@ -3,8 +3,12 @@ import json
 from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Optional
 from jinja2 import Environment, FileSystemLoader
 from sw_preflight.types import PreflightResult, BomDryRunResult, FixRecord
+
+if TYPE_CHECKING:
+    from parts_resolver import ResolveReport
 
 
 # 术语去技术化映射（用户界面不暴露 ROT / HKCU / CLSID 等技术名）
@@ -30,7 +34,7 @@ def _friendly_detail(record: FixRecord) -> str:
 
 def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
                 preflight: PreflightResult, output_dir: Path,
-                resolve_report=None) -> Path:
+                resolve_report: Optional["ResolveReport"] = None) -> Path:
     """生成 sw_report.html + sw_report_data.json，返回 HTML 路径"""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

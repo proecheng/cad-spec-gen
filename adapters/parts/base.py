@@ -34,9 +34,10 @@ class PartsAdapter(ABC):
         available: True if this adapter can be used right now.
         reason_if_unavailable: human-readable string when available=False, else None.
 
-        Should NOT import optional dependencies — use lightweight checks like
-        catalog file existence or environment flags. The actual heavy import
-        happens lazily inside resolve() / probe_dims().
+        Prefer lightweight checks (catalog file existence, env flags) over
+        optional dependency imports. Exception: adapters whose only availability
+        signal is the install itself (e.g. bd_warehouse) may do a fast import
+        probe — Python's import cache makes repeated calls a dict lookup.
         """
 
     @abstractmethod
