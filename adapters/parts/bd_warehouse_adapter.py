@@ -72,9 +72,16 @@ class BdWarehouseAdapter(PartsAdapter):
 
     # ---- PartsAdapter interface -------------------------------------------
 
-    def is_available(self) -> bool:
-        # We only need the catalog YAML, not bd_warehouse itself.
-        return os.path.isfile(self.catalog_path) and self._try_load_catalog()
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        if not os.path.isfile(self.catalog_path):
+            return False, f"catalog not found: {self.catalog_path}"
+        if not self._try_load_catalog():
+            return False, f"catalog parse error: {self.catalog_path}"
+        try:
+            import bd_warehouse  # noqa: F401
+        except ImportError as exc:
+            return False, f"import bd_warehouse failed: {exc}"
+        return True, None
 
     def can_resolve(self, query) -> bool:
         if not self._try_load_catalog():

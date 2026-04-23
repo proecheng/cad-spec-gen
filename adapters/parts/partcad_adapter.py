@@ -95,21 +95,21 @@ class PartCADAdapter(PartsAdapter):
 
     # ---- PartsAdapter interface -------------------------------------------
 
-    def is_available(self) -> bool:
-        """Return True only if explicitly enabled in the registry.
-
-        Does not import partcad — that would pull in a big dep chain
-        just to check.
-        """
-        return bool(self.config.get("enabled"))
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        """Return (True, None) only if explicitly enabled in the registry."""
+        if not self.config.get("enabled"):
+            return False, "partcad.enabled=false in yaml"
+        return True, None
 
     def can_resolve(self, query) -> bool:
-        return self.is_available()
+        ok, _ = self.is_available()
+        return ok
 
     def resolve(self, query, spec: dict):
         from parts_resolver import ResolveResult
 
-        if not self.is_available():
+        ok, _ = self.is_available()
+        if not ok:
             return ResolveResult.miss()
 
         part_ref = spec.get("part_ref")
@@ -154,7 +154,8 @@ class PartCADAdapter(PartsAdapter):
         )
 
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:
-        if not self.is_available():
+        ok, _ = self.is_available()
+        if not ok:
             return None
         part_ref = spec.get("part_ref")
         if not part_ref:

@@ -28,8 +28,11 @@ class PartsAdapter(ABC):
     name: str = ""  # subclass sets this to e.g. "bd_warehouse"
 
     @abstractmethod
-    def is_available(self) -> bool:
-        """Return True if the adapter can be used right now.
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        """Return (available, reason_if_unavailable).
+
+        available: True if this adapter can be used right now.
+        reason_if_unavailable: human-readable string when available=False, else None.
 
         Should NOT import optional dependencies — use lightweight checks like
         catalog file existence or environment flags. The actual heavy import

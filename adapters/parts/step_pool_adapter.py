@@ -72,9 +72,9 @@ class StepPoolAdapter(PartsAdapter):
 
     # ---- PartsAdapter interface -------------------------------------------
 
-    def is_available(self) -> bool:
+    def is_available(self) -> tuple[bool, Optional[str]]:
         """Always available — it's just filesystem lookups."""
-        return True
+        return True, None
 
     def can_resolve(self, query) -> bool:
         """Return True only if the query's category is sensible for STEP."""

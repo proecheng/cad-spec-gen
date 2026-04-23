@@ -26,6 +26,9 @@ from adapters.parts.jinja_primitive_adapter import (
     _gen_generic,
     _GENERATORS,
 )
+from adapters.parts.bd_warehouse_adapter import BdWarehouseAdapter
+from adapters.parts.step_pool_adapter import StepPoolAdapter
+from adapters.parts.partcad_adapter import PartCADAdapter
 
 
 # ─── JinjaPrimitiveAdapter byte-identical regression ─────────────────
@@ -93,7 +96,8 @@ class TestJinjaPrimitiveFallback:
 class TestJinjaPrimitiveAdapter:
     def test_is_always_available(self):
         a = JinjaPrimitiveAdapter()
-        assert a.is_available()
+        ok, _ = a.is_available()
+        assert ok
 
     def test_resolve_bearing(self):
         a = JinjaPrimitiveAdapter()
@@ -169,8 +173,16 @@ class TestBdWarehouseAdapterCatalogOnly:
     def test_adapter_is_available_with_catalog(self):
         from adapters.parts.bd_warehouse_adapter import BdWarehouseAdapter
         a = BdWarehouseAdapter()
-        # Catalog file ships with the skill, should be available
-        assert a.is_available()
+        # is_available() 在目录存在时，ok 取决于 bd_warehouse 是否可导入。
+        # catalog-only 检查使用 can_resolve 而非 is_available。
+        ok, reason = a.is_available()
+        # 如果 bd_warehouse 未安装则 ok=False 是预期行为（reason 不为 None）
+        if not ok:
+            assert reason is not None
+            assert "bd_warehouse" in reason or "catalog" in reason
+        # 如果已安装则 ok=True, reason=None
+        else:
+            assert reason is None
 
     def test_can_resolve_bearing_category(self):
         from adapters.parts.bd_warehouse_adapter import BdWarehouseAdapter
@@ -281,7 +293,8 @@ class TestStepPoolAdapter:
     def test_is_always_available(self):
         from adapters.parts.step_pool_adapter import StepPoolAdapter
         adapter = StepPoolAdapter(project_root="/nonexistent")
-        assert adapter.is_available()
+        ok, _ = adapter.is_available()
+        assert ok
 
     def test_resolve_exact_file(self, step_pool_dir):
         from adapters.parts.step_pool_adapter import StepPoolAdapter
@@ -406,12 +419,14 @@ class TestPartCADAdapter:
     def test_disabled_by_default(self):
         from adapters.parts.partcad_adapter import PartCADAdapter
         adapter = PartCADAdapter(config={})
-        assert not adapter.is_available()
+        ok, _ = adapter.is_available()
+        assert not ok
 
     def test_enabled_via_config(self):
         from adapters.parts.partcad_adapter import PartCADAdapter
         adapter = PartCADAdapter(config={"enabled": True})
-        assert adapter.is_available()
+        ok, _ = adapter.is_available()
+        assert ok
 
     def test_can_resolve_requires_enabled(self):
         from adapters.parts.partcad_adapter import PartCADAdapter
@@ -587,3 +602,40 @@ def test_jinja_adapter_accepts_part_envelope():
     dims = _resolve_dims_from_spec_envelope_or_lookup(q)
     assert dims is not None
     assert dims.get("w") == 40.0
+
+
+# ─── is_available() tuple contract ────────────────────────────────────────
+
+
+class TestIsAvailableTupleContract:
+    """每个 concrete adapter 的 is_available() 必须返回 (bool, Optional[str])。"""
+
+    def test_jinja_returns_tuple(self):
+        ok, reason = JinjaPrimitiveAdapter().is_available()
+        assert ok is True
+        assert reason is None
+
+    def test_step_pool_returns_tuple(self):
+        ok, reason = StepPoolAdapter().is_available()
+        assert ok is True
+        assert reason is None
+
+    def test_partcad_disabled_returns_false_with_reason(self):
+        a = PartCADAdapter(config={})
+        ok, reason = a.is_available()
+        assert ok is False
+        assert reason is not None
+        assert "partcad" in reason.lower() or "enabled" in reason.lower()
+
+    def test_partcad_enabled_returns_true(self):
+        a = PartCADAdapter(config={"enabled": True})
+        ok, reason = a.is_available()
+        assert ok is True
+        assert reason is None
+
+    def test_bd_warehouse_missing_catalog_returns_false_with_reason(self, tmp_path):
+        a = BdWarehouseAdapter(catalog_path=str(tmp_path / "nonexistent.yaml"))
+        ok, reason = a.is_available()
+        assert ok is False
+        assert reason is not None
+        assert "catalog" in reason.lower() or "bd_warehouse" in reason.lower()

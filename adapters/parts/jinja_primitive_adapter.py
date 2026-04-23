@@ -252,8 +252,8 @@ class JinjaPrimitiveAdapter(PartsAdapter):
 
     name = "jinja_primitive"
 
-    def is_available(self) -> bool:
-        return True
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        return True, None
 
     def can_resolve(self, query) -> bool:
         if query.category in _SKIP_CATEGORIES:

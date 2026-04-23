@@ -51,7 +51,7 @@ class SwToolboxAdapter(PartsAdapter):
 
             validate_size_patterns(size_patterns)
 
-    def is_available(self) -> bool:
+    def is_available(self) -> tuple[bool, Optional[str]]:
         """v4 §5.3: 6 项检查全通过。
 
         检查顺序（短路优先）：
@@ -64,32 +64,32 @@ class SwToolboxAdapter(PartsAdapter):
         7. SwComSession 熔断 → False（v4 决策 #22）
         """
         if sys.platform != "win32":
-            return False
+            return False, None
 
         try:
             from adapters.solidworks.sw_detect import detect_solidworks
             from adapters.solidworks.sw_com_session import get_session
         except ImportError:
-            return False
+            return False, None
 
         info = detect_solidworks()
         if not info.installed:
-            return False
+            return False, None
         if info.version_year < 2024:
-            return False
+            return False, None
         if not info.pywin32_available:
-            return False
+            return False, None
         if not info.toolbox_dir:
-            return False
+            return False, None
         if not info.toolbox_addin_enabled:
-            return False
+            return False, None
 
         # v4 决策 #22: 熔断委托给 SwComSession
         session = get_session()
         if not session.is_healthy():
-            return False
+            return False, None
 
-        return True
+        return True, None
 
     def can_resolve(self, query) -> bool:
         """总是 True（具体匹配由 resolve 决定）。"""

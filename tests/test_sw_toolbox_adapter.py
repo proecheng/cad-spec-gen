@@ -19,7 +19,8 @@ class TestIsAvailable:
 
         monkeypatch.setattr(sys, "platform", "linux")
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_sw_not_installed_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -29,7 +30,8 @@ class TestIsAvailable:
         fake_info = sw_detect.SwInfo(installed=False)
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_version_below_2024_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -45,7 +47,8 @@ class TestIsAvailable:
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_pywin32_missing_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -61,7 +64,8 @@ class TestIsAvailable:
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_toolbox_dir_missing_returns_false(self, monkeypatch):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -77,7 +81,8 @@ class TestIsAvailable:
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_addin_disabled_returns_false(self, monkeypatch):
         """v4 决策 #13: Toolbox Add-In 未启用 → False。"""
@@ -94,7 +99,8 @@ class TestIsAvailable:
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_unhealthy_session_returns_false(self, monkeypatch, tmp_path):
         """v4 决策 #22: SwComSession 熔断 → False。"""
@@ -114,7 +120,8 @@ class TestIsAvailable:
         sess = sw_com_session.get_session()
         sess._unhealthy = True
         a = SwToolboxAdapter()
-        assert a.is_available() is False
+        ok, _ = a.is_available()
+        assert ok is False
 
     def test_all_checks_pass_returns_true(self, monkeypatch, tmp_path):
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
@@ -135,7 +142,8 @@ class TestIsAvailable:
         )
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         a = SwToolboxAdapter()
-        assert a.is_available() is True
+        ok, _ = a.is_available()
+        assert ok is True
 
 
 class TestCanResolve:
