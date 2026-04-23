@@ -156,6 +156,36 @@ def _check_addin_enabled() -> tuple[bool, Optional[DiagnosisInfo]]:
     return True, None
 
 
+def _check_toolbox_path_healthy() -> tuple[bool, Optional[DiagnosisInfo]]:
+    """检查 #7（Track B 版）：toolbox_dir 物理健康（sldedb + sldprt 可读）。
+
+    委托给 sw_detect.check_toolbox_path_healthy，保持 matrix check 接口统一。
+    """
+    try:
+        from adapters.solidworks.sw_detect import detect_solidworks, check_toolbox_path_healthy
+        info = detect_solidworks()
+    except Exception as e:  # noqa: BLE001
+        return False, DiagnosisInfo(
+            code=DiagnosisCode.TOOLBOX_PATH_INVALID,
+            reason=f"读取 Toolbox 路径状态失败：{e}",
+            suggestion="检查 SOLIDWORKS 安装完整性",
+            severity='block',
+        )
+
+    ok, reason = check_toolbox_path_healthy(info)
+    if not ok:
+        return False, DiagnosisInfo(
+            code=DiagnosisCode.TOOLBOX_PATH_INVALID,
+            reason=reason or "Toolbox 目录不健康",
+            suggestion=(
+                "在 SOLIDWORKS Tools → Options → Hole Wizard/Toolbox 中"
+                "重新指定有效 Toolbox 目录，并确保 Toolbox 组件已完整安装"
+            ),
+            severity='block',
+        )
+    return True, None
+
+
 def _check_toolbox_path() -> tuple[bool, Optional[DiagnosisInfo]]:
     """检查 #7：toolbox_dir 可达（区分本地 invalid vs UNC not_accessible）。"""
     try:
@@ -211,7 +241,7 @@ CHECK_ORDER: list[tuple[str, str]] = [
     ('toolbox_supported', '_check_toolbox_supported'),
     ('com_healthy', '_check_com_healthy'),
     ('addin_enabled', '_check_addin_enabled'),
-    ('toolbox_path', '_check_toolbox_path'),
+    ('toolbox_path', '_check_toolbox_path_healthy'),
 ]
 
 _BLOCKING_CHECKS: frozenset[str] = frozenset({
