@@ -30,8 +30,8 @@ class FakeAdapter(PartsAdapter):
         self.resolve_calls = 0
         self.probe_calls = 0
 
-    def is_available(self) -> bool:
-        return True
+    def is_available(self) -> tuple[bool, None]:
+        return True, None
 
     def can_resolve(self, query) -> bool:
         return True
@@ -57,8 +57,8 @@ class MissAdapter(PartsAdapter):
 
     name = "miss"
 
-    def is_available(self) -> bool:
-        return True
+    def is_available(self) -> tuple[bool, None]:
+        return True, None
 
     def can_resolve(self, query) -> bool:
         return False
@@ -75,8 +75,8 @@ class UnavailableAdapter(PartsAdapter):
 
     name = "unavailable"
 
-    def is_available(self) -> bool:
-        return False
+    def is_available(self) -> tuple[bool, None]:
+        return False, None
 
     def can_resolve(self, query) -> bool:
         return False
@@ -230,7 +230,7 @@ class TestResolverDispatch:
         """If an adapter raises, resolver logs and tries the next rule."""
         class BoomAdapter(PartsAdapter):
             name = "boom"
-            def is_available(self): return True
+            def is_available(self): return True, None
             def can_resolve(self, q): return True
             def resolve(self, q, spec): raise ValueError("kaboom")
             def probe_dims(self, q, spec): return None
