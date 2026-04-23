@@ -645,6 +645,83 @@ def _scan_all_addins_by_description() -> Optional[str]:
     return None
 
 
+def _scan_addin_dll_clsid() -> Optional[str]:
+    """Stage 3：在 install_dir\\AddIns\\toolbox*\\ 找 DLL，反查 HKCR\\CLSID 得到 GUID。
+
+    仅在 Stage 1/2 都 miss 时调用（慢路径）。
+    命中后自动写 HKCU\\Software\\SolidWorks\\AddInsStartup\\{guid}=1（B-17）。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    info = detect_solidworks()
+    if not info.install_dir:
+        return None
+
+    # 收集候选 DLL 路径（小写，用于比较）
+    dll_paths: set[str] = set()
+    for sub in ("toolbox", "Toolbox"):
+        d = Path(info.install_dir) / "AddIns" / sub
+        if d.is_dir():
+            for f in d.glob("*.dll"):
+                dll_paths.add(str(f).lower())
+
+    if not dll_paths:
+        return None
+
+    # 在 HKCR\CLSID 里反查 InprocServer32 / LocalServer32 路径
+    try:
+        clsid_root = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "CLSID")
+    except OSError:
+        return None
+
+    found_guid: Optional[str] = None
+    with clsid_root:
+        idx = 0
+        while True:
+            try:
+                guid_str = winreg.EnumKey(clsid_root, idx)
+                idx += 1
+            except OSError:
+                break
+            for server in ("InprocServer32", "LocalServer32"):
+                try:
+                    with winreg.OpenKey(clsid_root, f"{guid_str}\\{server}") as sk:
+                        srv_path = winreg.QueryValue(sk, "")
+                        if srv_path.lower() in dll_paths:
+                            found_guid = (
+                                guid_str
+                                if guid_str.startswith("{")
+                                else f"{{{guid_str}}}"
+                            )
+                            break
+                except OSError:
+                    continue
+            if found_guid:
+                break
+
+    if not found_guid:
+        return None
+
+    # B-17：DLL 物理存在 + GUID 已知 → 写 HKCU AddInsStartup 让 SW 下次启动自动加载
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\SolidWorks\AddInsStartup",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as k:
+            winreg.SetValueEx(k, found_guid, 0, winreg.REG_DWORD, 1)
+    except OSError:
+        pass  # 写失败不阻断：discover 的目的是发现 GUID，写是 best-effort
+
+    return found_guid
+
+
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 

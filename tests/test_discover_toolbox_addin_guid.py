@@ -91,3 +91,56 @@ class TestScanAllAddinsByDescription:
 
         result = sd._scan_all_addins_by_description()
         assert result == fake_guid
+
+
+class TestScanAddinDllClsid:
+    def test_no_install_dir_returns_none(self, monkeypatch):
+        """install_dir 为空 → None。"""
+        from adapters.solidworks import sw_detect
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=False, install_dir=""),
+        )
+        result = sw_detect._scan_addin_dll_clsid()
+        assert result is None
+
+    def test_no_dll_returns_none(self, tmp_path, monkeypatch):
+        """AddIns/toolbox 和 AddIns/Toolbox 下无 dll → None。"""
+        from adapters.solidworks import sw_detect
+        sw_detect._reset_cache()
+        # 有 AddIns/Toolbox 目录但里面没有 dll
+        (tmp_path / "AddIns" / "Toolbox").mkdir(parents=True)
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, install_dir=str(tmp_path)),
+        )
+        result = sw_detect._scan_addin_dll_clsid()
+        assert result is None
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="requires winreg")
+    def test_returns_none_when_clsid_not_in_registry(self, tmp_path, monkeypatch):
+        """DLL 存在但 HKCR\\CLSID 里没有匹配条目 → None。"""
+        import winreg
+        from adapters.solidworks import sw_detect
+        sw_detect._reset_cache()
+
+        addin_dir = tmp_path / "AddIns" / "Toolbox"
+        addin_dir.mkdir(parents=True)
+        (addin_dir / "SWToolbox.dll").write_bytes(b"MZ")
+
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, install_dir=str(tmp_path)),
+        )
+        # mock HKCR\CLSID → 打开即失败（无匹配）
+        original_open = winreg.OpenKey
+
+        def fake_open_key(hive, path, *args, **kwargs):
+            if hive == winreg.HKEY_CLASSES_ROOT and path == "CLSID":
+                raise FileNotFoundError("mock: no CLSID")
+            return original_open(hive, path, *args, **kwargs)
+
+        monkeypatch.setattr(winreg, "OpenKey", fake_open_key)
+        result = sw_detect._scan_addin_dll_clsid()
+        assert result is None
