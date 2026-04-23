@@ -424,7 +424,12 @@ class PartsResolver:
             row_trace: list[str] = []
             result = self.resolve(query, _trace=row_trace)
 
-            matched = result.adapter if result.status != "miss" else "jinja_primitive"
+            if result.status == "miss":
+                matched = "(none)"
+            elif result.status == "fallback":
+                matched = "jinja_primitive"
+            else:
+                matched = result.adapter
             if matched in report.adapter_hits:
                 report.adapter_hits[matched].count += 1
             else:

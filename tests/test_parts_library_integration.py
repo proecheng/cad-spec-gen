@@ -122,8 +122,8 @@ def _fake_partcad_adapter():
         def __init__(self):
             self.calls = 0
 
-        def is_available(self) -> bool:
-            return True
+        def is_available(self) -> tuple[bool, None]:
+            return True, None
 
         def can_resolve(self, query) -> bool:
             return True
