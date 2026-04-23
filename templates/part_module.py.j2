@@ -133,6 +133,12 @@ def make_{{ func_name }}() -> cq.Workplane:
              .box({{ geom_w }}, {{ geom_t }}, {{ geom_h }},
                   centered=(True, True, False)))
     body = _base.union(_wall)
+{% elif step_path %}
+    import os as _os
+    _step = _os.normpath(_os.path.join(_os.path.dirname(__file__), {{ step_path | tojson }}))
+    body = cq.importers.importStep(_step)
+{% elif template_code %}
+{{ template_code }}
 {% else %}
     body = cq.Workplane("XY").box(
         {{ envelope_w }}, {{ envelope_d }}, {{ envelope_h }},

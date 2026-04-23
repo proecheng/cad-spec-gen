@@ -616,6 +616,14 @@ def generate_part_files(
     generated = []
     skipped = []
 
+    # A2-3: 加载用户命名覆盖（template_mapping.json 与 spec 同级目录）
+    _codegen_dir = os.path.join(_PROJECT_ROOT, "codegen")
+    if _codegen_dir not in sys.path:
+        sys.path.insert(0, _codegen_dir)
+    from template_mapping_loader import load_template_mapping, match_template as _match_template
+    _mapping_path = os.path.join(os.path.dirname(spec_path), "template_mapping.json")
+    _user_mapping = load_template_mapping(_mapping_path)
+
     # Parse project/subsystem name from spec title
     project_name, subsystem_name = _parse_spec_title(spec_path)
     if not subsystem_name:
@@ -713,6 +721,15 @@ def generate_part_files(
         # Per-part annotation meta
         part_meta = _parse_annotation_meta(spec_path, p["name_cn"])
 
+        # A2-3: 半参数模板激活
+        _tpl_type = _match_template(p["name_cn"], _user_mapping)
+        if _tpl_type:
+            geom = _apply_template_decision(
+                geom, _tpl_type, part_meta, envelope,
+                part_no=p.get("part_no", ""),
+                output_dir=str(output_dir),
+            )
+
         # Default Ra from material type
         default_ra = SURFACE_RA.get(mat_type, SURFACE_RA.get("default", 3.2))
 
@@ -743,6 +760,8 @@ def generate_part_files(
             gdt_entries=part_meta["gdt"],
             surface_ra=part_meta["surfaces"],
             default_ra=default_ra,
+            step_path=geom.get("step_path"),
+            template_code=geom.get("template_code"),
         )
 
         Path(out_file).write_text(content, encoding="utf-8")

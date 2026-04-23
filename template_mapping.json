@@ -1,0 +1,18 @@
+{
+  "_comment": "用户自定义命名覆盖。键为 name_cn，值为模板类型（8 选 1）。",
+  "_valid_values": ["flange", "housing", "bracket", "spring_mechanism", "sleeve", "plate", "arm", "cover"],
+  "连接盘": "flange",
+  "固定盘": "flange",
+  "外壳": "housing",
+  "机箱": "housing",
+  "限力器": "spring_mechanism",
+  "缓冲件": "spring_mechanism",
+  "轴套": "sleeve",
+  "衬套": "sleeve",
+  "底板": "plate",
+  "安装板": "plate",
+  "端盖": "cover",
+  "盖板": "cover",
+  "连杆": "arm",
+  "摇臂": "arm"
+}
