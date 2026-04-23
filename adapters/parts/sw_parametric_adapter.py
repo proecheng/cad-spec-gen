@@ -125,10 +125,11 @@ class SwParametricAdapter:
         boss_h = boss_h_mm / 1000
 
         swapp = self._get_swapp()
-        model = self._new_part_doc(swapp)
-        if model is None:
-            return None
+        model = None
         try:
+            model = self._new_part_doc(swapp)
+            if model is None:
+                return None
             import math
             ftMgr = model.FeatureManager
             skMgr = model.SketchManager
