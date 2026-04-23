@@ -568,6 +568,79 @@ def find_toolbox_addin_guid() -> Optional[str]:
     return None
 
 
+# ── Track B1：三段式 Toolbox GUID 发现 ──────────────────────────────────────
+
+
+def _addins_candidates(version_year: int) -> list[tuple[int, str]]:
+    """返回 [(hive, subkey_path)]；延迟构造以使用运行时已知的 version_year。
+
+    4 条路径（HKLM × 2 + HKCU × 2）覆盖新装机和历史用户的注册表布局差异。
+    """
+    import winreg  # type: ignore[import-not-found]
+    return [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\SolidWorks\AddIns"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         rf"SOFTWARE\SolidWorks\SOLIDWORKS {version_year}\AddIns"),
+        (winreg.HKEY_CURRENT_USER, r"Software\SolidWorks\AddIns"),
+        (winreg.HKEY_CURRENT_USER,
+         rf"Software\SolidWorks\SOLIDWORKS {version_year}\AddIns"),
+    ]
+
+
+def _scan_all_addins_by_description() -> Optional[str]:
+    """Stage 2：枚举 4 条 AddIns registry 路径，三口径任一命中即返回 GUID。
+
+    命中口径（任一满足即返回）：
+      (a) Description 或 Title value 含 'toolbox'（大小写不敏感）
+      (b) GUID 子键名含 'toolbox'（大小写不敏感）
+      (c) _is_toolbox_guid(name) 前缀匹配（与 Stage 1 口径对齐）
+
+    非 Windows、pywin32 不可用、version_year=0 时均返回 None。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    info = detect_solidworks()
+    if info.version_year == 0:
+        return None
+
+    for hive, path in _addins_candidates(info.version_year):
+        try:
+            with winreg.OpenKey(hive, path, access=winreg.KEY_READ) as root:
+                i = 0
+                while True:
+                    try:
+                        guid = winreg.EnumKey(root, i)
+                        i += 1
+                    except OSError:
+                        break
+
+                    # 口径 (b)/(c)：GUID 子键名匹配
+                    if "toolbox" in guid.lower() or _is_toolbox_guid(guid):
+                        return guid
+
+                    # 口径 (a)：读 Description / Title value
+                    try:
+                        with winreg.OpenKey(root, guid, access=winreg.KEY_READ) as gk:
+                            for val_name in ("Description", "Title"):
+                                try:
+                                    val, _ = winreg.QueryValueEx(gk, val_name)
+                                    if "toolbox" in str(val).lower():
+                                        return guid
+                                except OSError:
+                                    continue
+                    except OSError:
+                        continue
+        except (OSError, FileNotFoundError):
+            continue
+
+    return None
+
+
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 
