@@ -42,6 +42,9 @@ from sw_preflight.types import PartCategory
 __all__ = [
     "PartQuery",
     "ResolveResult",
+    "AdapterHit",
+    "ResolveReportRow",
+    "ResolveReport",
     "PartsResolver",
     "load_registry",
     "default_resolver",
@@ -112,6 +115,51 @@ class ResolveResult:
 # small. We define the resolver loop here and import adapters lazily.
 
 
+@dataclass
+class AdapterHit:
+    count: int
+    unavailable_reason: Optional[str]
+
+
+@dataclass
+class ResolveReportRow:
+    bom_id: str
+    name_cn: str
+    matched_adapter: str
+    attempted_adapters: list[str]
+    status: str  # "hit" | "fallback" | "miss"
+
+
+@dataclass
+class ResolveReport:
+    schema_version: int = 1
+    run_id: str = ""
+    total_rows: int = 0
+    adapter_hits: dict[str, AdapterHit] = field(default_factory=dict)
+    rows: list[ResolveReportRow] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "run_id": self.run_id,
+            "total_rows": self.total_rows,
+            "adapter_hits": {
+                name: {"count": h.count, "unavailable_reason": h.unavailable_reason}
+                for name, h in self.adapter_hits.items()
+            },
+            "rows": [
+                {
+                    "bom_id": r.bom_id,
+                    "name_cn": r.name_cn,
+                    "matched_adapter": r.matched_adapter,
+                    "attempted_adapters": r.attempted_adapters,
+                    "status": r.status,
+                }
+                for r in self.rows
+            ],
+        }
+
+
 class PartsResolver:
     """Ordered dispatch over parts adapters.
 
@@ -151,7 +199,7 @@ class PartsResolver:
 
     # ---- core resolve loop ------------------------------------------------
 
-    def resolve(self, query: PartQuery) -> ResolveResult:
+    def resolve(self, query: PartQuery, _trace: list[str] | None = None) -> ResolveResult:
         """Match query against registry mappings, dispatch to the winning adapter.
 
         Algorithm:
@@ -170,6 +218,15 @@ class PartsResolver:
             if adapter is None:
                 self.log(f"  [resolver] rule matches {query.part_no} but "
                          f"adapter '{adapter_name}' not available")
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(not_registered)")
+                continue
+            _ok, _reason = adapter.is_available()
+            if not _ok:
+                self.log(f"  [resolver] adapter '{adapter_name}' unavailable"
+                         + (f": {_reason}" if _reason else ""))
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(unavailable)")
                 continue
             spec = rule.get("spec", {})
             try:
@@ -183,7 +240,11 @@ class PartsResolver:
                 result.category = _infer_category(rule, adapter)
                 self._decision_log.append(
                     (query.part_no, adapter_name, result.source_tag))
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(hit)")
                 return result
+            if _trace is not None:
+                _trace.append(f"{adapter_name}(miss)")
 
         # Terminal fallback: jinja_primitive (guaranteed available)
         fallback = self._find_adapter("jinja_primitive")
@@ -195,6 +256,8 @@ class PartsResolver:
                 result.category = PartCategory.CUSTOM
                 self._decision_log.append(
                     (query.part_no, "jinja_primitive", result.source_tag))
+                if _trace is not None:
+                    _trace.append("jinja_primitive(fallback)")
                 return result
 
         return ResolveResult.miss()
@@ -327,6 +390,62 @@ class PartsResolver:
             )
 
         return "\n".join(lines)
+
+    def resolve_report(
+        self,
+        bom_rows: list[dict],
+        run_id: str = "",
+    ) -> "ResolveReport":
+        """动态跑完真实 resolve 后输出 per-row 命中轨迹。"""
+        adapter_availability: dict[str, tuple[bool, str | None]] = {
+            a.name: a.is_available() for a in self.adapters
+        }
+
+        report = ResolveReport(run_id=run_id, total_rows=len(bom_rows))
+
+        for name, (ok, reason) in adapter_availability.items():
+            report.adapter_hits[name] = AdapterHit(
+                count=0,
+                unavailable_reason=None if ok else reason,
+            )
+
+        for row in bom_rows:
+            part_no = row.get("part_no", "")
+            name_cn = row.get("name_cn", "")
+
+            query = PartQuery(
+                part_no=part_no,
+                name_cn=name_cn,
+                material=row.get("material", ""),
+                category=row.get("category", ""),
+                make_buy=row.get("make_buy", ""),
+            )
+
+            row_trace: list[str] = []
+            result = self.resolve(query, _trace=row_trace)
+
+            matched = result.adapter if result.status != "miss" else "jinja_primitive"
+            if matched in report.adapter_hits:
+                report.adapter_hits[matched].count += 1
+            else:
+                report.adapter_hits[matched] = AdapterHit(count=1, unavailable_reason=None)
+
+            if result.status == "hit":
+                status = "hit"
+            elif result.status == "fallback":
+                status = "fallback"
+            else:
+                status = "miss"
+
+            report.rows.append(ResolveReportRow(
+                bom_id=part_no,
+                name_cn=name_cn,
+                matched_adapter=matched,
+                attempted_adapters=row_trace,
+                status=status,
+            ))
+
+        return report
 
     def _find_adapter(self, name: str):
         for a in self.adapters:
