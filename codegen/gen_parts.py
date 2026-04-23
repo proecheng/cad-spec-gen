@@ -207,6 +207,36 @@ def _parse_spec_title(spec_path: str) -> tuple:
     return "", ""
 
 
+# A2-0: 语义前缀→零件类别关键词映射表
+_TOL_PREFIX_CATEGORY: dict[str, str] = {
+    "FLANGE":   "法兰",
+    "HOUSING":  "壳体",
+    "SPRING":   "弹簧",
+    "ARM":      "悬臂",
+    "BRACKET":  "支架",
+    "SLEEVE":   "套筒",
+    "CLAMP":    "夹",
+    "PLATE":    "板",
+    "COVER":    "盖",
+}
+
+
+def _tol_belongs_to_part(tol_name: str, part_name_cn: str) -> bool:
+    """判断 dim_tolerance 条目是否归属当前零件。
+
+    命中前缀 → 检查零件 name_cn 是否含对应关键词。
+    未命中任何前缀 → 通用条目，保留给所有零件。
+    """
+    for prefix, keyword in _TOL_PREFIX_CATEGORY.items():
+        if tol_name.upper().startswith(prefix):
+            return keyword in part_name_cn
+    return True
+
+
+def _dim_filter_enabled() -> bool:
+    return os.getenv("CAD_SPEC_GEN_DIM_FILTER", "on").lower() != "off"
+
+
 def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     """Extract §2 annotation metadata for a specific part.
 
@@ -216,8 +246,13 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     text = Path(spec_path).read_text(encoding="utf-8")
     tol_data = extract_tolerances(text.splitlines())
 
-    # Filter tolerances — keep all (they may apply to any part)
+    # Filter tolerances — 按语义前缀过滤，仅保留归属当前零件的条目
     dim_tols = tol_data.get("dim_tols", [])
+    if _dim_filter_enabled() and part_name:
+        dim_tols = [
+            t for t in dim_tols
+            if _tol_belongs_to_part(t.get("name", ""), part_name)
+        ]
     # Filter GD&T — keep entries matching this part name
     gdt = [g for g in tol_data.get("gdt", [])
            if not g.get("parts") or part_name in g["parts"]]
