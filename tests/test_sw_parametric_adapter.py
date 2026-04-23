@@ -18,11 +18,13 @@ class TestSwParametricAdapterAvailability:
 
     def test_is_available_false_when_sw_not_installed(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
-        with patch("adapters.parts.sw_parametric_adapter.detect_solidworks") as mock_detect:
+        with patch("adapters.parts.sw_parametric_adapter.detect_solidworks") as mock_detect, \
+             patch("adapters.solidworks.sw_com_session.get_session") as mock_session:
             mock_detect.return_value = MagicMock(installed=False)
             adapter = SwParametricAdapter()
             ok, reason = adapter.is_available()
         assert ok is False
+        mock_session.assert_not_called()
 
     def test_build_part_returns_none_when_unavailable(self, monkeypatch, tmp_path):
         monkeypatch.setattr("sys.platform", "linux")

@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ def detect_solidworks():
 class SwParametricAdapter:
     """SW COM API 参数化建模适配器（Task 15 框架 + Task 16-18 完整实现）。"""
 
-    def is_available(self) -> tuple[bool, Optional[str]]:
+    def is_available(self) -> tuple[bool, str | None]:
         """复用 sw_toolbox_adapter 的 6 项检查模式（平台 / 安装 / 版本 / pywin32 / toolbox / COM）。"""
         if sys.platform != "win32":
             return False, "非 Windows 平台"
@@ -59,7 +58,7 @@ class SwParametricAdapter:
         params: dict,
         output_dir: Path,
         part_no: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """调用对应 SW 建模方法，导出 STEP 到 output_dir/{part_no}.step。
 
         Returns:
@@ -74,6 +73,7 @@ class SwParametricAdapter:
 
         step_path = Path(output_dir) / f"{part_no}.step"
 
+        # 缓存检查在 is_available() 之后：SW 不可用时不信任旧缓存，强制回退 CadQuery 路径。
         # 缓存：同一文件已存在则跳过（避免重复 NewDocument）
         if step_path.exists():
             return step_path
@@ -85,40 +85,40 @@ class SwParametricAdapter:
                 return None
             return build_fn(params, step_path)
         except Exception as exc:
-            log.debug("SW 建模失败 [%s/%s]: %s", tpl_type, part_no, exc)
+            log.warning("SW 建模失败 [%s/%s]: %s", tpl_type, part_no, exc, exc_info=True)
             return None
 
     # ── 各模板 SW 建模方法（Task 16-18 实现） ──────────────────────────────
 
-    def _build_flange(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_flange(self, params: dict, step_path: Path) -> Path | None:
         """法兰建模（Task 16 实现）。"""
         return None  # Task 16 实现
 
-    def _build_housing(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_housing(self, params: dict, step_path: Path) -> Path | None:
         """外壳建模（Task 17 实现）。"""
         return None  # Task 17 实现
 
-    def _build_bracket(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_bracket(self, params: dict, step_path: Path) -> Path | None:
         """支架建模（Task 17 实现）。"""
         return None  # Task 17 实现
 
-    def _build_sleeve(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_sleeve(self, params: dict, step_path: Path) -> Path | None:
         """套筒建模（Task 17 实现）。"""
         return None  # Task 17 实现
 
-    def _build_spring_mechanism(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_spring_mechanism(self, params: dict, step_path: Path) -> Path | None:
         """弹簧机构建模（Task 18 实现）。"""
         return None  # Task 18 实现
 
-    def _build_plate(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_plate(self, params: dict, step_path: Path) -> Path | None:
         """平板建模（Task 18 实现）。"""
         return None  # Task 18 实现
 
-    def _build_arm(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_arm(self, params: dict, step_path: Path) -> Path | None:
         """臂型件建模（Task 18 实现）。"""
         return None  # Task 18 实现
 
-    def _build_cover(self, params: dict, step_path: Path) -> Optional[Path]:
+    def _build_cover(self, params: dict, step_path: Path) -> Path | None:
         """盖板建模（Task 18 实现）。"""
         return None  # Task 18 实现
 
