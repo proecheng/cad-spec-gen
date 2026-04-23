@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import logging as _log
 import os
 import re
 import sys
@@ -395,6 +396,210 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
         "gdt": gdt,
         "surfaces": surfaces,
     }
+
+
+def _apply_template_decision(
+    geom: dict,
+    tpl_type: str | None,
+    part_meta: dict,
+    envelope: tuple | None,
+    part_no: str = "",
+    output_dir: str = "",
+) -> dict:
+    """SW API 优先 → CadQuery 回退 → 主尺寸缺失时退回 envelope primitive。
+
+    SW 路径：生成 {output_dir}/sw_parts/{part_no}.step，返回 geom["step_path"]。
+    CadQuery 路径：工厂函数返回代码字符串，注入 geom["template_code"]。
+    任意路径失败 → 返回原始 geom（不修改 type）。
+    """
+    if tpl_type is None:
+        return geom
+
+    import sys as _sys_inner
+
+    # ── SW COM API 优先路径 ───────────────────────────────────────────────
+    if _sys_inner.platform == "win32" and output_dir and part_no:
+        try:
+            from adapters.parts.sw_parametric_adapter import SwParametricAdapter
+            _sw = SwParametricAdapter()
+            ok, _ = _sw.is_available()
+            if ok:
+                from pathlib import Path as _Path
+                sw_dir = _Path(output_dir) / "sw_parts"
+                sw_dir.mkdir(parents=True, exist_ok=True)
+                step_path = _sw.build_part(
+                    tpl_type, _extract_params(tpl_type, part_meta, envelope),
+                    sw_dir, part_no
+                )
+                if step_path:
+                    updated = dict(geom)
+                    updated["type"] = tpl_type
+                    updated["kind"] = "step_import"
+                    updated["step_path"] = f"sw_parts/{part_no}.step"
+                    return updated
+        except Exception as _exc:
+            _log.getLogger(__name__).debug("SW 参数化建模失败，回退 CadQuery: %s", _exc)
+
+    # ── CadQuery 工厂函数回退路径 ─────────────────────────────────────────
+    dim_map: dict[str, float] = {}
+    for t in part_meta.get("dim_tolerances", []):
+        try:
+            dim_map[t["name"]] = float(t["nominal"])
+        except (KeyError, ValueError):
+            pass
+
+    env_w, env_d, env_h = envelope if envelope else (0.0, 0.0, 0.0)
+
+    # Ensure codegen/ is importable for part_templates
+    _codegen_dir = os.path.join(_PROJECT_ROOT, "codegen")
+    if _codegen_dir not in sys.path:
+        sys.path.insert(0, _codegen_dir)
+
+    code: str | None = None
+
+    if tpl_type == "flange":
+        from part_templates.flange import make_flange
+        code = make_flange(
+            od=dim_map.get("FLANGE_BODY_OD") or dim_map.get("FLANGE_DIA") or (max(env_w, env_d) or None),
+            id=dim_map.get("FLANGE_BODY_ID") or dim_map.get("FLANGE_ID") or None,
+            thickness=(dim_map.get("FLANGE_TOTAL_THICK") or dim_map.get("FLANGE_THICK")
+                       or dim_map.get("FLANGE_H") or env_h or None),
+            bolt_pcd=dim_map.get("FLANGE_BOLT_PCD") or None,
+            bolt_count=int(dim_map.get("FLANGE_BOLT_N", 6)),
+            boss_h=dim_map.get("FLANGE_BOSS_H", 0.0),
+        )
+    elif tpl_type == "housing":
+        from part_templates.housing import make_housing
+        code = make_housing(
+            width=dim_map.get("HOUSING_W") or env_w or None,
+            depth=dim_map.get("HOUSING_D") or env_d or None,
+            height=dim_map.get("HOUSING_H") or env_h or None,
+            wall_t=dim_map.get("HOUSING_WALL_T") or (min(env_w, env_d) * 0.12 if env_w and env_d else None),
+        )
+    elif tpl_type == "bracket":
+        from part_templates.bracket import make_bracket
+        code = make_bracket(
+            width=dim_map.get("BRACKET_W") or env_w or None,
+            height=dim_map.get("BRACKET_H") or env_h or None,
+            thickness=dim_map.get("BRACKET_T") or env_d or None,
+        )
+    elif tpl_type == "spring_mechanism":
+        from part_templates.spring_mechanism import make_spring_mechanism
+        code = make_spring_mechanism(
+            od=dim_map.get("SPRING_OD") or max(env_w, env_d) or None,
+            id=dim_map.get("SPRING_ID") or None,
+            free_length=dim_map.get("SPRING_L") or env_h or None,
+            wire_d=dim_map.get("SPRING_WIRE_D") or None,
+            coil_n=int(dim_map.get("SPRING_COIL_N", 8)),
+        )
+    elif tpl_type == "sleeve":
+        from part_templates.sleeve import make_sleeve
+        code = make_sleeve(
+            od=dim_map.get("SLEEVE_OD") or max(env_w, env_d) or None,
+            id=dim_map.get("SLEEVE_ID") or None,
+            length=dim_map.get("SLEEVE_L") or env_h or None,
+        )
+    elif tpl_type == "plate":
+        from part_templates.plate import make_plate
+        code = make_plate(
+            width=dim_map.get("PLATE_W") or env_w or None,
+            depth=dim_map.get("PLATE_D") or env_d or None,
+            thickness=dim_map.get("PLATE_T") or env_h or None,
+        )
+    elif tpl_type == "arm":
+        from part_templates.arm import make_arm
+        dims = sorted([env_w, env_d, env_h], reverse=True)
+        code = make_arm(
+            length=dim_map.get("ARM_L") or dim_map.get("ARM_L_2") or (dims[0] if dims else None),
+            width=dim_map.get("ARM_W") or dim_map.get("ARM_SEC_W") or (dims[1] if len(dims) > 1 else None),
+            thickness=dim_map.get("ARM_T") or dim_map.get("ARM_SEC_THICK") or (dims[2] if len(dims) > 2 else None),
+            end_hole_d=dim_map.get("ARM_END_HOLE_D"),
+        )
+    elif tpl_type == "cover":
+        from part_templates.cover import make_cover
+        code = make_cover(
+            od=dim_map.get("COVER_OD") or max(env_w, env_d) or None,
+            thickness=dim_map.get("COVER_T") or env_h or None,
+            id=dim_map.get("COVER_ID") or None,
+        )
+
+    if code is None:
+        print(f"  [template] {tpl_type}: 必填主尺寸缺失，退回 envelope primitive")
+        return geom
+
+    updated = dict(geom)
+    updated["type"] = tpl_type
+    updated["template_code"] = code
+    return updated
+
+
+def _extract_params(tpl_type: str, part_meta: dict, envelope: tuple | None) -> dict:
+    """从 part_meta + envelope 提取各模板所需参数 dict（供 SW adapter 使用）。"""
+    dim_map: dict[str, float] = {}
+    for t in part_meta.get("dim_tolerances", []):
+        try:
+            dim_map[t["name"]] = float(t["nominal"])
+        except (KeyError, ValueError):
+            pass
+    env_w, env_d, env_h = envelope if envelope else (0.0, 0.0, 0.0)
+    if tpl_type == "flange":
+        return {
+            "od": dim_map.get("FLANGE_BODY_OD") or max(env_w, env_d),
+            "id": dim_map.get("FLANGE_BODY_ID") or None,
+            "thickness": dim_map.get("FLANGE_TOTAL_THICK") or env_h,
+            "bolt_pcd": dim_map.get("FLANGE_BOLT_PCD") or None,
+            "bolt_count": int(dim_map.get("FLANGE_BOLT_N", 6)),
+            "boss_h": dim_map.get("FLANGE_BOSS_H", 0.0),
+        }
+    if tpl_type == "housing":
+        return {
+            "width": dim_map.get("HOUSING_W") or env_w,
+            "depth": dim_map.get("HOUSING_D") or env_d,
+            "height": dim_map.get("HOUSING_H") or env_h,
+            "wall_t": dim_map.get("HOUSING_WALL_T") or (min(env_w, env_d) * 0.12 if env_w and env_d else 5.0),
+        }
+    if tpl_type == "bracket":
+        return {
+            "width": dim_map.get("BRACKET_W") or env_w,
+            "height": dim_map.get("BRACKET_H") or env_h,
+            "thickness": dim_map.get("BRACKET_T") or env_d,
+        }
+    if tpl_type == "spring_mechanism":
+        return {
+            "od": dim_map.get("SPRING_OD") or max(env_w, env_d),
+            "id": dim_map.get("SPRING_ID") or None,
+            "free_length": dim_map.get("SPRING_L") or env_h,
+            "wire_d": dim_map.get("SPRING_WIRE_D") or None,
+            "coil_n": int(dim_map.get("SPRING_COIL_N", 8)),
+        }
+    if tpl_type == "sleeve":
+        return {
+            "od": dim_map.get("SLEEVE_OD") or max(env_w, env_d),
+            "id": dim_map.get("SLEEVE_ID") or None,
+            "length": dim_map.get("SLEEVE_L") or env_h,
+        }
+    if tpl_type == "plate":
+        return {
+            "width": dim_map.get("PLATE_W") or env_w,
+            "depth": dim_map.get("PLATE_D") or env_d,
+            "thickness": dim_map.get("PLATE_T") or env_h,
+            "n_hole": int(dim_map.get("PLATE_HOLE_N", 4)),
+        }
+    dims = sorted([env_w, env_d, env_h], reverse=True)
+    if tpl_type == "arm":
+        return {
+            "length": dim_map.get("ARM_L") or dim_map.get("ARM_L_2") or (dims[0] if dims else 100.0),
+            "width": dim_map.get("ARM_W") or (dims[1] if len(dims) > 1 else 20.0),
+            "thickness": dim_map.get("ARM_T") or (dims[2] if len(dims) > 2 else 10.0),
+            "end_hole_d": dim_map.get("ARM_END_HOLE_D", 8.0),
+        }
+    if tpl_type == "cover":
+        return {
+            "od": dim_map.get("COVER_OD") or max(env_w, env_d),
+            "thickness": dim_map.get("COVER_T") or env_h,
+            "id": dim_map.get("COVER_ID") or None,
+        }
+    return {}
 
 
 def generate_part_files(
