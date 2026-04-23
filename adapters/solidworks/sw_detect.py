@@ -747,6 +747,73 @@ def discover_toolbox_addin_guid() -> tuple[Optional[str], str]:
     return None, "none"
 
 
+def check_toolbox_path_healthy(info: SwInfo) -> tuple[bool, Optional[str]]:
+    """B-8：校验 toolbox_dir 的物理健康状态。
+
+    硬要求：
+      1. toolbox_dir 非空
+      2. 目录存在且可枚举
+      3. swbrowser.sldedb 存在（Toolbox 索引）
+      4. 至少 1 个 .sldprt 可读（最多扫两层子目录，避免深递归）
+
+    Returns:
+        (True, None) 健康；(False, reason_str) 不健康。
+    """
+    if not info.toolbox_dir:
+        return False, "toolbox_dir 为空"
+
+    p = Path(info.toolbox_dir)
+
+    # UNC 路径预检（避免 listdir 对不可达网络路径挂起）
+    if str(p).startswith("\\\\"):
+        try:
+            if not p.exists():
+                return False, f"UNC 路径不可达：{info.toolbox_dir}"
+        except OSError as e:
+            return False, f"UNC 路径访问异常：{e}"
+
+    # 目录可枚举
+    try:
+        next(p.iterdir(), None)
+    except (PermissionError, OSError) as e:
+        return False, f"toolbox_dir 不可读：{e}"
+
+    # swbrowser.sldedb 硬要求
+    if not (p / "swbrowser.sldedb").exists():
+        return False, "swbrowser.sldedb 不存在（Toolbox 索引缺失，Toolbox 可能未完整安装）"
+
+    # 至少 1 个 .sldprt 可读（最多扫两层子目录，避免深递归慢）
+    sldprt_found = False
+    for entry in p.iterdir():
+        if entry.is_dir():
+            for sub in entry.iterdir():
+                if sub.is_file() and sub.suffix.lower() == ".sldprt":
+                    try:
+                        sub.stat()
+                        sldprt_found = True
+                    except OSError:
+                        pass
+                elif sub.is_dir():
+                    for f in sub.iterdir():
+                        if f.is_file() and f.suffix.lower() == ".sldprt":
+                            try:
+                                f.stat()
+                                sldprt_found = True
+                            except OSError:
+                                pass
+                            if sldprt_found:
+                                break
+                if sldprt_found:
+                    break
+        if sldprt_found:
+            break
+
+    if not sldprt_found:
+        return False, "toolbox_dir 下未找到可读 .sldprt 文件（Toolbox 零件库可能为空）"
+
+    return True, None
+
+
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
     """安全地从注册表读取字符串值。
 
