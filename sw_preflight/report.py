@@ -72,9 +72,11 @@ def emit_report(bom_rows: list[dict], dry_run: BomDryRunResult,
     except Exception:
         pass
 
+    toolbox_advisory = "addin_enabled" in getattr(preflight, "advisory_failures", {})
     sw_status = {
         'edition': edition_str,
         'toolbox': preflight.passed,
+        'toolbox_advisory': toolbox_advisory,
         'pywin32': True,  # 能跑到这里说明 pywin32 已装（preflight 前置 check 过）
     }
 

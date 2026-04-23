@@ -88,6 +88,7 @@ def run_preflight(
         fixes_applied=fixes,
         diagnosis=check['diagnosis'],
         per_step_ms=per_step,
+        advisory_failures=check.get('advisory_failures', {}),
     )
 
     # 第五步：落 cache（run_id 非空时）

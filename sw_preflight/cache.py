@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 # 序列化格式版本；字段增删/语义变更时 +1。
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # Track B：PreflightResult 加 advisory_failures
 
 
 def write_cache(
