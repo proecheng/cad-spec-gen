@@ -45,3 +45,6 @@ graphify-out/
 artifacts/*/sw_preflight_cache.json
 artifacts/*/sw_report.html
 artifacts/*/sw_report_data.json
+
+# SW 参数化建模导出（运行时生成，不 track）
+**/sw_parts/
