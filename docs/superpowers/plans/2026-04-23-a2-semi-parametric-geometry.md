@@ -4,7 +4,7 @@
 
 **Goal:** 为自制件生成 L2 半参数几何（8 类模板 + 用户命名覆盖），将 11 件中约 7-8 件从 envelope 方块升级为可辨识形状。
 
-**Architecture:** `template_mapping_loader.py` 负责加载用户 `template_mapping.json` + 内置关键词；`codegen/part_templates/*.py` 中的工厂函数返回 Python 代码字符串；`gen_parts.py` 中的 `_apply_template_decision` 将工厂输出注入 `geom["template_code"]`；Jinja 模板通过 `{{ template_code }}` 插入生成代码。
+**Architecture:** 两路建模（SW 优先 / CadQuery 回退）。`_apply_template_decision` 先检查 `SwParametricAdapter.is_available()`：可用时调 SW COM API 建参数化特征并导出 STEP（`sw_parts/{part_no}.step`），Jinja 通过 `{% elif step_path %}` 注入 `importStep()` 调用；SW 不可用时回退到 `codegen/part_templates/*.py` 工厂函数（返回 Python 代码字符串），Jinja 通过 `{% elif template_code %}` 注入。
 
 **Tech Stack:** Python 3.11+, CadQuery 2.x, Jinja2, pytest, uv
 
@@ -31,6 +31,9 @@
 | 新建 | `tests/test_template_mapping.py` | mapping loader + match_template 单测 |
 | 新建 | `tests/test_part_templates.py` | 8 类工厂函数单测（exec + face count） |
 | 新建 | `tests/test_a2_integration.py` | 端到端：gen_parts 生成 → face count 验收 |
+| 新建 | `adapters/parts/sw_parametric_adapter.py` | `SwParametricAdapter.is_available()` + `build_part()` 8 类 SW COM API 实现 |
+| 新建 | `tests/test_sw_parametric_adapter.py` | SW adapter 单测（`@pytest.mark.requires_solidworks` 标记） |
+| 修改 | `.gitignore` | 追加 `**/sw_parts/` |
 
 ---
 
@@ -1278,25 +1281,32 @@ class TestApplyTemplateDecision:
     }
     _ENVELOPE = (160.0, 160.0, 20.0)
 
-    def test_flange_sets_type_and_template_code(self):
+    def test_flange_sets_type_and_template_code(self, monkeypatch, tmp_path):
+        # 强制跳过 SW 路径（隔离 CadQuery 逻辑）
+        monkeypatch.setattr("sys.platform", "linux")
         result = _apply_template_decision(
-            dict(self._BASE_GEOM), "flange", self._FLANGE_META, self._ENVELOPE
+            dict(self._BASE_GEOM), "flange", self._FLANGE_META, self._ENVELOPE,
+            part_no="TEST-001", output_dir=str(tmp_path),
         )
         assert result["type"] == "flange"
         assert "template_code" in result
         assert result["template_code"] is not None
         assert "body" in result["template_code"]
 
-    def test_none_tpl_type_returns_original_geom(self):
+    def test_none_tpl_type_returns_original_geom(self, tmp_path):
         geom = dict(self._BASE_GEOM)
-        result = _apply_template_decision(geom, None, self._FLANGE_META, self._ENVELOPE)
+        result = _apply_template_decision(
+            geom, None, self._FLANGE_META, self._ENVELOPE,
+            part_no="", output_dir=str(tmp_path),
+        )
         assert result is geom
 
-    def test_missing_required_param_falls_back(self):
-        # 无任何 HOUSING 尺寸，且 envelope 也不够
+    def test_missing_required_param_falls_back(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("sys.platform", "linux")
         result = _apply_template_decision(
             dict(self._BASE_GEOM), "housing",
-            {"dim_tolerances": []}, None
+            {"dim_tolerances": []}, None,
+            part_no="TEST-002", output_dir=str(tmp_path),
         )
         # 主尺寸全缺 → fallback，type 不变
         assert result["type"] == "cylinder"
@@ -1313,22 +1323,52 @@ uv run pytest tests/test_apply_template.py -v
 
 - [ ] **Step 3：在 `codegen/gen_parts.py` 中添加 `_apply_template_decision`**
 
-在 `generate_part_files` 函数之前插入：
+在 `generate_part_files` 函数之前插入（注意函数签名新增 `part_no` 和 `output_dir` 参数，以及 SW 优先路径检查）：
 
 ```python
+import logging as _log
+
 def _apply_template_decision(
     geom: dict,
     tpl_type: str | None,
     part_meta: dict,
     envelope: tuple | None,
+    part_no: str = "",
+    output_dir: str = "",
 ) -> dict:
-    """调用对应工厂函数，将 template_code 注入 geom 字典。
+    """SW API 优先 → CadQuery 回退 → 主尺寸缺失时退回 envelope primitive。
 
-    主尺寸缺失（工厂返回 None）→ 返回原始 geom，不修改 type。
+    SW 路径：生成 {output_dir}/sw_parts/{part_no}.step，返回 geom["step_path"]。
+    CadQuery 路径：工厂函数返回代码字符串，注入 geom["template_code"]。
+    任意路径失败 → 返回原始 geom（不修改 type）。
     """
     if tpl_type is None:
         return geom
 
+    import sys
+
+    # ── SW COM API 优先路径 ───────────────────────────────────────────────
+    if sys.platform == "win32" and output_dir and part_no:
+        try:
+            from adapters.parts.sw_parametric_adapter import SwParametricAdapter
+            _sw = SwParametricAdapter()
+            ok, _ = _sw.is_available()
+            if ok:
+                from pathlib import Path
+                sw_dir = Path(output_dir) / "sw_parts"
+                sw_dir.mkdir(parents=True, exist_ok=True)
+                step_path = _sw.build_part(tpl_type, _extract_params(tpl_type, part_meta, envelope), sw_dir, part_no)
+                if step_path:
+                    updated = dict(geom)
+                    updated["type"] = tpl_type
+                    updated["kind"] = "step_import"
+                    # 相对路径：相对于 output_dir（ee_*.py 所在目录）
+                    updated["step_path"] = f"sw_parts/{part_no}.step"
+                    return updated
+        except Exception as _exc:
+            _log.getLogger(__name__).debug("SW 参数化建模失败，回退 CadQuery: %s", _exc)
+
+    # ── CadQuery 工厂函数回退路径 ─────────────────────────────────────────
     dim_map: dict[str, float] = {}
     for t in part_meta.get("dim_tolerances", []):
         try:
@@ -1352,7 +1392,7 @@ def _apply_template_decision(
             boss_h=dim_map.get("FLANGE_BOSS_H", 0.0),
         )
     elif tpl_type == "housing":
-        from codegen.part_templates.housing import make_housing
+        from part_templates.housing import make_housing
         code = make_housing(
             width=dim_map.get("HOUSING_W") or env_w or None,
             depth=dim_map.get("HOUSING_D") or env_d or None,
@@ -1360,14 +1400,14 @@ def _apply_template_decision(
             wall_t=dim_map.get("HOUSING_WALL_T") or (min(env_w, env_d) * 0.12 if env_w and env_d else None),
         )
     elif tpl_type == "bracket":
-        from codegen.part_templates.bracket import make_bracket
+        from part_templates.bracket import make_bracket
         code = make_bracket(
             width=dim_map.get("BRACKET_W") or env_w or None,
             height=dim_map.get("BRACKET_H") or env_h or None,
             thickness=dim_map.get("BRACKET_T") or env_d or None,
         )
     elif tpl_type == "spring_mechanism":
-        from codegen.part_templates.spring_mechanism import make_spring_mechanism
+        from part_templates.spring_mechanism import make_spring_mechanism
         code = make_spring_mechanism(
             od=dim_map.get("SPRING_OD") or max(env_w, env_d) or None,
             id=dim_map.get("SPRING_ID") or None,
@@ -1376,21 +1416,21 @@ def _apply_template_decision(
             coil_n=int(dim_map.get("SPRING_COIL_N", 8)),
         )
     elif tpl_type == "sleeve":
-        from codegen.part_templates.sleeve import make_sleeve
+        from part_templates.sleeve import make_sleeve
         code = make_sleeve(
             od=dim_map.get("SLEEVE_OD") or max(env_w, env_d) or None,
             id=dim_map.get("SLEEVE_ID") or None,
             length=dim_map.get("SLEEVE_L") or env_h or None,
         )
     elif tpl_type == "plate":
-        from codegen.part_templates.plate import make_plate
+        from part_templates.plate import make_plate
         code = make_plate(
             width=dim_map.get("PLATE_W") or env_w or None,
             depth=dim_map.get("PLATE_D") or env_d or None,
             thickness=dim_map.get("PLATE_T") or env_h or None,
         )
     elif tpl_type == "arm":
-        from codegen.part_templates.arm import make_arm
+        from part_templates.arm import make_arm
         dims = sorted([env_w, env_d, env_h], reverse=True)
         code = make_arm(
             length=dim_map.get("ARM_L") or dim_map.get("ARM_L_2") or (dims[0] if dims else None),
@@ -1399,7 +1439,7 @@ def _apply_template_decision(
             end_hole_d=dim_map.get("ARM_END_HOLE_D"),
         )
     elif tpl_type == "cover":
-        from codegen.part_templates.cover import make_cover
+        from part_templates.cover import make_cover
         code = make_cover(
             od=dim_map.get("COVER_OD") or max(env_w, env_d) or None,
             thickness=dim_map.get("COVER_T") or env_h or None,
@@ -1414,6 +1454,75 @@ def _apply_template_decision(
     updated["type"] = tpl_type
     updated["template_code"] = code
     return updated
+
+
+def _extract_params(tpl_type: str, part_meta: dict, envelope: tuple | None) -> dict:
+    """从 part_meta + envelope 提取各模板所需参数 dict（供 SW adapter 使用）。"""
+    dim_map: dict[str, float] = {}
+    for t in part_meta.get("dim_tolerances", []):
+        try:
+            dim_map[t["name"]] = float(t["nominal"])
+        except (KeyError, ValueError):
+            pass
+    env_w, env_d, env_h = envelope if envelope else (0.0, 0.0, 0.0)
+    if tpl_type == "flange":
+        return {
+            "od": dim_map.get("FLANGE_BODY_OD") or max(env_w, env_d),
+            "id": dim_map.get("FLANGE_BODY_ID") or None,
+            "thickness": dim_map.get("FLANGE_TOTAL_THICK") or env_h,
+            "bolt_pcd": dim_map.get("FLANGE_BOLT_PCD") or None,
+            "bolt_count": int(dim_map.get("FLANGE_BOLT_N", 6)),
+            "boss_h": dim_map.get("FLANGE_BOSS_H", 0.0),
+        }
+    if tpl_type == "housing":
+        return {
+            "width": dim_map.get("HOUSING_W") or env_w,
+            "depth": dim_map.get("HOUSING_D") or env_d,
+            "height": dim_map.get("HOUSING_H") or env_h,
+            "wall_t": dim_map.get("HOUSING_WALL_T") or (min(env_w, env_d) * 0.12 if env_w and env_d else 5.0),
+        }
+    if tpl_type == "bracket":
+        return {
+            "width": dim_map.get("BRACKET_W") or env_w,
+            "height": dim_map.get("BRACKET_H") or env_h,
+            "thickness": dim_map.get("BRACKET_T") or env_d,
+        }
+    if tpl_type == "spring_mechanism":
+        return {
+            "od": dim_map.get("SPRING_OD") or max(env_w, env_d),
+            "id": dim_map.get("SPRING_ID") or None,
+            "free_length": dim_map.get("SPRING_L") or env_h,
+            "wire_d": dim_map.get("SPRING_WIRE_D") or None,
+            "coil_n": int(dim_map.get("SPRING_COIL_N", 8)),
+        }
+    if tpl_type == "sleeve":
+        return {
+            "od": dim_map.get("SLEEVE_OD") or max(env_w, env_d),
+            "id": dim_map.get("SLEEVE_ID") or None,
+            "length": dim_map.get("SLEEVE_L") or env_h,
+        }
+    if tpl_type == "plate":
+        return {
+            "width": dim_map.get("PLATE_W") or env_w,
+            "depth": dim_map.get("PLATE_D") or env_d,
+            "thickness": dim_map.get("PLATE_T") or env_h,
+            "n_hole": int(dim_map.get("PLATE_HOLE_N", 4)),
+        }
+    dims = sorted([env_w, env_d, env_h], reverse=True)
+    if tpl_type == "arm":
+        return {
+            "length": dim_map.get("ARM_L") or dim_map.get("ARM_L_2") or (dims[0] if dims else 100.0),
+            "width": dim_map.get("ARM_W") or (dims[1] if len(dims) > 1 else 20.0),
+            "thickness": dim_map.get("ARM_T") or (dims[2] if len(dims) > 2 else 10.0),
+            "end_hole_d": dim_map.get("ARM_END_HOLE_D", 8.0),
+        }
+    if tpl_type == "cover":
+        return {
+            "od": dim_map.get("COVER_OD") or max(env_w, env_d),
+            "thickness": dim_map.get("COVER_T") or env_h,
+            "id": dim_map.get("COVER_ID") or None,
+        }
+    return {}
 ```
 
 **导入规范**：所有 `from part_templates.xxx import` 均使用 `part_templates.*`（不加 `codegen.` 前缀）。`gen_parts.py` 运行时 `codegen/` 已在 `sys.path`，测试时 `tests/test_apply_template.py` 也会 `sys.path.insert(0, codegen_dir)` 保证可解析。两个环境路径一致，无需 `importlib`。
@@ -1448,9 +1557,13 @@ git commit -m "feat(a2-3a): _apply_template_decision — 8 类模板参数提取
 
 - [ ] **Step 1：修改 `templates/part_module.py.j2`**
 
-在现有 `{% elif geom_type == "l_bracket" %}` 块之后、`{% else %}` 之前插入：
+在现有 `{% elif geom_type == "l_bracket" %}` 块之后、`{% else %}` 之前插入两个新分支（SW 路径在前，CadQuery 在后）：
 
 ```jinja
+{% elif step_path %}
+    import os as _os
+    _step = _os.normpath(_os.path.join(_os.path.dirname(__file__), {{ step_path | tojson }}))
+    body = cq.importers.importStep(_step)
 {% elif template_code %}
 {{ template_code }}
 ```
@@ -1461,6 +1574,10 @@ git commit -m "feat(a2-3a): _apply_template_decision — 8 类模板参数提取
 {% elif geom_type == "ring" %}     ... 保持不变 ...
 {% elif geom_type == "disc_arms" %} ... 保持不变 ...
 {% elif geom_type == "l_bracket" %} ... 保持不变 ...
+{% elif step_path %}
+    import os as _os
+    _step = _os.normpath(_os.path.join(_os.path.dirname(__file__), {{ step_path | tojson }}))
+    body = cq.importers.importStep(_step)
 {% elif template_code %}
 {{ template_code }}
 {% else %}
@@ -1479,6 +1596,7 @@ git commit -m "feat(a2-3a): _apply_template_decision — 8 类模板参数提取
     from template_mapping_loader import load_template_mapping, match_template as _match_template
     _mapping_path = os.path.join(os.path.dirname(spec_path), "template_mapping.json")
     _user_mapping = load_template_mapping(_mapping_path)
+    _output_dir = output_dir  # generate_part_files 的输出目录参数（已有）
 ```
 
 在 `for p in parts:` 循环中，**`part_meta = _parse_annotation_meta(spec_path, p["name_cn"])` 这行之后**（约 line 331）插入：
@@ -1487,15 +1605,20 @@ git commit -m "feat(a2-3a): _apply_template_decision — 8 类模板参数提取
         # A2-3: 半参数模板激活（复用已有 part_meta，不重复调用 _parse_annotation_meta）
         _tpl_type = _match_template(p["name_cn"], _user_mapping)
         if _tpl_type:
-            geom = _apply_template_decision(geom, _tpl_type, part_meta, envelope)
+            geom = _apply_template_decision(
+                geom, _tpl_type, part_meta, envelope,
+                part_no=p.get("part_no", ""),
+                output_dir=str(_output_dir),
+            )
 ```
 
-在 `content = template.render(...)` 调用中追加参数：
+在 `content = template.render(...)` 调用中追加两个参数：
 
 ```python
         content = template.render(
             ...  # 原有参数保持不变
-            template_code=geom.get("template_code"),  # ← 新增
+            step_path=geom.get("step_path"),      # ← 新增：SW STEP 路径
+            template_code=geom.get("template_code"),  # ← 新增：CadQuery 代码字符串
         )
 ```
 
@@ -1737,23 +1860,832 @@ git commit -m "test(a2-7): 集成验收 ee_001_02 套筒 face≥20 + mapping.jso
 uv run pytest --tb=short -q
 ```
 
-预期：原有 990+ + 新增测试全部通过
+预期：原有 990+ + 新增测试全部通过（requires_solidworks 在 CI Linux 自动 skip）
 
 - [ ] **验收清单核对**
 
 | 验收项 | 命令 |
 |---|---|
 | A2-0：法兰件无 SPRING_PIN_BORE | `pytest tests/test_a2_integration.py::TestFlangeA20Filter` |
-| 法兰 face ≥ 30 | `pytest tests/test_a2_integration.py::TestFlangeGeometry` |
+| 法兰 face ≥ 30（CadQuery 路径） | `pytest tests/test_a2_integration.py::TestFlangeGeometry` |
 | 套筒 face ≥ 20 | `pytest tests/test_a2_integration.py::TestSleeveGeometry` |
 | mapping.json 无 WARNING | `pytest tests/test_a2_integration.py::TestMappingJsonRouting` |
 | 8 类工厂函数 | `pytest tests/test_part_templates.py` |
 | filter 单测 | `pytest tests/test_dim_filter.py` |
 | mapping loader | `pytest tests/test_template_mapping.py` |
+| SW adapter is_available | `pytest tests/test_sw_parametric_adapter.py::TestSwParametricAdapterAvailability` |
+| SW 法兰 STEP 生成（需 SW） | `pytest tests/test_sw_parametric_adapter.py::TestSwParametricAdapterBuildFlange -m requires_solidworks` |
+| SW 全路径集成（需 SW） | `pytest tests/test_sw_parametric_adapter.py::TestSwPathIntegration -m requires_solidworks` |
 
-- [ ] **最终 commit**
+- [ ] **最终 commit（CadQuery 路径）**
 
 ```bash
 git add -A
 git commit -m "feat(a2): A2 半参数几何升级完成 — 8 模板 + template_mapping.json + A2-0 过滤"
+```
+
+---
+
+## Task 15：SW 参数化适配器框架（is_available + 框架 + stub）
+
+**Files:**
+- Create: `adapters/parts/sw_parametric_adapter.py`
+- Create: `tests/test_sw_parametric_adapter.py`
+- Modify: `.gitignore`
+
+- [ ] **Step 1：写失败测试**
+
+新建 `tests/test_sw_parametric_adapter.py`：
+
+```python
+"""SW 参数化适配器单测。requires_solidworks 标记在非 Windows CI 上 skip。"""
+import sys
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from adapters.parts.sw_parametric_adapter import SwParametricAdapter
+
+
+class TestSwParametricAdapterAvailability:
+    def test_is_available_returns_false_on_linux(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "linux")
+        adapter = SwParametricAdapter()
+        ok, reason = adapter.is_available()
+        assert ok is False
+
+    def test_is_available_false_when_sw_not_installed(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        with patch("adapters.parts.sw_parametric_adapter.detect_solidworks") as mock_detect:
+            mock_detect.return_value = MagicMock(installed=False)
+            adapter = SwParametricAdapter()
+            ok, reason = adapter.is_available()
+        assert ok is False
+
+    def test_build_part_returns_none_when_unavailable(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("sys.platform", "linux")
+        adapter = SwParametricAdapter()
+        result = adapter.build_part("flange", {"od": 90, "id": 22, "thickness": 30, "bolt_pcd": 70, "bolt_count": 6, "boss_h": 0}, tmp_path, "TEST-001")
+        assert result is None
+
+
+@pytest.mark.requires_solidworks
+class TestSwParametricAdapterBuildFlange:
+    def test_build_flange_creates_step_file(self, tmp_path):
+        adapter = SwParametricAdapter()
+        ok, _ = adapter.is_available()
+        assert ok, "SW 不可用，跳过（应由 marker 保护）"
+        step = adapter.build_part(
+            "flange",
+            {"od": 90.0, "id": 22.0, "thickness": 30.0, "bolt_pcd": 70.0, "bolt_count": 6, "boss_h": 5.0},
+            tmp_path,
+            "TEST-001",
+        )
+        assert step is not None
+        assert Path(step).exists()
+        assert Path(step).suffix.lower() == ".step"
+```
+
+- [ ] **Step 2：运行确认失败**
+
+```bash
+uv run pytest tests/test_sw_parametric_adapter.py::TestSwParametricAdapterAvailability -v
+```
+
+预期：`ImportError: cannot import name 'SwParametricAdapter'`
+
+- [ ] **Step 3：创建 `adapters/parts/sw_parametric_adapter.py`**
+
+```python
+"""
+adapters/parts/sw_parametric_adapter.py — SW COM API 参数化建模适配器。
+
+当 SolidWorks 可用时，用 SW API 创建参数化特征并导出 STEP；
+不可用时返回 None，调用方回退到 CadQuery 路径。
+
+SW API 尺寸单位为米（m），内部统一 /1000 换算。
+"""
+from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
+from typing import Optional
+
+log = logging.getLogger(__name__)
+
+_VALID_TEMPLATES = {
+    "flange", "housing", "bracket", "spring_mechanism",
+    "sleeve", "plate", "arm", "cover",
+}
+
+
+def detect_solidworks():
+    from adapters.solidworks.sw_detect import detect_solidworks as _det
+    return _det()
+
+
+class SwParametricAdapter:
+    """SW COM API 参数化建模适配器（Task 15 框架 + Task 16-18 完整实现）。"""
+
+    def is_available(self) -> tuple[bool, Optional[str]]:
+        """复用 sw_toolbox_adapter 的 6 项检查模式（平台 / 安装 / 版本 / pywin32 / toolbox / COM）。"""
+        if sys.platform != "win32":
+            return False, "非 Windows 平台"
+        try:
+            from adapters.solidworks.sw_com_session import get_session
+        except ImportError:
+            return False, "sw_com_session 不可导入"
+
+        info = detect_solidworks()
+        if not info.installed:
+            return False, "SolidWorks 未安装"
+        if info.version_year < 2024:
+            return False, f"SW 版本 {info.version_year} < 2024"
+        if not info.pywin32_available:
+            return False, "pywin32 不可用"
+
+        session = get_session()
+        if not session.is_healthy():
+            return False, "COM session 熔断"
+
+        return True, None
+
+    def build_part(
+        self,
+        tpl_type: str,
+        params: dict,
+        output_dir: Path,
+        part_no: str,
+    ) -> Optional[Path]:
+        """调用对应 SW 建模方法，导出 STEP 到 output_dir/{part_no}.step。
+
+        Returns:
+            STEP 绝对路径（Path）；任意步骤失败返回 None。
+        """
+        ok, _ = self.is_available()
+        if not ok:
+            return None
+        if tpl_type not in _VALID_TEMPLATES:
+            log.warning("未知模板类型: %s", tpl_type)
+            return None
+
+        step_path = Path(output_dir) / f"{part_no}.step"
+
+        # 缓存：同一文件已存在则跳过（避免重复 NewDocument）
+        if step_path.exists():
+            return step_path
+
+        try:
+            build_fn = getattr(self, f"_build_{tpl_type}", None)
+            if build_fn is None:
+                log.debug("_build_%s 尚未实现，回退 CadQuery", tpl_type)
+                return None
+            return build_fn(params, step_path)
+        except Exception as exc:
+            log.debug("SW 建模失败 [%s/%s]: %s", tpl_type, part_no, exc)
+            return None
+
+    # ── 各模板 SW 建模方法（Task 16-18 实现） ──────────────────────────────
+
+    def _build_flange(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 16 实现
+
+    def _build_housing(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 17 实现
+
+    def _build_bracket(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 17 实现
+
+    def _build_sleeve(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 17 实现
+
+    def _build_spring_mechanism(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 18 实现
+
+    def _build_plate(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 18 实现
+
+    def _build_arm(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 18 实现
+
+    def _build_cover(self, params: dict, step_path: Path) -> Optional[Path]:
+        return None  # Task 18 实现
+
+    # ── SW API 工具方法 ────────────────────────────────────────────────────
+
+    def _get_swapp(self):
+        """获取 ISldWorks Application 对象（通过 sw_com_session）。"""
+        from adapters.solidworks.sw_com_session import get_session
+        session = get_session()
+        return session.sldworks  # ISldWorks IDispatch
+
+    def _new_part_doc(self, swapp) -> object:
+        """新建空白零件文档，返回 IModelDoc2。"""
+        # swDocumentTypes_Part = 1
+        template = swapp.GetUserPreferenceStringValue(9)  # swUserPreferenceStringValue_DefaultPartTemplate = 9
+        doc = swapp.NewDocument(template, 1, 0, 0)
+        return doc
+
+    def _close_doc(self, swapp, path: str) -> None:
+        """静默关闭文档（不保存）。"""
+        try:
+            swapp.CloseDoc(path)
+        except Exception:
+            pass
+
+    def _export_step(self, model, step_path: Path) -> bool:
+        """将当前 model 导出为 STEP，返回是否成功。"""
+        import os
+        step_path.parent.mkdir(parents=True, exist_ok=True)
+        # swSaveAsCurrentVersion = 0, swSaveAsOptions_Silent = 1
+        errors = model.SaveAs3(str(step_path), 0, 1)
+        return step_path.exists()
+```
+
+- [ ] **Step 4：追加 `.gitignore` 条目**
+
+在 `.gitignore` 中追加：
+
+```
+# SW 参数化建模导出（运行时生成，不 track）
+**/sw_parts/
+```
+
+- [ ] **Step 5：运行确认通过**
+
+```bash
+uv run pytest tests/test_sw_parametric_adapter.py::TestSwParametricAdapterAvailability -v
+```
+
+预期：3 个测试全部 PASS
+
+- [ ] **Step 6：全量回归**
+
+```bash
+uv run pytest --tb=short -q
+```
+
+- [ ] **Step 7：Commit**
+
+```bash
+git add adapters/parts/sw_parametric_adapter.py tests/test_sw_parametric_adapter.py .gitignore
+git commit -m "feat(a2-sw-0): SwParametricAdapter 框架 — is_available + build_part stub"
+```
+
+---
+
+## Task 16：SW 法兰（flange）COM API 完整实现
+
+**Files:**
+- Modify: `adapters/parts/sw_parametric_adapter.py`（`_build_flange`）
+
+- [ ] **Step 1：补全 `_build_flange` 实现**
+
+替换 `_build_flange` 的 `return None  # Task 16 实现` 为完整代码：
+
+```python
+def _build_flange(self, params: dict, step_path: Path) -> Optional[Path]:
+    """SW COM API 创建法兰：圆盘 + 中心孔 + 螺栓孔环 + 可选凸台。
+
+    SW API 尺寸单位为米，所有 mm 参数均 /1000 换算。
+    """
+    import math
+
+    od = float(params.get("od") or 0) / 1000      # 外径 m
+    id_ = float(params.get("id") or 0) / 1000     # 内径 m
+    thick = float(params.get("thickness") or 0) / 1000  # 厚度 m
+    bolt_pcd = float(params.get("bolt_pcd") or 0) / 1000  # 螺栓节圆直径 m
+    bolt_n = int(params.get("bolt_count") or 6)
+    boss_h = float(params.get("boss_h") or 0) / 1000
+
+    if od <= 0 or thick <= 0:
+        return None
+
+    bolt_r = bolt_pcd / 2 if bolt_pcd > 0 else od * 0.375
+    bolt_hole_r = 0.004  # 默认螺栓孔半径 4mm
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        # ── Step A：在 Top Plane 画外圆 + 内圆，Extrude 主体 ───────────
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCircleByRadius2(0, 0, 0, od / 2)
+        if id_ > 0:
+            skMgr.CreateCircleByRadius2(0, 0, 0, id_ / 2)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+
+        # Extrude（swEndCondBlind=0, depth=thick）
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, thick, 0,
+            False, False, False, False,
+            0.0, 0.0, False, False, False, False,
+            1, 1, 1, 0, 0, False,
+        )
+
+        # ── Step B：螺栓孔环（Circular Pattern Cut）──────────────────────
+        if bolt_r > 0 and bolt_n > 0:
+            angle_step = 2 * math.pi / bolt_n
+            for i in range(bolt_n):
+                angle = i * angle_step
+                cx = bolt_r * math.cos(angle)
+                cy = bolt_r * math.sin(angle)
+
+                model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+                skMgr.InsertSketch(True)
+                skMgr.CreateCircleByRadius2(cx, cy, 0, bolt_hole_r)
+                model.ClearSelection2(True)
+                skMgr.InsertSketch(True)
+
+                # Cut Extrude（Through All = swEndCondThroughAll = 6）
+                ftMgr.FeatureExtrusion3(
+                    False, False, False, 6, 0, thick, 0,
+                    False, False, False, False,
+                    0.0, 0.0, False, False, False, False,
+                    1, 1, 1, 0, 0, False,
+                )
+
+        # ── Step C：可选凸台（boss_h > 0）────────────────────────────────
+        if boss_h > 0:
+            boss_r = od * 0.3  # 凸台半径 ≈ 外径 30%
+            model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius2(0, 0, thick, boss_r)
+            if id_ > 0:
+                skMgr.CreateCircleByRadius2(0, 0, thick, id_ / 2)
+            model.ClearSelection2(True)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                True, False, False, 0, 0, boss_h, 0,
+                False, False, False, False,
+                0.0, 0.0, False, False, False, False,
+                1, 1, 1, 0, 0, False,
+            )
+
+        # ── 导出 STEP ───────────────────────────────────────────────────
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+
+    finally:
+        self._close_doc(swapp, model.GetPathName() if hasattr(model, "GetPathName") else "")
+```
+
+- [ ] **Step 2：在 Windows + SW 2024+ 本机运行 requires_solidworks 测试**
+
+```bash
+uv run pytest tests/test_sw_parametric_adapter.py::TestSwParametricAdapterBuildFlange -v -m requires_solidworks
+```
+
+预期：`test_build_flange_creates_step_file` PASS，`sw_parts/TEST-001.step` 文件存在且 > 0 字节
+
+- [ ] **Step 3：全量回归**
+
+```bash
+uv run pytest --tb=short -q
+```
+
+- [ ] **Step 4：Commit**
+
+```bash
+git add adapters/parts/sw_parametric_adapter.py
+git commit -m "feat(a2-sw-1): _build_flange — SW COM API 参数化法兰 + STEP 导出"
+```
+
+---
+
+## Task 17：SW housing / bracket / sleeve COM API 实现
+
+**Files:**
+- Modify: `adapters/parts/sw_parametric_adapter.py`（`_build_housing`、`_build_bracket`、`_build_sleeve`）
+
+- [ ] **Step 1：实现 `_build_housing`**
+
+替换 `_build_housing` 的 `return None  # Task 17 实现`：
+
+```python
+def _build_housing(self, params: dict, step_path: Path) -> Optional[Path]:
+    """矩形壳体：外壳 Box + shell（抽壳）+ 安装柱（4 个）。"""
+    w = float(params.get("width") or 0) / 1000
+    d = float(params.get("depth") or 0) / 1000
+    h = float(params.get("height") or 0) / 1000
+    wall = float(params.get("wall_t") or max(w, d) * 0.12) / 1000
+
+    if w <= 0 or d <= 0 or h <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        # 外壳矩形草图 → Extrude
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCenterRectangle2(0, 0, 0, w / 2, d / 2, 0)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, h, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        # Shell（抽壳）— 选顶面 → Shell feature
+        # 选顶面（Z=h 处）
+        model.Extension.SelectByID2("", "FACE", 0, 0, h, False, 0, None, 0)
+        ftMgr.FeatureShell3(wall, False, False, 1)
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 2：实现 `_build_bracket`**
+
+替换 `_build_bracket` 的 `return None  # Task 17 实现`：
+
+```python
+def _build_bracket(self, params: dict, step_path: Path) -> Optional[Path]:
+    """L 形支架：竖板 + 底板（两矩形拼接 90°）。"""
+    w = float(params.get("width") or 0) / 1000
+    h = float(params.get("height") or 0) / 1000
+    t = float(params.get("thickness") or 0) / 1000
+
+    if w <= 0 or h <= 0 or t <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        # 竖板：w × h，厚 t
+        model.Extension.SelectByID2("Front Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCenterRectangle2(0, h / 2, 0, w / 2, h, 0)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, t, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        # 底板：w × (w*0.8)，厚 t，从底部向 Y+ 延伸
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        base_d = w * 0.8
+        skMgr.CreateCenterRectangle2(0, base_d / 2, 0, w / 2, base_d, 0)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, t, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 3：实现 `_build_sleeve`**
+
+替换 `_build_sleeve` 的 `return None  # Task 17 实现`：
+
+```python
+def _build_sleeve(self, params: dict, step_path: Path) -> Optional[Path]:
+    """套筒：外圆柱 + 同轴内孔。"""
+    od = float(params.get("od") or 0) / 1000
+    id_ = float(params.get("id") or od * 0.5) / 1000
+    length = float(params.get("length") or 0) / 1000
+
+    if od <= 0 or length <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCircleByRadius2(0, 0, 0, od / 2)
+        if id_ > 0:
+            skMgr.CreateCircleByRadius2(0, 0, 0, id_ / 2)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, length, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 4：运行 requires_solidworks 测试（Windows 本机）**
+
+```bash
+uv run pytest tests/test_sw_parametric_adapter.py -m requires_solidworks -v
+```
+
+预期：所有 requires_solidworks 标记测试通过（需在 Windows + SW 2024+ 本机运行）
+
+- [ ] **Step 5：全量回归**
+
+```bash
+uv run pytest --tb=short -q
+```
+
+- [ ] **Step 6：Commit**
+
+```bash
+git add adapters/parts/sw_parametric_adapter.py
+git commit -m "feat(a2-sw-2): _build_housing/bracket/sleeve SW COM API 实现"
+```
+
+---
+
+## Task 18：SW spring_mechanism / plate / arm / cover + 集成验收
+
+**Files:**
+- Modify: `adapters/parts/sw_parametric_adapter.py`（`_build_spring_mechanism`、`_build_plate`、`_build_arm`、`_build_cover`）
+- Modify: `tests/test_sw_parametric_adapter.py`（追加集成验收测试）
+
+- [ ] **Step 1：实现 `_build_spring_mechanism`**
+
+替换 `return None  # Task 18 实现`（spring_mechanism）：
+
+```python
+def _build_spring_mechanism(self, params: dict, step_path: Path) -> Optional[Path]:
+    """弹簧机构：同轴环柱（简化版，实际弹簧螺旋在 SW 中需 Helix 扫掠，此处先用空心柱代替）。"""
+    od = float(params.get("od") or 0) / 1000
+    id_ = float(params.get("id") or od * 0.6) / 1000
+    free_length = float(params.get("free_length") or 0) / 1000
+
+    if od <= 0 or free_length <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCircleByRadius2(0, 0, 0, od / 2)
+        skMgr.CreateCircleByRadius2(0, 0, 0, id_ / 2)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, free_length, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 2：实现 `_build_plate`**
+
+替换 `return None  # Task 18 实现`（plate）：
+
+```python
+def _build_plate(self, params: dict, step_path: Path) -> Optional[Path]:
+    """安装板：矩形板 + 四角安装孔。"""
+    import math
+    w = float(params.get("width") or 0) / 1000
+    d = float(params.get("depth") or 0) / 1000
+    t = float(params.get("thickness") or 0) / 1000
+    n_hole = int(params.get("n_hole") or 4)
+    hole_r = 0.0025  # 2.5mm
+
+    if w <= 0 or d <= 0 or t <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        # 主板
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCenterRectangle2(0, 0, 0, w / 2, d / 2, 0)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, t, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        # 四角孔（简化：均匀分布 n_hole 个）
+        margin = min(w, d) * 0.1
+        corners = [
+            (w / 2 - margin, d / 2 - margin),
+            (-w / 2 + margin, d / 2 - margin),
+            (-w / 2 + margin, -d / 2 + margin),
+            (w / 2 - margin, -d / 2 + margin),
+        ]
+        for cx, cy in corners[:n_hole]:
+            model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius2(cx, cy, 0, hole_r)
+            model.ClearSelection2(True)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                False, False, False, 6, 0, t, 0,
+                False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+            )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 3：实现 `_build_arm` 和 `_build_cover`**
+
+```python
+def _build_arm(self, params: dict, step_path: Path) -> Optional[Path]:
+    """细长臂：矩形梁 + 两端连接孔。"""
+    length = float(params.get("length") or 0) / 1000
+    width = float(params.get("width") or 20) / 1000
+    thick = float(params.get("thickness") or 10) / 1000
+    end_hole_r = float(params.get("end_hole_d") or 8) / 2 / 1000
+
+    if length <= 0 or width <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        model.Extension.SelectByID2("Front Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCenterRectangle2(0, 0, 0, length / 2, width / 2, 0)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, thick, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        # 两端中心孔（贯穿厚度方向）
+        for cx in [length / 2 - width / 2, -(length / 2 - width / 2)]:
+            model.Extension.SelectByID2("Front Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius2(cx, 0, 0, end_hole_r)
+            model.ClearSelection2(True)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                False, False, False, 6, 0, thick, 0,
+                False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+            )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+
+
+def _build_cover(self, params: dict, step_path: Path) -> Optional[Path]:
+    """端盖：圆盘 + 可选中心孔 + 紧固孔环。"""
+    import math
+    od = float(params.get("od") or 0) / 1000
+    thick = float(params.get("thickness") or 0) / 1000
+    id_ = float(params.get("id") or 0) / 1000
+    n_hole = int(params.get("n_hole") or 4)
+    bolt_r = od * 0.375
+    bolt_hole_r = 0.0025
+
+    if od <= 0 or thick <= 0:
+        return None
+
+    swapp = self._get_swapp()
+    model = self._new_part_doc(swapp)
+    if model is None:
+        return None
+
+    try:
+        skMgr = model.SketchManager
+        ftMgr = model.FeatureManager
+
+        model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+        skMgr.InsertSketch(True)
+        skMgr.CreateCircleByRadius2(0, 0, 0, od / 2)
+        if id_ > 0:
+            skMgr.CreateCircleByRadius2(0, 0, 0, id_ / 2)
+        model.ClearSelection2(True)
+        skMgr.InsertSketch(True)
+        ftMgr.FeatureExtrusion3(
+            True, False, False, 0, 0, thick, 0,
+            False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+        )
+
+        for i in range(n_hole):
+            angle = 2 * math.pi * i / n_hole
+            cx = bolt_r * math.cos(angle)
+            cy = bolt_r * math.sin(angle)
+            model.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, False, 0, None, 0)
+            skMgr.InsertSketch(True)
+            skMgr.CreateCircleByRadius2(cx, cy, 0, bolt_hole_r)
+            model.ClearSelection2(True)
+            skMgr.InsertSketch(True)
+            ftMgr.FeatureExtrusion3(
+                False, False, False, 6, 0, thick, 0,
+                False, False, False, False, 0, 0, False, False, False, False, 1, 1, 1, 0, 0, False,
+            )
+
+        ok = self._export_step(model, step_path)
+        return step_path if ok else None
+    finally:
+        self._close_doc(swapp, "")
+```
+
+- [ ] **Step 4：追加全路径集成验收测试**
+
+在 `tests/test_sw_parametric_adapter.py` 追加：
+
+```python
+@pytest.mark.requires_solidworks
+class TestSwPathIntegration:
+    """验证 gen_parts 在 SW 可用时走 SW 路径，生成的 ee_*.py 含 importStep。"""
+
+    def test_generate_part_files_uses_sw_step_for_flange(self, tmp_path):
+        """gen_parts 对法兰件应生成 importStep 调用（SW 路径）。"""
+        import subprocess, sys
+        from pathlib import Path
+        repo = Path(__file__).parent.parent
+        result = subprocess.run(
+            [sys.executable, "-m", "codegen.gen_parts",
+             "cad/end_effector/CAD_SPEC.md", str(tmp_path), "--force"],
+            cwd=repo, capture_output=True, text=True, timeout=300,
+        )
+        assert result.returncode == 0, result.stderr
+        ee001 = tmp_path / "ee_001_01.py"
+        assert ee001.exists()
+        content = ee001.read_text(encoding="utf-8")
+        assert "importStep" in content, "SW 路径生成的 ee_001_01.py 应包含 importStep"
+        assert "sw_parts" in content
+```
+
+- [ ] **Step 5：运行集成验收（Windows + SW 本机）**
+
+```bash
+uv run pytest tests/test_sw_parametric_adapter.py::TestSwPathIntegration -v -m requires_solidworks
+```
+
+- [ ] **Step 6：全量回归**
+
+```bash
+uv run pytest --tb=short -q
+```
+
+预期：990+ 原有测试 + 新增非 SW 测试全部通过；requires_solidworks 测试在 Windows 本机全部通过
+
+- [ ] **Step 7：Commit**
+
+```bash
+git add adapters/parts/sw_parametric_adapter.py tests/test_sw_parametric_adapter.py
+git commit -m "feat(a2-sw-3): _build_spring/plate/arm/cover + 全路径集成验收"
 ```
