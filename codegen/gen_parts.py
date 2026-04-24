@@ -76,13 +76,17 @@ try:
     from codegen.gen_build import parse_bom_tree  # 脚本运行时可用
 except ImportError:
     parse_bom_tree = None  # type: ignore[assignment]
-from cad_spec_defaults import strip_part_prefix
+try:
+    from cad_spec_defaults import strip_part_prefix  # 脚本运行时可用
+except ImportError:
+    strip_part_prefix = None  # type: ignore[assignment]
 
 
 def _safe_module_name(part_no: str, name_cn: str) -> str:
     """Generate a clean Python module/function name from part number."""
     # 通用前缀剥离: GIS-EE-001-01 → EE-001-01 → ee_001_01
-    suffix = strip_part_prefix(part_no).lower().replace("-", "_")
+    _strip = strip_part_prefix or (lambda x: x)
+    suffix = _strip(part_no).lower().replace("-", "_")
     # Python identifiers cannot start with a digit; prefix with 'p' if needed
     if suffix and suffix[0].isdigit():
         suffix = "p" + suffix
@@ -739,8 +743,14 @@ def generate_part_files(
             _tpl_type = _match_template(p["name_cn"], _user_mapping)
 
         # Derive material_type
-        from cad_spec_defaults import classify_material_type, SURFACE_RA
+        try:
+            from cad_spec_defaults import classify_material_type, SURFACE_RA  # 脚本运行时可用
+        except ImportError:
+            classify_material_type = None  # type: ignore[assignment]
+            SURFACE_RA = {}  # type: ignore[assignment]
 
+        if classify_material_type is None:
+            raise RuntimeError("cad_spec_defaults 不可用（包导入模式）")
         mat_type = classify_material_type(p["material"])
         if mat_type is None:
             print(
