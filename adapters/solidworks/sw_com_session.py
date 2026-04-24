@@ -36,6 +36,7 @@ CIRCUIT_BREAKER_THRESHOLD = 3
 # v4 决策 #23: atomic write 校验
 MIN_STEP_FILE_SIZE = 1024
 STEP_MAGIC_PREFIX = b"ISO-10303"
+_STAGE_CONFIG_NOT_FOUND = "config_not_found"
 
 
 class SwComSession:
@@ -62,21 +63,23 @@ class SwComSession:
             return None
         return dict(self._last_convert_diagnostics)
 
-    def convert_sldprt_to_step(self, sldprt_path, step_out) -> bool:
+    def convert_sldprt_to_step(
+        self, sldprt_path, step_out, target_config: str | None = None
+    ) -> bool:
         """转换单个 sldprt 为 STEP（Part 2c P0 subprocess 守护版）。
 
-        全方法包 self._lock（保证 singleton 串行）。subprocess 执行转换，
-        成功时 validate + atomic rename；失败累加熔断计数。
+        保持 -> bool 兼容现有调用（sw_warmup.py:326/385 无需修改）。
+        exit 5 (config_not_found) 通过 last_convert_diagnostics["stage"] 传递，不计熔断器。
 
         Returns:
             True: 成功
-            False: 任何失败（不抛异常），自动累加熔断计数。
+            False: 任何失败（不抛异常）。exit 5 时熔断计数不增加。
         """
         sldprt_path = str(os.fspath(sldprt_path))
         step_out = str(os.fspath(step_out))
 
         with self._lock:
-            self._last_convert_diagnostics = None  # 入口重置，防止跨调用残留
+            self._last_convert_diagnostics = None
             if self._unhealthy:
                 log.info(
                     "熔断器已开：跳过 convert（系统性故障，call reset_session() 清除）"
@@ -84,42 +87,45 @@ class SwComSession:
                 self._set_diag("circuit_breaker_open", None, "")
                 return False
 
-            success = False
             try:
-                success = self._do_convert(sldprt_path, step_out)
+                rc = self._do_convert(sldprt_path, step_out, target_config)
             except Exception as e:
                 log.warning("convert 未预期异常: %s", e)
                 self._set_diag(
                     "unexpected_exception", None, f"{type(e).__name__}: {e}"[:500]
                 )
-                success = False
+                rc = 4
 
-            if success:
+            if rc == 0:
                 self._consecutive_failures = 0
-            else:
-                self._consecutive_failures += 1
-                if self._consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
-                    log.error(
-                        "COM 熔断触发（连续 %d 次失败）",
-                        self._consecutive_failures,
-                    )
-                    self._unhealthy = True
-            return success
+                return True
+            if rc == 5:
+                # config_not_found 不是 COM 错误，不计入熔断器
+                # _do_convert 已调用 _set_diag(_STAGE_CONFIG_NOT_FOUND, 5, ...)
+                return False
+            # 真错误：计入熔断器
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
+                log.error(
+                    "COM 熔断触发（连续 %d 次失败）",
+                    self._consecutive_failures,
+                )
+                self._unhealthy = True
+            return False
 
-    def _do_convert(self, sldprt_path: str, step_out: str) -> bool:
-        """启动 worker subprocess，成功则 validate + atomic rename。"""
-        # tmp 必须以 .step 结尾（SaveAs3 按扩展名推断格式；.step.tmp 会被 SW
-        # 拒为 swFileSaveAsNotSupported=256，SW-B0 spike H3 实证）
+    def _do_convert(self, sldprt_path: str, step_out: str,
+                    target_config: str | None = None) -> int:
+        """启动 worker subprocess，成功则 validate + atomic rename。
+
+        返回 int exit code：0=成功, 5=config未找到, 其他=真错误。
+        （私有方法；公共 API convert_sldprt_to_step 保持 -> bool）
+        """
         tmp_path = str(Path(step_out).with_suffix(".tmp.step"))
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
 
-        cmd = [
-            sys.executable,
-            "-m",
-            _WORKER_MODULE,
-            sldprt_path,
-            tmp_path,
-        ]
+        cmd = [sys.executable, "-m", _WORKER_MODULE, sldprt_path, tmp_path]
+        if target_config:
+            cmd.append(target_config)
 
         try:
             proc = subprocess.run(
@@ -139,32 +145,35 @@ class SwComSession:
             )
             self._set_diag("timeout", None, "")
             self._cleanup_tmp(tmp_path)
-            return False
+            return 1
+
+        stderr = (proc.stderr or "")[:500]
+
+        if proc.returncode == 5:
+            self._set_diag(_STAGE_CONFIG_NOT_FOUND, 5, stderr)
+            self._cleanup_tmp(tmp_path)
+            return 5
 
         if proc.returncode != 0:
             log.warning(
                 "convert subprocess rc=%d sldprt=%s stderr=%s",
                 proc.returncode,
                 sldprt_path,
-                (proc.stderr or "")[:300],
+                stderr[:300],
             )
-            self._set_diag(
-                "subprocess_error", proc.returncode, (proc.stderr or "")[:500]
-            )
+            self._set_diag("subprocess_error", proc.returncode, stderr)
             self._cleanup_tmp(tmp_path)
-            return False
+            return proc.returncode
 
         if not self._validate_step_file(tmp_path):
             log.warning("convert tmp STEP 校验失败: %s", tmp_path)
-            self._set_diag(
-                "validation_failure", proc.returncode, (proc.stderr or "")[:500]
-            )
+            self._set_diag("validation_failure", proc.returncode, stderr)
             self._cleanup_tmp(tmp_path)
-            return False
+            return 3
 
-        self._set_diag("success", proc.returncode, (proc.stderr or "")[:500])
+        self._set_diag("success", proc.returncode, stderr)
         os.replace(tmp_path, step_out)
-        return True
+        return 0
 
     @staticmethod
     def _cleanup_tmp(tmp_path: str) -> None:

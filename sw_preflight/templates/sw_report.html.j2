@@ -64,6 +64,29 @@ pywin32: {{ '✅' if sw_status.pywin32 else '❌' }}</div>
   </table>
   <p style="margin-top:8px;">总行数: {{ resolve_report.total_rows }} | Run ID: {{ resolve_report.run_id }}</p>
 </div>
+
+  {% if resolve_report.rows %}
+  <div class="section">
+    <div class="section-head">Config 匹配明细 ({{ resolve_report.rows|length }} 行)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:.9em;">
+      <tr style="text-align:left;background:#f4f4f4;">
+        <th style="padding:.3em .6em;">零件名</th>
+        <th>Adapter</th>
+        <th>Config 匹配</th>
+        <th>状态</th>
+      </tr>
+      {% for row in resolve_report.rows %}
+      <tr style="border-top:1px solid #eee;">
+        <td style="padding:.3em .6em;">{{ row.name_cn }}</td>
+        <td>{{ row.matched_adapter }}</td>
+        <td class="{{ 'ok' if row.config_match=='matched' else 'warn' if row.config_match=='fallback' else '' }}">
+          {{ row.config_match }}</td>
+        <td>{{ row.status }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
 {% endif %}
 
 </body></html>

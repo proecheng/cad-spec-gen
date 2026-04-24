@@ -128,6 +128,7 @@ class ResolveReportRow:
     matched_adapter: str
     attempted_adapters: list[str]
     status: str  # "hit" | "fallback" | "miss"
+    config_match: str = "n/a"  # B-16: "matched" | "fallback" | "n/a"
 
 
 @dataclass
@@ -154,6 +155,7 @@ class ResolveReport:
                     "matched_adapter": r.matched_adapter,
                     "attempted_adapters": r.attempted_adapters,
                     "status": r.status,
+                    "config_match": r.config_match,
                 }
                 for r in self.rows
             ],
@@ -453,6 +455,7 @@ class PartsResolver:
                 matched_adapter=matched,
                 attempted_adapters=row_trace,
                 status=status,
+                config_match=(result.metadata or {}).get("config_match", "n/a"),
             ))
 
         return report
