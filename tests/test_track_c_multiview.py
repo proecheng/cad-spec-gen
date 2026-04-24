@@ -4,7 +4,6 @@ import importlib.util
 import os
 import sys
 
-import pytest
 from unittest.mock import patch
 
 
@@ -51,7 +50,7 @@ def test_fal_canny_replaced_with_hero_image(tmp_path):
         fal_enhancer.enhance_image(str(png), "test prompt", fal_cfg, "V2", {})
 
     controlnets = captured["args"]["controlnets"]
-    assert controlnets[0]["control_image_url"] == f"https://mock/uploaded/v1_hero.jpg"
+    assert controlnets[0]["control_image_url"] == "https://mock/uploaded/v1_hero.jpg"
 
 
 def test_fal_seed_injected_when_set(tmp_path):
