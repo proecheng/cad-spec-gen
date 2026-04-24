@@ -276,8 +276,8 @@ def run_sw_warmup(args) -> int:
     """
     try:
         with acquire_warmup_lock(_default_lock_path()):
-            if getattr(args, "smoke_test", False):
-                return _run_smoke_test(args)
+            if args.smoke_test:
+                return _run_smoke_test()
             return _run_warmup_locked(args)
     except WarmupLockContentionError as e:
         print(f"[sw-warmup] {e}")
@@ -350,11 +350,10 @@ def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
     return out
 
 
-def _run_smoke_test(args) -> int:
+def _run_smoke_test() -> int:
     """单件 smoke test：取 GB/bearing 第一个件做转换验收。"""
     import shutil
     import tempfile
-    from pathlib import Path
 
     from adapters.solidworks import sw_toolbox_catalog
     from adapters.solidworks.sw_com_session import get_session
