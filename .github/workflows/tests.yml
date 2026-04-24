@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-timeout pytest-asyncio pytest-cov
-          pip install jinja2 pyyaml
+          pip install jinja2 pyyaml psutil
           pip install cadquery ezdxf
 
       - name: Install optional parts library deps
