@@ -66,6 +66,11 @@ class TestPreflight:
             "get_toolbox_index_path",
             lambda config: tmp_path / "idx.json",
         )
+        # psutil mock：让 preflight 的 SW 进程检测通过
+        import psutil
+        fake_proc = mock.MagicMock()
+        fake_proc.info = {"name": "SLDWORKS.EXE"}
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([fake_proc]))
 
         rc = mod.run_sw_warmup(_make_args(standard="GB", dry_run=True))
         captured = capsys.readouterr()
@@ -173,6 +178,11 @@ class TestTargetSelection:
             "get_toolbox_index_path",
             lambda config: tmp_path / "idx.json",
         )
+        # psutil mock：让 preflight 的 SW 进程检测通过
+        import psutil
+        fake_proc = mock.MagicMock()
+        fake_proc.info = {"name": "SLDWORKS.EXE"}
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([fake_proc]))
         return fake_toolbox
 
     def test_dry_run_selects_but_does_not_convert(self, tmp_path, monkeypatch, capsys):
