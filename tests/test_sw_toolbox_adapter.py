@@ -472,6 +472,81 @@ class TestProbeDims:
         )
         assert result is None
 
+    def _mock_probe_prereqs(self, monkeypatch, tmp_path):
+        """共享 mock：index/match/detect，不含缓存路径（各测试自己建文件）。"""
+        from adapters.solidworks import sw_detect, sw_toolbox_catalog
+
+        fake_part = sw_toolbox_catalog.SwToolboxPart(
+            standard="GB",
+            subcategory="bolts and studs",
+            sldprt_path=str(tmp_path / "GB_T70-1.SLDPRT"),
+            filename="GB_T70-1.SLDPRT",
+            tokens=["gb", "t70", "bolt"],
+        )
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "idx.json")
+        monkeypatch.setattr(sw_toolbox_catalog, "load_toolbox_index", lambda *a, **kw: {})
+        monkeypatch.setattr(sw_toolbox_catalog, "extract_size_from_name", lambda *a, **kw: {"size": "M6"})
+        monkeypatch.setattr(sw_toolbox_catalog, "build_query_tokens_weighted", lambda *a, **kw: ["m6"])
+        monkeypatch.setattr(sw_toolbox_catalog, "match_toolbox_part", lambda *a, **kw: (fake_part, 0.8))
+        monkeypatch.setattr(sw_toolbox_catalog, "get_toolbox_cache_root", lambda cfg: tmp_path / "cache")
+
+    def test_probe_dims_config_aware_cache_hit_calls_bbox(self, monkeypatch, tmp_path):
+        """M-1 修复：有 config_name_resolver 时 probe_dims 应找到带后缀缓存文件并调用 bbox 解析。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+        self._mock_probe_prereqs(monkeypatch, tmp_path)
+
+        # 只在 config-aware 路径建文件（旧版代码找不到它 → 返回 None）
+        config_step = tmp_path / "cache" / "GB" / "bolts and studs" / "GB_T70-1_GB_T70.1-M6x20.step"
+        config_step.parent.mkdir(parents=True, exist_ok=True)
+        config_step.touch()
+
+        sentinel = (10.0, 20.0, 30.0)
+        monkeypatch.setattr(SwToolboxAdapter, "_probe_step_bbox", lambda self, p: sentinel)
+
+        resolver_cfg = {
+            "standard_transforms": [{"from": "GB/T ", "to": "GB_T"}, {"from": " ", "to": ""}],
+            "size_transforms": [{"from": "×", "to": "x"}],
+            "separator": "-",
+        }
+
+        class Q:
+            name_cn = "M6×20 hex bolt"
+            material = "GB/T 70.1 M6×20"
+            part_category = "fastener"
+
+        adapter = SwToolboxAdapter(config={"min_score": 0.30, "config_name_resolver": resolver_cfg})
+        result = adapter.probe_dims(Q(), {"standard": "GB", "subcategories": ["bolts and studs"], "part_category": "fastener"})
+        assert result == sentinel  # 找到 config-aware 文件 → 调用了 bbox 解析
+
+    def test_probe_dims_without_resolver_cfg_uses_bare_stem(self, monkeypatch, tmp_path):
+        """M-1 回归：无 config_name_resolver 时，probe_dims 走裸 stem 路径（向后兼容）。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+
+        self._mock_probe_prereqs(monkeypatch, tmp_path)
+
+        # 只在裸 stem 路径放文件
+        bare_step = tmp_path / "cache" / "GB" / "bolts and studs" / "GB_T70-1.step"
+        bare_step.parent.mkdir(parents=True, exist_ok=True)
+        bare_step.touch()
+
+        sentinel = (5.0, 10.0, 15.0)
+        monkeypatch.setattr(SwToolboxAdapter, "_probe_step_bbox", lambda self, p: sentinel)
+
+        class Q:
+            name_cn = "M6×20 hex bolt"
+            material = "GB/T 70.1 M6×20"
+            part_category = "fastener"
+
+        adapter = SwToolboxAdapter(config={"min_score": 0.30})  # 无 config_name_resolver
+        result = adapter.probe_dims(Q(), {"standard": "GB", "subcategories": ["bolts and studs"], "part_category": "fastener"})
+        assert result == sentinel  # 找到裸 stem 文件 → 调用了 bbox 解析
+
 
 class TestExtractFullSpec:
     def test_gb_t_fastener_with_length(self):

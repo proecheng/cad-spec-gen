@@ -435,11 +435,21 @@ class SwToolboxAdapter(PartsAdapter):
 
         part, _ = match
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
+        # 镜像 resolve() 步骤 7：有 config_name_resolver 时使用带后缀的缓存路径（M-1 修复）
+        resolver_cfg = self.config.get("config_name_resolver", {})
+        material = getattr(query, "material", "") or ""
+        target_config = _build_candidate_config(material, resolver_cfg) if resolver_cfg else None
+        safe_config = re.sub(r'[^\w.\-]', '_', target_config) if target_config else ""
+        cache_stem = (
+            f"{Path(part.filename).stem}_{safe_config}"
+            if safe_config
+            else Path(part.filename).stem
+        )
         step_abs = (
             cache_root
             / part.standard
             / part.subcategory
-            / (Path(part.filename).stem + ".step")
+            / (cache_stem + ".step")
         )
         if not step_abs.exists():
             return None  # 决策 #4: 缓存未命中 → 不触发 COM
