@@ -152,3 +152,47 @@ def test_llm_fix_fallback_to_original_on_no_code_block():
     with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", return_value="just text, no code"):
         result = _llm_fix("def make_part(): pass", "API_SIGNATURE", "TypeError")
     assert result == "def make_part(): pass"
+
+
+def test_llm_generate_step1_json_fail_returns_none():
+    """Step 1 JSON 解析失败 → 直接返回 None，不进入 Step 2"""
+    from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
+    call_count = {"n": 0}
+    def mock_call(prompt, timeout=10):
+        call_count["n"] += 1
+        return "not valid json at all"
+    with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", side_effect=mock_call):
+        result = _llm_generate_cadquery("弹簧", "弹簧机构", (50, 50, 80))
+    assert result is None
+    assert call_count["n"] == 1  # 只调用 1 次（Step 1），Step 2 未调用
+
+
+def test_llm_generate_with_template_hint_includes_hint_in_prompt():
+    """template_hint 传入时 Step 1 Prompt 应包含该提示"""
+    from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
+    prompts_seen = []
+    def mock_call(prompt, timeout=10):
+        prompts_seen.append(prompt)
+        return "not valid json"
+    with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", side_effect=mock_call):
+        _llm_generate_cadquery("法兰盘", "spec", (90, 90, 20), template_hint="flange")
+    assert "flange" in prompts_seen[0]
+
+
+def test_llm_generate_self_correction_retries_on_exec_fail(tmp_path):
+    """自我修正：exec 失败后调 _llm_fix，最多 3 次"""
+    pytest.importorskip("cadquery")
+    from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
+
+    step1_json = '{"base_shape":"cylinder","dimensions":{"od":50,"h":80},"features":[],"principal_axis":"Z"}'
+    bad_code = "def make_part():\n    return UNDEFINED_VAR"
+    call_count = {"n": 0}
+    def mock_call(prompt, timeout=10):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return step1_json  # Step 1 feature extraction
+        return f"```python\n{bad_code}\n```"  # Step 2 + fix calls
+    with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", side_effect=mock_call):
+        result = _llm_generate_cadquery("弹簧限力机构", "spec", (50, 50, 80))
+    assert result is None  # 3 次仍失败
+    assert call_count["n"] == 4  # Step1(1) + Step2(1) + fix×2(2) = 4
