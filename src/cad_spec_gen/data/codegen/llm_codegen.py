@@ -135,7 +135,7 @@ def _classify_error(exc: Exception) -> str:
         return "SYNTAX_ERROR"
     if name in ("ImportError", "ModuleNotFoundError", "NameError", "AttributeError"):
         return "IMPORT_OR_NAME_ERROR"
-    if name == "TypeError" or "unexpected keyword" in msg or "argument" in msg:
+    if name == "TypeError" or "unexpected keyword" in msg or "got an unexpected" in msg or "positional argument" in msg:
         return "API_SIGNATURE"
     if "stdfail" in msg or "brepface" in msg or "null" in msg or "notdone" in msg:
         return "INVALID_GEOMETRY"
@@ -173,7 +173,7 @@ def _llm_fix(code: str, error_class: str, error_msg: str) -> str:
         error_class=error_class,
         error_msg=error_msg[:500],
         hint=hint,
-        code=code,
+        code=code[:3000],
     )
     raw = _call_gemini_text(prompt, timeout=_TIMEOUT_L2)
     if raw is None:

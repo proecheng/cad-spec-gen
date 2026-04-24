@@ -129,18 +129,12 @@ def test_write_enriched_placeholder_creates_files(tmp_path):
 
 def test_classify_error_syntax():
     from cad_spec_gen.data.codegen.llm_codegen import _classify_error
-    try:
-        exec("def f(:\n    pass")
-    except SyntaxError as e:
-        assert _classify_error(e) == "SYNTAX_ERROR"
+    assert _classify_error(SyntaxError("invalid syntax")) == "SYNTAX_ERROR"
 
 
 def test_classify_error_import():
     from cad_spec_gen.data.codegen.llm_codegen import _classify_error
-    try:
-        exec("import nonexistent_lib_xyz")
-    except ImportError as e:
-        assert _classify_error(e) == "IMPORT_OR_NAME_ERROR"
+    assert _classify_error(ImportError("no module named 'xyz'")) == "IMPORT_OR_NAME_ERROR"
 
 
 def test_llm_fix_extracts_code_block():
