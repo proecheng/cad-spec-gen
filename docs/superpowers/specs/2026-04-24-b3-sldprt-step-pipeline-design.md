@@ -17,7 +17,7 @@
 - 直接调用 `sw_convert_worker` 转换 GB/bearing + GB/washers 件 → exit 0，STEP 文件有效（346KB/60KB，`ISO-10303-21` 头正确）
 - **排除原因 2**（OpenDoc6 因 Add-in 未激活失败）
 - **排除原因 3**（SW Premium 授权层拒绝）
-- **根因：SW 未运行时冷启动超时**：`SINGLE_CONVERT_TIMEOUT_SEC = 20s` 远小于 SW 冷启动时间（30-60s）。2026-04-14 运行时 SW 未开启，前 3 次 worker timeout → 熔断器触发 → 剩余全部瞬间返回 False（sub-ms 失败模式与熔断器行为完全吻合）
+- **根因：SW 未运行时 COM 激活快速失败 → 熔断器**：错误日志时序显示前 3 次失败各耗时 ~645ms（非 20s 超时；645ms = subprocess 启动 ~200ms + COM 激活快速失败 ~400ms），第 4 条起 sub-ms 瞬间返回——这是熔断器开启后 `circuit_breaker_open` 路径的典型特征（`CIRCUIT_BREAKER_THRESHOLD = 3`）。COM 激活具体错误码无法从错误日志还原（日志仅记录"FAIL"，不含 worker stderr），但 2026-04-24 spike 在 SW 运行时成功排除授权/路径问题；SW 未运行是最可能的触发条件
 
 ### 1.3 额外发现
 
@@ -40,10 +40,14 @@ app.FrameState = 0  # swWindowMinimized，抑制 Toolbox modal 对话框
 **改动 B-15：`Dispatch` → `DispatchEx`**
 
 ```python
-# 旧
+# 旧（worker 顶部 import）
+from win32com.client import VARIANT, Dispatch
+# 新（合并替换，删除 Dispatch，加入 DispatchEx）
+from win32com.client import VARIANT, DispatchEx
+
+# 旧（调用处）
 app = Dispatch("SldWorks.Application")
 # 新
-from win32com.client import DispatchEx
 app = DispatchEx("SldWorks.Application")
 ```
 原因：强制新 COM 进程实例，避免多个 worker subprocess 竞争同一 SW 会话。
@@ -98,7 +102,7 @@ if args.smoke_test:
 3. 转换到 `tempfile.mkdtemp()` 临时目录
 4. 打印结果 + 删除临时文件：
    - 成功 → `[sw-warmup] smoke-test PASS — STEP 文件 {size}KB` → exit 0
-   - 失败 → `[sw-warmup] smoke-test FAIL — {worker stderr 摘要}` → exit 2
+   - 失败 → `[sw-warmup] smoke-test FAIL — {session.last_convert_diagnostics['stderr_tail']}` → exit 2
 
 ---
 
@@ -114,7 +118,7 @@ if args.smoke_test:
 
 | 测试 | 文件 | 覆盖点 |
 |------|------|--------|
-| `test_sw_convert_worker_close_doc` | `tests/test_sw_convert_worker.py` | mock `model.GetPathName()` 返回字符串，验证 `CloseDoc` 入参正确 |
+| `test_sw_convert_worker_close_doc` | `tests/test_sw_convert_worker.py` | mock `model.GetPathName()` 返回字符串，验证 `CloseDoc` 入参正确；同时更新 `_patch_com` helper 将 `Dispatch` mock 改为 `DispatchEx` |
 | `test_sw_preflight_sw_not_running` | `tests/test_sw_warmup.py` | mock `psutil.process_iter` 返回空 → preflight 返回 False + 含"SolidWorks 未运行"文案 |
 | `test_sw_preflight_sw_running` | `tests/test_sw_warmup.py` | mock `psutil.process_iter` 返回含 `SLDWORKS.EXE` 进程 → preflight 通过 |
 | `test_smoke_test_pass` | `tests/test_sw_warmup.py` | mock `get_session().convert_sldprt_to_step` 返回 True → exit 0 + PASS 文案 |
@@ -128,7 +132,7 @@ if args.smoke_test:
 ## 5. 验收标准
 
 1. `sw-warmup --smoke-test` 在 SW 已开本机 → exit 0，打印 `smoke-test PASS`
-2. SW 未开时运行任何 `sw-warmup` 子命令 → exit 2，打印含"SolidWorks 未运行"的提示
+2. SW 未开时运行 `sw-warmup`（任何 flag 组合，`--dry-run` 也在内）→ exit 2，打印含"SolidWorks 未运行"的提示
 3. `sw_convert_worker` 单件转换无 `CloseDoc TypeError` 警告
 4. 全套单元测试通过（Linux + Windows CI）
 
