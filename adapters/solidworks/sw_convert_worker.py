@@ -16,18 +16,34 @@ Worker 职责：
     2  OpenDoc6 errors 非 0 或返回 null model
     3  SaveAs3 saved=False 或 errors 非 0
     4  任何未预期 Exception（COM 崩溃、pywin32 import 失败等）
+    5  config 未找到（ShowConfiguration2 前匹配失败）
     64 命令行参数错误
 
 CLI:
-    python -m adapters.solidworks.sw_convert_worker <sldprt_path> <tmp_out_path>
+    python -m adapters.solidworks.sw_convert_worker <sldprt_path> <tmp_out_path> [config_name]
 """
 
 from __future__ import annotations
 
+import re
 import sys
 
 
-def _convert(sldprt_path: str, tmp_out_path: str) -> int:
+def _resolve_config(candidate: str, available: list[str]) -> str | None:
+    """两步匹配：精确（大小写不敏感）→ 模糊（去 -_/ 空格后比较）。"""
+    lower_map = {n.lower(): n for n in available}
+    if candidate.lower() in lower_map:
+        return lower_map[candidate.lower()]
+
+    def _norm(s: str) -> str:
+        return re.sub(r'[-_\s]', '', s).lower()
+
+    norm_map = {_norm(n): n for n in available}
+    return norm_map.get(_norm(candidate))
+
+
+def _convert(sldprt_path: str, tmp_out_path: str,
+             target_config: str | None = None) -> int:
     """实际 COM 转换；返回上面契约中的 exit code。"""
     try:
         import pythoncom
@@ -59,6 +75,19 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
                     file=sys.stderr,
                 )
                 return 2
+
+            if target_config:
+                config_mgr = model.ConfigurationManager
+                available = list(config_mgr.GetConfigurationNames())
+                matched = _resolve_config(target_config, available)
+                if matched is None:
+                    print(
+                        f"[B-16] config 未匹配: {target_config!r}",
+                        file=sys.stderr,
+                    )
+                    print(f"[B-16] 可用列表: {available}", file=sys.stderr)
+                    return 5
+                model.ShowConfiguration2(matched)
 
             try:
                 disp_none_a = VARIANT(pythoncom.VT_DISPATCH, None)
@@ -100,14 +129,15 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 2:
+    if len(argv) not in (2, 3):
         print(
             "usage: python -m adapters.solidworks.sw_convert_worker "
-            "<sldprt_path> <tmp_out_path>",
+            "<sldprt_path> <tmp_out_path> [config_name]",
             file=sys.stderr,
         )
         return 64
-    return _convert(argv[0], argv[1])
+    target_config = argv[2] if len(argv) == 3 else None
+    return _convert(argv[0], argv[1], target_config)
 
 
 if __name__ == "__main__":
