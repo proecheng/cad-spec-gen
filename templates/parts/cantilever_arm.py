@@ -10,7 +10,7 @@ MATCH_KEYWORDS: list[str] = [
     "悬臂", "臂", "连杆", "摇臂",
 ]
 MATCH_PRIORITY: int = 10
-TEMPLATE_CATEGORY: str = "bracket"
+TEMPLATE_CATEGORY: str = "mechanical_interface"
 TEMPLATE_VERSION: str = "1.0"
 
 

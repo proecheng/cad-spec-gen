@@ -3,7 +3,7 @@ from __future__ import annotations
 
 MATCH_KEYWORDS: list[str] = [
     "sleeve", "cylindrical sleeve", "bushing",
-    "套筒", "套管", "衬套",
+    "套筒", "套管", "衬套", "轴套",
 ]
 MATCH_PRIORITY: int = 10
 TEMPLATE_CATEGORY: str = "mechanical_interface"

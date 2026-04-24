@@ -3,7 +3,7 @@ from __future__ import annotations
 
 MATCH_KEYWORDS: list[str] = [
     "spring", "spring mechanism", "spring unit",
-    "弹簧", "弹簧机构", "压簧", "弹力",
+    "弹簧", "弹簧机构", "压簧", "拉簧", "扭簧",
 ]
 MATCH_PRIORITY: int = 10
 TEMPLATE_CATEGORY: str = "mechanical_interface"
