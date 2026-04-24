@@ -178,3 +178,146 @@ class TestWorkerConvert:
         rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
         assert rc == 0
         assert fake_app.FrameState == 0
+
+
+class TestResolveConfig:
+    """_resolve_config 两步匹配：精确 → 模糊。"""
+
+    def test_exact_match_case_insensitive(self):
+        from adapters.solidworks.sw_convert_worker import _resolve_config
+        available = ["GB_T70.1-M6x10", "GB_T70.1-M6x20"]
+        assert _resolve_config("GB_T70.1-M6x20", available) == "GB_T70.1-M6x20"
+
+    def test_exact_match_case_insensitive_lower(self):
+        from adapters.solidworks.sw_convert_worker import _resolve_config
+        available = ["GB_T70.1-M6x20"]
+        assert _resolve_config("gb_t70.1-m6x20", available) == "GB_T70.1-M6x20"
+
+    def test_fuzzy_match_strips_dashes(self):
+        from adapters.solidworks.sw_convert_worker import _resolve_config
+        available = ["GB_T70.1-M6x20"]
+        assert _resolve_config("GB-T70.1-M6x20", available) == "GB_T70.1-M6x20"
+
+    def test_no_match_returns_none(self):
+        from adapters.solidworks.sw_convert_worker import _resolve_config
+        available = ["GB_T70.1-M6x10", "GB_T70.1-M6x20"]
+        assert _resolve_config("GB_T70.1-M99x99", available) is None
+
+    def test_empty_available_returns_none(self):
+        from adapters.solidworks.sw_convert_worker import _resolve_config
+        assert _resolve_config("GB_T70.1-M6x20", []) is None
+
+
+class TestWorkerConfigSwitch:
+    """_convert 带 target_config 参数时的 ShowConfiguration2 行为。"""
+
+    def _patch_com(self, monkeypatch, *, dispatch_return=None, dispatch_raises=None):
+        """复用 TestWorkerConvert._patch_com 的完全相同实现。"""
+        fake_pythoncom = mock.MagicMock()
+        fake_pythoncom.VT_BYREF = 0x4000
+        fake_pythoncom.VT_I4 = 3
+        fake_pythoncom.VT_DISPATCH = 9
+
+        fake_win32com_client = mock.MagicMock()
+
+        if dispatch_raises is not None:
+            fake_win32com_client.DispatchEx.side_effect = dispatch_raises
+        else:
+            fake_app = dispatch_return or mock.MagicMock()
+            fake_win32com_client.DispatchEx.return_value = fake_app
+
+        def fake_variant(vartype, initial):
+            v = mock.MagicMock()
+            v.value = initial
+            return v
+
+        fake_win32com_client.VARIANT.side_effect = fake_variant
+
+        monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)
+        monkeypatch.setitem(sys.modules, "win32com.client", fake_win32com_client)
+        return (
+            fake_win32com_client.DispatchEx.return_value
+            if dispatch_raises is None
+            else None
+        )
+
+    def _make_model(self, fake_app, config_names):
+        """构造带 ConfigurationManager 的 fake model。"""
+        model = mock.MagicMock()
+        fake_app.OpenDoc6.return_value = model
+        model.Extension.SaveAs3.return_value = True
+
+        fake_cfg_mgr = mock.MagicMock()
+        fake_cfg_mgr.GetConfigurationNames.return_value = config_names
+        model.ConfigurationManager = fake_cfg_mgr
+        return model
+
+    def test_exact_config_match_calls_showconfiguration(self, monkeypatch):
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+        model = self._make_model(fake_app, ["GB_T70.1-M6x10", "GB_T70.1-M6x20"])
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step", "GB_T70.1-M6x20")
+        assert rc == 0
+        model.ShowConfiguration2.assert_called_once_with("GB_T70.1-M6x20")
+
+    def test_fuzzy_config_match_calls_showconfiguration(self, monkeypatch):
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+        model = self._make_model(fake_app, ["GB_T70.1-M6x20"])
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step", "GB-T70.1-M6x20")
+        assert rc == 0
+        model.ShowConfiguration2.assert_called_once()
+
+    def test_no_config_match_returns_5(self, monkeypatch, capsys):
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+        self._make_model(fake_app, ["GB_T70.1-M6x10", "GB_T70.1-M6x20"])
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step", "GB_T70.1-M99x99")
+        assert rc == 5
+        err = capsys.readouterr().err
+        assert "config 未匹配" in err
+        assert "GB_T70.1-M99x99" in err
+
+    def test_no_target_config_skips_config_switch(self, monkeypatch):
+        """target_config=None 时不调用 GetConfigurationNames 也不调用 ShowConfiguration2。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+        model = mock.MagicMock()
+        fake_app.OpenDoc6.return_value = model
+        model.Extension.SaveAs3.return_value = True
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
+        assert rc == 0
+        model.ShowConfiguration2.assert_not_called()
+
+    def test_main_with_three_args(self, monkeypatch, capsys):
+        """main([sldprt, tmp, config_name]) 正确解析 argv[2] 并传给 _convert。"""
+        from adapters.solidworks import sw_convert_worker
+
+        calls = []
+
+        def fake_convert(sldprt, tmp, cfg=None):
+            calls.append(cfg)
+            return 0
+
+        monkeypatch.setattr(sw_convert_worker, "_convert", fake_convert)
+        rc = sw_convert_worker.main(["a.sldprt", "b.tmp.step", "GB_T70.1-M6x20"])
+        assert rc == 0
+        assert calls == ["GB_T70.1-M6x20"]
+
+    def test_main_with_four_args_returns_64(self, capsys):
+        from adapters.solidworks import sw_convert_worker
+
+        rc = sw_convert_worker.main(["a", "b", "c", "d"])
+        assert rc == 64

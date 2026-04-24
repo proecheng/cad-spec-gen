@@ -10,6 +10,7 @@ resolve() 编排 catalog 匹配 + com_session 转换（Task 9 实现）。
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -28,6 +29,38 @@ def get_toolbox_addin_guid() -> Optional[str]:
 
     guid, _ = discover_toolbox_addin_guid()
     return guid
+
+
+_SPEC_RE = re.compile(
+    r'^(?P<standard>(?:GB[/／]T|ISO|DIN|JIS)\s*[\d.]+(?:\s+Part\s+\d+)?)'
+    r'\s+(?P<size>.+)$'
+)
+# 已知不覆盖：GB 93（弹垫，无 /T）、ANSI 等 → target_config=None → 使用默认 config
+
+
+def extract_full_spec(material: str) -> tuple[str, str] | None:
+    """从 BOM material 字段解析 (standard, size) 二元组，失败返回 None。"""
+    m = _SPEC_RE.match(material.strip())
+    return (m.group("standard"), m.group("size")) if m else None
+
+
+def _build_candidate_config(material: str, resolver_cfg: dict) -> str | None:
+    """用 yaml resolver_cfg 将 material 字段转为 SW config 候选名。
+
+    示例: "GB/T 70.1 M6×20" → "GB_T70.1-M6x20"
+    resolver_cfg 为空或缺 standard_transforms 时返回 None。
+    """
+    if not resolver_cfg.get("standard_transforms"):
+        return None
+    result = extract_full_spec(material)
+    if result is None:
+        return None
+    standard, size = result
+    for rule in resolver_cfg["standard_transforms"]:
+        standard = standard.replace(rule["from"], rule["to"])
+    for rule in resolver_cfg.get("size_transforms", []):
+        size = size.replace(rule["from"], rule["to"])
+    return f"{standard}{resolver_cfg['separator']}{size}"
 
 
 class SwToolboxAdapter(PartsAdapter):
@@ -184,14 +217,20 @@ class SwToolboxAdapter(PartsAdapter):
                 "sldprt path validation failed (possible index tampering)"
             )
 
-        # 7. 构造缓存 STEP 路径
+        # 7. 构造缓存 STEP 路径（B-16：含 config 后缀）
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
-        step_relative = (
-            Path(part.standard)
-            / part.subcategory
-            / (Path(part.filename).stem + ".step")
+        resolver_cfg = self.config.get("config_name_resolver", {})
+        material = getattr(query, "material", "") or ""
+        target_config = _build_candidate_config(material, resolver_cfg) if resolver_cfg else None
+        part.target_config = target_config
+
+        safe_config = re.sub(r'[^\w.\-]', '_', target_config) if target_config else ""
+        cache_stem = (
+            f"{Path(part.filename).stem}_{safe_config}"
+            if safe_config
+            else Path(part.filename).stem
         )
-        step_abs = cache_root / step_relative
+        step_abs = cache_root / part.standard / part.subcategory / (cache_stem + ".step")
 
         # 8. 缓存命中 → 直接返回
         if step_abs.exists():
@@ -206,7 +245,8 @@ class SwToolboxAdapter(PartsAdapter):
                 metadata={
                     "dims": dims,
                     "match_score": score,
-                    "configuration": "<default>",
+                    "configuration": target_config or "<default>",
+                    "config_match": "matched" if target_config else "n/a",
                 },
             )
 
@@ -215,8 +255,20 @@ class SwToolboxAdapter(PartsAdapter):
         if not session.is_healthy():
             return self._miss("COM session unhealthy (circuit breaker tripped)")
 
-        ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs))
+        ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs), target_config)
         if not ok:
+            stage = (session.last_convert_diagnostics or {}).get("stage", "")
+            if stage == "config_not_found":
+                log.warning(
+                    "Toolbox config 未匹配 %s → 回退 bd_warehouse", target_config
+                )
+                return ResolveResult(
+                    status="miss",
+                    kind="miss",
+                    adapter=self.name,
+                    metadata={"config_match": "fallback"},
+                    warnings=[f"config not found: {target_config}"],
+                )
             return self._miss("COM convert failed")
 
         dims = self._probe_step_bbox(step_abs)
@@ -227,7 +279,12 @@ class SwToolboxAdapter(PartsAdapter):
             step_path=str(step_abs),
             real_dims=dims,
             source_tag=f"sw_toolbox:{part.standard}/{part.subcategory}/{part.filename}",
-            metadata={"dims": dims, "match_score": score, "configuration": "<default>"},
+            metadata={
+                "dims": dims,
+                "match_score": score,
+                "configuration": target_config or "<default>",
+                "config_match": "matched" if target_config else "n/a",
+            },
         )
 
     def find_sldprt(self, query, spec: dict):

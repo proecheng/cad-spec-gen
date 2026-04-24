@@ -89,6 +89,9 @@ class SwToolboxPart:
     tokens: list[str] = field(default_factory=list)
     """拆分 + 小写 + 去 stop_words 后的 token 列表（v4 决策 #18）"""
 
+    target_config: str | None = None
+    """B-16: BOM 指定的 configuration 名（yaml 标准化后）；None = 使用默认 config"""
+
 
 # ---------------------------------------------------------------------------
 # 停用词：英语常用连接词 + Toolbox 子目录里的粘合词

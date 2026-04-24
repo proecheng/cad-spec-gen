@@ -471,3 +471,244 @@ class TestProbeDims:
             },
         )
         assert result is None
+
+
+class TestExtractFullSpec:
+    def test_gb_t_fastener_with_length(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB/T 70.1 M6×20") == ("GB/T 70.1", "M6×20")
+
+    def test_gb_t_fastener_no_length(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB/T 6170 M6") == ("GB/T 6170", "M6")
+
+    def test_full_angle_slash(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB／T 70.1 M6×20") == ("GB／T 70.1", "M6×20")
+
+    def test_no_standard_prefix_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("6206") is None
+
+    def test_empty_string_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("") is None
+
+    def test_iso_standard(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("ISO 4762 M6×20") == ("ISO 4762", "M6×20")
+
+
+class TestBuildCandidateConfig:
+    _CFG = {
+        "standard_transforms": [
+            {"from": "GB/T ", "to": "GB_T"},
+            {"from": "GB／T ", "to": "GB_T"},
+            {"from": "ISO ", "to": "ISO_"},
+            {"from": " ", "to": ""},
+        ],
+        "size_transforms": [
+            {"from": "×", "to": "x"},
+            {"from": "×", "to": "x"},
+            {"from": " ", "to": ""},
+        ],
+        "separator": "-",
+    }
+
+    def test_basic_fastener(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 70.1 M6×20", self._CFG) == "GB_T70.1-M6x20"
+
+    def test_nut_no_length(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 6170 M6", self._CFG) == "GB_T6170-M6"
+
+    def test_full_angle_slash(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB／T 70.1 M6×20", self._CFG) == "GB_T70.1-M6x20"
+
+    def test_no_standard_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("6206", self._CFG) is None
+
+    def test_empty_resolver_cfg_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 70.1 M6×20", {}) is None
+
+
+class TestResolveConfigAware:
+    """resolve() config-aware 缓存路径 + exit 5 回退路径测试。"""
+
+    def _make_adapter_with_resolver_cfg(self):
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        config = {
+            "config_name_resolver": {
+                "standard_transforms": [
+                    {"from": "GB/T ", "to": "GB_T"},
+                    {"from": " ", "to": ""},
+                ],
+                "size_transforms": [
+                    {"from": "×", "to": "x"},
+                ],
+                "separator": "-",
+            },
+            "min_score": 0.30,
+        }
+        return SwToolboxAdapter(config=config)
+
+    def _make_full_mock_resolve_prereqs(self, monkeypatch, tmp_path):
+        """mock 掉 resolve() 前 6 步（索引 + 匹配），返回 (fake_part, fake_session)。"""
+        import unittest.mock as mock
+        from adapters.solidworks import sw_toolbox_catalog
+
+        fake_part = sw_toolbox_catalog.SwToolboxPart(
+            standard="GB",
+            subcategory="bolts and studs",
+            sldprt_path=str(tmp_path / "GB_T70-1.SLDPRT"),
+            filename="GB_T70-1.SLDPRT",
+            tokens=["gb", "t70", "bolt"],
+        )
+
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "idx.json"
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "load_toolbox_index", lambda *a, **kw: {}
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "extract_size_from_name", lambda *a, **kw: {"size": "M6"}
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "build_query_tokens_weighted", lambda *a, **kw: ["m6"]
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "match_toolbox_part", lambda *a, **kw: (fake_part, 0.8)
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "_validate_sldprt_path", lambda *a, **kw: True
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_cache_root", lambda cfg: tmp_path / "cache"
+        )
+
+        from adapters.solidworks import sw_detect
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect,
+            "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path)),
+        )
+
+        fake_session = mock.MagicMock()
+        from adapters.solidworks import sw_com_session
+        monkeypatch.setattr(sw_com_session, "get_session", lambda: fake_session)
+
+        return fake_part, fake_session
+
+    def test_config_aware_cache_path_contains_config_suffix(
+        self, monkeypatch, tmp_path
+    ):
+        """当 material 解析成功时，缓存路径应含 config 后缀。"""
+        import unittest.mock as mock
+        from parts_resolver import PartQuery
+
+        adapter = self._make_adapter_with_resolver_cfg()
+        fake_part, fake_session = self._make_full_mock_resolve_prereqs(
+            monkeypatch, tmp_path
+        )
+
+        # 让 convert_sldprt_to_step 成功并记录调用的 step_out 路径
+        captured = []
+
+        def fake_convert(sldprt, step_out, config=None):
+            captured.append((step_out, config))
+            # 假装写出 STEP 文件以触发后续 _probe_step_bbox 路径
+            from pathlib import Path
+            Path(step_out).parent.mkdir(parents=True, exist_ok=True)
+            Path(step_out).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
+            return True
+
+        fake_session.convert_sldprt_to_step.side_effect = fake_convert
+        fake_session.is_healthy.return_value = True
+
+        query = PartQuery(
+            part_no="001",
+            name_cn="内六角螺栓",
+            material="GB/T 70.1 M6×20",
+            category="fastener",
+            make_buy="标准",
+        )
+        adapter.resolve(query, {"standard": "GB", "subcategories": [], "part_category": "fastener"})
+
+        assert len(captured) == 1
+        step_out_used, config_used = captured[0]
+        assert "GB_T70.1-M6x20" in step_out_used
+        assert config_used == "GB_T70.1-M6x20"
+
+    def test_exit5_stage_returns_miss_with_config_match_fallback(
+        self, monkeypatch, tmp_path
+    ):
+        """exit 5 → stage=config_not_found → resolve() 返回 miss，config_match=fallback。"""
+        import unittest.mock as mock
+        from parts_resolver import PartQuery
+
+        adapter = self._make_adapter_with_resolver_cfg()
+        fake_part, fake_session = self._make_full_mock_resolve_prereqs(
+            monkeypatch, tmp_path
+        )
+
+        fake_session.convert_sldprt_to_step.return_value = False
+        fake_session.is_healthy.return_value = True
+        fake_session.last_convert_diagnostics = {"stage": "config_not_found", "exit_code": 5}
+
+        query = PartQuery(
+            part_no="001",
+            name_cn="内六角螺栓",
+            material="GB/T 70.1 M6×99",
+            category="fastener",
+            make_buy="标准",
+        )
+        result = adapter.resolve(
+            query,
+            {"standard": "GB", "subcategories": [], "part_category": "fastener"},
+        )
+        assert result.status == "miss"
+        assert result.metadata.get("config_match") == "fallback"
+
+    def test_no_resolver_cfg_uses_default_cache_path(self, monkeypatch, tmp_path):
+        """config_name_resolver 段不存在时，缓存路径不含 config 后缀（向后兼容）。"""
+        import unittest.mock as mock
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from parts_resolver import PartQuery
+
+        adapter = SwToolboxAdapter(config={"min_score": 0.30})  # 无 config_name_resolver
+        fake_part, fake_session = self._make_full_mock_resolve_prereqs(
+            monkeypatch, tmp_path
+        )
+
+        captured = []
+
+        def fake_convert(sldprt, step_out, config=None):
+            captured.append((step_out, config))
+            from pathlib import Path
+            Path(step_out).parent.mkdir(parents=True, exist_ok=True)
+            Path(step_out).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
+            return True
+
+        fake_session.convert_sldprt_to_step.side_effect = fake_convert
+        fake_session.is_healthy.return_value = True
+
+        query = PartQuery(
+            part_no="001",
+            name_cn="内六角螺栓",
+            material="GB/T 70.1 M6×20",
+            category="fastener",
+            make_buy="标准",
+        )
+        adapter.resolve(query, {"standard": "GB", "subcategories": [], "part_category": "fastener"})
+
+        assert len(captured) == 1
+        step_out_used, config_used = captured[0]
+        # 无 resolver_cfg → target_config=None → 无后缀
+        assert "GB_T70.1" not in step_out_used
+        assert config_used is None
