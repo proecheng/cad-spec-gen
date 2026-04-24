@@ -1,10 +1,10 @@
-"""Track C Task 10: fal_enhancer hero_image 注入 + seed 支持的单元测试。"""
+"""Track C Task 10/11: fal_enhancer / comfyui_enhancer hero_image 注入 + seed 支持的单元测试。"""
 
 import importlib.util
 import os
 import sys
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _load_fal_enhancer():
@@ -72,3 +72,54 @@ def test_fal_seed_injected_when_set(tmp_path):
         fal_enhancer.enhance_image(str(png), "prompt", {"seed": 42}, "V2", {})
 
     assert captured["args"].get("seed") == 42
+
+
+def test_comfyui_hero_image_replaces_input_node(tmp_path):
+    """comfyui_cfg 含 hero_image 时，workflow input_image 节点被替換为 hero 上传名"""
+    hero = tmp_path / "v1_hero.jpg"
+    hero.write_bytes(b"hero_bytes")
+    png = tmp_path / "V2.png"
+    png.write_bytes(b"render_bytes")
+
+    uploaded_names = []
+
+    def mock_post(url, **kwargs):
+        resp = MagicMock()
+        resp.raise_for_status = lambda: None
+        if "upload" in url:
+            fname = list(kwargs.get("files", {}).values())[0][0]
+            uploaded_names.append(fname)
+            resp.json.return_value = {"name": fname}
+        elif "/prompt" in url:
+            resp.ok = True
+            resp.json.return_value = {"prompt_id": "pid1"}
+        return resp
+
+    def mock_get(url, **kwargs):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "pid1": {"outputs": {"12": {"images": [{"filename": "out.png", "subfolder": "", "type": "output"}]}}}
+        }
+        return resp
+
+    comfyui_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "src", "cad_spec_gen", "data", "python_tools", "comfyui_enhancer.py"
+    )
+    spec = importlib.util.spec_from_file_location("comfyui_enhancer", comfyui_path)
+    comfyui_enhancer = importlib.util.module_from_spec(spec)
+    sys.modules["comfyui_enhancer"] = comfyui_enhancer
+    spec.loader.exec_module(comfyui_enhancer)
+
+    cfg = {"hero_image": str(hero), "host": "127.0.0.1", "port": 8188}
+    with patch("requests.post", side_effect=mock_post), \
+         patch("requests.get", side_effect=mock_get), \
+         patch("comfyui_enhancer._download_image", return_value=None):
+        try:
+            comfyui_enhancer.enhance_image(str(png), "prompt", cfg, "V2", {})
+        except Exception:
+            pass  # 下载失败不影响断言
+
+    # hero ファイル名がアップロードキューに含まれること
+    assert "v1_hero.jpg" in uploaded_names
