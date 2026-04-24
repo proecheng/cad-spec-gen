@@ -41,12 +41,11 @@ class TestWorkerConvert:
         fake_win32com_client = mock.MagicMock()
 
         if dispatch_raises is not None:
-            fake_win32com_client.Dispatch.side_effect = dispatch_raises
+            fake_win32com_client.DispatchEx.side_effect = dispatch_raises
         else:
             fake_app = dispatch_return or mock.MagicMock()
-            fake_win32com_client.Dispatch.return_value = fake_app
+            fake_win32com_client.DispatchEx.return_value = fake_app
 
-        # VARIANT 的 mock：每次构造返回一个有 .value 属性的对象，初值为传入的 initial
         def fake_variant(vartype, initial):
             v = mock.MagicMock()
             v.value = initial
@@ -57,7 +56,7 @@ class TestWorkerConvert:
         monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)
         monkeypatch.setitem(sys.modules, "win32com.client", fake_win32com_client)
         return (
-            fake_win32com_client.Dispatch.return_value
+            fake_win32com_client.DispatchEx.return_value
             if dispatch_raises is None
             else None
         )
@@ -150,3 +149,32 @@ class TestWorkerConvert:
         rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
         assert rc == 3
         assert "errors=4" in capsys.readouterr().err
+
+    def test_closedoc_uses_getpathname(self, monkeypatch):
+        """CloseDoc 应调用 model.GetPathName()，不调 model.GetTitle()。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        model = mock.MagicMock()
+        model.GetPathName.return_value = "C:/SOLIDWORKS Data/part.sldprt"
+        fake_app.OpenDoc6.return_value = model
+        model.Extension.SaveAs3.return_value = True
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
+        assert rc == 0
+        fake_app.CloseDoc.assert_called_once_with("C:/SOLIDWORKS Data/part.sldprt")
+
+    def test_framestate_set_to_zero(self, monkeypatch):
+        """FrameState=0（swWindowMinimized）必须在 OpenDoc6 前设置。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        model = mock.MagicMock()
+        fake_app.OpenDoc6.return_value = model
+        model.Extension.SaveAs3.return_value = True
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step")
+        assert rc == 0
+        assert fake_app.FrameState == 0

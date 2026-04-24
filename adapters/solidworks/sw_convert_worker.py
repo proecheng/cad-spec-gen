@@ -31,7 +31,7 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
     """实际 COM 转换；返回上面契约中的 exit code。"""
     try:
         import pythoncom
-        from win32com.client import VARIANT, Dispatch
+        from win32com.client import VARIANT, DispatchEx
     except ImportError as e:
         print(f"worker: pywin32 import failed: {e!r}", file=sys.stderr)
         return 4
@@ -39,7 +39,7 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
     pythoncom.CoInitialize()
     try:
         try:
-            app = Dispatch("SldWorks.Application")
+            app = DispatchEx("SldWorks.Application")
         except Exception as e:
             print(f"worker: Dispatch failed: {e!r}", file=sys.stderr)
             return 4
@@ -47,6 +47,7 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
         try:
             app.Visible = False
             app.UserControl = False
+            app.FrameState = 0  # swWindowState_e.swWindowMinimized=0；数字常量避免依赖 pywin32 gen_py cache
 
             err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
             warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
@@ -82,7 +83,7 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
                 return 0
             finally:
                 try:
-                    app.CloseDoc(model.GetTitle())
+                    app.CloseDoc(model.GetPathName())
                 except Exception as e:
                     print(f"worker: CloseDoc ignored: {e!r}", file=sys.stderr)
         finally:
