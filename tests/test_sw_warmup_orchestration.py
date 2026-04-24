@@ -73,6 +73,71 @@ class TestPreflight:
         assert rc == 0
         assert "Toolbox Library add-in 未启用" in captured.out
 
+    def test_returns_2_when_sw_not_running(self, tmp_path, monkeypatch, capsys):
+        """psutil 未找到 SLDWORKS.EXE → preflight 失败 → exit 2 + 含'SolidWorks 未运行'。"""
+        import psutil
+        from tools import sw_warmup as mod
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        fake_info = sw_detect.SwInfo(
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+        )
+        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
+
+        # 模拟进程列表中无 SolidWorks
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([]))
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "SolidWorks 未运行" in captured.out
+
+    def test_preflight_passes_when_sw_running(self, tmp_path, monkeypatch, capsys):
+        """psutil 找到 SLDWORKS.EXE → preflight 通过（后续流程继续）。"""
+        import pathlib
+        import psutil
+        import unittest.mock as mock
+        from tools import sw_warmup as mod
+        from adapters.solidworks import sw_detect, sw_toolbox_catalog
+
+        sw_detect._reset_cache()
+        fake_info = sw_detect.SwInfo(
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+            toolbox_addin_enabled=False,
+        )
+        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
+
+        # 模拟 SLDWORKS.EXE 在运行
+        fake_proc = mock.MagicMock()
+        fake_proc.name.return_value = "SLDWORKS.EXE"
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([fake_proc]))
+
+        # 让 catalog 函数全部返回安全值，避免 tmp_path 下文件不存在引发错误
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "index.json"
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_cache_root", lambda cfg: tmp_path / "cache"
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "load_toolbox_index", lambda *a, **kw: {"standards": {}}
+        )
+
+        rc = mod.run_sw_warmup(_make_args(standard="GB"))
+        # preflight 通过后 targets 为空 → exit 0
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "SolidWorks 未运行" not in captured.out
+
 
 class TestTargetSelection:
     """根据 --standard / --bom / --all 选目标。"""

@@ -255,6 +255,16 @@ def _check_preflight() -> tuple[bool, str]:
         )
     if not info.toolbox_dir:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
+    import psutil  # 局部 import，与 msvcrt/fcntl 惯例一致
+    sw_running = any(
+        p.name().upper() == "SLDWORKS.EXE"
+        for p in psutil.process_iter(["name"])
+    )
+    if not sw_running:
+        return False, (
+            "SolidWorks 未运行；请先打开 SolidWorks，"
+            "再运行 sw-warmup（COM 转换需要 SW 进程已就绪）"
+        )
     return True, ""
 
 
