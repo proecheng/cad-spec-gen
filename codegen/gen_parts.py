@@ -463,6 +463,51 @@ def _write_enriched_placeholder(
     _Path(py_path).write_text(py_content, encoding="utf-8")
 
 
+
+def _handle_l2_l3_fallback(
+    part_name: str,
+    spec_text: str,
+    tpl_type_hint: "str | None",
+    fallback_reason: str,
+    envelope: tuple,
+    out_py: "Path",
+    func_name: str,
+) -> bool:
+    """FALLBACK 路径：先尝试 L2 LLM 生成，失败才退到 L3 富化 Envelope。
+
+    返回 True 表示成功写入文件（L2 或 L3），False 表示全部失败。
+    """
+    from pathlib import Path as _Path
+
+    env_w, env_d, env_h = (envelope or (0.0, 0.0, 0.0))
+
+    # L2: LLM CadQuery 生成
+    code: "str | None" = None
+    try:
+        from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
+        code = _llm_generate_cadquery(
+            part_name=part_name,
+            spec_text=spec_text,
+            envelope=(env_w, env_d, env_h),
+            template_hint=tpl_type_hint,
+        )
+    except ImportError:
+        pass
+
+    if code is not None:
+        print(f"  [L2] {part_name}: CadQuery 代码生成成功，写入 {_Path(out_py).name}")
+        _Path(out_py).write_text(code, encoding="utf-8")
+        return True
+
+    # L3: 富化 Envelope
+    print(f"  [L3] {part_name}: L2 失败，退回富化 Envelope")
+    try:
+        _write_enriched_placeholder(out_py, func_name, tpl_type_hint, env_w, env_d, env_h)
+        return True
+    except Exception as _l3_err:
+        print(f"  ERROR L3: {_l3_err}")
+        return False
+
 def _apply_template_decision(
     geom: dict,
     tpl_type: str | None,
@@ -844,20 +889,24 @@ def generate_part_files(
                 part_no=p.get("part_no", ""),
                 output_dir=str(output_dir),
             )
-        # L3: FALLBACK 且 no keyword match / disc_arms → 富化 Envelope
+        # L2→L3: FALLBACK 且 no keyword match / disc_arms → 先试 L2，失败退 L3
         elif _fallback_reason and _fallback_reason.startswith((
             "no keyword match", "disc_arms"
         )):
             if not os.path.exists(out_file) or mode == "force":
-                print(f"  [L3] {p['name_cn']}: FALLBACK ({_fallback_reason})，生成富化 Envelope")
-                try:
-                    _write_enriched_placeholder(
-                        Path(out_file), func_name, None,
-                        geom.get("envelope_w", 0), geom.get("envelope_d", 0), geom.get("envelope_h", 0),
-                    )
+                _spec_text = part_meta.get("_spec_text", "") or p.get("name_cn", "")
+                ok = _handle_l2_l3_fallback(
+                    part_name=p["name_cn"],
+                    spec_text=_spec_text,
+                    tpl_type_hint=None,
+                    fallback_reason=_fallback_reason,
+                    envelope=(geom.get("envelope_w", 0), geom.get("envelope_d", 0), geom.get("envelope_h", 0)),
+                    out_py=Path(out_file),
+                    func_name=func_name,
+                )
+                if ok:
                     generated.append(out_file)
-                except Exception as _l3_err:
-                    print(f"  ERROR L3: {_l3_err}")
+                else:
                     failed.append(out_file)
             continue  # 跳过后续 Jinja 渲染
         elif _fallback_reason:

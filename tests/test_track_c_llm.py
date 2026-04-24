@@ -127,6 +127,28 @@ def test_write_enriched_placeholder_creates_files(tmp_path):
     assert step_out.exists()
 
 
+def test_gen_parts_l2_called_before_l3_on_fallback(tmp_path):
+    """FALLBACK 路径：先调 L2，L2 失败才调 L3"""
+    from cad_spec_gen.data.codegen.gen_parts import _handle_l2_l3_fallback
+    from pathlib import Path
+
+    call_order = []
+    with patch("cad_spec_gen.data.codegen.llm_codegen._llm_generate_cadquery",
+               side_effect=lambda *a, **kw: call_order.append("L2") or None) as mock_l2, \
+         patch("cad_spec_gen.data.codegen.gen_parts._write_enriched_placeholder",
+               side_effect=lambda *a, **kw: call_order.append("L3")) as mock_l3:
+        _handle_l2_l3_fallback(
+            part_name="弹簧限力机构",
+            spec_text="弹簧限力机构",
+            tpl_type_hint=None,
+            fallback_reason="no keyword match",
+            envelope=(50.0, 50.0, 80.0),
+            out_py=tmp_path / "test.py",
+            func_name="test_fn",
+        )
+    assert call_order == ["L2", "L3"], f"实际顺序: {call_order}"
+
+
 def test_classify_error_syntax():
     from cad_spec_gen.data.codegen.llm_codegen import _classify_error
     assert _classify_error(SyntaxError("invalid syntax")) == "SYNTAX_ERROR"
