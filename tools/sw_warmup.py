@@ -257,7 +257,7 @@ def _check_preflight() -> tuple[bool, str]:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
     import psutil  # 局部 import，与 msvcrt/fcntl 惯例一致
     sw_running = any(
-        p.name().upper() == "SLDWORKS.EXE"
+        (p.info.get("name") or "").upper() == "SLDWORKS.EXE"
         for p in psutil.process_iter(["name"])
     )
     if not sw_running:

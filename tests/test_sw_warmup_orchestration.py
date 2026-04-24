@@ -99,7 +99,6 @@ class TestPreflight:
 
     def test_preflight_passes_when_sw_running(self, tmp_path, monkeypatch, capsys):
         """psutil 找到 SLDWORKS.EXE → preflight 通过（后续流程继续）。"""
-        import pathlib
         import psutil
         import unittest.mock as mock
         from tools import sw_warmup as mod
@@ -116,9 +115,9 @@ class TestPreflight:
         monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
         monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
 
-        # 模拟 SLDWORKS.EXE 在运行
+        # 模拟 SLDWORKS.EXE 在运行（info 字典预填充，避免 NoSuchProcess 竞态）
         fake_proc = mock.MagicMock()
-        fake_proc.name.return_value = "SLDWORKS.EXE"
+        fake_proc.info = {"name": "SLDWORKS.EXE"}
         monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([fake_proc]))
 
         # 让 catalog 函数全部返回安全值，避免 tmp_path 下文件不存在引发错误
