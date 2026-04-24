@@ -471,3 +471,66 @@ class TestProbeDims:
             },
         )
         assert result is None
+
+
+class TestExtractFullSpec:
+    def test_gb_t_fastener_with_length(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB/T 70.1 M6×20") == ("GB/T 70.1", "M6×20")
+
+    def test_gb_t_fastener_no_length(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB/T 6170 M6") == ("GB/T 6170", "M6")
+
+    def test_full_angle_slash(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("GB／T 70.1 M6×20") == ("GB／T 70.1", "M6×20")
+
+    def test_no_standard_prefix_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("6206") is None
+
+    def test_empty_string_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("") is None
+
+    def test_iso_standard(self):
+        from adapters.parts.sw_toolbox_adapter import extract_full_spec
+        assert extract_full_spec("ISO 4762 M6×20") == ("ISO 4762", "M6×20")
+
+
+class TestBuildCandidateConfig:
+    _CFG = {
+        "standard_transforms": [
+            {"from": "GB/T ", "to": "GB_T"},
+            {"from": "GB／T ", "to": "GB_T"},
+            {"from": "ISO ", "to": "ISO_"},
+            {"from": " ", "to": ""},
+        ],
+        "size_transforms": [
+            {"from": "×", "to": "x"},
+            {"from": "×", "to": "x"},
+            {"from": " ", "to": ""},
+        ],
+        "separator": "-",
+    }
+
+    def test_basic_fastener(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 70.1 M6×20", self._CFG) == "GB_T70.1-M6x20"
+
+    def test_nut_no_length(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 6170 M6", self._CFG) == "GB_T6170-M6"
+
+    def test_full_angle_slash(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB／T 70.1 M6×20", self._CFG) == "GB_T70.1-M6x20"
+
+    def test_no_standard_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("6206", self._CFG) is None
+
+    def test_empty_resolver_cfg_returns_none(self):
+        from adapters.parts.sw_toolbox_adapter import _build_candidate_config
+        assert _build_candidate_config("GB/T 70.1 M6×20", {}) is None
