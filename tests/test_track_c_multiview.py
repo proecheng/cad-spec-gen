@@ -4,6 +4,7 @@ import importlib.util
 import os
 import sys
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -22,6 +23,7 @@ def _load_fal_enhancer():
 
 def test_fal_canny_replaced_with_hero_image(tmp_path):
     """fal_cfg 含 hero_image 时，controlnets[0].control_image_url 被替换为 V1 参考 URL"""
+    pytest.importorskip("fal_client")
     hero = tmp_path / "v1_hero.jpg"
     hero.write_bytes(b"fake_image_bytes")
 
@@ -55,6 +57,7 @@ def test_fal_canny_replaced_with_hero_image(tmp_path):
 
 def test_fal_seed_injected_when_set(tmp_path):
     """fal_cfg 含 seed 整数时，api_args 包含 seed 键"""
+    pytest.importorskip("fal_client")
     png = tmp_path / "V2.png"
     png.write_bytes(b"x")
     captured = {}
@@ -76,6 +79,7 @@ def test_fal_seed_injected_when_set(tmp_path):
 
 def test_comfyui_hero_image_replaces_input_node(tmp_path):
     """comfyui_cfg 含 hero_image 时，workflow input_image 节点被替換为 hero 上传名"""
+    pytest.importorskip("requests")
     hero = tmp_path / "v1_hero.jpg"
     hero.write_bytes(b"hero_bytes")
     png = tmp_path / "V2.png"
