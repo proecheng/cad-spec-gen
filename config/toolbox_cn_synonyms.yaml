@@ -34,12 +34,21 @@ bearings:
   滚针: [needle]
 
 pins_keys:
-  销: [pin]
-  圆柱销: [dowel, pin, cylindrical]
+  销: [pin, pins]
+  定位销: [locating, dowel, pin, pins]
+  定位: [locating, dowel]
+  圆柱销: [dowel, pin, cylindrical, pins]
+  圆锥销: [taper, pin, pins]
   弹簧销: [spring, pin]
   开口销: [cotter, pin, split]
   平键: [flat, key]
   半圆键: [woodruff, key]
+
+seals:
+  O型圈: [o, ring, rings]
+  型圈: [ring, rings]
+  密封圈: [seal, seals, ring, rings]
+  油封: [seal, seals, oil]
 
 misc:
   碟形: [belleville, disc]

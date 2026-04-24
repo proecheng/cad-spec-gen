@@ -197,8 +197,8 @@ class SwToolboxAdapter(PartsAdapter):
             weights,
         )
 
-        # 5. token overlap 打分
-        min_score = self.config.get("min_score", 0.30)
+        # 5. token overlap 打分（spec 层可覆盖全局 min_score）
+        min_score = spec.get("min_score", self.config.get("min_score", 0.30))
         match = sw_toolbox_catalog.match_toolbox_part(
             index,
             query_tokens,

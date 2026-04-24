@@ -130,6 +130,14 @@ PLURAL_PAIRS: dict[str, str] = {
     "washers": "washer",
     "bearing": "bearings",
     "bearings": "bearing",
+    "pin": "pins",
+    "pins": "pin",
+    "ring": "rings",
+    "rings": "ring",
+    "key": "keys",
+    "keys": "key",
+    "seal": "seals",
+    "seals": "seal",
 }
 
 
@@ -801,6 +809,10 @@ def extract_size_from_name(name_cn: str, patterns: dict) -> Optional[dict[str, s
     for excl in patterns.get("exclude_patterns", []) or []:
         if re.search(excl, name_cn):
             return None
+
+    # 无 size_patterns 配置（如 seal/locating）→ 不按尺寸过滤，返回空 dict 继续 token 匹配
+    if not patterns:
+        return {}
 
     result = {}
     for field_name, pat in patterns.items():

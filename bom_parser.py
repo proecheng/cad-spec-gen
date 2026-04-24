@@ -39,7 +39,8 @@ _PART_CATEGORY_RULES = [
     ("tank",      ["储液罐", "储罐", "tank", "容器"]),
     ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴",
                    "同步带", "GT2", "皮带", "belt"]),
-    ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt", "定位销",
+    ("locating",  ["定位销", "导向销", "定位柱", "圆柱销", "圆锥销", "dowel pin", "locating pin"]),
+    ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt",
                    "DIN912", "DIN7991", "DIN933", "挡圈", "钢丝螺套", "护罩"]),
 ]
 

@@ -213,8 +213,8 @@ mappings:
       category: bearing
     adapter: sw_toolbox
     spec:
-      standard: [ISO, DIN]
-      subcategories: ["bearings"]
+      standard: [GB, ISO, DIN]
+      subcategories: ["bearing", "bearings"]
       part_category: bearing
 
   # ─── Generic deep-groove fallback (matches any "open" bearing) ──────
@@ -299,18 +299,21 @@ mappings:
     adapter: sw_toolbox
     spec:
       standard: [GB, GB/T]
-      subcategories: ["o_rings", "oil_seals", "gaskets"]
+      subcategories: ["o-rings", "seals"]
       part_category: seal
 
   # ─── 定位件 STANDARD_LOCATING —— 销 / 键（Task 8） ───────────────────
   # 命中条件：category=locating；走 sw_toolbox（GB 销/键标准件）
+  # min_score=0.25：定位销名称短、material 含尺寸 token 拉低分母；
+  # 子分类已限 "pins and keys"，误匹配风险可接受。
   - match:
       category: locating
     adapter: sw_toolbox
     spec:
       standard: [GB, GB/T]
-      subcategories: ["dowel_pins", "taper_pins", "keys"]
+      subcategories: ["pins and keys"]
       part_category: locating
+      min_score: 0.25
 
   # ─── 弹性件 STANDARD_ELASTIC —— 弹簧（Task 8） ─────────────────────
   # 命中条件：category=elastic；走 jinja_primitive（SW Toolbox 弹簧覆盖不全，
