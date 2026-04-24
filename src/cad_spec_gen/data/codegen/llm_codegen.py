@@ -39,7 +39,7 @@ def _call_gemini_text(prompt: str, timeout: int = 10) -> str | None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
         return data["candidates"][0]["content"]["parts"][0]["text"]
-    except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
+    except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError) as exc:
         log.warning("Gemini text call failed: %s", exc)
         return None
 
