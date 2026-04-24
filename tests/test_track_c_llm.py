@@ -65,3 +65,22 @@ def test_call_gemini_text_empty_candidates_returns_none():
         with patch.dict("os.environ", {"GEMINI_API_KEY": "fake-key"}):
             result = _call_gemini_text("test prompt")
     assert result is None
+
+
+def test_apply_template_decision_calls_l1_when_code_none():
+    """_apply_template_decision: factory 返回 None 时调用 _llm_extract_params"""
+    import pytest
+    pytest.importorskip("cadquery")
+    geom = {"type": "cylinder", "envelope_w": 90.0, "envelope_d": 90.0, "envelope_h": 20.0}
+    part_meta = {"dim_tolerances": [{"name": "FLANGE_BODY_OD", "nominal": "90"}]}
+    filled = [
+        {"name": "FLANGE_BODY_OD", "nominal": "90"},
+        {"name": "FLANGE_BODY_ID", "nominal": "45"},
+        {"name": "FLANGE_TOTAL_THICK", "nominal": "20"},
+        {"name": "FLANGE_BOLT_PCD", "nominal": "65"},
+    ]
+    with patch("cad_spec_gen.data.codegen.llm_codegen._llm_extract_params", return_value=filled) as mock_l1:
+        from cad_spec_gen.data.codegen.gen_parts import _apply_template_decision
+        result = _apply_template_decision(geom, "flange", part_meta, (90.0, 90.0, 20.0))
+    mock_l1.assert_called_once()
+    assert result.get("template_code") is not None, "L1 应补参后生成代码"

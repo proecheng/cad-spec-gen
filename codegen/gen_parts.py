@@ -546,7 +546,44 @@ def _apply_template_decision(
         )
 
     if code is None:
-        print(f"  [template] {tpl_type}: 必填主尺寸缺失，退回 envelope primitive")
+        # Track C L1: 尝试 LLM 参数提取补全缺失必填键
+        _l1_result = None
+        try:
+            from cad_spec_gen.data.codegen.llm_codegen import _llm_extract_params as _l1_fn
+            _REQUIRED_KEYS: dict[str, list[str]] = {
+                "flange":           ["FLANGE_BODY_OD", "FLANGE_BODY_ID", "FLANGE_TOTAL_THICK", "FLANGE_BOLT_PCD"],
+                "housing":          ["HOUSING_W", "HOUSING_D", "HOUSING_H"],
+                "bracket":          ["BRACKET_W", "BRACKET_H", "BRACKET_T"],
+                "spring_mechanism": ["SPRING_OD", "SPRING_L"],
+                "sleeve":           ["SLEEVE_OD", "SLEEVE_L"],
+                "plate":            ["PLATE_W", "PLATE_D", "PLATE_T"],
+                "arm":              ["ARM_L", "ARM_W", "ARM_T"],
+                "cover":            ["COVER_OD", "COVER_T"],
+            }
+            _req_keys = _REQUIRED_KEYS.get(tpl_type, [])
+            if _req_keys:
+                _spec_text = part_meta.get("_spec_text", "") or str(part_meta)
+                _l1_result = _l1_fn(
+                    part_name=part_meta.get("name_cn", ""),
+                    spec_text=_spec_text,
+                    template_name=tpl_type,
+                    required_tol_keys=_req_keys,
+                    existing_dim_tols=part_meta.get("dim_tolerances", []),
+                )
+        except ImportError:
+            pass  # llm_codegen 未安装，跳过 L1
+
+        if _l1_result is not None:
+            # 用补全后的 dim_tolerances 重试 factory
+            _patched_meta = dict(part_meta)
+            _patched_meta["dim_tolerances"] = _l1_result
+            print(f"  [L1] {tpl_type}: LLM 补全参数，重试工厂函数")
+            return _apply_template_decision(
+                geom, tpl_type, _patched_meta, envelope, part_no, output_dir
+            )
+
+        # L1 失败或无结果 → 退回 envelope
+        print(f"  [template] {tpl_type}: 必填主尺寸缺失，L1 无结果，退回")
         return geom
 
     updated = dict(geom)
