@@ -245,7 +245,8 @@ def enhance_image(png_path, prompt, comfyui_cfg, view_key, rc):
     workflow = _load_workflow(comfyui_cfg)
     workflow = _patch_workflow(workflow, _uploaded_name, positive, negative, comfyui_cfg)
 
-    # Track C: v1_anchor ノード置換 + seed
+    # Track C: v1_anchor — hero_image が指定された場合、_patch_workflow が設定した
+    # レンダリング PNG を V1 hero で上書き（V2-V4 が V1 スタイルを参照するため）
     if _hero_uploaded:
         for node in workflow.values():
             if node.get("_title") == "input_image":
