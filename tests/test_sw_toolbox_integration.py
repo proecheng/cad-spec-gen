@@ -50,7 +50,7 @@ def sw_available(monkeypatch, tmp_path):
         lambda config: tmp_path / "idx.json",
     )
 
-    def fake_convert(self, sldprt_path, step_out):
+    def fake_convert(self, sldprt_path, step_out, target_config=None):
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
         Path(step_out).write_bytes(b"ISO-10303-21 fake" + b"\x00" * 2000)
         return True
@@ -145,7 +145,7 @@ def test_coverage_regression_baseline(monkeypatch, tmp_path):
         lambda config: tmp_path / "idx.json",
     )
 
-    def fake_convert(self, sldprt_path, step_out):
+    def fake_convert(self, sldprt_path, step_out, target_config=None):
         Path(step_out).parent.mkdir(parents=True, exist_ok=True)
         Path(step_out).write_bytes(b"ISO-10303-21 fake" + b"\x00" * 2000)
         return True
