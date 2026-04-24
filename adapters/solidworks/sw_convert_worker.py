@@ -47,7 +47,7 @@ def _convert(sldprt_path: str, tmp_out_path: str) -> int:
         try:
             app.Visible = False
             app.UserControl = False
-            app.FrameState = 0  # swWindowMinimized，抑制 Toolbox 选配置弹窗
+            app.FrameState = 0  # swWindowState_e.swWindowMinimized=0；数字常量避免依赖 pywin32 gen_py cache
 
             err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
             warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
