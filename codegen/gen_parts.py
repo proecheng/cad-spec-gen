@@ -457,7 +457,8 @@ def _write_enriched_placeholder(
         f"import cadquery as cq\n\n"
         f"def {func_name}():\n"
         f"    # 此件由 L3 富化 Envelope 生成，精度有限\n"
-        f"    return cq.importers.importStep(r'{step_path}')\n"
+        f"    # 生成的 .py 与 .step 必须保持同目录同名\n"
+        f"    return cq.importers.importStep(str(__import__('pathlib').Path(__file__).with_suffix('.step')))\n"
     )
     _Path(py_path).write_text(py_content, encoding="utf-8")
 
