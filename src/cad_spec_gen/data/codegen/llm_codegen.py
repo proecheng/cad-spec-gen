@@ -1,8 +1,9 @@
-﻿"""LLM 辅助几何生成：L1 参数提取 / L2 CadQuery 代码生成 / L2 自我修正。
+"""LLM 辅助几何生成：L1 参数提取 / L2 CadQuery 代码生成 / L2 自我修正。
 
 依赖：GEMINI_API_KEY 环境变量（text-only，不走 gemini_image_config.json）。
 所有公开函数失败时返回 None，不抛异常。
 """
+
 from __future__ import annotations
 
 import json
@@ -19,8 +20,8 @@ _GEMINI_TEXT_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "gemini-2.0-flash:generateContent"
 )
-_TIMEOUT_L1 = 10   # L1 参数提取超时秒数
-_TIMEOUT_L2 = 30   # L2 代码生成超时秒数
+_TIMEOUT_L1 = 10  # L1 参数提取超时秒数
+_TIMEOUT_L2 = 30  # L2 代码生成超时秒数
 
 
 def _call_gemini_text(prompt: str, timeout: int = 10) -> str | None:
@@ -29,13 +30,16 @@ def _call_gemini_text(prompt: str, timeout: int = 10) -> str | None:
     if not api_key:
         log.warning("GEMINI_API_KEY 未设置，跳过 LLM 调用")
         return None
-    payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2},
-    }).encode()
+    payload = json.dumps(
+        {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2},
+        }
+    ).encode()
     url = f"{_GEMINI_TEXT_URL}?key={api_key}"
-    req = urllib.request.Request(url, data=payload, method="POST",
-                                  headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url, data=payload, method="POST", headers={"Content-Type": "application/json"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
@@ -119,12 +123,12 @@ def _llm_extract_params(
 # -- L2: 错误分类与修复 --------------------------------------------------------
 
 _CLASSIFY_HINT: dict[str, str] = {
-    "SYNTAX_ERROR":         "代码存在语法错误，请检查括号、缩进、引号是否配对，不得有 Markdown 标记",
+    "SYNTAX_ERROR": "代码存在语法错误，请检查括号、缩进、引号是否配对，不得有 Markdown 标记",
     "IMPORT_OR_NAME_ERROR": "执行环境仅提供 `cq`（cadquery），不得 import 其他库，所有变量须在 make_part() 内定义",
-    "INVALID_GEOMETRY":     "几何体存在自相交或零厚面，请检查 cut/union 顺序",
-    "API_SIGNATURE":        "CadQuery API 签名错误，常见用法：cq.Workplane('XY').circle(r).extrude(h)",
-    "DIMENSION_OVERFLOW":   "尺寸参数越界，请检查 id < od，thickness > 0，所有数值 > 0",
-    "TOPOLOGY_ERROR":       "拓扑构造失败，建议拆分为多步 union 而非单步复合操作",
+    "INVALID_GEOMETRY": "几何体存在自相交或零厚面，请检查 cut/union 顺序",
+    "API_SIGNATURE": "CadQuery API 签名错误，常见用法：cq.Workplane('XY').circle(r).extrude(h)",
+    "DIMENSION_OVERFLOW": "尺寸参数越界，请检查 id < od，thickness > 0，所有数值 > 0",
+    "TOPOLOGY_ERROR": "拓扑构造失败，建议拆分为多步 union 而非单步复合操作",
 }
 
 
@@ -136,7 +140,12 @@ def _classify_error(exc: Exception) -> str:
         return "SYNTAX_ERROR"
     if name in ("ImportError", "ModuleNotFoundError", "NameError", "AttributeError"):
         return "IMPORT_OR_NAME_ERROR"
-    if name == "TypeError" or "unexpected keyword" in msg or "got an unexpected" in msg or "positional argument" in msg:
+    if (
+        name == "TypeError"
+        or "unexpected keyword" in msg
+        or "got an unexpected" in msg
+        or "positional argument" in msg
+    ):
         return "API_SIGNATURE"
     if "stdfail" in msg or "brepface" in msg or "null" in msg or "notdone" in msg:
         return "INVALID_GEOMETRY"
@@ -244,8 +253,12 @@ def _llm_generate_cadquery(
 
     # Step 1: 特征提取
     step1_prompt = _L2_STEP1_PROMPT.format(
-        hint_line=hint_line, part_name=part_name,
-        spec_text=spec_text[:1500], w=w, d=d, h=h,
+        hint_line=hint_line,
+        part_name=part_name,
+        spec_text=spec_text[:1500],
+        w=w,
+        d=d,
+        h=h,
     )
     raw1 = _call_gemini_text(step1_prompt, timeout=_TIMEOUT_L2)
     if raw1 is None:
@@ -262,13 +275,20 @@ def _llm_generate_cadquery(
 
     # Step 2: 代码生成
     step2_prompt = _L2_STEP2_PROMPT.format(
-        feature_json=json.dumps(feature_json, ensure_ascii=False), w=w, d=d, h=h,
+        feature_json=json.dumps(feature_json, ensure_ascii=False),
+        w=w,
+        d=d,
+        h=h,
     )
     raw2 = _call_gemini_text(step2_prompt, timeout=_TIMEOUT_L2)
     if raw2 is None:
         return None
     match2 = re.search(r"```python\s*(.*?)```", raw2, re.DOTALL)
-    code = match2.group(1).strip() if match2 else (raw2.strip() if "def make_part" in raw2 else None)
+    code = (
+        match2.group(1).strip()
+        if match2
+        else (raw2.strip() if "def make_part" in raw2 else None)
+    )
     if code is None:
         log.warning("L2 Step 2: 未提取到代码块")
         return None
@@ -288,7 +308,13 @@ def _llm_generate_cadquery(
                 return code  # 成功
             except Exception as exc:
                 error_class = _classify_error(exc)
-                log.warning("L2 attempt %d/%d: %s -- %s", attempt + 1, max_attempts, error_class, exc)
+                log.warning(
+                    "L2 attempt %d/%d: %s -- %s",
+                    attempt + 1,
+                    max_attempts,
+                    error_class,
+                    exc,
+                )
                 # 最后一次失败不再调 LLM fix，直接退出
                 if attempt < max_attempts - 1:
                     code = _llm_fix(code, error_class, str(exc))
