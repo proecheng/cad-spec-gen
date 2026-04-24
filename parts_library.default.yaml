@@ -92,10 +92,11 @@ solidworks_toolbox:
       - {from: "GB/T ", to: "GB_T"}
       - {from: "GB／T ", to: "GB_T"}   # 全角斜杠兼容
       - {from: "ISO ", to: "ISO_"}
+      - {from: "DIN ", to: "DIN_"}     # DIN 912 → DIN_912-...
+      - {from: "JIS ", to: "JIS_"}     # JIS B1234 → JIS_B1234-...
       - {from: " ", to: ""}            # 去除残余空格
     size_transforms:
-      - {from: "×", to: "x"}
-      - {from: "×", to: "x"}          # 全角乘号
+      - {from: "×", to: "x"}           # U+00D7 乘号
       - {from: " ", to: ""}
     separator: "-"
 

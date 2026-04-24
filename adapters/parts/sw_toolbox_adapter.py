@@ -222,7 +222,6 @@ class SwToolboxAdapter(PartsAdapter):
         resolver_cfg = self.config.get("config_name_resolver", {})
         material = getattr(query, "material", "") or ""
         target_config = _build_candidate_config(material, resolver_cfg) if resolver_cfg else None
-        part.target_config = target_config
 
         safe_config = re.sub(r'[^\w.\-]', '_', target_config) if target_config else ""
         cache_stem = (
