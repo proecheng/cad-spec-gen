@@ -1,5 +1,6 @@
 # tests/test_track_c_llm.py
 import json
+import pytest
 from unittest.mock import patch
 
 from cad_spec_gen.data.codegen.llm_codegen import _llm_extract_params
@@ -84,3 +85,31 @@ def test_apply_template_decision_calls_l1_when_code_none():
         result = _apply_template_decision(geom, "flange", part_meta, (90.0, 90.0, 20.0))
     mock_l1.assert_called_once()
     assert result.get("template_code") is not None, "L1 应补参后生成代码"
+
+
+def test_enriched_envelope_flange_has_more_faces_than_cylinder():
+    """法兰富化 envelope 面数 >= 9（远多于裸圆柱的 3 面，含中心孔+螺栓孔）"""
+    pytest.importorskip("cadquery")
+    from cad_spec_gen.data.codegen.enriched_envelope import _make_enriched_envelope
+    wp = _make_enriched_envelope("flange", 90.0, 90.0, 20.0)
+    assert wp is not None
+    assert len(wp.val().Faces()) >= 9
+
+
+def test_enriched_envelope_unknown_type_returns_box():
+    """未知 tpl_type → 返回带圆角的 box，不返回 None"""
+    pytest.importorskip("cadquery")
+    from cad_spec_gen.data.codegen.enriched_envelope import _make_enriched_envelope
+    wp = _make_enriched_envelope("unknown_xyz", 50.0, 40.0, 30.0)
+    assert wp is not None
+
+
+def test_enriched_envelope_exports_valid_step(tmp_path):
+    """富化 envelope 可导出为合法 STEP 文件（文件大小 > 1KB）"""
+    pytest.importorskip("cadquery")
+    import cadquery as cq
+    from cad_spec_gen.data.codegen.enriched_envelope import _make_enriched_envelope
+    wp = _make_enriched_envelope("bracket", 60.0, 40.0, 50.0)
+    out = tmp_path / "test.step"
+    cq.exporters.export(wp, str(out))
+    assert out.stat().st_size > 1000
