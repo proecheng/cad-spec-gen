@@ -429,6 +429,39 @@ def _parse_annotation_meta(spec_path: str, part_name: str) -> dict:
     }
 
 
+def _write_enriched_placeholder(
+    py_path,
+    func_name: str,
+    tpl_type,
+    env_w: float,
+    env_d: float,
+    env_h: float,
+) -> None:
+    """生成 L3 富化 Envelope 的 .py 文件 + .step 文件。
+
+    .py 首行写入 ENRICHED_PLACEHOLDER 标记供下游识别。
+    """
+    import cadquery as cq
+    from pathlib import Path as _Path
+    from cad_spec_gen.data.codegen.enriched_envelope import _make_enriched_envelope
+
+    tpl = tpl_type or "unknown"
+    wp = _make_enriched_envelope(tpl, env_w, env_d, env_h)
+
+    step_path = _Path(py_path).with_suffix(".step")
+    cq.exporters.export(wp, str(step_path))
+
+    py_content = (
+        f"# ENRICHED_PLACEHOLDER — geometry approximated, not dimensionally accurate\n"
+        f"# tpl_type={tpl} envelope=({env_w},{env_d},{env_h})\n"
+        f"import cadquery as cq\n\n"
+        f"def {func_name}():\n"
+        f"    # 此件由 L3 富化 Envelope 生成，精度有限\n"
+        f"    return cq.importers.importStep(r'{step_path}')\n"
+    )
+    _Path(py_path).write_text(py_content, encoding="utf-8")
+
+
 def _apply_template_decision(
     geom: dict,
     tpl_type: str | None,
@@ -681,6 +714,7 @@ def generate_part_files(
     parts = parse_bom_tree(spec_path)
     generated = []
     skipped = []
+    failed = []
 
     # A2-3: 加载用户命名覆盖（template_mapping.json 与 spec 同级目录）
     _codegen_dir = os.path.join(_PROJECT_ROOT, "codegen")
@@ -809,6 +843,24 @@ def generate_part_files(
                 part_no=p.get("part_no", ""),
                 output_dir=str(output_dir),
             )
+        # L3: FALLBACK 且 no keyword match / disc_arms → 富化 Envelope
+        elif _fallback_reason and _fallback_reason.startswith((
+            "no keyword match", "disc_arms"
+        )):
+            if not os.path.exists(out_file) or mode == "force":
+                print(f"  [L3] {p['name_cn']}: FALLBACK ({_fallback_reason})，生成富化 Envelope")
+                try:
+                    _write_enriched_placeholder(
+                        Path(out_file), func_name, None,
+                        geom.get("envelope_w", 0), geom.get("envelope_d", 0), geom.get("envelope_h", 0),
+                    )
+                    generated.append(out_file)
+                except Exception as _l3_err:
+                    print(f"  ERROR L3: {_l3_err}")
+                    failed.append(out_file)
+            continue  # 跳过后续 Jinja 渲染
+        elif _fallback_reason:
+            print(f"  WARNING: {p['name_cn']} FALLBACK ({_fallback_reason})，跳过 L3（空名/退化几何）")
 
         # Default Ra from material type
         default_ra = SURFACE_RA.get(mat_type, SURFACE_RA.get("default", 3.2))

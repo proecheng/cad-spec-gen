@@ -113,3 +113,15 @@ def test_enriched_envelope_exports_valid_step(tmp_path):
     out = tmp_path / "test.step"
     cq.exporters.export(wp, str(out))
     assert out.stat().st_size > 1000
+
+
+def test_write_enriched_placeholder_creates_files(tmp_path):
+    """_write_enriched_placeholder 生成 .py 含 ENRICHED_PLACEHOLDER + .step 文件"""
+    pytest.importorskip("cadquery")
+    from cad_spec_gen.data.codegen.gen_parts import _write_enriched_placeholder
+    out_py = tmp_path / "test_part.py"
+    _write_enriched_placeholder(out_py, "test_fn", "flange", 90.0, 90.0, 20.0)
+    content = out_py.read_text(encoding="utf-8")
+    assert "ENRICHED_PLACEHOLDER" in content
+    step_out = tmp_path / "test_part.step"
+    assert step_out.exists()
