@@ -226,9 +226,38 @@ def enhance_image(png_path, prompt, comfyui_cfg, view_key, rc):
     _uploaded_name = _up.json()["name"]
     log.info("  [comfyui] Uploaded input image as %s", _uploaded_name)
 
+    # Track C: v1_anchor — 上传 hero_image 供 workflow 使用
+    _hero_uploaded = None
+    _hero = comfyui_cfg.get("hero_image")
+    if _hero and os.path.isfile(_hero):
+        with open(_hero, "rb") as _hf:
+            _hr = _req.post(
+                f"http://{_host}:{_port}/upload/image",
+                files={"image": (os.path.basename(_hero), _hf, "image/jpeg")},
+                data={"overwrite": "true"},
+                timeout=30,
+            )
+        _hr.raise_for_status()
+        _hero_uploaded = _hr.json()["name"]
+        log.info("  [comfyui] v1_anchor hero_image uploaded as %s", _hero_uploaded)
+
     # Load and patch workflow
     workflow = _load_workflow(comfyui_cfg)
     workflow = _patch_workflow(workflow, _uploaded_name, positive, negative, comfyui_cfg)
+
+    # Track C: v1_anchor — hero_image が指定された場合、_patch_workflow が設定した
+    # レンダリング PNG を V1 hero で上書き（V2-V4 が V1 スタイルを参照するため）
+    if _hero_uploaded:
+        for node in workflow.values():
+            if node.get("_title") == "input_image":
+                node["inputs"]["image"] = _hero_uploaded
+                break
+    _comfyui_seed = comfyui_cfg.get("seed")
+    if _comfyui_seed is not None:
+        for node in workflow.values():
+            if node.get("_title") == "ksampler":
+                node["inputs"]["seed"] = int(_comfyui_seed)
+                break
 
     # Submit
     log.info("  [comfyui] Submitting workflow for %s", os.path.basename(png_path))

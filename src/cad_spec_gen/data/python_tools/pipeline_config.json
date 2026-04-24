@@ -1,6 +1,5 @@
 {
   "_doc": "CAD pipeline persistent config. Auto-detected on first run; edit manually to override.",
-  "_blender_path_doc": "Per-machine — set to your local Blender install. Empty string falls back to BLENDER_PATH env var, then PATH lookup, then platform-default install locations.",
   "blender_path": "",
   "cadquery_python": "python",
   "output_base": "cad/output",

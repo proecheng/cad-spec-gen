@@ -25,6 +25,7 @@ MATCH_KEYWORDS: list[str] = [
     "enclosure",
     "box housing",
     "rectangular enclosure",
+    "壳体", "矩形壳体", "方形壳体", "箱体",
 ]
 MATCH_PRIORITY: int = 15
 TEMPLATE_CATEGORY: str = "housing"

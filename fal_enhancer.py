@@ -266,6 +266,13 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
             "end_percentage": depth_end,
         })
 
+    # Track C: v1_anchor — 将 V1 增强结果替换 canny 参考图
+    hero = fal_cfg.get("hero_image")
+    if hero and os.path.isfile(hero):
+        hero_url = _upload_with_retry(hero)
+        controlnets[0]["control_image_url"] = hero_url
+        log.info("  v1_anchor: canny 参考替换为 hero_image %s", os.path.basename(hero))
+
     # Determine endpoint: img2img (preserves geometry) vs txt2img
     endpoint = fal_cfg.get("model", "fal-ai/flux-general")
     use_img2img = fal_cfg.get("img2img", True)  # default: img2img for geometry preservation
@@ -286,6 +293,11 @@ def enhance_image(png_path, prompt, fal_cfg, view_key, rc):
         api_args["strength"] = img2img_strength
     else:
         api_args["image_size"] = "landscape_16_9"
+
+    # Track C: 固定 seed（None 时不传，保持随机）
+    _seed = fal_cfg.get("seed")
+    if _seed is not None:
+        api_args["seed"] = int(_seed)
 
     log.info("  Endpoint: %s (img2img=%s, strength=%.2f)",
              endpoint, use_img2img, img2img_strength if use_img2img else 0)

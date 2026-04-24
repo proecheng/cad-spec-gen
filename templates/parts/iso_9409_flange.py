@@ -55,6 +55,8 @@ MATCH_KEYWORDS: list[str] = [
     "tool mount flange",
     "cross-arm hub",       # cross-arm overlay mode
     "mounting flange",     # common English fallback
+    # 中文 BOM 关键词（Track C routing activation）
+    "法兰", "法兰盘", "工具法兰", "安装法兰", "连接法兰",
 ]
 MATCH_PRIORITY: int = 20
 TEMPLATE_CATEGORY: str = "mechanical_interface"

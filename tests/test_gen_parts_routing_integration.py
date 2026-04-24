@@ -15,19 +15,18 @@ def test_gen_parts_imports_parts_routing():
 
 
 def test_gen_parts_route_preview_uses_print():
-    """Spec 1 integration must use print() not log.info() for routing preview.
+    """Track C 激活版路由必须通过 print() 输出决策（不得用 log.info()）。
 
-    gen_parts.py does not call logging.basicConfig(), so log.info() is
-    silently dropped. This test prevents regression to a log-only approach
-    that would make the preview invisible during standalone gen_parts runs.
+    gen_parts.py 不调用 logging.basicConfig()，log.info() 会被静默丢弃。
+    此测试防止回归到仅 log 的方式，保证路由结果在独立运行时可见。
     """
     gen_parts_src = (_REPO_ROOT / "codegen" / "gen_parts.py").read_text(encoding="utf-8")
-    assert "[routing preview]" in gen_parts_src, \
-        "gen_parts.py must print '[routing preview]' for decisions"
-    # Verify the preview is emitted via print(), not log.info()
-    # (Look for the specific phrase inside a print call)
-    assert "print(" in gen_parts_src and "[routing preview]" in gen_parts_src, \
-        "Routing preview must use print() so it's visible without logging config"
+    # Track C: 激活版使用 [routing] 而非旧版 [routing preview]
+    assert "[routing]" in gen_parts_src, \
+        "gen_parts.py must print '[routing]' for routing decisions"
+    # 确认通过 print() 输出，不是 log.info()
+    assert "print(" in gen_parts_src and "[routing]" in gen_parts_src, \
+        "Routing decisions must use print() so they're visible without logging config"
 
 
 def test_gen_parts_src_path_inserted():
@@ -38,13 +37,11 @@ def test_gen_parts_src_path_inserted():
 
 
 def test_gen_parts_routing_preview_is_observable_on_real_run(tmp_path):
-    """End-to-end check: running gen_parts on a CAD_SPEC must emit visible preview lines.
+    """端对端检查：gen_parts 对 CAD_SPEC 运行后必须输出可见的路由决策行。
 
-    Creates a minimal CAD_SPEC.md with the BOM树 format gen_parts actually
-    expects, runs gen_parts in force mode via subprocess, and verifies the
-    '[routing preview]' string appears in captured stdout. This is the test
-    that would have caught the log.info-vs-print regression during Spec 1
-    validation.
+    创建最小 CAD_SPEC.md，用 subprocess 以 force 模式运行 gen_parts，
+    验证 '[routing]' 字符串出现在 stdout 中。
+    此测试防止 log.info vs print 回归（Track C 激活版使用 [routing] 标签）。
     """
     import os
     import subprocess
@@ -92,9 +89,9 @@ def test_gen_parts_routing_preview_is_observable_on_real_run(tmp_path):
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     combined = result.stdout + result.stderr
-    # Should have emitted at least one preview line for the custom part
-    assert "[routing preview]" in combined, (
-        f"Expected '[routing preview]' in output, got:\n"
+    # Track C 激活版：应输出至少一行 [routing] 决策行
+    assert "[routing]" in combined, (
+        f"Expected '[routing]' in output, got:\n"
         f"--- stdout ---\n{result.stdout}\n"
         f"--- stderr ---\n{result.stderr}"
     )

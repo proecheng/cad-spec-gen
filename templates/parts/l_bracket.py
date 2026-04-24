@@ -33,6 +33,7 @@ MATCH_KEYWORDS: list[str] = [
     "angle bracket",
     "corner bracket",
     "angle iron",
+    "支架", "L型支架", "角支架", "安装支架",
 ]
 MATCH_PRIORITY: int = 15
 TEMPLATE_CATEGORY: str = "bracket"
