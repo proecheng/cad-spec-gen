@@ -156,6 +156,7 @@ def test_llm_fix_fallback_to_original_on_no_code_block():
 
 def test_llm_generate_step1_json_fail_returns_none():
     """Step 1 JSON 解析失败 → 直接返回 None，不进入 Step 2"""
+    pytest.importorskip("cadquery")
     from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
     call_count = {"n": 0}
     def mock_call(prompt, timeout=10):
@@ -169,6 +170,7 @@ def test_llm_generate_step1_json_fail_returns_none():
 
 def test_llm_generate_with_template_hint_includes_hint_in_prompt():
     """template_hint 传入时 Step 1 Prompt 应包含该提示"""
+    pytest.importorskip("cadquery")
     from cad_spec_gen.data.codegen.llm_codegen import _llm_generate_cadquery
     prompts_seen = []
     def mock_call(prompt, timeout=10):
