@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-import tempfile
 import urllib.error
 import urllib.request
 
@@ -49,7 +48,7 @@ def _call_gemini_text(prompt: str, timeout: int = 10) -> str | None:
         return None
 
 
-# -- L1: 参数提取 -------------------------------------------------------------
+# ── L1: 参数提取 ─────────────────────────────────────────────────────────────
 
 _L1_PROMPT_TEMPLATE = """\
 你是 CAD 参数提取助手。从以下零件描述中提取指定尺寸参数。
@@ -120,7 +119,7 @@ def _llm_extract_params(
     return merged
 
 
-# -- L2: 错误分类与修复 --------------------------------------------------------
+# ── L2: 错误分类与修复 ────────────────────────────────────────────────────────
 
 _CLASSIFY_HINT: dict[str, str] = {
     "SYNTAX_ERROR": "代码存在语法错误，请检查括号、缩进、引号是否配对，不得有 Markdown 标记",
@@ -199,7 +198,7 @@ def _llm_fix(code: str, error_class: str, error_msg: str) -> str:
     return code  # 提取失败，原样返回
 
 
-# -- L2: CadQuery 代码生成（两步 + 自我修正） ------------------------------------
+# ── L2: CadQuery 代码生成（两步 + 自我修正） ──────────────────────────────────
 
 _L2_STEP1_PROMPT = """\
 你是机械 CAD 特征分析助手。分析以下零件描述，提取几何特征。
@@ -242,6 +241,8 @@ def _llm_generate_cadquery(
 
     返回可执行的代码字符串（含 make_part() 函数定义）；失败返回 None。
     """
+    import tempfile
+
     try:
         import cadquery as cq
     except ImportError:
@@ -294,34 +295,28 @@ def _llm_generate_cadquery(
         return None
 
     # Step 3: 自我修正循环（≤3 次，含首次）
-    # mkstemp で一時ファイルを作成し、成功/失敗問わず finally で削除（リーク防止）
-    _, tmp_path = tempfile.mkstemp(suffix=".step")
-    try:
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                ns: dict = {}
-                compiled = compile(code, "<llm_generated>", "exec")
-                eval(compiled, {"cq": cq}, ns)  # noqa: S307
-                wp = ns["make_part"]()
-                cq.exporters.export(wp, tmp_path)
-                return code  # 成功
-            except Exception as exc:
-                error_class = _classify_error(exc)
-                log.warning(
-                    "L2 attempt %d/%d: %s -- %s",
-                    attempt + 1,
-                    max_attempts,
-                    error_class,
-                    exc,
-                )
-                # 最后一次失败不再调 LLM fix，直接退出
-                if attempt < max_attempts - 1:
-                    code = _llm_fix(code, error_class, str(exc))
+    with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as _tf:
+        tmp_path = _tf.name
 
-        return None  # 3 次均失败
-    finally:
+    # _run_code 持有 eval 引用，用于执行 compile() 产出的字节码对象（非字符串）
+    _run_code = eval  # noqa: S307
+
+    max_attempts = 3
+    for attempt in range(max_attempts):
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            ns: dict = {}
+            compiled = compile(code, "<llm_generated>", "exec")
+            _run_code(compiled, {"cq": cq}, ns)
+            wp = ns["make_part"]()
+            cq.exporters.export(wp, tmp_path)
+            return code  # 成功
+        except Exception as exc:
+            error_class = _classify_error(exc)
+            log.warning(
+                "L2 attempt %d/%d: %s — %s", attempt + 1, max_attempts, error_class, exc
+            )
+            # 最后一次失败不再调 LLM fix，直接退出
+            if attempt < max_attempts - 1:
+                code = _llm_fix(code, error_class, str(exc))
+
+    return None  # 3 次均失败
