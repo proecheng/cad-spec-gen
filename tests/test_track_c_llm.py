@@ -125,3 +125,36 @@ def test_write_enriched_placeholder_creates_files(tmp_path):
     assert "ENRICHED_PLACEHOLDER" in content
     step_out = tmp_path / "test_part.step"
     assert step_out.exists()
+
+
+def test_classify_error_syntax():
+    from cad_spec_gen.data.codegen.llm_codegen import _classify_error
+    try:
+        exec("def f(:\n    pass")
+    except SyntaxError as e:
+        assert _classify_error(e) == "SYNTAX_ERROR"
+
+
+def test_classify_error_import():
+    from cad_spec_gen.data.codegen.llm_codegen import _classify_error
+    try:
+        exec("import nonexistent_lib_xyz")
+    except ImportError as e:
+        assert _classify_error(e) == "IMPORT_OR_NAME_ERROR"
+
+
+def test_llm_fix_extracts_code_block():
+    """_llm_fix: LLM 返回含 ```python 块则提取其中代码"""
+    from cad_spec_gen.data.codegen.llm_codegen import _llm_fix
+    response = "修复说明\n```python\ndef make_part():\n    return 1\n```"
+    with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", return_value=response):
+        result = _llm_fix("original_code", "SYNTAX_ERROR", "SyntaxError: ...")
+    assert "def make_part():" in result
+
+
+def test_llm_fix_fallback_to_original_on_no_code_block():
+    """_llm_fix: LLM 不返回代码块时原样返回原始代码"""
+    from cad_spec_gen.data.codegen.llm_codegen import _llm_fix
+    with patch("cad_spec_gen.data.codegen.llm_codegen._call_gemini_text", return_value="just text, no code"):
+        result = _llm_fix("def make_part(): pass", "API_SIGNATURE", "TypeError")
+    assert result == "def make_part(): pass"

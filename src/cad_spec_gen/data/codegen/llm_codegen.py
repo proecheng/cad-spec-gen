@@ -113,3 +113,77 @@ def _llm_extract_params(
             if entry["name"] not in existing_names:
                 merged.append(entry)
     return merged
+
+
+# ── L2: 错误分类与修复 ────────────────────────────────────────────────────────
+
+_CLASSIFY_HINT: dict[str, str] = {
+    "SYNTAX_ERROR":         "代码存在语法错误，请检查括号、缩进、引号是否配对，不得有 Markdown 标记",
+    "IMPORT_OR_NAME_ERROR": "执行环境仅提供 `cq`（cadquery），不得 import 其他库，所有变量须在 make_part() 内定义",
+    "INVALID_GEOMETRY":     "几何体存在自相交或零厚面，请检查 cut/union 顺序",
+    "API_SIGNATURE":        "CadQuery API 签名错误，常见用法：cq.Workplane('XY').circle(r).extrude(h)",
+    "DIMENSION_OVERFLOW":   "尺寸参数越界，请检查 id < od，thickness > 0，所有数值 > 0",
+    "TOPOLOGY_ERROR":       "拓扑构造失败，建议拆分为多步 union 而非单步复合操作",
+}
+
+
+def _classify_error(exc: Exception) -> str:
+    """将异常分类为 6 类之一，供 _llm_fix 选择修复提示。"""
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if name == "SyntaxError":
+        return "SYNTAX_ERROR"
+    if name in ("ImportError", "ModuleNotFoundError", "NameError", "AttributeError"):
+        return "IMPORT_OR_NAME_ERROR"
+    if name == "TypeError" or "unexpected keyword" in msg or "argument" in msg:
+        return "API_SIGNATURE"
+    if "stdfail" in msg or "brepface" in msg or "null" in msg or "notdone" in msg:
+        return "INVALID_GEOMETRY"
+    if name == "ValueError" or "overflow" in msg or "negative" in msg:
+        return "DIMENSION_OVERFLOW"
+    if "constructionerror" in msg or "standard_" in msg:
+        return "TOPOLOGY_ERROR"
+    return "INVALID_GEOMETRY"  # 默认归类为几何无效
+
+
+_L2_FIX_PROMPT_TEMPLATE = """\
+你是 CadQuery 代码修复助手。以下代码运行时出错，错误类型：{error_class}。
+
+错误信息：
+{error_msg}
+
+修复方向：{hint}
+
+原代码：
+```python
+{code}
+```
+
+请返回修正后的完整 make_part() 函数，不含任何 import 语句、不含说明文字，仅 Python 代码。
+"""
+
+
+def _llm_fix(code: str, error_class: str, error_msg: str) -> str:
+    """向 LLM 发送修复请求，返回修正后的代码字符串。
+
+    LLM 不响应或返回格式无效时，原样返回 code（由上层 loop 继续重试）。
+    """
+    hint = _CLASSIFY_HINT.get(error_class, _CLASSIFY_HINT["INVALID_GEOMETRY"])
+    prompt = _L2_FIX_PROMPT_TEMPLATE.format(
+        error_class=error_class,
+        error_msg=error_msg[:500],
+        hint=hint,
+        code=code,
+    )
+    raw = _call_gemini_text(prompt, timeout=_TIMEOUT_L2)
+    if raw is None:
+        return code
+
+    # 提取第一个 ```python ... ``` 块
+    match = re.search(r"```python\s*(.*?)```", raw, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    # 若无代码块但有 def make_part 行，直接返回
+    if "def make_part" in raw:
+        return raw.strip()
+    return code  # 提取失败，原样返回
