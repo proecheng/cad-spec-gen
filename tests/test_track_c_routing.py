@@ -46,3 +46,22 @@ def test_route_unknown_falls_back():
     templates = discover_templates([tier1] if tier1 else [])
     decision = route("完全未知零件XYZ", _make_geom("box"), templates)
     assert decision.outcome == "FALLBACK"
+
+
+def test_gen_parts_route_to_factory_type(tmp_path):
+    """route() 命中 iso_9409_flange → _ROUTE_TO_FACTORY_TYPE 映射到 'flange'"""
+    from codegen.gen_parts import _ROUTE_TO_FACTORY_TYPE
+    assert _ROUTE_TO_FACTORY_TYPE["iso_9409_flange"] == "flange"
+    assert _ROUTE_TO_FACTORY_TYPE["l_bracket"] == "bracket"
+    assert _ROUTE_TO_FACTORY_TYPE["cantilever_arm"] == "arm"
+    assert _ROUTE_TO_FACTORY_TYPE["spring_unit"] == "spring_mechanism"
+
+
+def test_gen_parts_imports_pick_best():
+    """gen_parts 可导入 _pick_best（routing activation 需要）"""
+    from cad_spec_gen.parts_routing import _pick_best
+    from cad_spec_gen.parts_routing import TemplateDescriptor
+    from pathlib import Path
+    a = TemplateDescriptor("a", ("kw",), priority=10, category="bracket", tier="builtin", source_path=Path("."))
+    b = TemplateDescriptor("b", ("kw",), priority=20, category="bracket", tier="builtin", source_path=Path("."))
+    assert _pick_best([a, b]).name == "b"

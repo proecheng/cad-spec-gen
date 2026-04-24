@@ -47,11 +47,25 @@ try:
         route,
         discover_templates,
         locate_builtin_templates_dir,
+        _pick_best,
     )
 
     _PARTS_ROUTING_AVAILABLE = True
+    # Track C: route() 模板名 → _apply_template_decision() 工厂类型字符串
+    _ROUTE_TO_FACTORY_TYPE: dict[str, str] = {
+        "iso_9409_flange": "flange",
+        "l_bracket": "bracket",
+        "cylindrical_housing": "housing",
+        "rectangular_housing": "housing",
+        "fixture_plate": "plate",
+        "cantilever_arm": "arm",
+        "circular_cover": "cover",
+        "cylindrical_sleeve": "sleeve",
+        "spring_unit": "spring_mechanism",
+    }
 except ImportError as _exc:
     _PARTS_ROUTING_AVAILABLE = False
+    _ROUTE_TO_FACTORY_TYPE = {}
     import logging as _log
 
     _log.getLogger(__name__).debug("parts_routing unavailable: %s", _exc)
@@ -680,7 +694,10 @@ def generate_part_files(
         envelope = envelopes.get(p["part_no"])
         geom = _guess_geometry(p["name_cn"], p["material"], envelope=envelope)
 
-        # Spec 1: log routing preview (dormant integration; emission unchanged).
+        # Track C: route() 为唯一路由入口（取代 _match_template）
+        _tpl_type: str | None = None
+        _fallback_reason: str | None = None
+
         if _PARTS_ROUTING_AVAILABLE:
             try:
                 _geom = GeomInfo(
@@ -689,8 +706,7 @@ def generate_part_files(
                     envelope_d=float(geom.get("envelope_d") or 0),
                     envelope_h=float(geom.get("envelope_h") or 0),
                     extras={
-                        k: v
-                        for k, v in geom.items()
+                        k: v for k, v in geom.items()
                         if k not in {"type", "envelope_w", "envelope_d", "envelope_h"}
                     },
                 )
@@ -698,18 +714,26 @@ def generate_part_files(
                 _search = [_tier1] if _tier1 else []
                 _templates = discover_templates(_search)
                 _decision = route(p["name_cn"] or "", _geom, _templates)
-                _tpl = _decision.template.name if _decision.template else "fallback"
-                # Spec 1: print to stdout so the preview is observable during
-                # standalone gen_parts runs. gen_parts.py does not configure
-                # logging.basicConfig, so log.info() is silently dropped; use
-                # print() to match the rest of gen_parts.py's status output style.
-                print(
-                    f"  [routing preview] {p['name_cn']} -> "
-                    f"{_decision.outcome} ({_tpl})"
-                )
+
+                if _decision.outcome in ("HIT_BUILTIN", "HIT_PROJECT"):
+                    _route_name = _decision.template.name
+                    _tpl_type = _ROUTE_TO_FACTORY_TYPE.get(_route_name)
+                    if _tpl_type is None:
+                        print(f"  WARNING: 未知模板映射 '{_route_name}'，跳过模板")
+                    else:
+                        print(f"  [routing] {p['name_cn']} -> {_decision.outcome} ({_route_name} -> {_tpl_type})")
+                elif _decision.outcome == "AMBIGUOUS":
+                    _best = _pick_best(list(_decision.ambiguous_candidates))
+                    _tpl_type = _ROUTE_TO_FACTORY_TYPE.get(_best.name)
+                    print(f"  [routing] {p['name_cn']} -> AMBIGUOUS resolved: {_best.name} -> {_tpl_type}")
+                else:  # FALLBACK
+                    _fallback_reason = _decision.reason
+                    print(f"  [routing] {p['name_cn']} -> FALLBACK ({_fallback_reason})")
             except Exception as _err:
-                # Don't crash gen_parts on routing preview failure — diagnostic only.
-                print(f"  [routing preview] {p['name_cn']} -> failed: {_err}")
+                print(f"  [routing] {p['name_cn']} -> error: {_err}")
+        else:
+            # parts_routing 不可用时降级到旧系统
+            _tpl_type = _match_template(p["name_cn"], _user_mapping)
 
         # Derive material_type
         from cad_spec_defaults import classify_material_type, SURFACE_RA
@@ -725,8 +749,6 @@ def generate_part_files(
         # Per-part annotation meta
         part_meta = _parse_annotation_meta(spec_path, p["name_cn"])
 
-        # A2-3: 半参数模板激活
-        _tpl_type = _match_template(p["name_cn"], _user_mapping)
         if _tpl_type:
             geom = _apply_template_decision(
                 geom, _tpl_type, part_meta, envelope,
