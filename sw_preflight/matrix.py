@@ -102,7 +102,7 @@ def _check_toolbox_supported() -> tuple[bool, Optional[DiagnosisInfo]]:
             suggestion="可继续使用 stand-in 标准件占位",
             severity='warn',
         )
-    if info.edition == 'Standard':
+    if info.edition == 'standard':
         return False, DiagnosisInfo(
             code=DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED,
             reason="SolidWorks Standard 版本不包含 Toolbox 标准件库",
@@ -152,6 +152,36 @@ def _check_addin_enabled() -> tuple[bool, Optional[DiagnosisInfo]]:
             reason="Toolbox Add-In 未在 SOLIDWORKS 中启用",
             suggestion="在 SOLIDWORKS 的 Tools → Add-Ins 中勾选 SOLIDWORKS Toolbox（可一键修）",
             severity='warn',
+        )
+    return True, None
+
+
+def _check_toolbox_path_healthy() -> tuple[bool, Optional[DiagnosisInfo]]:
+    """检查 #7（Track B 版）：toolbox_dir 物理健康（sldedb + sldprt 可读）。
+
+    委托给 sw_detect.check_toolbox_path_healthy，保持 matrix check 接口统一。
+    """
+    try:
+        from adapters.solidworks.sw_detect import detect_solidworks, check_toolbox_path_healthy
+        info = detect_solidworks()
+    except Exception as e:  # noqa: BLE001
+        return False, DiagnosisInfo(
+            code=DiagnosisCode.TOOLBOX_PATH_INVALID,
+            reason=f"读取 Toolbox 路径状态失败：{e}",
+            suggestion="检查 SOLIDWORKS 安装完整性",
+            severity='block',
+        )
+
+    ok, reason = check_toolbox_path_healthy(info)
+    if not ok:
+        return False, DiagnosisInfo(
+            code=DiagnosisCode.TOOLBOX_PATH_INVALID,
+            reason=reason or "Toolbox 目录不健康",
+            suggestion=(
+                "在 SOLIDWORKS Tools → Options → Hole Wizard/Toolbox 中"
+                "重新指定有效 Toolbox 目录，并确保 Toolbox 组件已完整安装"
+            ),
+            severity='block',
         )
     return True, None
 
@@ -211,25 +241,56 @@ CHECK_ORDER: list[tuple[str, str]] = [
     ('toolbox_supported', '_check_toolbox_supported'),
     ('com_healthy', '_check_com_healthy'),
     ('addin_enabled', '_check_addin_enabled'),
-    ('toolbox_path', '_check_toolbox_path'),
+    ('toolbox_path', '_check_toolbox_path_healthy'),
 ]
+
+_BLOCKING_CHECKS: frozenset[str] = frozenset({
+    "platform",
+    "pywin32",
+    "sw_installed",
+    "toolbox_supported",
+    "com_healthy",
+    "toolbox_path",
+    # addin_enabled 故意不在此集合 —— B-5 advisory only
+})
 
 
 def run_all_checks() -> dict:
-    """按 CHECK_ORDER 顺序跑 7 项检查；遇第一失败短路返回；全过返回 passed=True。
+    """按 CHECK_ORDER 顺序跑全部检查；不短路，全量收集结果。
 
     Returns:
-        - 失败：``{'passed': False, 'failed_check': <name>, 'diagnosis': DiagnosisInfo}``
-        - 全过：``{'passed': True, 'failed_check': None, 'diagnosis': None}``
+        {
+          'passed': bool,                   # True 当且仅当所有 _BLOCKING_CHECKS 中的 check 都通过
+          'failed_check': Optional[str],    # 第一个 blocking 失败的 check 名
+          'diagnosis': Optional[DiagnosisInfo],  # 第一个 blocking 失败的诊断
+          'advisory_failures': dict[str, Optional[DiagnosisInfo]],  # 非 blocking 失败集合
+        }
     """
     import sys
     this_module = sys.modules[__name__]
+
+    first_blocking_fail: Optional[str] = None
+    first_blocking_diag = None
+    advisory_failures: dict = {}
+
     for name, attr in CHECK_ORDER:
         check: CheckFn = getattr(this_module, attr)
         ok, diag = check()
         if not ok:
-            return {'passed': False, 'failed_check': name, 'diagnosis': diag}
-    return {'passed': True, 'failed_check': None, 'diagnosis': None}
+            if name in _BLOCKING_CHECKS:
+                if first_blocking_fail is None:
+                    first_blocking_fail = name
+                    first_blocking_diag = diag
+            else:
+                advisory_failures[name] = diag
+
+    passed = first_blocking_fail is None
+    return {
+        "passed": passed,
+        "failed_check": first_blocking_fail,
+        "diagnosis": first_blocking_diag,
+        "advisory_failures": advisory_failures,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +431,8 @@ def fix_addin_enable() -> FixRecord:
     guid = get_toolbox_addin_guid()
     if guid is None:
         raise RuntimeError(
-            "ADDIN_ENABLE_FAILED: Toolbox Add-in GUID not discoverable from registry"
+            "ADDIN_DLL_NOT_FOUND: install_dir 下找不到 Toolbox Add-in DLL — "
+            "可能是 Standard 版未装 Toolbox Library"
         )
 
     start = time.time()

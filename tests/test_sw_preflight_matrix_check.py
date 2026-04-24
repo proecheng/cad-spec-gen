@@ -17,7 +17,7 @@ def test_all_checks_pass():
                 with patch('sw_preflight.matrix._check_toolbox_supported', return_value=(True, None)):
                     with patch('sw_preflight.matrix._check_com_healthy', return_value=(True, None)):
                         with patch('sw_preflight.matrix._check_addin_enabled', return_value=(True, None)):
-                            with patch('sw_preflight.matrix._check_toolbox_path', return_value=(True, None)):
+                            with patch('sw_preflight.matrix._check_toolbox_path_healthy', return_value=(True, None)):
                                 result = run_all_checks()
                                 assert result['passed'] is True
                                 assert result['failed_check'] is None
@@ -36,3 +36,64 @@ def test_first_fail_returns_diagnosis():
                 assert result['passed'] is False
                 assert result['failed_check'] == 'sw_installed'
                 assert result['diagnosis'].code == DiagnosisCode.SW_NOT_INSTALLED
+
+
+def test_check_toolbox_supported_standard_edition(monkeypatch):
+    """edition == 'standard'（小写）→ _check_toolbox_supported 返 False。"""
+    from adapters.solidworks import sw_detect
+    from sw_preflight import matrix
+
+    sw_detect._reset_cache()
+    fake = sw_detect.SwInfo(installed=True, version_year=2024, edition='standard')
+    monkeypatch.setattr(sw_detect, 'detect_solidworks', lambda: fake)
+    ok, diag = matrix._check_toolbox_supported()
+    assert ok is False
+    assert diag is not None
+
+
+def test_check_toolbox_path_healthy_passes_when_dir_healthy(monkeypatch, tmp_path):
+    """_check_toolbox_path_healthy：健康目录 → True。"""
+    from adapters.solidworks import sw_detect
+    from sw_preflight import matrix
+
+    (tmp_path / "swbrowser.sldedb").write_bytes(b"SQLite")
+    (tmp_path / "GB").mkdir()
+    (tmp_path / "GB" / "p.sldprt").write_bytes(b"\x00")
+
+    sw_detect._reset_cache()
+    fake = sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path))
+    monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake)
+
+    ok, diag = matrix._check_toolbox_path_healthy()
+    assert ok is True
+    assert diag is None
+
+
+def test_check_toolbox_path_healthy_fails_missing_sldedb(monkeypatch, tmp_path):
+    """_check_toolbox_path_healthy：缺 sldedb → False。"""
+    from adapters.solidworks import sw_detect
+    from sw_preflight import matrix
+
+    (tmp_path / "GB").mkdir()
+    (tmp_path / "GB" / "p.sldprt").write_bytes(b"\x00")
+
+    sw_detect._reset_cache()
+    fake = sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path))
+    monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake)
+
+    ok, diag = matrix._check_toolbox_path_healthy()
+    assert ok is False
+
+
+def test_addin_enabled_advisory_in_run_all_checks(monkeypatch):
+    """addin_enabled 失败时 run_all_checks passed=True，advisory_failures 含 addin_enabled。"""
+    import sw_preflight.matrix as m
+
+    for name, attr in m.CHECK_ORDER:
+        if name != "addin_enabled":
+            monkeypatch.setattr(m, attr, lambda: (True, None))
+    monkeypatch.setattr(m, "_check_addin_enabled", lambda: (False, None))
+
+    result = m.run_all_checks()
+    assert result["passed"] is True
+    assert "addin_enabled" in result["advisory_failures"]

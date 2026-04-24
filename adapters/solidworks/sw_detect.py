@@ -70,8 +70,8 @@ class SwInfo:
     toolbox_addin_enabled: bool = False
     """Toolbox Add-In 是否在 SW Tools → Add-Ins 里启用（v4 决策 #13）"""
 
-    edition: Literal["Standard", "Pro", "Premium", "unknown"] = "unknown"
-    """SolidWorks 版本级别（Standard/Pro/Premium），注册表读不到时为 'unknown'。"""
+    edition: Literal["standard", "professional", "premium", "trial", "educational", "unknown"] = "unknown"
+    """SolidWorks 版本级别（归一化小写完整词），注册表读不到时为 'unknown'。"""
 
 
 # 进程级缓存
@@ -174,7 +174,7 @@ def _detect_impl() -> SwInfo:
     info.toolbox_addin_enabled = _check_toolbox_addin_enabled(winreg, info.version_year)
 
     # --- 检测 edition（Standard / Pro / Premium，Task 4）---
-    info.edition = _find_edition(winreg, info.version_year)
+    info.edition = _find_edition(winreg, info.version_year, info.install_dir)
 
     return info
 
@@ -323,24 +323,22 @@ def _find_toolbox_dir(winreg, version_year: int) -> str:
 
 
 def _find_edition(
-    winreg, version_year: int
-) -> Literal["Standard", "Pro", "Premium", "unknown"]:
-    """从注册表读取 SolidWorks edition 字段（Task 4）。
+    winreg, version_year: int, install_dir: str = ""
+) -> Literal["standard", "professional", "premium", "trial", "educational", "unknown"]:
+    """从注册表或文件系统读取 SolidWorks edition 字段（Track B0 三探针）。
 
-    路径：``HKLM\\SOFTWARE\\SolidWorks\\SOLIDWORKS <year>\\Setup\\Edition``
-    （也兼容旧键名 ``SolidWorks <year>``）。
-
-    归一化规则：
-    - "Professional" → "Pro"
-    - "Standard" / "Pro" / "Premium" 原样保留
-    - 任何其他值 / 读不到 / 异常 → "unknown"
+    探针顺序：
+      Probe 1 — 注册表 Setup\\Edition value（快，命中率高）
+      Probe 2 — 文件系统：install_dir\\AddIns\\Toolbox*\\ 下 .dll 存在 → professional
+      全 miss  — install_dir 存在 → 'standard'；install_dir 空 → 'unknown'
 
     Args:
         winreg: winreg 模块引用。
         version_year: SolidWorks 年份版本。
+        install_dir: SolidWorks 安装目录，用于文件系统 fallback 探针。
 
     Returns:
-        归一化后的 edition 字面量。
+        归一化后的 edition 字面量（全小写完整词）。
     """
     key_patterns = [
         r"SOFTWARE\SolidWorks\SolidWorks {year}\Setup",
@@ -354,17 +352,26 @@ def _find_edition(
         )
         if not raw:
             continue
-
-        # 归一化（大小写不敏感）
-        normalized = raw.strip()
-        lower = normalized.lower()
-        if lower == "professional" or lower == "pro":
-            return "Pro"
+        lower = raw.strip().lower()
+        if lower in ("professional", "pro"):
+            return "professional"
         if lower == "standard":
-            return "Standard"
+            return "standard"
         if lower == "premium":
-            return "Premium"
-        # 读到但值异常 → 继续尝试下一个 key pattern 或最终返回 unknown
+            return "premium"
+        if lower == "trial":
+            return "trial"
+        if lower == "educational":
+            return "educational"
+
+    # Probe 2: 文件系统 Toolbox DLL 存在性
+    if install_dir:
+        for sub in ("toolbox", "Toolbox"):
+            d = Path(install_dir) / "AddIns" / sub
+            if d.is_dir() and any(d.glob("*.dll")):
+                return "professional"
+        # install_dir 存在但无 Toolbox DLL → Standard 版
+        return "standard"
 
     return "unknown"
 
@@ -559,6 +566,252 @@ def find_toolbox_addin_guid() -> Optional[str]:
             continue
 
     return None
+
+
+# ── Track B1：三段式 Toolbox GUID 发现 ──────────────────────────────────────
+
+
+def _addins_candidates(version_year: int) -> list[tuple[int, str]]:
+    """返回 [(hive, subkey_path)]；延迟构造以使用运行时已知的 version_year。
+
+    4 条路径（HKLM × 2 + HKCU × 2）覆盖新装机和历史用户的注册表布局差异。
+    """
+    import winreg  # type: ignore[import-not-found]
+    return [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\SolidWorks\AddIns"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         rf"SOFTWARE\SolidWorks\SOLIDWORKS {version_year}\AddIns"),
+        (winreg.HKEY_CURRENT_USER, r"Software\SolidWorks\AddIns"),
+        (winreg.HKEY_CURRENT_USER,
+         rf"Software\SolidWorks\SOLIDWORKS {version_year}\AddIns"),
+    ]
+
+
+def _scan_all_addins_by_description() -> Optional[str]:
+    """Stage 2：枚举 4 条 AddIns registry 路径，三口径任一命中即返回 GUID。
+
+    命中口径（任一满足即返回）：
+      (a) Description 或 Title value 含 'toolbox'（大小写不敏感）
+      (b) GUID 子键名含 'toolbox'（大小写不敏感）
+      (c) _is_toolbox_guid(name) 前缀匹配（与 Stage 1 口径对齐）
+
+    非 Windows、pywin32 不可用、version_year=0 时均返回 None。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    info = detect_solidworks()
+    if info.version_year == 0:
+        return None
+
+    for hive, path in _addins_candidates(info.version_year):
+        try:
+            with winreg.OpenKey(hive, path, 0, winreg.KEY_READ) as root:
+                i = 0
+                while True:
+                    try:
+                        guid = winreg.EnumKey(root, i)
+                        i += 1
+                    except OSError:
+                        break
+
+                    # 合法 GUID 必须以 '{' 开头（与 Stage 1 口径对齐）
+                    if not guid.startswith("{"):
+                        continue
+
+                    # 口径 (b)/(c)：GUID 子键名匹配
+                    if "toolbox" in guid.lower() or _is_toolbox_guid(guid):
+                        return guid
+
+                    # 口径 (a)：读 Description / Title value
+                    try:
+                        with winreg.OpenKey(root, guid, 0, winreg.KEY_READ) as gk:
+                            for val_name in ("Description", "Title"):
+                                try:
+                                    val, _ = winreg.QueryValueEx(gk, val_name)
+                                    if "toolbox" in str(val).lower():
+                                        return guid
+                                except OSError:
+                                    continue
+                    except OSError:
+                        continue
+        except (OSError, FileNotFoundError):
+            continue
+
+    return None
+
+
+def _scan_addin_dll_clsid() -> Optional[str]:
+    """Stage 3：在 install_dir\\AddIns\\toolbox*\\ 找 DLL，反查 HKCR\\CLSID 得到 GUID。
+
+    仅在 Stage 1/2 都 miss 时调用（慢路径）。
+    命中后自动写 HKCU\\Software\\SolidWorks\\AddInsStartup\\{guid}=1（B-17）。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    info = detect_solidworks()
+    if not info.install_dir:
+        return None
+
+    # 收集候选 DLL 路径（小写，用于比较）
+    dll_paths: set[str] = set()
+    for sub in ("toolbox", "Toolbox"):
+        d = Path(info.install_dir) / "AddIns" / sub
+        if d.is_dir():
+            for f in d.glob("*.dll"):
+                dll_paths.add(str(f).lower())
+
+    if not dll_paths:
+        return None
+
+    # 在 HKCR\CLSID 里反查 InprocServer32 / LocalServer32 路径
+    try:
+        clsid_root = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "CLSID")
+    except OSError:
+        return None
+
+    found_guid: Optional[str] = None
+    with clsid_root:
+        idx = 0
+        while True:
+            try:
+                guid_str = winreg.EnumKey(clsid_root, idx)
+                idx += 1
+            except OSError:
+                break
+            for server in ("InprocServer32", "LocalServer32"):
+                try:
+                    with winreg.OpenKey(clsid_root, f"{guid_str}\\{server}") as sk:
+                        srv_path = winreg.QueryValue(sk, "")
+                        if isinstance(srv_path, str) and srv_path.lower() in dll_paths:
+                            found_guid = (
+                                guid_str
+                                if guid_str.startswith("{")
+                                else f"{{{guid_str}}}"
+                            )
+                            break
+                except OSError:
+                    continue
+            if found_guid:
+                break
+
+    if not found_guid:
+        return None
+
+    # B-17：DLL 物理存在 + GUID 已知 → 写 HKCU AddInsStartup 让 SW 下次启动自动加载
+    # 用 CreateKeyEx（而非 OpenKey）确保键不存在时自动创建，覆盖新装机场景
+    try:
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\SolidWorks\AddInsStartup",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as k:
+            winreg.SetValueEx(k, found_guid, 0, winreg.REG_DWORD, 1)
+    except OSError:
+        pass  # 写失败不阻断：discover 的目的是发现 GUID，写是 best-effort
+
+    return found_guid
+
+
+def discover_toolbox_addin_guid() -> tuple[Optional[str], str]:
+    """三段式发现 Toolbox Add-In 的 GUID（Track B1）。
+
+    Returns:
+        (guid, source)，source ∈ {"startup", "registry_fullscan", "filesystem", "none"}。
+    """
+    # Stage 1: 老路径（快，历史用户命中率高）
+    guid = find_toolbox_addin_guid()
+    if guid:
+        return guid, "startup"
+
+    # Stage 2: 全量 AddIns registry 扫描（4 条路径，Description/Title/name 三口径）
+    guid = _scan_all_addins_by_description()
+    if guid:
+        return guid, "registry_fullscan"
+
+    # Stage 3: 文件系统扫描反查 CLSID（慢，但覆盖新装机无 AddInsStartup 条目的场景）
+    guid = _scan_addin_dll_clsid()
+    if guid:
+        return guid, "filesystem"
+
+    return None, "none"
+
+
+def check_toolbox_path_healthy(info: SwInfo) -> tuple[bool, Optional[str]]:
+    """B-8：校验 toolbox_dir 的物理健康状态。
+
+    硬要求：
+      1. toolbox_dir 非空
+      2. 目录存在且可枚举
+      3. swbrowser.sldedb 存在（Toolbox 索引）
+      4. 至少 1 个 .sldprt 可读（最多扫两层子目录，避免深递归）
+
+    Returns:
+        (True, None) 健康；(False, reason_str) 不健康。
+    """
+    if not info.toolbox_dir:
+        return False, "toolbox_dir 为空"
+
+    p = Path(info.toolbox_dir)
+
+    # UNC 路径预检（避免 listdir 对不可达网络路径挂起）
+    if str(p).startswith("\\\\"):
+        try:
+            if not p.exists():
+                return False, f"UNC 路径不可达：{info.toolbox_dir}"
+        except OSError as e:
+            return False, f"UNC 路径访问异常：{e}"
+
+    # 目录可枚举
+    try:
+        next(p.iterdir(), None)
+    except (PermissionError, OSError) as e:
+        return False, f"toolbox_dir 不可读：{e}"
+
+    # swbrowser.sldedb 硬要求
+    if not (p / "swbrowser.sldedb").exists():
+        return False, "swbrowser.sldedb 不存在（Toolbox 索引缺失，Toolbox 可能未完整安装）"
+
+    # 至少 1 个 .sldprt 可读（最多扫两层子目录，避免深递归慢）
+    sldprt_found = False
+    for entry in p.iterdir():
+        if entry.is_dir():
+            for sub in entry.iterdir():
+                if sub.is_file() and sub.suffix.lower() == ".sldprt":
+                    try:
+                        sub.stat()
+                        sldprt_found = True
+                    except OSError:
+                        pass
+                elif sub.is_dir():
+                    for f in sub.iterdir():
+                        if f.is_file() and f.suffix.lower() == ".sldprt":
+                            try:
+                                f.stat()
+                                sldprt_found = True
+                            except OSError:
+                                pass
+                            if sldprt_found:
+                                break
+                if sldprt_found:
+                    break
+        if sldprt_found:
+            break
+
+    if not sldprt_found:
+        return False, "toolbox_dir 下未找到可读 .sldprt 文件（Toolbox 零件库可能为空）"
+
+    return True, None
 
 
 def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | None:
