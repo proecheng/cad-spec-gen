@@ -66,15 +66,16 @@ try:
 except ImportError as _exc:
     _PARTS_ROUTING_AVAILABLE = False
     _ROUTE_TO_FACTORY_TYPE = {}
-    import logging as _log
-
     _log.getLogger(__name__).debug("parts_routing unavailable: %s", _exc)
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from codegen.gen_build import parse_bom_tree
+try:
+    from codegen.gen_build import parse_bom_tree  # 脚本运行时可用
+except ImportError:
+    parse_bom_tree = None  # type: ignore[assignment]
 from cad_spec_defaults import strip_part_prefix
 
 
@@ -630,6 +631,8 @@ def generate_part_files(
 
     Returns list of generated file paths.
     """
+    if parse_bom_tree is None:
+        raise RuntimeError("codegen.gen_build 不可用（包导入模式），请以脚本方式运行")
     parts = parse_bom_tree(spec_path)
     generated = []
     skipped = []

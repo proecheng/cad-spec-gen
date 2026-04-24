@@ -48,7 +48,7 @@ def test_route_unknown_falls_back():
     assert decision.outcome == "FALLBACK"
 
 
-def test_gen_parts_route_to_factory_type(tmp_path):
+def test_gen_parts_route_to_factory_type():
     """route() 命中 iso_9409_flange → _ROUTE_TO_FACTORY_TYPE 映射到 'flange'"""
     from cad_spec_gen.data.codegen.gen_parts import _ROUTE_TO_FACTORY_TYPE
     assert _ROUTE_TO_FACTORY_TYPE["iso_9409_flange"] == "flange"
