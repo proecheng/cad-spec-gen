@@ -28,8 +28,9 @@ def test_l1_param_extraction_flange_mock():
     geom = {"type": "cylinder", "envelope_w": 90.0, "envelope_d": 90.0, "envelope_h": 20.0}
     part_meta = {"name_cn": "法兰盘", "dim_tolerances": [{"name": "FLANGE_BODY_OD", "nominal": "90"}]}
 
-    with patch("cad_spec_gen.data.codegen.llm_codegen._llm_extract_params", return_value=filled):
+    with patch("cad_spec_gen.data.codegen.llm_codegen._llm_extract_params", return_value=filled) as mock_l1:
         result = _apply_template_decision(geom, "flange", part_meta, (90.0, 90.0, 20.0))
+    mock_l1.assert_called_once()
 
     assert result.get("template_code") is not None, "L1 应使 factory 返回代码"
     code = result["template_code"].lower()
