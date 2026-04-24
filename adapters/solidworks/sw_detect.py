@@ -347,27 +347,44 @@ def _find_edition(
 
     for pattern in key_patterns:
         key_path = pattern.format(year=version_year)
+
+        # Probe 1a: "Edition" 字符串值（最直接）
         raw = _read_registry_value(
             winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "Edition"
         )
-        if not raw:
-            continue
-        lower = raw.strip().lower()
-        if lower in ("professional", "pro"):
-            return "professional"
-        if lower == "standard":
-            return "standard"
-        if lower == "premium":
-            return "premium"
-        if lower == "trial":
-            return "trial"
-        if lower == "educational":
-            return "educational"
+        if raw:
+            lower = raw.strip().lower()
+            if lower in ("professional", "pro"):
+                return "professional"
+            if lower == "standard":
+                return "standard"
+            if lower == "premium":
+                return "premium"
+            if lower == "trial":
+                return "trial"
+            if lower == "educational":
+                return "educational"
 
-    # Probe 2: 文件系统 Toolbox DLL 存在性
+        # Probe 1b: "SolidWorks Office Installed" DWORD（通过 _read_registry_dword 读，可 mock）
+        # 3 = Premium；1/2 = Professional（含 Toolbox）；0 = Standard
+        office_val = _read_registry_dword(
+            winreg, winreg.HKEY_LOCAL_MACHINE, key_path, "SolidWorks Office Installed"
+        )
+        if office_val is not None:
+            if office_val == 3:
+                return "premium"
+            if office_val in (1, 2):
+                return "professional"
+            if office_val == 0:
+                return "standard"
+
+    # Probe 2: 文件系统 Toolbox DLL 存在性（修复：同时检查直属 Toolbox/ 和 AddIns/Toolbox*/）
     if install_dir:
-        for sub in ("toolbox", "Toolbox"):
-            d = Path(install_dir) / "AddIns" / sub
+        toolbox_search_dirs = [
+            Path(install_dir) / "Toolbox",
+            *(Path(install_dir) / "AddIns" / sub for sub in ("toolbox", "Toolbox")),
+        ]
+        for d in toolbox_search_dirs:
             if d.is_dir() and any(d.glob("*.dll")):
                 return "professional"
         # install_dir 存在但无 Toolbox DLL → Standard 版
@@ -778,8 +795,13 @@ def check_toolbox_path_healthy(info: SwInfo) -> tuple[bool, Optional[str]]:
     except (PermissionError, OSError) as e:
         return False, f"toolbox_dir 不可读：{e}"
 
-    # swbrowser.sldedb 硬要求
-    if not (p / "swbrowser.sldedb").exists():
+    # swbrowser.sldedb 硬要求（可能在 toolbox_dir 或其父级 lang/english/ 子目录）
+    sldedb_candidates = [
+        p / "swbrowser.sldedb",
+        p.parent / "lang" / "english" / "swbrowser.sldedb",
+        p.parent / "lang" / "English" / "swbrowser.sldedb",
+    ]
+    if not any(c.exists() for c in sldedb_candidates):
         return False, "swbrowser.sldedb 不存在（Toolbox 索引缺失，Toolbox 可能未完整安装）"
 
     # 至少 1 个 .sldprt 可读（最多扫两层子目录，避免深递归慢）
@@ -838,6 +860,31 @@ def _read_registry_value(winreg, hive, key_path: str, value_name: str) -> str | 
                 value, _ = winreg.QueryValueEx(key, value_name)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
+            finally:
+                winreg.CloseKey(key)
+        except OSError:
+            continue
+    return None
+
+
+def _read_registry_dword(winreg, hive, key_path: str, value_name: str) -> int | None:
+    """安全地从注册表读取 DWORD（整型）值。
+
+    同时尝试 64 位和 32 位注册表视图。独立函数供测试 monkeypatch。
+
+    Returns:
+        读取到的整数值，失败或类型不符时返回 None。
+    """
+    for access_flag in (
+        winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        winreg.KEY_READ | winreg.KEY_WOW64_32KEY,
+    ):
+        try:
+            key = winreg.OpenKey(hive, key_path, 0, access_flag)
+            try:
+                value, _ = winreg.QueryValueEx(key, value_name)
+                if isinstance(value, int):
+                    return value
             finally:
                 winreg.CloseKey(key)
         except OSError:

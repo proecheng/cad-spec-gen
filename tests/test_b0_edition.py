@@ -22,12 +22,13 @@ def test_edition_normalized_professional(monkeypatch):
     import winreg as real_winreg
     sw_detect._reset_cache()
 
-    # 真实 winreg 会读注册表，用 monkeypatch 替换 _read_registry_value
+    # 同时 mock _read_registry_value 和 _read_registry_dword，隔离真实注册表
     def fake_read(wr, hive, path, name):
         if "SOLIDWORKS 2024" in path and name == "Edition":
             return "Professional"
         return None
     monkeypatch.setattr(sw_detect, "_read_registry_value", fake_read)
+    monkeypatch.setattr(sw_detect, "_read_registry_dword", lambda *a, **kw: None)
 
     result = sw_detect._find_edition(real_winreg, 2024, "")
     assert result == "professional"
@@ -44,9 +45,36 @@ def test_edition_standard_lower(monkeypatch):
             return "Standard"
         return None
     monkeypatch.setattr(sw_detect, "_read_registry_value", fake_read)
+    monkeypatch.setattr(sw_detect, "_read_registry_dword", lambda *a, **kw: None)
 
     result = sw_detect._find_edition(real_winreg, 2024, "")
     assert result == "standard"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows")
+def test_edition_office_installed_3_returns_premium(monkeypatch):
+    """SolidWorks Office Installed = 3（DWORD） → 'premium'。"""
+    import winreg as real_winreg
+    sw_detect._reset_cache()
+
+    monkeypatch.setattr(sw_detect, "_read_registry_value", lambda *a, **kw: None)
+    monkeypatch.setattr(sw_detect, "_read_registry_dword", lambda wr, hive, path, name: 3)
+
+    result = sw_detect._find_edition(real_winreg, 2024, "")
+    assert result == "premium"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows")
+def test_edition_office_installed_1_returns_professional(monkeypatch):
+    """SolidWorks Office Installed = 1（DWORD） → 'professional'。"""
+    import winreg as real_winreg
+    sw_detect._reset_cache()
+
+    monkeypatch.setattr(sw_detect, "_read_registry_value", lambda *a, **kw: None)
+    monkeypatch.setattr(sw_detect, "_read_registry_dword", lambda wr, hive, path, name: 1)
+
+    result = sw_detect._find_edition(real_winreg, 2024, "")
+    assert result == "professional"
 
 
 def test_edition_filesystem_probe_finds_dll(tmp_path):

@@ -370,6 +370,10 @@ def main():
     try:
         import json as _json
         _bom_for_rr = parse_bom_tree(spec_path)
+        # resolve_report 的 category 规则需要 category 字段：补充分类（镜像 generation loop）
+        for _row in _bom_for_rr:
+            if not _row.get("category"):
+                _row["category"] = classify_part(_row["name_cn"], _row.get("material", ""))
         _rr = resolver.resolve_report(_bom_for_rr, run_id=run_id)
         _rr_path = Path(f"./artifacts/{run_id}/resolve_report.json")
         _rr_path.parent.mkdir(parents=True, exist_ok=True)
