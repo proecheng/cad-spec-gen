@@ -85,6 +85,20 @@ solidworks_toolbox:
     single_convert_timeout_sec: 20
     circuit_breaker_threshold: 3
 
+  # B-16: BOM material 字段 → SW config 名标准化规则
+  # 仅覆盖 GB/T、ISO、DIN、JIS 格式；GB 93（无 /T）等老标准 → 默认 config
+  config_name_resolver:
+    standard_transforms:
+      - {from: "GB/T ", to: "GB_T"}
+      - {from: "GB／T ", to: "GB_T"}   # 全角斜杠兼容
+      - {from: "ISO ", to: "ISO_"}
+      - {from: " ", to: ""}            # 去除残余空格
+    size_transforms:
+      - {from: "×", to: "x"}
+      - {from: "×", to: "x"}          # 全角乘号
+      - {from: " ", to: ""}
+    separator: "-"
+
 mappings:
   # ─── SolidWorks Toolbox — GB 高优先级（v4 §6） ──────────────────────
   # GB/T 国标紧固件和轴承走 SW Toolbox（1818 个标准件 sldprt），仅在
