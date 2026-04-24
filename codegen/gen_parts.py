@@ -348,6 +348,18 @@ def _parse_spec_title(spec_path: str) -> tuple:
     return "", ""
 
 
+# Track C: L1 LLM 补全所需的必填键定义（模块级常量，避免每次调用重建）
+_L1_REQUIRED_KEYS: dict[str, list[str]] = {
+    "flange":           ["FLANGE_BODY_OD", "FLANGE_BODY_ID", "FLANGE_TOTAL_THICK", "FLANGE_BOLT_PCD"],
+    "housing":          ["HOUSING_W", "HOUSING_D", "HOUSING_H"],
+    "bracket":          ["BRACKET_W", "BRACKET_H", "BRACKET_T"],
+    "spring_mechanism": ["SPRING_OD", "SPRING_L"],
+    "sleeve":           ["SLEEVE_OD", "SLEEVE_L"],
+    "plate":            ["PLATE_W", "PLATE_D", "PLATE_T"],
+    "arm":              ["ARM_L", "ARM_W", "ARM_T"],
+    "cover":            ["COVER_OD", "COVER_T"],
+}
+
 # A2-0: 语义前缀→零件类别关键词映射表
 _TOL_PREFIX_CATEGORY: dict[str, str] = {
     "FLANGE": "法兰",
@@ -424,6 +436,7 @@ def _apply_template_decision(
     envelope: tuple | None,
     part_no: str = "",
     output_dir: str = "",
+    _l1_done: bool = False,
 ) -> dict:
     """SW API 优先 → CadQuery 回退 → 主尺寸缺失时退回 envelope primitive。
 
@@ -545,22 +558,12 @@ def _apply_template_decision(
             id=dim_map.get("COVER_ID") or None,
         )
 
-    if code is None:
+    if code is None and not _l1_done:  # 只尝试一次 L1，避免无限递归
         # Track C L1: 尝试 LLM 参数提取补全缺失必填键
         _l1_result = None
         try:
             from cad_spec_gen.data.codegen.llm_codegen import _llm_extract_params as _l1_fn
-            _REQUIRED_KEYS: dict[str, list[str]] = {
-                "flange":           ["FLANGE_BODY_OD", "FLANGE_BODY_ID", "FLANGE_TOTAL_THICK", "FLANGE_BOLT_PCD"],
-                "housing":          ["HOUSING_W", "HOUSING_D", "HOUSING_H"],
-                "bracket":          ["BRACKET_W", "BRACKET_H", "BRACKET_T"],
-                "spring_mechanism": ["SPRING_OD", "SPRING_L"],
-                "sleeve":           ["SLEEVE_OD", "SLEEVE_L"],
-                "plate":            ["PLATE_W", "PLATE_D", "PLATE_T"],
-                "arm":              ["ARM_L", "ARM_W", "ARM_T"],
-                "cover":            ["COVER_OD", "COVER_T"],
-            }
-            _req_keys = _REQUIRED_KEYS.get(tpl_type, [])
+            _req_keys = _L1_REQUIRED_KEYS.get(tpl_type, [])
             if _req_keys:
                 _spec_text = part_meta.get("_spec_text", "") or str(part_meta)
                 _l1_result = _l1_fn(
@@ -574,12 +577,13 @@ def _apply_template_decision(
             pass  # llm_codegen 未安装，跳过 L1
 
         if _l1_result is not None:
-            # 用补全后的 dim_tolerances 重试 factory
-            _patched_meta = dict(part_meta)
+            # 用补全后的 dim_tolerances 重试工厂函数（deepcopy 防止污染原始 part_meta）
+            import copy
+            _patched_meta = copy.deepcopy(part_meta)
             _patched_meta["dim_tolerances"] = _l1_result
             print(f"  [L1] {tpl_type}: LLM 补全参数，重试工厂函数")
             return _apply_template_decision(
-                geom, tpl_type, _patched_meta, envelope, part_no, output_dir
+                geom, tpl_type, _patched_meta, envelope, part_no, output_dir, _l1_done=True
             )
 
         # L1 失败或无结果 → 退回 envelope
