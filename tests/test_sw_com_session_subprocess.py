@@ -260,7 +260,7 @@ class TestDoConvertSubprocess:
         reset_session()
         s = SwComSession()
 
-        def fake_do_convert(self, sldprt_path, step_out):
+        def fake_do_convert(self, sldprt_path, step_out, target_config=None):
             raise RuntimeError("simulated crash")
 
         monkeypatch.setattr(scs.SwComSession, "_do_convert", fake_do_convert)
@@ -299,3 +299,113 @@ class TestDoConvertSubprocess:
         monkeypatch.setattr(subprocess, "run", fake_run_ok)
         s.convert_sldprt_to_step(str(tmp_path / "2.sldprt"), str(tmp_path / "2.step"))
         assert s.last_convert_diagnostics["stage"] == "success"
+
+
+class TestDoConvertExit5:
+    """exit 5 (config_not_found) 不计熔断器，通过 diagnostics stage 传递。"""
+
+    def test_exit5_returns_false_and_no_breaker_increment(self, tmp_path, monkeypatch):
+        import subprocess
+        from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
+        reset_session()
+        s = SwComSession()
+
+        def fake_run_exit5(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 5, stdout="", stderr="config not found")
+
+        monkeypatch.setattr(subprocess, "run", fake_run_exit5)
+
+        ok = s.convert_sldprt_to_step(
+            str(tmp_path / "part.sldprt"),
+            str(tmp_path / "out.step"),
+            "GB_T70.1-M6x20",
+        )
+        assert ok is False
+        assert s._consecutive_failures == 0  # 不计熔断
+        assert s.is_healthy() is True
+
+    def test_exit5_sets_config_not_found_stage(self, tmp_path, monkeypatch):
+        import subprocess
+        from adapters.solidworks.sw_com_session import (
+            SwComSession, reset_session, _STAGE_CONFIG_NOT_FOUND,
+        )
+
+        reset_session()
+        s = SwComSession()
+
+        def fake_run_exit5(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 5, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run_exit5)
+
+        s.convert_sldprt_to_step(
+            str(tmp_path / "part.sldprt"),
+            str(tmp_path / "out.step"),
+            "GB_T70.1-M6x20",
+        )
+        diag = s.last_convert_diagnostics
+        assert diag is not None
+        assert diag["stage"] == _STAGE_CONFIG_NOT_FOUND
+        assert diag["exit_code"] == 5
+
+    def test_exit5_three_times_does_not_trip_breaker(self, tmp_path, monkeypatch):
+        import subprocess
+        from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
+        reset_session()
+        s = SwComSession()
+
+        def fake_run_exit5(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 5, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run_exit5)
+
+        for _ in range(3):
+            s.convert_sldprt_to_step(
+                str(tmp_path / "part.sldprt"),
+                str(tmp_path / "out.step"),
+                "GB_T70.1-M6x20",
+            )
+        assert s.is_healthy() is True
+
+    def test_target_config_appended_to_cmd(self, tmp_path, monkeypatch):
+        import subprocess
+        from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
+        reset_session()
+        s = SwComSession()
+        captured_cmds = []
+
+        def fake_run_success(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            out_path = cmd[-2]  # tmp_path = argv[-2] when target_config present
+            from pathlib import Path
+            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(out_path).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run_success)
+
+        s.convert_sldprt_to_step(
+            str(tmp_path / "part.sldprt"),
+            str(tmp_path / "out.step"),
+            "GB_T70.1-M6x20",
+        )
+        cmd = captured_cmds[0]
+        assert cmd[-1] == "GB_T70.1-M6x20"
+
+    def test_nonzero_non5_rc_increments_breaker(self, tmp_path, monkeypatch):
+        import subprocess
+        from adapters.solidworks.sw_com_session import SwComSession, reset_session
+
+        reset_session()
+        s = SwComSession()
+
+        def fake_run_exit2(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="OpenDoc6 fail")
+
+        monkeypatch.setattr(subprocess, "run", fake_run_exit2)
+
+        s.convert_sldprt_to_step(str(tmp_path / "part.sldprt"), str(tmp_path / "out.step"))
+        assert s._consecutive_failures == 1
