@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _make_args(**overrides) -> argparse.Namespace:
-    base = dict(standard=None, bom=None, all=False, dry_run=False, overwrite=False)
+    base = dict(standard=None, bom=None, all=False, dry_run=False, overwrite=False, smoke_test=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -393,3 +393,114 @@ class TestLockContentionExitCode:
 
         rc = mod.run_sw_warmup(_make_args(standard="GB"))
         assert rc == 1
+
+
+class TestSmokeTest:
+    """_run_smoke_test 的单元测试；全部 mock，不依赖真实 SW。"""
+
+    def _setup_preflight_mocks(self, monkeypatch, tmp_path):
+        """共用前置 mock：SW 已安装 + SW 进程运行中。"""
+        import psutil
+        import unittest.mock as mock
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        fake_info = sw_detect.SwInfo(
+            installed=True,
+            version_year=2024,
+            pywin32_available=True,
+            toolbox_dir=str(tmp_path),
+        )
+        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+
+        fake_proc = mock.MagicMock()
+        fake_proc.info = {"name": "SLDWORKS.EXE"}
+        monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter([fake_proc]))
+
+    def test_smoke_test_pass_prints_pass_and_returns_0(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import unittest.mock as mock
+        from tools import sw_warmup as mod
+        from adapters.solidworks import sw_toolbox_catalog, sw_com_session
+
+        self._setup_preflight_mocks(monkeypatch, tmp_path)
+        monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
+
+        # 构造一个有 GB/bearing 件的 fake index
+        fake_part = mock.MagicMock()
+        fake_part.sldprt_path = str(tmp_path / "fake.sldprt")
+        monkeypatch.setattr(
+            sw_toolbox_catalog,
+            "load_toolbox_index",
+            lambda *a, **kw: {"standards": {"GB": {"bearing": [fake_part]}}},
+        )
+        monkeypatch.setattr(sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "index.json")
+
+        # mock session：convert 成功，并在 tmp 目录创建一个假 STEP 文件
+        fake_session = mock.MagicMock()
+
+        def fake_convert(sldprt, step_out):
+            from pathlib import Path
+            Path(step_out).write_bytes(b"ISO-10303-21;\n" + b"x" * 2000)
+            return True
+
+        fake_session.convert_sldprt_to_step.side_effect = fake_convert
+        monkeypatch.setattr(sw_com_session, "get_session", lambda: fake_session)
+
+        rc = mod.run_sw_warmup(_make_args(smoke_test=True))
+        captured = capsys.readouterr()
+        assert rc == 0
+        assert "smoke-test PASS" in captured.out
+
+    def test_smoke_test_fail_prints_fail_and_returns_2(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import unittest.mock as mock
+        from tools import sw_warmup as mod
+        from adapters.solidworks import sw_toolbox_catalog, sw_com_session
+
+        self._setup_preflight_mocks(monkeypatch, tmp_path)
+        monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
+
+        fake_part = mock.MagicMock()
+        fake_part.sldprt_path = str(tmp_path / "fake.sldprt")
+        monkeypatch.setattr(
+            sw_toolbox_catalog,
+            "load_toolbox_index",
+            lambda *a, **kw: {"standards": {"GB": {"bearing": [fake_part]}}},
+        )
+        monkeypatch.setattr(sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "index.json")
+
+        fake_session = mock.MagicMock()
+        fake_session.convert_sldprt_to_step.return_value = False
+        fake_session.last_convert_diagnostics = {"stderr_tail": "OpenDoc6 errors=256"}
+        monkeypatch.setattr(sw_com_session, "get_session", lambda: fake_session)
+
+        rc = mod.run_sw_warmup(_make_args(smoke_test=True))
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "smoke-test FAIL" in captured.out
+
+    def test_smoke_test_fail_when_no_bearing_parts(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import unittest.mock as mock
+        from tools import sw_warmup as mod
+        from adapters.solidworks import sw_toolbox_catalog
+
+        self._setup_preflight_mocks(monkeypatch, tmp_path)
+        monkeypatch.setattr(mod, "_default_lock_path", lambda: tmp_path / "sw_warmup.lock")
+
+        # index 里无 GB/bearing
+        monkeypatch.setattr(
+            sw_toolbox_catalog,
+            "load_toolbox_index",
+            lambda *a, **kw: {"standards": {}},
+        )
+        monkeypatch.setattr(sw_toolbox_catalog, "get_toolbox_index_path", lambda cfg: tmp_path / "index.json")
+
+        rc = mod.run_sw_warmup(_make_args(smoke_test=True))
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "smoke-test FAIL" in captured.out
