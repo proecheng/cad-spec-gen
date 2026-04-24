@@ -217,14 +217,20 @@ class SwToolboxAdapter(PartsAdapter):
                 "sldprt path validation failed (possible index tampering)"
             )
 
-        # 7. 构造缓存 STEP 路径
+        # 7. 构造缓存 STEP 路径（B-16：含 config 后缀）
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
-        step_relative = (
-            Path(part.standard)
-            / part.subcategory
-            / (Path(part.filename).stem + ".step")
+        resolver_cfg = self.config.get("config_name_resolver", {})
+        material = getattr(query, "material", "") or ""
+        target_config = _build_candidate_config(material, resolver_cfg) if resolver_cfg else None
+        part.target_config = target_config
+
+        safe_config = re.sub(r'[^\w.\-]', '_', target_config) if target_config else ""
+        cache_stem = (
+            f"{Path(part.filename).stem}_{safe_config}"
+            if safe_config
+            else Path(part.filename).stem
         )
-        step_abs = cache_root / step_relative
+        step_abs = cache_root / part.standard / part.subcategory / (cache_stem + ".step")
 
         # 8. 缓存命中 → 直接返回
         if step_abs.exists():
@@ -239,7 +245,8 @@ class SwToolboxAdapter(PartsAdapter):
                 metadata={
                     "dims": dims,
                     "match_score": score,
-                    "configuration": "<default>",
+                    "configuration": target_config or "<default>",
+                    "config_match": "matched" if target_config else "n/a",
                 },
             )
 
@@ -248,8 +255,20 @@ class SwToolboxAdapter(PartsAdapter):
         if not session.is_healthy():
             return self._miss("COM session unhealthy (circuit breaker tripped)")
 
-        ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs))
+        ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs), target_config)
         if not ok:
+            stage = (session.last_convert_diagnostics or {}).get("stage", "")
+            if stage == "config_not_found":
+                log.warning(
+                    "Toolbox config 未匹配 %s → 回退 bd_warehouse", target_config
+                )
+                return ResolveResult(
+                    status="miss",
+                    kind="miss",
+                    adapter=self.name,
+                    metadata={"config_match": "fallback"},
+                    warnings=[f"config not found: {target_config}"],
+                )
             return self._miss("COM convert failed")
 
         dims = self._probe_step_bbox(step_abs)
@@ -260,7 +279,12 @@ class SwToolboxAdapter(PartsAdapter):
             step_path=str(step_abs),
             real_dims=dims,
             source_tag=f"sw_toolbox:{part.standard}/{part.subcategory}/{part.filename}",
-            metadata={"dims": dims, "match_score": score, "configuration": "<default>"},
+            metadata={
+                "dims": dims,
+                "match_score": score,
+                "configuration": target_config or "<default>",
+                "config_match": "matched" if target_config else "n/a",
+            },
         )
 
     def find_sldprt(self, query, spec: dict):
