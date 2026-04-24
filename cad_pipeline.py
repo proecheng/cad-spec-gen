@@ -2997,6 +2997,11 @@ def main():
     )
     p_sw_warmup.add_argument("--dry-run", action="store_true", help="只列目标不调 COM")
     p_sw_warmup.add_argument("--overwrite", action="store_true", help="覆盖已有缓存")
+    p_sw_warmup.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="转换单件验收（GB/bearing 第一个件），exit 0=PASS / exit 2=FAIL",
+    )
 
     # sw-inspect（F-1 子命令）
     p_sw_inspect = sub.add_parser(

@@ -255,6 +255,16 @@ def _check_preflight() -> tuple[bool, str]:
         )
     if not info.toolbox_dir:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
+    import psutil  # 局部 import，与 msvcrt/fcntl 惯例一致
+    sw_running = any(
+        (p.info.get("name") or "").upper() == "SLDWORKS.EXE"
+        for p in psutil.process_iter(["name"])
+    )
+    if not sw_running:
+        return False, (
+            "SolidWorks 未运行；请先打开 SolidWorks，"
+            "再运行 sw-warmup（COM 转换需要 SW 进程已就绪）"
+        )
     return True, ""
 
 
@@ -266,6 +276,8 @@ def run_sw_warmup(args) -> int:
     """
     try:
         with acquire_warmup_lock(_default_lock_path()):
+            if args.smoke_test:
+                return _run_smoke_test()
             return _run_warmup_locked(args)
     except WarmupLockContentionError as e:
         print(f"[sw-warmup] {e}")
@@ -336,6 +348,51 @@ def _resolve_bom_targets(bom_path: Path, registry: dict) -> dict:
             log.warning("BOM 重复 part_no 覆盖: %s（后者生效）", q.part_no)
         out[q.part_no] = part
     return out
+
+
+def _run_smoke_test() -> int:
+    """单件 smoke test：取 GB/bearing 第一个件做转换验收。"""
+    import shutil
+    import tempfile
+
+    from adapters.solidworks import sw_toolbox_catalog
+    from adapters.solidworks.sw_com_session import get_session
+    from adapters.solidworks.sw_detect import detect_solidworks
+    from parts_resolver import load_registry
+
+    ok, reason = _check_preflight()
+    if not ok:
+        _print_preflight_failure(reason)
+        return 2
+
+    info = detect_solidworks()
+    registry = load_registry()
+    sw_cfg = registry.get("solidworks_toolbox", {})
+    index_path = sw_toolbox_catalog.get_toolbox_index_path(sw_cfg)
+    index = sw_toolbox_catalog.load_toolbox_index(index_path, Path(info.toolbox_dir))
+
+    bearing_parts = index.get("standards", {}).get("GB", {}).get("bearing", [])
+    if not bearing_parts:
+        print("[sw-warmup] smoke-test FAIL — Toolbox index 无 GB/bearing 件")
+        return 2
+
+    part = bearing_parts[0]
+    tmp_dir = Path(tempfile.mkdtemp(prefix="sw_smoke_"))
+    step_out = str(tmp_dir / "smoke_test.step")
+
+    try:
+        session = get_session()
+        success = session.convert_sldprt_to_step(part.sldprt_path, step_out)
+        if success:
+            size_kb = Path(step_out).stat().st_size // 1024
+            print(f"[sw-warmup] smoke-test PASS — STEP 文件 {size_kb}KB")
+            return 0
+        else:
+            stderr_tail = (session.last_convert_diagnostics or {}).get("stderr_tail", "")
+            print(f"[sw-warmup] smoke-test FAIL — {stderr_tail}")
+            return 2
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _run_warmup_locked(args) -> int:
