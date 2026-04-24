@@ -35,6 +35,7 @@ MATCH_KEYWORDS: list[str] = [
     "hole grid plate",
     "locating plate",
     "tooling plate",
+    "板", "安装板", "夹具板", "底板",
 ]
 MATCH_PRIORITY: int = 15
 TEMPLATE_CATEGORY: str = "plate"

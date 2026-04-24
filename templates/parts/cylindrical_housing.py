@@ -24,6 +24,7 @@ MATCH_KEYWORDS: list[str] = [
     "cylinder enclosure",
     "tube housing",
     "cylindrical shell",
+    "壳体", "圆柱壳体", "圆筒壳体",
 ]
 MATCH_PRIORITY: int = 15
 TEMPLATE_CATEGORY: str = "housing"
