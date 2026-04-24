@@ -1635,6 +1635,13 @@ def cmd_render(args):
     return 1 if failures else 0
 
 
+def _build_enhance_cfg_with_hero(cfg: dict, hero_image: str) -> dict:
+    """返回注入了 hero_image 键的 cfg 浅拷贝，不修改原 cfg。"""
+    result = dict(cfg)
+    result["hero_image"] = hero_image
+    return result
+
+
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
     from enhance_prompt import (
@@ -2007,13 +2014,16 @@ def cmd_enhance(args):
                 )
                 t0 = time.time()
                 try:
-                    raw_path = _enhance_fn(
-                        png,
-                        prompt,
-                        _pcfg.get("enhance", {}).get(_enhance_cfg_key, {}),
-                        view_key,
-                        rc,
-                    )
+                    _ecfg = _pcfg.get("enhance", {}).get(_enhance_cfg_key, {})
+                    # Track C: v1_anchor を FAL/ComfyUI に拡張
+                    if (
+                        _ref_mode == "v1_anchor"
+                        and hero_image
+                        and view_key != "V1"
+                        and backend in ("fal", "comfyui", "fal_comfy")
+                    ):
+                        _ecfg = _build_enhance_cfg_with_hero(_ecfg, hero_image)
+                    raw_path = _enhance_fn(png, prompt, _ecfg, view_key, rc)
                 except Exception as _be:
                     log.error(
                         "  %s enhance failed for %s: %s",
@@ -2047,6 +2057,11 @@ def cmd_enhance(args):
                         backend,
                         os.path.basename(png),
                     )
+                if view_key == "V1" and _ref_mode == "v1_anchor" and new_path:
+                    # Track C: FAL/ComfyUI V1 完了後に hero_image を設定
+                    if backend in ("fal", "comfyui", "fal_comfy"):
+                        hero_image = new_path
+                        log.info("  Hero image set (FAL/ComfyUI): %s", os.path.basename(new_path))
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────

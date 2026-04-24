@@ -123,3 +123,43 @@ def test_comfyui_hero_image_replaces_input_node(tmp_path):
 
     # hero ファイル名がアップロードキューに含まれること
     assert "v1_hero.jpg" in uploaded_names
+
+
+def test_cad_pipeline_build_enhance_cfg_with_hero():
+    """_build_enhance_cfg_with_hero: hero_image を注入した浅拷贝を返し、原 cfg を変更しない"""
+    import importlib.util
+    import os
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    # cad_pipeline.py はトップレベルで cad_paths / sw_detect を import するため
+    # exec_module 前にスタブを sys.modules に注入する
+    _stub_cad_paths = types.ModuleType("cad_paths")
+    _stub_cad_paths.SKILL_ROOT = "/fake/skill"
+    _stub_cad_paths.PROJECT_ROOT = "/fake/project"
+    _stub_cad_paths.get_blender_path = lambda: "/fake/blender"
+    _stub_cad_paths.get_subsystem_dir = lambda *a, **kw: "/fake/sub"
+    _stub_cad_paths.get_output_dir = lambda: "/fake/output"
+    _stub_cad_paths.get_gemini_script = lambda: "/fake/gemini"
+    sys.modules.setdefault("cad_paths", _stub_cad_paths)
+
+    _stub_sw_detect = types.ModuleType("adapters.solidworks.sw_detect")
+    _stub_sw_detect.detect_solidworks = MagicMock(return_value=MagicMock(installed=False))
+    sys.modules.setdefault("adapters", types.ModuleType("adapters"))
+    sys.modules.setdefault("adapters.solidworks", types.ModuleType("adapters.solidworks"))
+    sys.modules.setdefault("adapters.solidworks.sw_detect", _stub_sw_detect)
+
+    pipeline_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "src", "cad_spec_gen", "data", "python_tools", "cad_pipeline.py"
+    )
+    spec = importlib.util.spec_from_file_location("cad_pipeline_hero_test", pipeline_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    cfg = {"model": "fal-ai/flux-general"}
+    hero = "/tmp/v1_hero.jpg"
+    result = mod._build_enhance_cfg_with_hero(cfg, hero)
+    assert result["hero_image"] == hero
+    assert "hero_image" not in cfg  # 原始 cfg 不変
