@@ -42,7 +42,10 @@ def _make_enriched_envelope(
         else:
             return _enrich_default(cq, w, d, h)
     except Exception:
-        return _enrich_default(cq, w, d, h)
+        try:
+            return _enrich_default(cq, w, d, h)
+        except Exception:
+            return cq.Workplane("XY").box(w, d, h)
 
 
 def _enrich_flange(cq, od: float, h: float):
@@ -113,7 +116,8 @@ def _enrich_plate_like(cq, w: float, d: float, h: float):
 
 def _enrich_default(cq, w: float, d: float, h: float):
     body = cq.Workplane("XY").box(w, d, h)
-    cbore_r = _ENRICH_DEFAULT_CBORE_D / 2
+    cbore_r = min(_ENRICH_DEFAULT_CBORE_D / 2, min(w, d) * 0.15)
+    cbore_r = max(cbore_r, 0.5)  # OCCT 最小精度保护
     cbore_h = min(_ENRICH_DEFAULT_CBORE_H, h * 0.4)
     body = body.cut(
         cq.Workplane("XY")
