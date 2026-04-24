@@ -1,6 +1,5 @@
 # tests/test_track_c_llm.py
 import json
-import pytest
 from unittest.mock import patch
 
 from cad_spec_gen.data.codegen.llm_codegen import _llm_extract_params
@@ -55,7 +54,6 @@ def test_llm_extract_params_skips_existing_keys():
 def test_call_gemini_text_empty_candidates_returns_none():
     """Gemini 返回空 candidates 列表时不抛异常，返回 None"""
     from cad_spec_gen.data.codegen.llm_codegen import _call_gemini_text
-    import urllib.request
     mock_resp_data = json.dumps({"candidates": []}).encode()
 
     class _FakeResp:
