@@ -62,3 +62,44 @@ def _find_blender() -> str:
         "找不到 Blender 可执行文件。\n"
         "请将 blender 加入 PATH，或确认 D:\\Blender\\blender.exe 存在。"
     )
+
+
+def run_render(output_dir: Path, extra_env: dict[str, str], dry_run: bool = False) -> bool:
+    """调用 Blender 渲染 end_effector 全部 5 视图到 output_dir。
+
+    Args:
+        output_dir: PNG 输出目录（自动创建）。
+        extra_env:  追加/覆写的环境变量 dict（叠加在 os.environ 上）。
+        dry_run:    True 时只打印命令不执行，用于调试。
+
+    Returns:
+        True 表示渲染成功，False 表示 Blender 返回非零退出码。
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    blender = _find_blender()
+
+    cmd = [
+        blender, "-b", "-P", str(_RENDER_SCRIPT),
+        "--",
+        "--all",
+        "--glb", str(_GLB_PATH),
+        "--output-dir", str(output_dir),
+    ]
+
+    env = {**os.environ, **extra_env}
+
+    print(f"\n[render] 命令: {' '.join(cmd)}")
+    print(f"[render] 输出目录: {output_dir}")
+    for k, v in extra_env.items():
+        print(f"[render] env {k}={v!r}")
+
+    if dry_run:
+        print("[render] --dry-run 模式，跳过实际渲染")
+        return True
+
+    result = subprocess.run(cmd, env=env, cwd=str(_REPO_ROOT))
+    if result.returncode != 0:
+        print(f"[render] ❌ Blender 退出码 {result.returncode}")
+        return False
+    print("[render] ✅ 渲染完成")
+    return True
