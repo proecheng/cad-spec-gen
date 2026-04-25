@@ -103,3 +103,19 @@ def run_render(output_dir: Path, extra_env: dict[str, str], dry_run: bool = Fals
         return False
     print("[render] ✅ 渲染完成")
     return True
+
+
+def build_baseline(out_root: Path, dry_run: bool = False) -> bool:
+    """渲染 baseline 版本：SW_TEXTURES_DIR 置空，不注入 runtime presets。
+
+    Args:
+        out_root: artifacts/regression/ 根目录。
+        dry_run:  传递给 run_render。
+
+    Returns:
+        True 表示渲染成功。
+    """
+    print("\n=== BASELINE 渲染（平坦材质）===")
+    output_dir = out_root / "baseline" / "end_effector"
+    extra_env: dict[str, str] = {"SW_TEXTURES_DIR": ""}
+    return run_render(output_dir, extra_env, dry_run=dry_run)
