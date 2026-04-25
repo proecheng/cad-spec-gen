@@ -157,6 +157,41 @@ def _gen_tank(dims: dict) -> str:
     return body"""
 
 
+def _gen_locating(dims: dict) -> str:
+    d = dims.get("d", 3)
+    l = dims.get("l", 10)
+    chamfer = max(d * 0.1, 0.3)
+    return f"""    # Simplified locating pin: cylinder with chamfered tip
+    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = body.faces(">Z").edges().chamfer({chamfer:.3f})
+    return body"""
+
+
+def _gen_elastic(dims: dict) -> str:
+    if "d" in dims and "l" in dims:
+        d = dims["d"]
+        l = dims["l"]
+        return f"""    # Simplified elastic part: solid cylinder (rubber spring/damper)
+    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    return body"""
+    w = dims.get("w", 20)
+    h = dims.get("h", 5)
+    l = dims.get("l", 120)
+    return f"""    # Simplified elastic part: rectangular block (leaf spring)
+    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    return body"""
+
+
+def _gen_transmission(dims: dict) -> str:
+    od = dims.get("od", 30)
+    w = dims.get("w", 8)
+    id_ = dims.get("id", 6)
+    return f"""    # Simplified gear: solid disc with shaft hole
+    body = (cq.Workplane("XY")
+            .circle({od/2}).circle({id_/2}).extrude({w}))
+    return body"""
+
+
 def _gen_generic(dims: dict) -> str:
     """Generic block for parts that don't match a specialized category.
 
@@ -178,16 +213,19 @@ def _gen_generic(dims: dict) -> str:
 
 
 _GENERATORS = {
-    "motor":     _gen_motor,
-    "reducer":   _gen_reducer,
-    "spring":    _gen_spring,
-    "bearing":   _gen_bearing,
-    "sensor":    _gen_sensor,
-    "pump":      _gen_pump,
-    "connector": _gen_connector,
-    "seal":      _gen_seal,
-    "tank":      _gen_tank,
-    "other":     _gen_generic,
+    "motor":        _gen_motor,
+    "reducer":      _gen_reducer,
+    "spring":       _gen_spring,
+    "bearing":      _gen_bearing,
+    "sensor":       _gen_sensor,
+    "pump":         _gen_pump,
+    "connector":    _gen_connector,
+    "seal":         _gen_seal,
+    "tank":         _gen_tank,
+    "locating":     _gen_locating,
+    "elastic":      _gen_elastic,
+    "transmission": _gen_transmission,
+    "other":        _gen_generic,
 }
 
 # Categories to skip (too small or too complex for simplified geometry).
@@ -309,7 +347,7 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         if "d" in dims and "l" in dims and "od" not in dims:
             return (dims["d"], dims["d"], dims["l"])
         if "od" in dims:
-            h = dims.get("h", dims.get("l", dims.get("t", 5)))
+            h = dims.get("h", dims.get("l", dims.get("w", dims.get("t", 5))))
             return (dims["od"], dims["od"], h)
         if "w" in dims and "h" in dims and "l" in dims:
             return (dims["w"], dims["d"] if "d" in dims else dims["w"],
