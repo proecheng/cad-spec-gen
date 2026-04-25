@@ -174,6 +174,30 @@ class TestExtractSize:
         )
         assert result == {"size": "M6"}  # 无 length 键
 
+    def test_bearing_mr105zz_from_material_text(self, default_patterns):
+        """MR-series 微型轴承型号在 material 字段中，需用 model_mr 模式提取。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        patterns_with_mr = {
+            **default_patterns["bearing"],
+            "model_mr": r"\b(MR\d{2,3}[A-Za-z0-9]*)\b",
+        }
+        result = extract_size_from_name(
+            "MR105ZZ（Φ10×Φ5×4mm）", patterns_with_mr
+        )
+        assert result == {"model_mr": "MR105ZZ"}
+
+    def test_bearing_mr84zz_variant(self, default_patterns):
+        """MR84ZZ 等不同尺寸变体均可匹配。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        patterns_with_mr = {
+            **default_patterns["bearing"],
+            "model_mr": r"\b(MR\d{2,3}[A-Za-z0-9]*)\b",
+        }
+        result = extract_size_from_name("MR84ZZ bearing", patterns_with_mr)
+        assert result == {"model_mr": "MR84ZZ"}
+
 
 class TestValidateSizePatterns:
     """v4 决策 #19: ReDoS 防御 — 加载时 timeout 预验证。"""

@@ -74,6 +74,7 @@ solidworks_toolbox:
       exclude_patterns: ['UN[CFEF]', '\bTr\d', '\bG\d/', '\bNPT']
     bearing:
       model: '\b(\d{4,5})\b'
+      model_mr: '\b(MR\d{2,3}[A-Za-z0-9]*)\b'
 
   # COM subprocess 超时 + 熔断（Part 2c P0 后配置瘦身）
   # cold_start / restart / idle_shutdown 在 subprocess-per-convert 模型下
