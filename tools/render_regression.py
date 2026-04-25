@@ -340,3 +340,59 @@ def write_report(
     report_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n[report] 报告已写入: {report_path}")
     return report_path
+
+
+def _preflight_check(dry_run: bool) -> None:
+    """前置检查：Blender 可用 + GLB 存在。"""
+    blender = _find_blender()
+    print(f"[preflight] Blender: {blender}")
+
+    if not dry_run and not _GLB_PATH.exists():
+        raise FileNotFoundError(
+            f"GLB 不存在: {_GLB_PATH}\n"
+            "请先运行: python cad/end_effector/build_all.py"
+        )
+    if dry_run and not _GLB_PATH.exists():
+        print(f"[preflight] ⚠️  GLB 不存在（dry-run 模式不中断）: {_GLB_PATH}")
+    else:
+        print(f"[preflight] GLB: {_GLB_PATH}")
+
+
+def main() -> None:
+    """主函数：解析参数，运行完整的渲染回归流程。"""
+    parser = argparse.ArgumentParser(description="端到端渲染回归工具")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="仅做前置检查，打印命令，不实际调用 Blender",
+    )
+    args = parser.parse_args()
+
+    out_root = _OUT_ROOT
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    print(f"[main] 产物根目录: {out_root}")
+
+    _preflight_check(args.dry_run)
+
+    ok_baseline = build_baseline(out_root, dry_run=args.dry_run)
+    ok_enhanced, textures_dir = build_enhanced(out_root, dry_run=args.dry_run)
+
+    feature_results = assert_features(out_root, textures_dir)
+
+    report_path = write_report(feature_results, out_root, ok_baseline, ok_enhanced)
+
+    print("\n=== 断言摘要 ===")
+    all_pass = True
+    for key, res in feature_results.items():
+        mark = "✅" if res["ok"] else ("⬜" if res["ok"] is None else "❌")
+        print(f"  {key} {mark}: {res['detail']}")
+        if res["ok"] is False:
+            all_pass = False
+
+    print(f"\n[main] 报告: {report_path}")
+    sys.exit(0 if all_pass else 1)
+
+
+if __name__ == "__main__":
+    main()
