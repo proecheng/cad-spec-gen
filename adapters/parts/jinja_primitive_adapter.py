@@ -185,7 +185,8 @@ def _gen_elastic(dims: dict) -> str:
 def _gen_transmission(dims: dict) -> str:
     od = dims.get("od", 30)
     w = dims.get("w", 8)
-    id_ = dims.get("id", 6)
+    # 保证内孔半径 < 外圆半径，防止 CadQuery 崩溃（内孔直径上限 = 外径 90%）
+    id_ = min(dims.get("id", 6), od * 0.9)
     return f"""    # Simplified gear: solid disc with shaft hole
     body = (cq.Workplane("XY")
             .circle({od/2}).circle({id_/2}).extrude({w}))
@@ -351,7 +352,7 @@ class JinjaPrimitiveAdapter(PartsAdapter):
             return (dims["od"], dims["od"], h)
         if "w" in dims and "h" in dims and "l" in dims:
             return (dims["w"], dims["d"] if "d" in dims else dims["w"],
-                    dims["h"] if dims.get("h") else dims.get("l", 20))
+                    dims["h"] if "h" in dims else dims.get("l", 20))
         if "w" in dims and "l" in dims:
             return (dims["w"],
                     dims.get("d", dims["w"]),

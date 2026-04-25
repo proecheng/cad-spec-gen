@@ -86,7 +86,8 @@ class TestJinjaPrimitiveFallback:
 
     def test_all_categories_have_generators(self):
         expected = {"motor", "reducer", "spring", "bearing", "sensor",
-                    "pump", "connector", "seal", "tank", "other"}
+                    "pump", "connector", "seal", "tank", "other",
+                    "locating", "elastic", "transmission"}
         assert expected.issubset(set(_GENERATORS.keys()))
 
 
