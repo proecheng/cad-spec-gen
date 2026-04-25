@@ -39,3 +39,26 @@ VIEW_NAMES = [
     "V4_exploded",
     "V5_ortho_front",
 ]
+
+
+def _find_blender() -> str:
+    """优先 PATH 中的 blender，fallback D:\\Blender\\blender.exe。
+
+    Returns:
+        可用 blender 可执行文件的绝对路径字符串。
+
+    Raises:
+        FileNotFoundError: 两处均未找到。
+    """
+    blender_in_path = shutil.which("blender")
+    if blender_in_path:
+        return blender_in_path
+
+    fallback = Path(r"D:\Blender\blender.exe")
+    if fallback.exists():
+        return str(fallback)
+
+    raise FileNotFoundError(
+        "找不到 Blender 可执行文件。\n"
+        "请将 blender 加入 PATH，或确认 D:\\Blender\\blender.exe 存在。"
+    )
