@@ -48,3 +48,19 @@ class NeedsUserDecision(Exception):
         self.part_no = part_no
         self.subsystem = subsystem
         self.pending_record = pending_record
+
+
+def _build_bom_dim_signature(bom_row: dict[str, Any]) -> str:
+    """组合 name_cn 和 material 为稳定签名（spec §5.1 rev 2）。
+
+    用于决策缓存的 invalidation 比对（bom_dim_signature_changed 触发）。
+    缺字段或 None 当空字符串。
+
+    例:
+        fastener: '内六角螺栓|GB/T 70.1 M8×20'
+        bearing:  '深沟球轴承 6205|GCr15'
+        seal:     'O型圈|FKM Φ80×2.4'
+    """
+    name_cn = bom_row.get("name_cn") or ""
+    material = bom_row.get("material") or ""
+    return f"{name_cn}|{material}"

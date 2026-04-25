@@ -40,3 +40,37 @@ def test_needs_user_decision_carries_record():
     assert exc.pending_record is rec
     assert "X" in str(exc)
     assert "end_effector" in str(exc)
+
+
+class TestBuildBomDimSignature:
+    """spec §5.1: bom_dim_signature = f'{name_cn}|{material}'"""
+
+    def test_fastener_dim_in_material(self):
+        from adapters.solidworks.sw_config_broker import _build_bom_dim_signature
+
+        bom = {"part_no": "X", "name_cn": "内六角螺栓", "material": "GB/T 70.1 M8×20"}
+        assert _build_bom_dim_signature(bom) == "内六角螺栓|GB/T 70.1 M8×20"
+
+    def test_bearing_dim_in_name_cn(self):
+        from adapters.solidworks.sw_config_broker import _build_bom_dim_signature
+
+        bom = {"part_no": "X", "name_cn": "深沟球轴承 6205", "material": "GCr15"}
+        assert _build_bom_dim_signature(bom) == "深沟球轴承 6205|GCr15"
+
+    def test_seal(self):
+        from adapters.solidworks.sw_config_broker import _build_bom_dim_signature
+
+        bom = {"part_no": "X", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
+        assert _build_bom_dim_signature(bom) == "O型圈|FKM Φ80×2.4"
+
+    def test_missing_fields_default_empty(self):
+        from adapters.solidworks.sw_config_broker import _build_bom_dim_signature
+
+        bom = {"part_no": "X"}
+        assert _build_bom_dim_signature(bom) == "|"
+
+    def test_none_fields_treated_as_empty(self):
+        from adapters.solidworks.sw_config_broker import _build_bom_dim_signature
+
+        bom = {"part_no": "X", "name_cn": None, "material": None}
+        assert _build_bom_dim_signature(bom) == "|"
