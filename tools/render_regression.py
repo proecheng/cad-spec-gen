@@ -119,3 +119,43 @@ def build_baseline(out_root: Path, dry_run: bool = False) -> bool:
     output_dir = out_root / "baseline" / "end_effector"
     extra_env: dict[str, str] = {"SW_TEXTURES_DIR": ""}
     return run_render(output_dir, extra_env, dry_run=dry_run)
+
+
+def build_enhanced(out_root: Path, dry_run: bool = False) -> tuple[bool, str]:
+    """渲染 enhanced 版本：注入 SW 纹理路径 + runtime_materials.json。
+
+    Returns:
+        (success: bool, textures_dir: str)  textures_dir 供 F2 断言使用。
+    """
+    from adapters.solidworks.sw_detect import detect_solidworks
+    from adapters.solidworks.sw_texture_backfill import backfill_presets_for_sw
+    from render_config import MATERIAL_PRESETS  # 已在 sys.path 中（_EE_DIR）
+
+    print("\n=== ENHANCED 渲染（PBR 纹理）===")
+
+    sw_info = detect_solidworks()
+    textures_dir = getattr(sw_info, "textures_dir", "") or ""
+
+    if not sw_info.installed:
+        print("[enhanced] ⚠️  SolidWorks 未装机，enhanced 渲染将等同 baseline")
+    elif not textures_dir:
+        print("[enhanced] ⚠️  textures_dir 为空，纹理回填为 no-op")
+    else:
+        print(f"[enhanced] SW textures_dir: {textures_dir}")
+
+    runtime_presets = backfill_presets_for_sw(MATERIAL_PRESETS, sw_info)
+
+    enhanced_dir = out_root / "enhanced"
+    enhanced_dir.mkdir(parents=True, exist_ok=True)
+    json_path = enhanced_dir / "runtime_materials.json"
+    json_path.write_text(json.dumps(runtime_presets, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[enhanced] runtime_materials.json → {json_path}")
+
+    output_dir = enhanced_dir / "end_effector"
+    extra_env: dict[str, str] = {
+        "SW_TEXTURES_DIR": textures_dir,
+        "CAD_RUNTIME_MATERIAL_PRESETS_JSON": str(json_path),
+    }
+
+    success = run_render(output_dir, extra_env, dry_run=dry_run)
+    return success, textures_dir
