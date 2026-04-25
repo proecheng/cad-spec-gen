@@ -78,7 +78,7 @@ grep -n "def default_patterns\|bearing" tests/test_sw_toolbox_catalog.py | head 
 
         patterns_with_mr = {
             **default_patterns["bearing"],
-            "model_mr": r"\b(MR\d{3}[A-Za-z0-9]*)\b",
+            "model_mr": r"\b(MR\d{2,3}[A-Za-z0-9]*)\b",
         }
         result = extract_size_from_name(
             "MR105ZZ（Φ10×Φ5×4mm）", patterns_with_mr
@@ -91,7 +91,7 @@ grep -n "def default_patterns\|bearing" tests/test_sw_toolbox_catalog.py | head 
 
         patterns_with_mr = {
             **default_patterns["bearing"],
-            "model_mr": r"\b(MR\d{3}[A-Za-z0-9]*)\b",
+            "model_mr": r"\b(MR\d{2,3}[A-Za-z0-9]*)\b",
         }
         result = extract_size_from_name("MR84ZZ bearing", patterns_with_mr)
         assert result == {"model_mr": "MR84ZZ"}
@@ -121,7 +121,7 @@ uv run pytest tests/test_sw_toolbox_catalog.py::TestExtractSize::test_bearing_mr
 ```yaml
     bearing:
       model: '\b(\d{4,5})\b'
-      model_mr: '\b(MR\d{3}[A-Za-z0-9]*)\b'
+      model_mr: '\b(MR\d{2,3}[A-Za-z0-9]*)\b'
 ```
 
 - [ ] **Step 4：再次运行测试确认仍通过**
