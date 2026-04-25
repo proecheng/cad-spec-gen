@@ -117,7 +117,7 @@ class TestJinjaPrimitiveAdapter:
         assert "circle" in result.body_code
 
     def test_resolve_skip_fastener(self):
-        """Fasteners are in _SKIP_CATEGORIES → miss."""
+        """Fasteners 在 _SKIP_CATEGORIES → skip（不是 miss）。"""
         a = JinjaPrimitiveAdapter()
         q = PartQuery(
             part_no="X-001",
@@ -127,7 +127,22 @@ class TestJinjaPrimitiveAdapter:
             make_buy="外购",
         )
         result = a.resolve(q, spec={})
-        assert result.status == "miss"
+        assert result.status == "skip"
+
+    def test_resolve_skip_cable(self):
+        """Cable 在 _SKIP_CATEGORIES → skip。"""
+        a = JinjaPrimitiveAdapter()
+        q = PartQuery(
+            part_no="GIS-EE-001-11",
+            name_cn="Igus拖链段",
+            material="E2 micro 内径6mm",
+            category="cable",
+            make_buy="外购",
+        )
+        result = a.resolve(q, spec={})
+        assert result.status == "skip"
+        assert result.kind == "miss"
+        assert "cable" in result.source_tag
 
     def test_resolve_unknown_category_still_hits_for_other(self):
         """Category 'other' gets a default block even with no dims."""
