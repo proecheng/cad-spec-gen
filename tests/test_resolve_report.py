@@ -10,6 +10,7 @@ from parts_resolver import (
     PartsResolver,
     ResolveReport,
     ResolveReportRow,
+    ResolveResult,
 )
 from adapters.parts.jinja_primitive_adapter import JinjaPrimitiveAdapter
 from adapters.parts.partcad_adapter import PartCADAdapter
@@ -132,7 +133,7 @@ class TestResolveReportSerialization:
         assert hasattr(r, "matched_adapter")
         assert hasattr(r, "attempted_adapters")
         assert hasattr(r, "status")
-        assert r.status in ("hit", "fallback", "miss")
+        assert r.status in ("hit", "fallback", "miss", "skip")
 
     def test_attempted_adapters_is_list(self):
         resolver = _make_resolver()
@@ -151,3 +152,75 @@ class TestResolveReportTrace:
         r = report.rows[0]
         # jinja_primitive 的 fallback 路径应留下 trace
         assert any("jinja_primitive" in t for t in r.attempted_adapters)
+
+
+class TestResolveResultSkip:
+    def test_skip_factory_status(self):
+        r = ResolveResult.skip(reason="cable not modeled")
+        assert r.status == "skip"
+
+    def test_skip_factory_kind_is_miss(self):
+        r = ResolveResult.skip()
+        assert r.kind == "miss"
+
+    def test_skip_reason_in_source_tag(self):
+        r = ResolveResult.skip(reason="fastener category")
+        assert "fastener" in r.source_tag
+
+
+class TestResolveReportSkip:
+    """cable/fastener 等 intentional-skip 件在 resolve_report 中正确体现。"""
+
+    def _make_cable_rows(self) -> list[dict]:
+        return [
+            {
+                "part_no": "GIS-EE-001-11",
+                "name_cn": "Igus拖链段",
+                "material": "E2 micro 内径6mm",
+                "category": "cable",
+                "make_buy": "外购",
+            },
+            {
+                "part_no": "GIS-EE-003-09",
+                "name_cn": "Gore柔性同轴",
+                "material": "MicroTCA系列×500mm",
+                "category": "cable",
+                "make_buy": "外购",
+            },
+        ]
+
+    def test_cable_rows_show_skip_status(self):
+        resolver = _make_resolver()
+        report = resolver.resolve_report(self._make_cable_rows())
+        for row in report.rows:
+            assert row.status == "skip", f"{row.bom_id} should be skip, got {row.status}"
+
+    def test_cable_rows_matched_adapter_is_skip_bucket(self):
+        resolver = _make_resolver()
+        report = resolver.resolve_report(self._make_cable_rows())
+        for row in report.rows:
+            assert row.matched_adapter == "(skip)"
+
+    def test_skip_bucket_counted_separately_from_none(self):
+        resolver = _make_resolver()
+        report = resolver.resolve_report(self._make_cable_rows())
+        assert "(skip)" in report.adapter_hits
+        assert report.adapter_hits["(skip)"].count == 2
+        none_count = report.adapter_hits.get("(none)", AdapterHit(count=0, unavailable_reason=None)).count
+        assert none_count == 0
+
+    def test_skip_status_in_to_dict(self):
+        resolver = _make_resolver()
+        report = resolver.resolve_report(self._make_cable_rows())
+        d = report.to_dict()
+        statuses = [r["status"] for r in d["rows"]]
+        assert statuses == ["skip", "skip"]
+
+    def test_attempted_adapters_has_skip_trace(self):
+        from parts_resolver import default_resolver
+        resolver = default_resolver(project_root=".")
+        report = resolver.resolve_report(self._make_cable_rows())
+        for row in report.rows:
+            # rules loop 中 jinja_primitive 返回 skip，只应有单条 skip 记录
+            assert row.attempted_adapters == ["jinja_primitive(skip)"], \
+                f"期望 ['jinja_primitive(skip)']，实际 {row.attempted_adapters}"

@@ -652,3 +652,54 @@ class TestEndToEndPipeline:
             assert "from bd_warehouse" not in content
             assert "import partcad" not in content
             assert "cq.importers.importStep" not in content
+
+
+def test_resolver_skip_not_in_gen_output(tmp_path, monkeypatch):
+    """resolver 返回 skip 状态的件不应产生 gen_std_parts 输出文件。
+
+    这是防御性测试：即使 category 不在 gen_std_parts._SKIP_CATEGORIES，
+    只要 resolver.resolve() 返回 status='skip'，也必须静默跳过，不产生输出。
+    """
+    from codegen import gen_std_parts
+    from parts_resolver import ResolveResult
+
+    # 构造一个 BOM：bearing 类型，category 不在 gen_std_parts._SKIP_CATEGORIES
+    bom = [
+        {
+            "part_no": "GIS-TEST-002-99",
+            "name_cn": "608ZZ 深沟球轴承",
+            "material": "",
+            "make_buy": "外购",
+            "is_assembly": False,
+        }
+    ]
+
+    # 构造一个 mock resolver：resolve() 始终返回 skip
+    class _MockResolver:
+        def resolve(self, query):
+            return ResolveResult.skip(reason="测试用 skip")
+
+        def coverage_report(self):
+            return ""
+
+    monkeypatch.setattr(gen_std_parts, "parse_bom_tree", lambda path: bom)
+    monkeypatch.setattr(gen_std_parts, "parse_envelopes", lambda path: {})
+    monkeypatch.setattr(gen_std_parts, "default_resolver",
+                        lambda **kwargs: _MockResolver())
+
+    # 准备最小 project 结构
+    (tmp_path / "cad" / "end_effector").mkdir(parents=True)
+    spec_path = tmp_path / "cad" / "end_effector" / "CAD_SPEC.md"
+    spec_path.write_text("# placeholder\n", encoding="utf-8")
+    out_dir = tmp_path / "std_parts"
+    out_dir.mkdir()
+
+    generated, skipped, _resolver = gen_std_parts.generate_std_part_files(
+        spec_path=str(spec_path),
+        output_dir=str(out_dir),
+        mode="force",
+    )
+
+    assert generated == [], (
+        f"resolver 返回 skip 的件不应产生输出文件，但找到：{generated}"
+    )

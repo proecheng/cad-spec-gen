@@ -83,7 +83,7 @@ class ResolveResult:
         kind="miss"           → nothing matched, caller should skip or fallback
     """
 
-    status: Literal["hit", "miss", "fallback"]
+    status: Literal["hit", "miss", "fallback", "skip"]
     kind: ResolveKind
     adapter: str                            # which adapter produced this
     body_code: Optional[str] = None
@@ -108,6 +108,16 @@ class ResolveResult:
             category=PartCategory.CUSTOM,
         )
 
+    @classmethod
+    def skip(cls, *, reason: str = "") -> "ResolveResult":
+        return cls(
+            status="skip",
+            kind="miss",
+            adapter="",
+            category=PartCategory.CUSTOM,
+            source_tag=reason,
+        )
+
 
 # ─── Adapter protocol ─────────────────────────────────────────────────────
 #
@@ -127,7 +137,7 @@ class ResolveReportRow:
     name_cn: str
     matched_adapter: str
     attempted_adapters: list[str]
-    status: str  # "hit" | "fallback" | "miss"
+    status: str  # "hit" | "fallback" | "miss" | "skip"
     config_match: str = "n/a"  # B-16: "matched" | "fallback" | "n/a"
 
 
@@ -247,6 +257,10 @@ class PartsResolver:
                 if _trace is not None:
                     _trace.append(f"{adapter_name}(hit)")
                 return result
+            if result.status == "skip":
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(skip)")
+                return result
             if _trace is not None:
                 _trace.append(f"{adapter_name}(miss)")
 
@@ -262,6 +276,10 @@ class PartsResolver:
                     (query.part_no, "jinja_primitive", result.source_tag))
                 if _trace is not None:
                     _trace.append("jinja_primitive(fallback)")
+                return result
+            if result.status == "skip":
+                if _trace is not None:
+                    _trace.append("jinja_primitive(skip)")
                 return result
 
         return ResolveResult.miss()
@@ -433,6 +451,8 @@ class PartsResolver:
 
             if result.status == "miss":
                 matched = "(none)"
+            elif result.status == "skip":
+                matched = "(skip)"
             elif result.status == "fallback":
                 matched = "jinja_primitive"
             else:
@@ -446,6 +466,8 @@ class PartsResolver:
                 status = "hit"
             elif result.status == "fallback":
                 status = "fallback"
+            elif result.status == "skip":
+                status = "skip"
             else:
                 status = "miss"
 

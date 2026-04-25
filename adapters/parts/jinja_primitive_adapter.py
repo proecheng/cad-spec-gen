@@ -266,7 +266,9 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         from parts_resolver import ResolveResult
 
         if query.category in _SKIP_CATEGORIES:
-            return ResolveResult.miss()
+            return ResolveResult.skip(
+                reason=f"{query.category} category: no geometry generated"
+            )
 
         gen_func = _GENERATORS.get(query.category)
         if gen_func is None:

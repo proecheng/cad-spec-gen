@@ -291,10 +291,12 @@ def generate_std_part_files(
         )
 
         result = resolver.resolve(query)
-        if result.status == "miss" or result.kind == "miss":
+        if result.status in {"miss", "skip"} or result.kind == "miss":
             # Nothing matched, not even the jinja fallback → skip silently.
             # This happens for parts the fallback doesn't know how to draw
             # (e.g. missing dims AND unknown category).
+            # "skip" is an intentional no-geometry signal (e.g. cable/fastener
+            # categories that reached the resolver without being pre-filtered).
             continue
 
         mod_name = _safe_module_name(p["part_no"])
