@@ -1,8 +1,3 @@
-# ── AUTO-DEPLOYED from project root. DO NOT EDIT THIS COPY. ──────────
-# Authoritative source: D:\Work\cad-spec-gen/cad_spec_defaults.py
-# Deployed by: cad_pipeline.py _deploy_tool_modules()
-# To modify, edit the root copy and re-run: python cad_pipeline.py codegen
-# ─────────────────────────────────────────────────────────────────────
 #!/usr/bin/env python3
 """
 CAD Spec 默认值与完整性检查
@@ -12,7 +7,11 @@ CAD Spec 默认值与完整性检查
   - 工程常量（屈服强度、最高工作温度、电偶腐蚀、安全系数）
   - 必填项规则（CRITICAL / WARNING / INFO）
   - 派生计算（总重、总成本、BOM完整度）
+  - 装配定位偏移推算（串联链Z偏移、子总成合并）
 """
+
+import re
+import sys
 
 # ─── 标准默认值 ──────────────────────────────────────────────────────────
 
@@ -170,6 +169,22 @@ STD_PART_DIMENSIONS = {
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
     "电磁阀":       {"w": 20, "h": 15, "l": 30},
+    # --- Linear Bearings ---
+    "LM6UU":   {"od": 12, "id": 6, "w": 19},
+    "LM8UU":   {"od": 15, "id": 8, "w": 24},
+    "LM10UU":  {"od": 19, "id": 10, "w": 29},
+    "LM12UU":  {"od": 21, "id": 12, "w": 30},
+    # --- More Deep Groove Bearings (ISO 15) ---
+    "6000ZZ":  {"od": 26, "id": 10, "w": 8},
+    "6001ZZ":  {"od": 28, "id": 12, "w": 8},
+    "6200ZZ":  {"od": 30, "id": 10, "w": 9},
+    "6201ZZ":  {"od": 32, "id": 12, "w": 10},
+    # --- NEMA Stepper Motors ---
+    "NEMA 17": {"w": 42.3, "h": 42.3, "l": 48, "shaft_d": 5, "shaft_l": 24},
+    "NEMA 23": {"w": 57, "h": 57, "l": 56, "shaft_d": 6.35, "shaft_l": 24},
+    # --- Additional Tanks ---
+    "_tank_small": {"d": 25, "l": 110},
+    "_tank_large": {"d": 38, "l": 280},
     # --- Generic fallbacks by category ---
     "_motor":       {"d": 22, "l": 50, "shaft_d": 4, "shaft_l": 12},
     "_reducer":     {"d": 25, "l": 35, "shaft_d": 6, "shaft_l": 10},
@@ -180,6 +195,20 @@ STD_PART_DIMENSIONS = {
     "_connector":   {"d": 10, "l": 25},
     "_seal":        {"od": 80, "id": 75, "section_d": 2.4},
     "_tank":        {"d": 38, "l": 280},
+}
+
+MATERIAL_PROPS = {
+    "7075-T6":  {"density": 2.81, "color": (0.15, 0.15, 0.15), "ra_default": 3.2, "material_type": "al"},
+    "6063":     {"density": 2.69, "color": (0.20, 0.20, 0.20), "ra_default": 3.2, "material_type": "al"},
+    "6061-T6":  {"density": 2.70, "color": (0.18, 0.18, 0.18), "ra_default": 3.2, "material_type": "al"},
+    "PEEK":     {"density": 1.31, "color": (0.85, 0.65, 0.13), "ra_default": 3.2, "material_type": "peek"},
+    "SUS316L":  {"density": 7.98, "color": (0.82, 0.82, 0.85), "ra_default": 1.6, "material_type": "steel"},
+    "SUS304":   {"density": 7.93, "color": (0.80, 0.80, 0.83), "ra_default": 1.6, "material_type": "steel"},
+    "SUS303":   {"density": 7.90, "color": (0.78, 0.78, 0.80), "ra_default": 1.6, "material_type": "steel"},
+    "FKM":      {"density": 1.80, "color": (0.08, 0.08, 0.08), "ra_default": 6.3, "material_type": "rubber"},
+    "PA66":     {"density": 1.14, "color": (0.10, 0.10, 0.10), "ra_default": 3.2, "material_type": "plastic"},
+    "POM":      {"density": 1.41, "color": (0.90, 0.88, 0.85), "ra_default": 1.6, "material_type": "plastic"},
+    "硅橡胶":   {"density": 1.10, "color": (0.75, 0.60, 0.45), "ra_default": 6.3, "material_type": "rubber"},
 }
 
 
@@ -194,6 +223,11 @@ def _parse_dims_from_text(text: str) -> dict:
       20芯×500mm → {"l": 500}  (cable length)
     """
     import re
+    # Pattern 0: Φ_OD_×Φ_ID_×W (bearing: OD × ID × width, e.g. Φ10×Φ5×4mm)
+    m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
+    if m:
+        return {"od": float(m.group(1)), "id": float(m.group(2)), "w": float(m.group(3))}
+
     # Pattern 1: Φd×l (cylinder: diameter × length)
     m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
     if m:
@@ -248,6 +282,159 @@ def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> d
     return {}
 
 
+def compute_serial_offsets(placements: list, envelopes: dict,
+                           connections: list = None) -> dict:
+    """从串联堆叠链计算零件底面偏移（工位局部坐标）。
+
+    Direction-aware: supports (0,0,-1), (0,0,+1), (1,0,0), etc.
+    Bottom-face convention: returned Z = translate parameter = part bottom face position.
+
+    Returns: {part_no: {"z": float, "h": float, "mode": str, "source": str, "confidence": str}}
+    """
+    result = {}
+
+    for placement in placements:
+        if placement.get("mode") != "axial_stack":
+            continue
+        chain = placement.get("chain", [])
+        if not chain:
+            continue
+
+        # Defense-in-depth: even if BOM matching produced a cross-assembly
+        # part_no (e.g. chain in GIS-EE-003 matched GIS-EE-001-04), we only
+        # accept result writes for parts whose part_no is prefixed by the
+        # chain's own assembly_pno. This guarantees chain-local Z values
+        # never pollute another assembly's positioning table.
+        chain_assy = placement.get("assembly", "")
+
+        d = placement.get("direction", (0, 0, -1))
+        # Determine primary axis sign
+        if abs(d[2]) >= abs(d[0]) and abs(d[2]) >= abs(d[1]):
+            sign = -1 if d[2] < 0 else 1
+        elif abs(d[0]) >= abs(d[1]):
+            sign = -1 if d[0] < 0 else 1
+        else:
+            sign = -1 if d[1] < 0 else 1
+
+        # Merge consecutive sub_assembly nodes
+        merged = _merge_sub_assemblies(chain, envelopes)
+
+        # Track per-part top/bottom across this chain. A single BOM part
+        # may correspond to multiple chain nodes (e.g. 弹簧限力机构 has
+        # 上端板 + 弹簧 + 下端板 sub-nodes that all match the same BOM
+        # entry). The visible envelope is the union of all sub-spans:
+        #   top    = max(node_top)     (least negative for downward stack)
+        #   bottom = min(node_bottom)  (most negative)
+        # We accumulate top/bottom and emit a single span at the end.
+        chain_spans = {}  # pno → {"top": float, "bottom": float}
+
+        cursor = 0.0
+        for i, node in enumerate(merged):
+            pno = node.get("part_no")
+
+            # Skip connection-only nodes — they describe fastener specs
+            # between physical parts, not stack layers (e.g. "[4×M3螺栓]").
+            # Also skip reference surfaces that failed BOM matching.
+            if not pno and not node.get("dims"):
+                continue
+
+            h = _get_node_height(node, envelopes)
+
+            # axial_gap from connections
+            # TODO(P3): axial_gap is not yet populated by extract_connection_matrix;
+            # this logic is ready but currently always gets gap=0.0
+            gap = 0.0
+            if connections and i > 0:
+                prev_pno = merged[i - 1].get("part_no")
+                if prev_pno and pno:
+                    for conn in connections:
+                        pa, pb = conn.get("partA", ""), conn.get("partB", "")
+                        # Use regex extraction to avoid substring false positives
+                        # (e.g. "GIS-EE-001" matching "GIS-EE-001-01")
+                        pa_pnos = set(re.findall(r"[A-Z]+-[A-Z]+-\d+(?:-\d+)?", pa))
+                        pb_pnos = set(re.findall(r"[A-Z]+-[A-Z]+-\d+(?:-\d+)?", pb))
+                        if ((prev_pno in pa_pnos and pno in pb_pnos) or
+                            (pno in pa_pnos and prev_pno in pb_pnos)):
+                            gap = conn.get("axial_gap", 0.0)
+                            break
+
+            if sign < 0:
+                cursor -= abs(gap)
+                top = cursor
+                bottom = cursor - h
+            else:
+                cursor += abs(gap)
+                bottom = cursor
+                top = cursor + h
+
+            # Accumulate sub-chain span for this part (only within this
+            # chain's assembly to prevent cross-assembly pollution).
+            if pno and (not chain_assy or pno.startswith(chain_assy)):
+                span = chain_spans.setdefault(
+                    pno, {"top": top, "bottom": bottom})
+                span["top"] = max(span["top"], top)
+                span["bottom"] = min(span["bottom"], bottom)
+
+            # Advance cursor
+            if sign < 0:
+                cursor = bottom
+            else:
+                cursor += h
+
+        # Emit one result entry per part with span-based height
+        for pno, span in chain_spans.items():
+            result[pno] = {
+                "z": round(span["bottom"], 1),
+                "h": round(span["top"] - span["bottom"], 1),
+                "mode": "axial_stack",
+                "source": "serial_chain",
+                "confidence": "high",
+            }
+
+    return result
+
+
+def _merge_sub_assemblies(chain: list, envelopes: dict) -> list:
+    """Merge consecutive nodes with same sub_assembly into single unit."""
+    merged = []
+    i = 0
+    while i < len(chain):
+        node = chain[i]
+        sa = node.get("sub_assembly")
+        if sa:
+            group = [node]
+            j = i + 1
+            while j < len(chain) and chain[j].get("sub_assembly") == sa:
+                group.append(chain[j])
+                j += 1
+            total_h = sum(_get_node_height(n, envelopes) for n in group)
+            merged.append({
+                "part_name": f"{sa}(merged)",
+                "part_no": sa,
+                "dims": {"type": "cylinder", "h": total_h, "source": "chain(merged)"},
+                "connection": group[0].get("connection"),
+                "sub_assembly": None,
+            })
+            i = j
+        else:
+            merged.append(node)
+            i += 1
+    return merged
+
+
+def _get_node_height(node: dict, envelopes: dict) -> float:
+    """Get height from node dims, then envelopes, then default 20mm."""
+    dims = node.get("dims")
+    if dims:
+        h = dims.get("h", dims.get("l", 0.0))
+        if h > 0:
+            return h
+    pno = node.get("part_no")
+    if pno and pno in envelopes:
+        return envelopes[pno].get("h", 20.0)
+    return 20.0
+
+
 # ─── 材质分类 ────────────────────────────────────────────────────────────
 
 MATERIAL_TYPE_KEYWORDS = {
@@ -262,11 +449,46 @@ MATERIAL_TYPE_KEYWORDS = {
                "Shore", "rubber", "silicone"],
 }
 
+_merged_keywords = None
+
+
+def get_material_type_keywords():
+    """返回基础 + SW 扩展的关键词路由表。首次调用时合并，缓存结果。
+
+    无 SW 时返回值与 MATERIAL_TYPE_KEYWORDS 内容一致。
+    """
+    global _merged_keywords
+    if _merged_keywords is not None:
+        return _merged_keywords
+    _merged_keywords = {k: list(v) for k, v in MATERIAL_TYPE_KEYWORDS.items()}
+    if sys.platform == "win32":
+        try:
+            from adapters.solidworks.sw_material_bridge import load_sw_material_bundle
+            bundle = load_sw_material_bundle()
+            if bundle:
+                for mtype, kws in bundle.type_keywords.items():
+                    if mtype in _merged_keywords:
+                        existing = {kw.lower() for kw in _merged_keywords[mtype]}
+                        for kw in kws:
+                            if kw.lower() not in existing:
+                                _merged_keywords[mtype].append(kw)
+                    else:
+                        _merged_keywords[mtype] = list(kws)
+        except ImportError:
+            pass
+    return _merged_keywords
+
+
+def _reset_material_cache():
+    """测试用：重置缓存。"""
+    global _merged_keywords
+    _merged_keywords = None
+
 
 def classify_material_type(material: str):
     """从 BOM material 字段推断 material_type。
 
-    遍历 MATERIAL_TYPE_KEYWORDS 查找关键词匹配。
+    遍历 get_material_type_keywords() 查找关键词匹配。
     无匹配时返回 None（不静默 fallback）。
 
     Returns:
@@ -274,7 +496,7 @@ def classify_material_type(material: str):
     """
     if not material:
         return None
-    for mtype, keywords in MATERIAL_TYPE_KEYWORDS.items():
+    for mtype, keywords in get_material_type_keywords().items():
         if any(kw.lower() in material.lower() for kw in keywords):
             return mtype
     return None

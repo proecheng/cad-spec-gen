@@ -1,5 +1,5 @@
 # CAD Spec — 末端执行机构 (GIS-EE)
-<!-- Generated: 2026-04-07 19:42 | Source: D:/Work/cad-tests/04-末端执行机构设计.md | Hash: 8344444b6bcc -->
+<!-- Generated: 2026-04-24 21:43 | Source: D:/Work/cad-tests/04-末端执行机构设计.md | Hash: 8344444b6bcc -->
 
 ## 1. 全局参数表
 
@@ -38,7 +38,7 @@
 | MOUNT_FLAT | 0.03 | mm |  | L524 |  |
 | TOTAL_COST | 60922.0 | 元 |  | [计算] | BOM合计 (48零件) |
 | BOM_PARTS_COUNT | 48 |  |  | [计算] | 6总成 |
-| BOM_COMPLETENESS | 100.0 | % |  | [计算] | 144/144 cells filled |
+| BOM_COMPLETENESS | 99.3 | % |  | [计算] | 143/144 cells filled |
 
 ## 2. 公差与表面处理
 
@@ -114,7 +114,7 @@
 | --- | --- | --- | --- | --- | --- |
 | ISO 9409适配板 (GIS-EE-001-08) | ECX 22L电机+GP22C减速器 | 4×M3, 0.7Nm |  |  | 1 |
 | ISO 9409适配板 (GIS-EE-001-08) | Igus E2拖链段 | 2×M2 L形支架 |  |  | 2 |
-| Igus E2拖链段 | 法兰本体 Φ90mm (GIS-EE-001-01) | 过盈配合Φ8 H7/k6 + M4压紧 |  |  | 3 |
+| Igus E2拖链段 | 法兰本体 Φ90mm (GIS-EE-001-01) | 过盈配合Φ8 H7/k6 + M4压紧 | H7/k6 |  | 3 |
 | Igus E2拖链段 | 弹簧销×4 (GIS-EE-001-07) | Φ4×20mm锥形头 |  |  | 4 |
 | 弹簧销×4 (GIS-EE-001-07) | O型圈 FKM Φ80×2.4 | 嵌入密封槽 |  |  | 5 |
 | 弹簧销×4 (GIS-EE-001-07) | PEEK绝缘环 Φ86mm (GIS-EE-001-02) | 6×M3+碟簧垫圈 |  |  | 6 |
@@ -146,7 +146,7 @@
 | **GIS-EE-002** | **工位1涂抹模块** | — | 1 | 总成 | — |
 | GIS-EE-002-01 | 涂抹模块壳体 | 7075-T6铝合金 | 1 | 自制 | 800元 |
 | GIS-EE-002-02 | 储罐 | 不锈钢Φ38×280mm | 1 | 外购 | 200元 |
-| GIS-EE-002-03 | 齿轮泵 | — | 1 | 外购 | 1500元 |
+| GIS-EE-002-03 | 齿轮泵 |  | 1 | 外购 | 1500元 |
 | GIS-EE-002-04 | 刮涂头 | 硅橡胶 | 1 | 外购 | 30元 |
 | GIS-EE-002-05 | LEMO插头 | FGG.0B.307 | 1 | 外购 | 150元 |
 | **GIS-EE-003** | **工位2 AE检测模块** | — | 1 | 总成 | — |
@@ -205,20 +205,75 @@
 
 ### 6.2 装配层叠
 
-| 层级 | 零件/模块 | 固定/运动 | 连接方式 | 偏移(Z/R/θ) | 轴线方向 |
-| --- | --- | --- | --- | --- | --- |
-| L1 | ISO 9409适配板 (GIS-EE-001-08) | 固定(机械臂) | 4×M6@PCD50mm, 9.0Nm | 基准原点 | 盘面∥XY |
-| L2 | ECX 22L电机+GP22C减速器 | 固定(适配板) | 4×M3, 0.7Nm | Z=+73mm(向上) | 轴沿Z |
-| L2 | Igus E2拖链段 | 固定端→适配板,活动端→法兰 | 2×M2 L形支架 | 径向R≈45mm | 弧形∥XY |
-| L3 | 法兰本体 Φ90mm (GIS-EE-001-01) | 旋转(90°×4) | 过盈配合Φ8 H7/k6 + M4压紧 | Z=0(参考面) | 盘面∥XY |
-| L3 | 弹簧销×4 (GIS-EE-001-07) | 固定(减速器壳体侧) | Φ4×20mm锥形头 | — | 轴沿Z |
-| L4 | O型圈 FKM Φ80×2.4 | 随法兰旋转 | 嵌入密封槽 | Z=-25mm(向下) | 环∥XY |
-| L4 | PEEK绝缘环 Φ86mm (GIS-EE-001-02) | 随法兰旋转 | 6×M3+碟簧垫圈 | Z=-27mm(向下) | 盘面∥XY |
-| L5a | 涂抹工位(0°) (GIS-EE-002) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=0° | **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）** |
-| L5b | AE检测工位(90°) (GIS-EE-003) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=90° | **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面** |
-| L5c | 卷带清洁工位(180°) (GIS-EE-004) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=180° | **壳体轴沿-Z（垂直向下），溶剂罐轴沿-Z（垂直）** |
-| L5d | UHF检测工位(270°) (GIS-EE-005) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=270° | **L支架挂载沿-Z（垂直向下）** |
-| 尺寸标注+螺栓孔位 | 全部 |  |  |  |  |
+| 层级 | 零件/模块 | 固定/运动 | 连接方式 | 偏移(Z/R/θ) | 轴线方向 | 排除 |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 | ISO 9409适配板 (GIS-EE-001-08) | 固定(机械臂) | 4×M6@PCD50mm, 9.0Nm | 基准原点 | 盘面∥XY |  |
+| L2 | ECX 22L电机+GP22C减速器 | 固定(适配板) | 4×M3, 0.7Nm | Z=+73mm(向上) | 轴沿Z |  |
+| L2 | Igus E2拖链段 | 固定端→适配板,活动端→法兰 | 2×M2 L形支架 | 径向R≈45mm | 弧形∥XY |  |
+| L3 | 法兰本体 Φ90mm (GIS-EE-001-01) | 旋转(90°×4) | 过盈配合Φ8 H7/k6 + M4压紧 | Z=0(参考面) | 盘面∥XY |  |
+| L3 | 弹簧销×4 (GIS-EE-001-07) | 固定(减速器壳体侧) | Φ4×20mm锥形头 | — | 轴沿Z |  |
+| L4 | O型圈 FKM Φ80×2.4 | 随法兰旋转 | 嵌入密封槽 | Z=-25mm(向下) | 环∥XY |  |
+| L4 | PEEK绝缘环 Φ86mm (GIS-EE-001-02) | 随法兰旋转 | 6×M3+碟簧垫圈 | Z=-27mm(向下) | 盘面∥XY |  |
+| L5a | 涂抹工位(0°) (GIS-EE-002) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=0° | **壳体轴沿-Z（垂直向下），储罐轴∥XY（水平径向外伸）** |  |
+| L5b | AE检测工位(90°) (GIS-EE-003) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=90° | **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面** |  |
+| L5c | 卷带清洁工位(180°) (GIS-EE-004) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=180° | **壳体轴沿-Z（垂直向下），溶剂罐轴沿-Z（垂直）** |  |
+| L5d | UHF检测工位(270°) (GIS-EE-005) | 随法兰旋转 | 4×M3+Φ3销, 0.7Nm | R=65mm, θ=270° | **L支架挂载沿-Z（垂直向下）** |  |
+| 尺寸标注+螺栓孔位 | 全部 |  |  |  |  |  |
+|  | 信号调理模块 (GIS-EE-006) |  |  |  |  | exclude |
+
+### 6.3 零件级定位
+
+#### GIS-EE-003 工位2 AE检测模块
+
+| 料号 | 零件名 | 模式 | 高度(mm) | 底面Z(mm) | 来源 | 置信度 |
+| --- | --- | --- | --- | --- | --- | --- |
+| GIS-EE-003-01 | AE传感器 | axial_stack | 26.0 | -112.0 | serial_chain | high |
+| GIS-EE-003-02 | 六轴力传感器 | axial_stack | 20.0 | -20.0 | serial_chain | high |
+| GIS-EE-003-03 | 弹簧限力机构总成 | axial_stack | 16.0 | -36.0 | serial_chain | high |
+| GIS-EE-003-04 | 柔性关节（万向节） | axial_stack | 30.0 | -66.0 | serial_chain | high |
+| GIS-EE-003-05 | 阻尼垫 | axial_stack | 20.0 | -86.0 | serial_chain | high |
+
+### 6.4 零件包络尺寸
+
+> 说明 / Legend
+> - **来源** `P1:...` = 参数表 | `P2:walker:tier0` = 历史 part_no 上下文扫描 (回归保护)
+> - **来源** `P2:walker:tier1` = 结构编号精确匹配 | `tier2` = 字符/单词子序列 | `tier3` = Jaccard 相似度
+> - **置信度**: tier0/tier1 = 1.00 (精确); tier2 = 0.85 (高); tier3 = 原始 Jaccard 分数. <0.75 建议人工验证.
+> - **粒度**: `station_constraint` = 工位级外包络 (模块必须装入); `part_envelope` = 单件本体尺寸.
+>   **禁止**使用 `station_constraint` 尺寸作为单个采购件的建模尺寸.
+
+| 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 | 轴向标签 | 置信度 | 粒度 | 理由 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GIS-EE-001-01 | 法兰本体（含十字悬臂） | cylinder | Φ90.0×25.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-001-02 | PEEK绝缘段 | cylinder | Φ86.0×5.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-001-03 | O型圈 | cylinder | Φ80.0×2.4 | P3:BOM | — | — | — | — |  |
+| GIS-EE-001-07 | 弹簧销组件（含弹簧） | cylinder | Φ4.0×20.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-001-08 | ISO 9409适配板 | cylinder | Φ63.0×8.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-001-09 | FFC线束总成 | cylinder | Φ10×50 | P3:BOM | — | — | — | — |  |
+| GIS-EE-001-12 | 定位销 | disc | Φ3.0×5 | P1:part_table | — | — | — | — |  |
+| GIS-EE-002 | 工位1涂抹模块 | box | ×× | P2:walker:tier1 | 宽×深×高，含储罐延伸 | 1.00 | station_constraint | tier1_unique_match |  |
+| GIS-EE-002-01 | 涂抹模块壳体 | cylinder | Φ50.0×60.0 | P6:guess_geometry | — | — | — | — |  |
+| GIS-EE-002-02 | 储罐 | cylinder | Φ38.0×280.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-003 | 工位2 AE检测模块 | cylinder | Φ45.0× | P2:walker:tier1 | 含弹簧限力+柔性关节+AE探头串联 | 1.00 | station_constraint | tier1_unique_match |  |
+| GIS-EE-003-01 | AE传感器 | cylinder | Φ20.0×26.0 | P5:chain_span | — | — | — | — |  |
+| GIS-EE-003-02 | 六轴力传感器 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
+| GIS-EE-003-03 | 弹簧限力机构总成 | cylinder | Φ20.0×16.0 | P5:chain_span | — | — | — | — |  |
+| GIS-EE-003-04 | 柔性关节（万向节） | cylinder | Φ20.0×15.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-003-05 | 阻尼垫 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
+| GIS-EE-003-07 | 配重块 | cylinder | Φ12.0×7.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004 | 工位3卷带清洁模块 | box | ×× | P2:walker:tier1 | 切向宽×径向深×轴向高，双卷轴区域 | 1.00 | station_constraint | tier1_unique_match |  |
+| GIS-EE-004-01 | 清洁模块壳体（含卷轴腔+清洁窗口） | cylinder | Φ50.0×60.0 | P6:guess_geometry | — | — | — | — |  |
+| GIS-EE-004-03 | 微型电机 | cylinder | Φ16.0×30.0 | P3:BOM+body_text | — | — | — | — |  |
+| GIS-EE-004-05 | 弹性衬垫 | box | 20.0×15.0×5.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-08 | 溶剂储罐（活塞式正压密封） | cylinder | Φ25.0×110.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-10 | 配重块 | cylinder | Φ14.0×13.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-11 | 微型轴承 | ring | Φ10.0×4.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-12 | 清洁窗口翻盖 | cylinder | Φ40.0×20.0 | P6:guess_geometry | — | — | — | — |  |
+| GIS-EE-005 | 工位4 UHF模块（方案A） | cylinder | Φ50.0× | P2:walker:tier1 | 含安装支架 | 1.00 | station_constraint | tier1_unique_match |  |
+| GIS-EE-005-01 | I300-UHF-GT传感器 | cylinder | Φ45.0×60.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-005-02 | UHF安装支架 | box | 50.0×50.0×25.0 | P6:guess_geometry | — | — | — | — |  |
+| GIS-EE-006-01 | 壳体（含散热鳍片） | box | 140.0×100.0×55.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-006-03 | 安装支架（抱箍+L型） | box | 50.0×50.0×25.0 | P6:guess_geometry | — | — | — | — |  |
 
 ## 7. 视觉标识
 
@@ -296,18 +351,58 @@
 | 拖链 | 沿法兰边缘弧形 |  |
 | 刮涂头 | 涂抹模块底端 |  |
 | 柔性关节 | AE串联底端 |  |
-| N1 | N1 | AI倾向在空位补零件 |
-| N2 | N2 | 方向歧义导致电机画反 |
-| N3 | N3 | 两个银色圆柱易混淆 |
-| N4 | N4 | AI创造性补全倾向 |
-| N5 | N5 | 位置容易搞错 |
-| N6 | N6 | AI容易画成与法兰等大 |
-| N7 | N7 | AI容易把模块画在盘面上 |
-| N8 | N8 | AI默认竖直展示圆盘 |
-| N9 | N9 | V1渲染曾画反弹簧方向 |
-| N10 | N10 | AI容易把模块画成径向水平 |
+| N1 | 法兰中心孔是空的（Φ22mm通孔），无任何机构从法兰中心向工位侧伸出；减速器输出轴在内部不可见 | AI倾向在空位补零件 |
+| N2 | 电机+减速器(Φ22×73mm深灰圆柱)仅在臂侧(法兰上方)，绝不在工位侧(法兰下方) | 方向歧义导致电机画反 |
+| N3 | LONG储液罐(Φ38×280mm)始终水平沿悬臂轴向延伸；SHORT溶剂罐(Φ25×110mm)始终垂直平行于模块高度 | 两个银色圆柱易混淆 |
+| N4 | 不要发明设计文档中未描述的零件或连接件 | AI创造性补全倾向 |
+| N5 | 信号调理模块(GIS-EE-006)不在法兰上，安装在机械臂J3-J4连杆上，距法兰250mm，渲染末端执行器时不画此模块 | 位置容易搞错 |
+| N6 | PEEK环(Φ86mm)略小于法兰(Φ90mm)，厚度仅5mm，是琥珀金色薄环而非大圆盘 | AI容易画成与法兰等大 |
+| N7 | 四个工位模块安装在悬臂末端(R=65mm)，不在法兰圆盘表面上 | AI容易把模块画在盘面上 |
+| N8 | 法兰圆盘是**水平的**（像桌面），不是竖直的轮子；Z轴垂直向上，法兰面∥XY平面 | AI默认竖直展示圆盘 |
+| N9 | AE弹簧限力机构的轴线始终⊥法兰面（沿-Z），NEVER与法兰面平行（NEVER水平） | V1渲染曾画反弹簧方向 |
+| N10 | 所有四个工位模块从法兰悬臂末端沿-Z方向垂直向下悬挂，不向侧面水平伸出 | AI容易把模块画成径向水平 |
 
-## 9. 缺失数据报告
+## 9. 装配约束
+
+### 9.1 装配排除
+
+| 零件/模块 | 原因 |
+| --- | --- |
+| 信号调理模块 (GIS-EE-006) | 信号调理模块(GIS-EE-006)不在法兰上，安装在机械臂J3-J4连杆上，距法兰250mm，渲染末端执行器时不画此模块 |
+
+### 9.2 约束声明（自动生成草稿）
+
+| 约束ID | 类型 | 零件A | 零件B | 参数 | 来源 | 置信度 |
+| --- | --- | --- | --- | --- | --- | --- |
+| C01 | contact | GIS-EE-001 | RM65-B（ISO 9409） | gap=0, bolt=M6×12 内六角 12.9级 | §3 紧固件 M6×12 内六角 12.9级 | high |
+| C02 | contact | GIS-EE-001-02 | GIS-EE-001-01 | gap=0, bolt=M3×10 内六角 A2-70不锈钢 | §3 紧固件 M3×10 内六角 A2-70不锈钢 | high |
+| C03 | contact | GIS-EE-002 | GIS-EE-001-01 | gap=0, bolt=M3×8 内六角 A2-70不锈钢 | §3 紧固件 M3×8 内六角 A2-70不锈钢 | high |
+| C04 | contact | GIS-EE-001-06 | GIS-EE-001 | gap=0, bolt=M3×6 内六角 A2-70不锈钢 | §3 紧固件 M3×6 内六角 A2-70不锈钢 | high |
+| C05 | contact | GIS-EE-006 | 臂连杆 | gap=0, bolt=M4×10 内六角 A2-70不锈钢 | §3 紧固件 M4×10 内六角 A2-70不锈钢 | high |
+| C06 | contact | GIS-EE-003-02 | 悬臂安装面 | gap=0, bolt=M3×6 内六角 A2-70不锈钢 | §3 紧固件 M3×6 内六角 A2-70不锈钢 | high |
+| C07 | stack_on | ECX 22L电机+GP22C减速器 | GIS-EE-001-08 |  | §6.2 LL1→LL2 | medium |
+| C08 | stack_on | GIS-EE-001-11 | ECX 22L电机+GP22C减速器 |  | §6.2 LL2→LL2 | medium |
+| C09 | stack_on | GIS-EE-001-01 | GIS-EE-001-11 |  | §6.2 LL2→LL3 | medium |
+| C10 | stack_on | GIS-EE-001-07 | GIS-EE-001-01 |  | §6.2 LL3→LL3 | medium |
+| C11 | stack_on | GIS-EE-001-03 | GIS-EE-001-07 |  | §6.2 LL3→LL4 | medium |
+| C12 | stack_on | GIS-EE-001-02 | GIS-EE-001-03 |  | §6.2 LL4→LL4 | medium |
+| C13 | stack_on | 全部 | GIS-EE-005 |  | §6.2 LL5d→L尺寸标注+螺栓孔位 | medium |
+| C14 | stack_on | GIS-EE-006 | 全部 |  | §6.2 L尺寸标注+螺栓孔位→L | medium |
+| C15 | exclude_stack | GIS-EE-001-09 |  | type=connector | §5 BOM category=connector | high |
+| C16 | exclude_stack | GIS-EE-001-10 |  | type=connector | §5 BOM category=connector | high |
+| C17 | exclude_stack | GIS-EE-001-11 |  | type=cable | §5 BOM category=cable | high |
+| C18 | exclude_stack | GIS-EE-002-05 |  | type=connector | §5 BOM category=connector | high |
+| C19 | exclude_stack | GIS-EE-003-08 |  | type=connector | §5 BOM category=connector | high |
+| C20 | exclude_stack | GIS-EE-003-09 |  | type=cable | §5 BOM category=cable | high |
+| C21 | exclude_stack | GIS-EE-004-13 |  | type=connector | §5 BOM category=connector | high |
+| C22 | exclude_stack | GIS-EE-005-03 |  | type=connector | §5 BOM category=connector | high |
+| C23 | exclude_stack | GIS-EE-006-04 |  | type=connector | §5 BOM category=connector | high |
+| C24 | exclude_stack | GIS-EE-006-05 |  | type=connector | §5 BOM category=connector | high |
+| C25 | horizontal | 储液罐 |  | axis=radial | §7 方向约束: 轴线∥XY平面（∥法兰面），沿径向外伸，⊥旋转轴Z | high |
+| C26 | horizontal | AE串联堆叠 |  | axis=radial | §7 方向约束: 轴线沿-Z(⊥法兰面)，从悬臂末端垂直向下悬挂，NEVER水平 | high |
+| C27 | coaxial | 弹簧限力机构 |  | axis=Z | §7: 轴线沿-Z(⊥法兰面)，与AE堆叠同轴，NEVER∥法兰面 | medium |
+
+## 10. 缺失数据报告
 
 | 编号 | 章节 | 缺失项 | 严重度 | 建议默认值 | 说明 |
 | --- | --- | --- | --- | --- | --- |

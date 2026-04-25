@@ -1,6 +1,6 @@
 {
   "critical": 0,
-  "warning": 7,
+  "warning": 11,
   "info": 1,
   "ok": 0,
   "auto_fill": 3,
@@ -21,6 +21,42 @@
       "detail": "缺少连接方式: UHF检测工位(270°) (GIS-EE-005)↔全部",
       "verdict": "WARNING",
       "suggestion": "补充连接类型（螺栓规格、配合方式等）",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B3",
+      "category": "assembly",
+      "check": "总成 GIS-EE-001 零件级定位不足",
+      "detail": "0/12 零件有定位 (0%)",
+      "verdict": "WARNING",
+      "suggestion": "在源文档中添加串联堆叠链（→语法）描述装配顺序",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B4",
+      "category": "assembly",
+      "check": "总成 GIS-EE-002 零件级定位不足",
+      "detail": "0/5 零件有定位 (0%)",
+      "verdict": "WARNING",
+      "suggestion": "在源文档中添加串联堆叠链（→语法）描述装配顺序",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B5",
+      "category": "assembly",
+      "check": "总成 GIS-EE-004 零件级定位不足",
+      "detail": "0/13 零件有定位 (0%)",
+      "verdict": "WARNING",
+      "suggestion": "在源文档中添加串联堆叠链（→语法）描述装配顺序",
+      "auto_fill": "否"
+    },
+    {
+      "id": "B6",
+      "category": "assembly",
+      "check": "总成 GIS-EE-005 零件级定位不足",
+      "detail": "0/3 零件有定位 (0%)",
+      "verdict": "WARNING",
+      "suggestion": "在源文档中添加串联堆叠链（→语法）描述装配顺序",
       "auto_fill": "否"
     },
     {

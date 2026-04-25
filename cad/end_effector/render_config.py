@@ -2,13 +2,19 @@
 Render Configuration Engine — stdlib-only helper for Blender Python.
 
 Provides:
-  - MATERIAL_PRESETS: 15 common engineering material PBR definitions
+  - MATERIAL_PRESETS: 18 common engineering material PBR definitions
   - load_config(path): load render_config.json with validation
   - validate_config(config): JSON Schema validation (optional, needs jsonschema)
   - resolve_material(entry): preset name → full PBR params (with overrides)
   - camera_to_blender(preset, bounding_r): Cartesian or spherical → Blender coords
   - lighting_scale(bounding_r): energy scaling for scene size
   - auto_bounding_radius(scene_objects): detect from GLB geometry
+
+Auto-frame formula (Spec 1 Phase 1 fix):
+  render_3d.py computes required_dist using min(fov_v, fov_h) — i.e. the
+  tighter-axis field of view governs framing distance. This replaces the
+  earlier vertical-FOV-only formula which under-framed wide/landscape
+  models on 1920x1080 renders. frame_fill default stays at 0.75.
 
 Constraints:
   - Core functions use ONLY stdlib imports (json, math, os) — runs inside Blender Python
@@ -24,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Material Presets — 15 common engineering materials (W6: embedded, not file)
+# Material Presets — 18 common engineering materials (W6: embedded, not file)
 # ═════════════════════════════════════════════════════════════════════════════
 
 MATERIAL_PRESETS = {
@@ -154,7 +160,7 @@ MATERIAL_PRESETS = {
         "roughness": 0.75,
         "sss": 0.05,
         "appearance": (
-            "black rubber/elastomer, matte deep black, very diffuse with almost "
+            "black rubber or elastomer, matte deep black, very diffuse with almost "
             "no specular highlight, Shore A ~70 hardness appearance"
         ),
     },
@@ -177,7 +183,72 @@ MATERIAL_PRESETS = {
             "sharp specular highlight from high IOR, visible refraction at edges"
         ),
     },
+    # ── v2.12 新增：塑料分类补足 ──
+    "abs_matte_gray": {
+        "color": (0.55, 0.55, 0.55, 1.0),
+        "metallic": 0.0,
+        "roughness": 0.60,
+        "appearance": (
+            "ABS engineering plastic, matte mid-gray, fine diffuse surface, "
+            "broad soft highlight without specular sparkle, typical 3D-print "
+            "or injection-molded housing finish"
+        ),
+    },
+    # ── v2.12 新增：橡胶·陶瓷分类补足 ──
+    "ceramic_white": {
+        "color": (0.95, 0.95, 0.93, 1.0),
+        "metallic": 0.0,
+        "roughness": 0.15,
+        "ior": 1.52,
+        "specular": 0.8,
+        "appearance": (
+            "glazed white ceramic, near-pure white with subtle warm undertone, "
+            "sharp mirror-like specular highlight, smooth glassy surface, "
+            "clean bright edge reflection from high IOR glaze"
+        ),
+    },
+    # ── v2.12 新增：PEEK·复合分类补足 ──
+    "carbon_fiber_weave": {
+        "color": (0.12, 0.12, 0.14, 1.0),
+        "metallic": 0.30,
+        "roughness": 0.40,
+        "anisotropic": 0.3,
+        "appearance": (
+            "carbon fiber composite, woven twill pattern in near-black with "
+            "subtle dark iridescence, directional anisotropic highlights along "
+            "weave axis, epoxy-resin matte gloss, typical aerospace or "
+            "high-end mechanical composite appearance"
+        ),
+    },
 }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Runtime override loader（Track A1 重构：从 env 指向的 JSON 加载 SW 回填结果）
+# ═════════════════════════════════════════════════════════════════════════════
+
+def load_runtime_materials_override():
+    """从 CAD_RUNTIME_MATERIAL_PRESETS_JSON env 指的路径加载 runtime preset 覆盖。
+
+    由 cad_pipeline._build_blender_env 在 SW 装了的场景下落盘；Blender 子进程
+    里 render_3d.py 启动时读本 helper 合并到 MATERIAL_PRESETS 副本。
+
+    Returns
+    -------
+    dict | None
+        成功 → dict（preset_name → params）；env 缺失 / 文件缺失 / JSON 无效 → None。
+    """
+    path = os.environ.get("CAD_RUNTIME_MATERIAL_PRESETS_JSON")
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
 
 
 # ═════════════════════════════════════════════════════════════════════════════
