@@ -7,7 +7,7 @@ cad-spec-gen 是 6 阶段 CAD 混合渲染管线（设计文档 → Spec → Cad
 
 - **仓库**：https://github.com/proecheng/cad-spec-gen
 - **Python**：>=3.10
-- **版本**：v2.17.0
+- **版本**：v2.18.0
 
 ## 可用 Skill（5 个）
 
@@ -44,4 +44,4 @@ Claude Code 用户可直接用 `/cad-spec`、`/cad-codegen` 等 slash command。
 - 改完跑 `python scripts/dev_sync.py` 同步；pre-commit 自动守护
 
 ---
-_本文件自动生成。最后更新来源：skill.json v2.17.0_
+_本文件自动生成。最后更新来源：skill.json v2.18.0_
