@@ -186,6 +186,12 @@ class SwToolboxAdapter(PartsAdapter):
             getattr(query, "name_cn", ""),
             size_patterns,
         )
+        if size_dict is None and part_category == "bearing":
+            # bearing 型号常见于 material 字段（如 MR105ZZ），name_cn 失败时二次查询
+            size_dict = sw_toolbox_catalog.extract_size_from_name(
+                getattr(query, "material", "") or "",
+                size_patterns,
+            )
         if size_dict is None:
             return self._miss("size extraction failed or out of scope")
 
@@ -317,6 +323,11 @@ class SwToolboxAdapter(PartsAdapter):
             getattr(query, "name_cn", ""),
             size_patterns,
         )
+        if size_dict is None and part_category == "bearing":
+            size_dict = sw_toolbox_catalog.extract_size_from_name(
+                getattr(query, "material", "") or "",
+                size_patterns,
+            )
         if size_dict is None:
             return None
 
@@ -396,13 +407,19 @@ class SwToolboxAdapter(PartsAdapter):
             return None
         toolbox_dir = Path(info.toolbox_dir)
 
+        _probe_part_category = spec.get("part_category", "fastener")
         size_patterns = self.config.get("size_patterns", {}).get(
-            spec.get("part_category", "fastener"), {}
+            _probe_part_category, {}
         )
         size_dict = sw_toolbox_catalog.extract_size_from_name(
             getattr(query, "name_cn", ""),
             size_patterns,
         )
+        if size_dict is None and _probe_part_category == "bearing":
+            size_dict = sw_toolbox_catalog.extract_size_from_name(
+                getattr(query, "material", "") or "",
+                size_patterns,
+            )
         if size_dict is None:
             return None
 

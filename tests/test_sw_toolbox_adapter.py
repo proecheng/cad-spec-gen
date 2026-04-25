@@ -787,3 +787,142 @@ class TestResolveConfigAware:
         # 无 resolver_cfg → target_config=None → 无后缀
         assert "GB_T70.1" not in step_out_used
         assert config_used is None
+
+
+class TestBearingMaterialFallback:
+    """bearing 品类：name_cn 无法提取型号时，应 fallback 到 material 字段。"""
+
+    def _make_adapter_with_mock_index(self, monkeypatch, tmp_path, fake_part):
+        """共用 monkeypatch 设置：mock detect/index/cache，让 resolve 走到 token 匹配阶段。"""
+        from adapters.solidworks import sw_toolbox_catalog, sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_index_path",
+            lambda cfg: tmp_path / "idx.json",
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "load_toolbox_index",
+            lambda *a, **kw: {},
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "build_query_tokens_weighted",
+            lambda *a, **kw: [("miniature", 1.0), ("bearing", 1.0)],
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "match_toolbox_part",
+            lambda *a, **kw: (fake_part, 0.5),
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_cache_root",
+            lambda cfg: tmp_path / "cache",
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "_validate_sldprt_path",
+            lambda *a, **kw: True,
+        )
+
+    def test_bearing_material_fallback_allows_resolve(self, monkeypatch, tmp_path):
+        """name_cn '微型轴承' 无法提取 bearing model 时，adapter 应 fallback 查 material，
+        从 'MR105ZZ（Φ10×Φ5×4mm）' 提取 model_mr='MR105ZZ'，不提前 miss。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
+        from parts_resolver import PartQuery
+
+        fake_part = SwToolboxPart(
+            standard="GB",
+            subcategory="bearing",
+            sldprt_path=str(tmp_path / "mini.sldprt"),
+            filename="miniature radial ball bearings gb.sldprt",
+            tokens=["miniature", "radial", "ball", "bearings", "gb", "bearing"],
+        )
+
+        # 预建 STEP 缓存文件（触发 cache hit 路径）
+        step_dir = tmp_path / "cache" / "GB" / "bearing"
+        step_dir.mkdir(parents=True)
+        step_file = step_dir / "miniature radial ball bearings gb.step"
+        step_file.touch()
+
+        self._make_adapter_with_mock_index(monkeypatch, tmp_path, fake_part)
+
+        config = {
+            "size_patterns": {
+                "bearing": {
+                    "model": r"\b(\d{4,5})\b",
+                    "model_mr": r"\b(MR\d{2,3}[A-Za-z0-9]*)\b",
+                }
+            },
+            "min_score": 0.30,
+        }
+        adapter = SwToolboxAdapter(config=config)
+
+        query = PartQuery(
+            part_no="GIS-EE-004-11",
+            name_cn="微型轴承",
+            material="MR105ZZ（Φ10×Φ5×4mm）",
+            category="bearing",
+            make_buy="外购",
+        )
+        spec = {
+            "standard": ["GB", "ISO", "DIN"],
+            "subcategories": ["bearing", "bearings"],
+            "part_category": "bearing",
+        }
+
+        result = adapter.resolve(query, spec)
+
+        assert result.status == "hit", f"期望 hit，实际 miss 原因：{result.warnings}"
+        assert result.adapter == "sw_toolbox"
+
+    def test_bearing_fastener_not_affected_by_material_fallback(self, monkeypatch, tmp_path):
+        """fastener 品类不触发 material fallback；name_cn 提取失败应直接 miss。"""
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from adapters.solidworks import sw_toolbox_catalog, sw_detect
+        from parts_resolver import PartQuery
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, toolbox_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "get_toolbox_index_path",
+            lambda cfg: tmp_path / "idx.json",
+        )
+        monkeypatch.setattr(
+            sw_toolbox_catalog, "load_toolbox_index",
+            lambda *a, **kw: {},
+        )
+
+        config = {
+            "size_patterns": {
+                "fastener": {
+                    "size": r"[Mm](\d+(?:\.\d+)?)",
+                    "exclude_patterns": [r"UN[CFEF]", r"\bTr\d", r"\bG\d/", r"\bNPT"],
+                }
+            },
+            "min_score": 0.30,
+        }
+        adapter = SwToolboxAdapter(config=config)
+
+        # name_cn 无 M-size，material 有（但不应被查）
+        query = PartQuery(
+            part_no="X-001",
+            name_cn="非标螺钉",
+            material="M6×20 不锈钢",
+            category="fastener",
+            make_buy="外购",
+        )
+        spec = {
+            "standard": ["GB"],
+            "subcategories": ["screws"],
+            "part_category": "fastener",
+        }
+
+        result = adapter.resolve(query, spec)
+        assert result.status == "miss"
+        assert "size extraction failed" in (result.warnings or [""])[0]
