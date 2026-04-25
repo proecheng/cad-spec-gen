@@ -264,3 +264,79 @@ def assert_features(out_root: Path, textures_dir: str) -> dict:
             }
 
     return results
+
+
+VIEW_NAMES_FOR_REPORT = [
+    "V1_front_iso",
+    "V2_rear_oblique",
+    "V3_side_elevation",
+    "V4_exploded",
+    "V5_ortho_front",
+]
+
+
+def write_report(
+    feature_results: dict,
+    out_root: Path,
+    render_ok_baseline: bool,
+    render_ok_enhanced: bool,
+) -> Path:
+    """生成 artifacts/regression/report.md。
+
+    Returns:
+        report.md 的 Path。
+    """
+    def mark(result: dict) -> str:
+        if result["ok"] is None:
+            return f"N/A — {result['detail']}"
+        return f"{'✅' if result['ok'] else '❌'} {result['detail']}"
+
+    lines = [
+        "# 渲染回归报告",
+        "",
+        "## 渲染状态",
+        "",
+        "| 模式 | 状态 |",
+        "|------|------|",
+        f"| baseline | {'✅ 成功' if render_ok_baseline else '❌ RENDER_FAILED'} |",
+        f"| enhanced | {'✅ 成功' if render_ok_enhanced else '❌ RENDER_FAILED'} |",
+        "",
+        "## Feature 断言",
+        "",
+        "| 断言 | 结果 |",
+        "|------|------|",
+        f"| F1 base_color_texture 字段存在 | {mark(feature_results['F1'])} |",
+        f"| F2 SW_TEXTURES_DIR 目录存在且非空 | {mark(feature_results['F2'])} |",
+        f"| F3 sw_toolbox 命中数 ≥ 1（项目级） | {mark(feature_results['F3'])} |",
+        f"| F4 enhanced PNG 大小 > baseline 5% | {mark(feature_results['F4'])} |",
+        f"| F5 所有 PNG 非全黑 | {mark(feature_results['F5'])} |",
+        "",
+        "## 图片索引",
+        "",
+        "| 视图 | baseline | enhanced |",
+        "|------|----------|----------|",
+    ]
+
+    for view in VIEW_NAMES_FOR_REPORT:
+        b = f"baseline/end_effector/{view}.png"
+        e = f"enhanced/end_effector/{view}.png"
+        lines.append(f"| {view} | {b} | {e} |")
+
+    lines += [
+        "",
+        "## 肉眼观察（人工填写）",
+        "",
+    ]
+    for view in VIEW_NAMES_FOR_REPORT:
+        lines += [
+            f"### {view}",
+            "- baseline: ___",
+            "- enhanced: ___",
+            "- 改善描述: ___",
+            "",
+        ]
+
+    report_path = out_root / "report.md"
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"\n[report] 报告已写入: {report_path}")
+    return report_path
