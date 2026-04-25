@@ -1,0 +1,286 @@
+{
+  "brushed_aluminum": {
+    "color": [
+      0.82,
+      0.82,
+      0.84,
+      1.0
+    ],
+    "metallic": 1.0,
+    "roughness": 0.18,
+    "anisotropic": 0.6,
+    "appearance": "brushed 6061 aluminum, cool silver-gray with fine parallel grain marks, bright anisotropic streaks perpendicular to brush direction, strong white edge reflection at grazing angles",
+    "base_color_texture": "metal/brushed/brush.jpg",
+    "normal_texture": "metal/wire_bump.jpg",
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "anodized_blue": {
+    "color": [
+      0.35,
+      0.55,
+      0.75,
+      1.0
+    ],
+    "metallic": 0.85,
+    "roughness": 0.22,
+    "appearance": "blue anodized aluminum, saturated medium-blue with subtle metallic sheen, soft diffuse highlights, faint silver edge sheen at grazing angles",
+    "base_color_texture": "painted/powdercoat_light.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "anodized_green": {
+    "color": [
+      0.15,
+      0.5,
+      0.25,
+      1.0
+    ],
+    "metallic": 0.85,
+    "roughness": 0.22,
+    "appearance": "green anodized aluminum, deep forest-green with metallic undertone, soft diffuse highlights, faint silver edge sheen at grazing angles",
+    "base_color_texture": "painted/powdercoat_light.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "anodized_purple": {
+    "color": [
+      0.5,
+      0.18,
+      0.65,
+      1.0
+    ],
+    "metallic": 0.85,
+    "roughness": 0.22,
+    "appearance": "purple anodized aluminum, rich violet with metallic luster, soft diffuse highlights, faint silver edge sheen at grazing angles",
+    "base_color_texture": "painted/powdercoat_light.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "anodized_red": {
+    "color": [
+      0.75,
+      0.15,
+      0.15,
+      1.0
+    ],
+    "metallic": 0.85,
+    "roughness": 0.22,
+    "appearance": "red anodized aluminum, deep crimson with metallic sheen, soft diffuse highlights, faint silver edge sheen at grazing angles",
+    "base_color_texture": "painted/powdercoat_light.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "black_anodized": {
+    "color": [
+      0.05,
+      0.05,
+      0.05,
+      1.0
+    ],
+    "metallic": 0.85,
+    "roughness": 0.3,
+    "appearance": "hard anodized aluminum, matte dark charcoal with micro-porous surface, soft elongated highlights at ~30deg grazing angle, faint silver-grey edge sheen at extreme grazing angles",
+    "base_color_texture": "painted/powdercoat_dark.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "bronze": {
+    "color": [
+      0.7,
+      0.42,
+      0.2,
+      1.0
+    ],
+    "metallic": 0.9,
+    "roughness": 0.25,
+    "appearance": "cast bronze, warm reddish-brown with subtle patina, medium-sharp specular highlights, warm golden edge reflection",
+    "base_color_texture": "metal/cast/cast_iron.jpg",
+    "normal_texture": "metal/cast/cast_bump.jpg",
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "copper": {
+    "color": [
+      0.85,
+      0.45,
+      0.18,
+      1.0
+    ],
+    "metallic": 1.0,
+    "roughness": 0.15,
+    "appearance": "polished copper, warm reddish-orange with high reflectivity, sharp bright specular highlights, strong warm edge reflection",
+    "base_color_texture": "metal/polished/chrome1.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "gunmetal": {
+    "color": [
+      0.18,
+      0.18,
+      0.2,
+      1.0
+    ],
+    "metallic": 0.9,
+    "roughness": 0.25,
+    "appearance": "gunmetal finish, very dark blue-grey metallic, medium-sharp specular highlights, cool silver edge reflection",
+    "base_color_texture": "metal/rough/rmetal3.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "dark_steel": {
+    "color": [
+      0.15,
+      0.15,
+      0.17,
+      1.0
+    ],
+    "metallic": 0.9,
+    "roughness": 0.28,
+    "appearance": "dark carbon steel, near-black with slight blue-grey tint, soft diffuse highlights, subtle cool edge sheen",
+    "base_color_texture": "metal/steelplaincarbon_diffusemap.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "stainless_304": {
+    "color": [
+      0.75,
+      0.75,
+      0.77,
+      1.0
+    ],
+    "metallic": 1.0,
+    "roughness": 0.15,
+    "appearance": "stainless steel 304, bright silver with brushed satin finish, sharp elongated highlights along grain, strong white edge reflection",
+    "base_color_texture": "metal/polished/polishedsteel_diffusemap.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "peek_amber": {
+    "color": [
+      0.9,
+      0.6,
+      0.05,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.3,
+    "sss": 0.08,
+    "sss_color": [
+      0.95,
+      0.7,
+      0.1
+    ],
+    "ior": 1.65,
+    "specular": 0.7,
+    "appearance": "PEEK engineering plastic, warm honey-amber semi-translucent, subsurface scattering glow in thin sections, smooth polished surface, moderate specular highlight from high IOR",
+    "base_color_texture": "plastic/bumpy/plasticmt11030_bump.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "black_rubber": {
+    "color": [
+      0.03,
+      0.03,
+      0.03,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.75,
+    "sss": 0.05,
+    "appearance": "black rubber or elastomer, matte deep black, very diffuse with almost no specular highlight, Shore A ~70 hardness appearance",
+    "base_color_texture": "rubber/texture/tire tread.jpg",
+    "normal_texture": "rubber/texture/tire tread bump.jpg",
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "white_nylon": {
+    "color": [
+      0.92,
+      0.92,
+      0.9,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.45,
+    "appearance": "injection-molded white nylon PA66, slightly warm off-white, satin-matte surface, broad soft highlight, no edge reflection",
+    "base_color_texture": "plastic/smooth/sgray.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "polycarbonate_clear": {
+    "color": [
+      0.95,
+      0.95,
+      0.97,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.05,
+    "ior": 1.58,
+    "appearance": "transparent polycarbonate, near-clear with faint blue-white tint, sharp specular highlight from high IOR, visible refraction at edges",
+    "base_color_texture": "plastic/polished/pplastic.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "abs_matte_gray": {
+    "color": [
+      0.55,
+      0.55,
+      0.55,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.6,
+    "appearance": "ABS engineering plastic, matte mid-gray, fine diffuse surface, broad soft highlight without specular sparkle, typical 3D-print or injection-molded housing finish",
+    "base_color_texture": "plastic/smooth/sgray.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "ceramic_white": {
+    "color": [
+      0.95,
+      0.95,
+      0.93,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.15,
+    "ior": 1.52,
+    "specular": 0.8,
+    "appearance": "glazed white ceramic, near-pure white with subtle warm undertone, sharp mirror-like specular highlight, smooth glassy surface, clean bright edge reflection from high IOR glaze",
+    "base_color_texture": "plastic/polished/pplastic.jpg",
+    "normal_texture": null,
+    "roughness_texture": null,
+    "metallic_texture": null
+  },
+  "carbon_fiber_weave": {
+    "color": [
+      0.12,
+      0.12,
+      0.14,
+      1.0
+    ],
+    "metallic": 0.3,
+    "roughness": 0.4,
+    "anisotropic": 0.3,
+    "appearance": "carbon fiber composite, woven twill pattern in near-black with subtle dark iridescence, directional anisotropic highlights along weave axis, epoxy-resin matte gloss, typical aerospace or high-end mechanical composite appearance",
+    "base_color_texture": "fibers/glassfibre_bump.jpg",
+    "normal_texture": "fibers/glassfibre_bump.jpg",
+    "roughness_texture": null,
+    "metallic_texture": null
+  }
+}
