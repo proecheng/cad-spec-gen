@@ -266,15 +266,6 @@ def assert_features(out_root: Path, textures_dir: str) -> dict:
     return results
 
 
-VIEW_NAMES_FOR_REPORT = [
-    "V1_front_iso",
-    "V2_rear_oblique",
-    "V3_side_elevation",
-    "V4_exploded",
-    "V5_ortho_front",
-]
-
-
 def write_report(
     feature_results: dict,
     out_root: Path,
@@ -317,7 +308,7 @@ def write_report(
         "|------|----------|----------|",
     ]
 
-    for view in VIEW_NAMES_FOR_REPORT:
+    for view in VIEW_NAMES:
         b = f"baseline/end_effector/{view}.png"
         e = f"enhanced/end_effector/{view}.png"
         lines.append(f"| {view} | {b} | {e} |")
@@ -327,7 +318,7 @@ def write_report(
         "## 肉眼观察（人工填写）",
         "",
     ]
-    for view in VIEW_NAMES_FOR_REPORT:
+    for view in VIEW_NAMES:
         lines += [
             f"### {view}",
             "- baseline: ___",
@@ -347,13 +338,14 @@ def _preflight_check(dry_run: bool) -> None:
     blender = _find_blender()
     print(f"[preflight] Blender: {blender}")
 
-    if not dry_run and not _GLB_PATH.exists():
-        raise FileNotFoundError(
-            f"GLB 不存在: {_GLB_PATH}\n"
-            "请先运行: python cad/end_effector/build_all.py"
-        )
-    if dry_run and not _GLB_PATH.exists():
-        print(f"[preflight] ⚠️  GLB 不存在（dry-run 模式不中断）: {_GLB_PATH}")
+    if not _GLB_PATH.exists():
+        if dry_run:
+            print(f"[preflight] ⚠️  GLB 不存在（dry-run 模式不中断）: {_GLB_PATH}")
+        else:
+            raise FileNotFoundError(
+                f"GLB 不存在: {_GLB_PATH}\n"
+                "请先运行: python cad/end_effector/build_all.py"
+            )
     else:
         print(f"[preflight] GLB: {_GLB_PATH}")
 
