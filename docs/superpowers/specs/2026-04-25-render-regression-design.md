@@ -25,10 +25,12 @@ python tools/render_regression.py                        # 全量，两个子系
 python tools/render_regression.py --subsystem end_effector  # 单子系统
 ```
 
+**渲染范围：** 仅 `end_effector`（`detection` 子系统无 `render_3d.py` / GLB 输入，不纳入本次回归）
+
 **前置条件：**
-- `D:\Blender\blender.exe` 已确认存在（版本 4.2.16 LTS）
-- `cad/output/` 下已有 STEP 文件（由此前 `build_all.py` 生成）
-- SolidWorks 已装机（用于 Track A 纹理路径自动检测）；未装机时 enhanced = baseline，报告中标注
+- Blender 可执行文件：优先 PATH 中的 `blender`，fallback 到 `D:\Blender\blender.exe`（版本 4.2.16 LTS 已确认）
+- `cad/output/EE-000_assembly.glb` 已存在（由 `python cad/end_effector/build_all.py` 生成）
+- SolidWorks 已装机（用于 Track A 纹理路径自动检测）；未装机时 enhanced 渲染仍运行但等同 baseline，报告中标注
 
 ---
 
@@ -47,21 +49,27 @@ python tools/render_regression.py --subsystem end_effector  # 单子系统
 ```python
 # tools/render_regression.py
 
-BLENDER_EXE = r"D:\Blender\blender.exe"
-SUBSYSTEMS = ["end_effector", "detection"]
+def _find_blender() -> str:
+    """优先 PATH 中的 blender，fallback D:\Blender\blender.exe；找不到抛 FileNotFoundError。"""
+
+SUBSYSTEMS = ["end_effector"]   # detection 无 render_3d.py，暂不支持
 
 def run_render(subsystem: str, mode: str, output_dir: Path, env: dict) -> None:
-    """调用 Blender -b -P render_3d.py，将 V1-V5 PNG 输出到 output_dir。"""
+    """调用 Blender -b -P render_3d.py -- --all --output-dir <output_dir>
+    附带 env 覆写（含/不含 CAD_RUNTIME_MATERIAL_PRESETS_JSON），V1-V5 PNG 输出到 output_dir。"""
 
-def build_baseline(subsystem: str, out_root: Path) -> None:
-    """env: SW_TEXTURES_DIR="" → 平坦材质基线。"""
+def build_baseline(out_root: Path) -> None:
+    """env 中不设 CAD_RUNTIME_MATERIAL_PRESETS_JSON，SW_TEXTURES_DIR="" → 平坦材质基线。"""
 
-def build_enhanced(subsystem: str, out_root: Path) -> None:
-    """先调 backfill_presets_for_sw() 生成 runtime_materials.json，
-    再 env: SW_TEXTURES_DIR=<真实路径> → PBR 纹理增强版。"""
+def build_enhanced(out_root: Path) -> None:
+    """1. sw_info = detect_solidworks()
+    2. runtime_presets = backfill_presets_for_sw(MATERIAL_PRESETS, sw_info)
+    3. 写 out_root/enhanced/runtime_materials.json
+    4. env: CAD_RUNTIME_MATERIAL_PRESETS_JSON=<该路径>，SW_TEXTURES_DIR=sw_info.textures_dir
+    → PBR 纹理增强版渲染。"""
 
-def assert_features(out_root: Path) -> dict[str, dict]:
-    """运行 5 项 feature 断言，返回每个子系统的断言结果。"""
+def assert_features(out_root: Path) -> dict:
+    """运行 5 项 feature 断言，返回断言结果 dict。"""
 
 def write_report(results: dict, out_root: Path) -> None:
     """写 report.md：断言结果表 + 肉眼评语模板。"""
@@ -79,7 +87,7 @@ def write_report(results: dict, out_root: Path) -> None:
 |---|------|----------|-----------|
 | F1 | enhanced `runtime_materials.json` 中至少 1 个 preset 含 `texture_albedo` 字段 | JSON 字段存在性 | Track A |
 | F2 | `SW_TEXTURES_DIR` 指向的目录实际存在且非空 | `os.path.isdir` + `os.listdir` | Track A |
-| F3 | 最近 `artifacts/*/resolve_report.json` 中 `sw_toolbox` adapter 命中数 ≥ 1 | JSON `adapters.sw_toolbox` 字段解析 | Track B |
+| F3 | 最近 `artifacts/*/resolve_report.json` 中 `sw_toolbox` adapter 命中数 ≥ 1（项目级，非子系统独立） | JSON `adapter_hits["sw_toolbox"]["count"]` 字段解析 | Track B |
 | F4 | enhanced V1 PNG 文件大小比 baseline V1 大 5% 以上（PBR 贴图高频细节增大压缩体积） | `os.path.getsize` 比率 | Track A |
 | F5 | baseline 和 enhanced 两组 PNG 均非全黑（最大像素值 > 10） | `PIL.Image` max pixel | 通用 |
 
@@ -92,18 +100,15 @@ def write_report(results: dict, out_root: Path) -> None:
 ```
 artifacts/regression/
 ├── baseline/
-│   ├── end_effector/
-│   │   ├── V1_front_iso.png
-│   │   ├── V2_rear_oblique.png
-│   │   ├── V3_side_elevation.png
-│   │   ├── V4_exploded.png
-│   │   └── V5_ortho_front.png
-│   └── detection/
-│       └── （同上 5 视图）
+│   └── end_effector/
+│       ├── V1_front_iso.png
+│       ├── V2_rear_oblique.png
+│       ├── V3_side_elevation.png
+│       ├── V4_exploded.png
+│       └── V5_ortho_front.png
 ├── enhanced/
-│   ├── end_effector/    （同上）
-│   ├── detection/       （同上）
-│   └── runtime_materials.json   （SW 纹理回填后的 preset 快照）
+│   ├── end_effector/    （同上 5 视图）
+│   └── runtime_materials.json   （backfill_presets_for_sw 输出快照，用于 F1 断言）
 └── report.md
 ```
 
@@ -116,27 +121,28 @@ artifacts/regression/
 |------|-------------|-----------|
 | F1 texture_albedo 字段存在 | ✅ | ✅ |
 | F2 SW_TEXTURES_DIR 目录存在 | ✅ | ✅ |
-| F3 sw_toolbox 命中数 ≥ 1   | ✅ 12 | ✅ 8 |
-| F4 PNG 文件大小差 > 5%      | ✅ +23% | ❌ +2% |
-| F5 PNG 非全黑               | ✅ | ✅ |
+| F3 sw_toolbox 命中数 ≥ 1（项目级）| ✅ 12 |
+| F4 PNG 文件大小差 > 5%      | ✅ +23% |
+| F5 PNG 非全黑               | ✅ |
 
 ## 图片索引
 
 | 视图 | baseline | enhanced |
 |------|----------|----------|
-| end_effector V1 | baseline/end_effector/V1_front_iso.png | enhanced/end_effector/V1_front_iso.png |
-| end_effector V2 | baseline/end_effector/V2_rear_oblique.png | enhanced/end_effector/V2_rear_oblique.png |
-| detection V1    | baseline/detection/V1_front_iso.png    | enhanced/detection/V1_front_iso.png    |
-| ...             | ...      | ...      |
+| V1_front_iso     | baseline/end_effector/V1_front_iso.png     | enhanced/end_effector/V1_front_iso.png     |
+| V2_rear_oblique  | baseline/end_effector/V2_rear_oblique.png  | enhanced/end_effector/V2_rear_oblique.png  |
+| V3_side_elevation| baseline/end_effector/V3_side_elevation.png| enhanced/end_effector/V3_side_elevation.png|
+| V4_exploded      | baseline/end_effector/V4_exploded.png      | enhanced/end_effector/V4_exploded.png      |
+| V5_ortho_front   | baseline/end_effector/V5_ortho_front.png   | enhanced/end_effector/V5_ortho_front.png   |
 
 ## 肉眼观察（人工填写）
 
-### end_effector V2（后斜视图）
+### V1_front_iso（正面等角）
 - baseline: ___
 - enhanced: ___
 - 改善描述: ___
 
-### detection V2（正等轴测）
+### V2_rear_oblique（后斜视图）
 - baseline: ___
 - enhanced: ___
 - 改善描述: ___
@@ -152,7 +158,7 @@ artifacts/regression/
 | Blender 渲染失败（返回非零退出码） | 记录错误，跳过该子系统的后续断言，report.md 中标注 `RENDER_FAILED` |
 | `resolve_report.json` 不存在 | F3 断言标记 `N/A`，提示用户先运行 `sw-inspect --resolve-report` |
 | PIL 未安装 | F5 退化为仅检查文件存在性，report.md 中注明 |
-| GLB 文件不存在 | `render_3d.py` 的输入是 `cad/output/EE-000_assembly.glb`（由 `build_all.py` 的 GLB 导出步骤生成），脚本在渲染前检查，缺失则提示"先运行 build_all.py --export-glb"并退出 |
+| GLB 文件不存在 | `render_3d.py` 的输入是 `cad/output/EE-000_assembly.glb`（由 `python cad/end_effector/build_all.py` 生成），脚本在渲染前检查，缺失则提示"先运行 build_all.py"并退出 |
 
 ---
 
