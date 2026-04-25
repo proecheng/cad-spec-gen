@@ -195,6 +195,9 @@ STD_PART_DIMENSIONS = {
     "_connector":   {"d": 10, "l": 25},
     "_seal":        {"od": 80, "id": 75, "section_d": 2.4},
     "_tank":        {"d": 38, "l": 280},
+    "_locating":     {"d": 3,  "l": 10},
+    "_elastic":      {"d": 20, "l": 30},
+    "_transmission": {"od": 30, "w": 8, "id": 6},
 }
 
 MATERIAL_PROPS = {
