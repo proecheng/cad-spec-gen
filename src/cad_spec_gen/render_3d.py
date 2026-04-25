@@ -287,6 +287,33 @@ if _rcfg_rt is not None:
                 _merged[_name] = dict(_params)
         log.info("runtime preset override loaded: %d entries", len(_runtime_override))
         _MATERIAL_PRESETS_RUNTIME = _merged
+
+        # —— A1 修复：render_config.json 走 _CONFIG_MATERIALS，需把 runtime 纹理
+        # 字段同步 patch 进去，否则 assign_materials() 优先用 _CONFIG_MATERIALS
+        # 而看不到任何 base_color_texture。
+        # 步骤：读取原始 config 中每个 pattern → preset 名的映射，
+        # 再把 runtime override 里对应 preset 的纹理字段合并进展开后的条目。
+        _TEXTURE_FIELDS = (
+            "base_color_texture", "normal_texture",
+            "roughness_texture", "metallic_texture",
+        )
+        if _CONFIG_MATERIALS and _CONFIG:
+            _raw_mats = _CONFIG.get("materials", {})
+            for _pat, _raw_entry in _raw_mats.items():
+                _preset_name = _raw_entry.get("preset") if isinstance(_raw_entry, dict) else None
+                if _preset_name and _preset_name in _runtime_override:
+                    _tex_params = _runtime_override[_preset_name]
+                    if _pat in _CONFIG_MATERIALS:
+                        _CONFIG_MATERIALS[_pat] = dict(_CONFIG_MATERIALS[_pat])
+                        for _tf in _TEXTURE_FIELDS:
+                            if _tf in _tex_params and _tex_params[_tf] is not None:
+                                _CONFIG_MATERIALS[_pat][_tf] = _tex_params[_tf]
+            _patched = sum(
+                1 for _p in _CONFIG_MATERIALS.values() if any(
+                    _p.get(_tf) for _tf in _TEXTURE_FIELDS
+                )
+            )
+            log.info("runtime texture patch applied: %d pattern(s) now have textures", _patched)
     else:
         _MATERIAL_PRESETS_RUNTIME = MATERIAL_MAP
 else:
