@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -42,8 +43,8 @@ class NeedsUserDecision(Exception):
     broker 自身不写 pending（rev 2 修订）—— 异常携带 record，避免进程崩溃时部分写入。
     """
 
-    def __init__(self, part_no: str, subsystem: str, pending_record: dict):
+    def __init__(self, part_no: str, subsystem: str, pending_record: dict[str, Any]):
+        super().__init__(f"User decision needed for {subsystem}/{part_no}")
         self.part_no = part_no
         self.subsystem = subsystem
         self.pending_record = pending_record
-        super().__init__(f"User decision needed for {subsystem}/{part_no}")
