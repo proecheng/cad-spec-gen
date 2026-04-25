@@ -217,7 +217,10 @@ class TestResolveReportSkip:
         assert statuses == ["skip", "skip"]
 
     def test_attempted_adapters_has_skip_trace(self):
-        resolver = _make_resolver()
+        from parts_resolver import default_resolver
+        resolver = default_resolver(project_root=".")
         report = resolver.resolve_report(self._make_cable_rows())
         for row in report.rows:
-            assert any("skip" in t for t in row.attempted_adapters)
+            # rules loop 中 jinja_primitive 返回 skip，只应有单条 skip 记录
+            assert row.attempted_adapters == ["jinja_primitive(skip)"], \
+                f"期望 ['jinja_primitive(skip)']，实际 {row.attempted_adapters}"

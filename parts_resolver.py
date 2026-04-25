@@ -257,6 +257,10 @@ class PartsResolver:
                 if _trace is not None:
                     _trace.append(f"{adapter_name}(hit)")
                 return result
+            if result.status == "skip":
+                if _trace is not None:
+                    _trace.append(f"{adapter_name}(skip)")
+                return result
             if _trace is not None:
                 _trace.append(f"{adapter_name}(miss)")
 
