@@ -52,7 +52,8 @@ size_dict = sw_toolbox_catalog.extract_size_from_name(
     getattr(query, "name_cn", ""),
     size_patterns,
 )
-if size_dict is None and getattr(query, "material", ""):
+if size_dict is None and part_category == "bearing" and getattr(query, "material", ""):
+    # bearing 类型：型号常写在 material 字段（如 MR105ZZ），fallback 查询一次
     size_dict = sw_toolbox_catalog.extract_size_from_name(
         query.material,
         size_patterns,
@@ -61,7 +62,7 @@ if size_dict is None:
     return self._miss("size extraction failed or out of scope")
 ```
 
-语义：name_cn 提取失败时，尝试 material 字段作为第二来源；两者均失败才 miss。
+语义：仅 bearing 品类触发 material fallback，避免 fastener 等品类误用材质描述中的数字。
 `find_sldprt()` 和 `probe_dims()` 中 `return self._miss(...)` 替换为 `return None`（原语义）。
 
 ### 改动 2：`parts_library.default.yaml`
@@ -113,6 +114,11 @@ bearing:
 结论：唯一过阈值的候选为 miniature bearing，命中 STEP 缓存 → **sw_toolbox hit**。
 
 ---
+
+## 已知局限（登记为技术债）
+
+- bearing `\b(\d{4,5})\b` 不匹配 3 位轴承号（608ZZ、693ZZ 等），此类需另行添加模式，不在本次 scope 内。
+- material fallback 仅在 sw_toolbox adapter 实现，bd_warehouse / step_pool 不受益。
 
 ## 不影响的场景
 
