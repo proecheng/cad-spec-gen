@@ -127,3 +127,16 @@ class TestMatchConfigByRule:
             available=[],
         )
         assert result is None
+
+    def test_l1_no_false_positive_from_standard_number(self):
+        """防御性回归：BOM 'GB/T 70.1 M8×20' 不应让 available '70.1' 误匹配
+        （'70.1' 是标准编号，不是尺寸 token）"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="内六角螺栓|GB/T 70.1 M8×20",
+            available=["70.1", "M8x20"],
+        )
+        # 应命中 M8x20，不命中 70.1
+        assert result is not None
+        assert result[0] == "M8x20"

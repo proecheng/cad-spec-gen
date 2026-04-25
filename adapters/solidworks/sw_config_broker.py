@@ -53,8 +53,13 @@ class NeedsUserDecision(Exception):
 
 AUTO_MATCH_THRESHOLD = 0.7
 
-# 尺寸 token 正则：数字（含小数）+ 任意分隔符 + 数字 / 单 M\d+
-_SIZE_TOKEN_RE = re.compile(r"[ΦΦϕφ]?\s*[Mm]?\d+(?:\.\d+)?(?:\s*[×xX×*]\s*\d+(?:\.\d+)?)?")
+# 尺寸 token 正则：要求 M\d+ 前缀，或含乘号的 \d+×\d+ 形式；排除孤立小数（如标准编号 70.1）
+# 分支1：[Φϕφ]? M\d+...（螺栓类，可带乘号后缀）
+# 分支2：[Φϕφ]? \d+×\d+...（密封件类，必须含乘号，不接受孤立小数）
+_SIZE_TOKEN_RE = re.compile(
+    r"[Φϕφ]?\s*(?:[Mm]\d+(?:\.\d+)?(?:\s*[×xX*]\s*\d+(?:\.\d+)?)?)"
+    r"|[Φϕφ]?\s*\d+(?:\.\d+)?\s*[×xX*]\s*\d+(?:\.\d+)?"
+)
 
 
 def _normalize_for_match(s: str) -> str:
