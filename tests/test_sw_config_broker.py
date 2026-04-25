@@ -74,3 +74,56 @@ class TestBuildBomDimSignature:
 
         bom = {"part_no": "X", "name_cn": None, "material": None}
         assert _build_bom_dim_signature(bom) == "|"
+
+
+class TestMatchConfigByRule:
+    """spec §4.4 #2: L1 精确归一化 confidence=1.0"""
+
+    def test_l1_exact_unicode_x(self):
+        """BOM 'Φ80×2.4' + available '80×2.4' → 完全匹配 confidence=1.0"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="O型圈|FKM Φ80×2.4",
+            available=["28×1.9", "80×2.4", "100×3.0"],
+        )
+        assert result == ("80×2.4", 1.0)
+
+    def test_l1_exact_ascii_x(self):
+        """BOM 'Φ80×2.4' + available '80x2.4' → 归一化后匹配 confidence=1.0"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="O型圈|FKM Φ80×2.4",
+            available=["28×1.9", "80x2.4", "100×3.0"],
+        )
+        assert result == ("80x2.4", 1.0)
+
+    def test_l1_exact_with_space_dash(self):
+        """BOM 'M8×20' + available 'M8 X 20' → 归一化匹配 confidence=1.0"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="内六角螺栓|GB/T 70.1 M8×20",
+            available=["M6 X 20", "M8 X 20", "M10 X 20"],
+        )
+        assert result == ("M8 X 20", 1.0)
+
+    def test_no_match_returns_none(self):
+        """available 完全不匹配 → None"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="O型圈|FKM Φ80×2.4",
+            available=["AAA", "BBB"],
+        )
+        assert result is None
+
+    def test_empty_available_returns_none(self):
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="X",
+            available=[],
+        )
+        assert result is None
