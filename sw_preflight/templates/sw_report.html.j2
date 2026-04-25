@@ -9,7 +9,7 @@ h1{font-size:1.4em;border-bottom:2px solid #333;padding-bottom:.3em}
 .section{margin:1.5em 0;border:1px solid #ccc;border-radius:6px;overflow:hidden}
 .section-head{background:#f4f4f4;padding:.5em 1em;font-weight:bold}
 .row{padding:.4em 1em;border-top:1px solid #eee}
-.ok{color:#2a7}.warn{color:#c80}.err{color:#c33}
+.ok{color:#2a7}.warn{color:#c80}.err{color:#c33}.skip{color:#888}
 details{margin-top:.3em;font-size:.85em;color:#666}
 </style></head><body>
 
@@ -81,7 +81,7 @@ pywin32: {{ '✅' if sw_status.pywin32 else '❌' }}</div>
         <td>{{ row.matched_adapter }}</td>
         <td class="{{ 'ok' if row.config_match=='matched' else 'warn' if row.config_match=='fallback' else '' }}">
           {{ row.config_match }}</td>
-        <td>{{ row.status }}</td>
+        <td class="{{ 'ok' if row.status in ('hit','fallback') else 'skip' if row.status=='skip' else 'err' }}">{{ row.status }}</td>
       </tr>
       {% endfor %}
     </table>
