@@ -10,6 +10,7 @@ from parts_resolver import (
     PartsResolver,
     ResolveReport,
     ResolveReportRow,
+    ResolveResult,
 )
 from adapters.parts.jinja_primitive_adapter import JinjaPrimitiveAdapter
 from adapters.parts.partcad_adapter import PartCADAdapter
@@ -155,16 +156,13 @@ class TestResolveReportTrace:
 
 class TestResolveResultSkip:
     def test_skip_factory_status(self):
-        from parts_resolver import ResolveResult
         r = ResolveResult.skip(reason="cable not modeled")
         assert r.status == "skip"
 
     def test_skip_factory_kind_is_miss(self):
-        from parts_resolver import ResolveResult
         r = ResolveResult.skip()
         assert r.kind == "miss"
 
     def test_skip_reason_in_source_tag(self):
-        from parts_resolver import ResolveResult
         r = ResolveResult.skip(reason="fastener category")
         assert "fastener" in r.source_tag

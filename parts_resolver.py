@@ -68,7 +68,7 @@ class PartQuery:
     project_root: str = ""          # base path for relative STEP paths
 
 
-ResolveKind = Literal["codegen", "step_import", "python_import", "miss", "skip"]
+ResolveKind = Literal["codegen", "step_import", "python_import", "miss"]
 
 
 @dataclass
@@ -109,7 +109,7 @@ class ResolveResult:
         )
 
     @classmethod
-    def skip(cls, reason: str = "") -> "ResolveResult":
+    def skip(cls, *, reason: str = "") -> "ResolveResult":
         return cls(
             status="skip",
             kind="miss",
