@@ -45,7 +45,8 @@ def _list_configs(sldprt_path: str) -> int:
             model = app.OpenDoc6(sldprt_path, 1, 1, "", err_var, warn_var)
             if err_var.value or model is None:
                 print(
-                    f"worker: OpenDoc6 errors={err_var.value} model={'NULL' if model is None else 'OK'}",
+                    f"worker: OpenDoc6 errors={err_var.value} "
+                    f"warnings={warn_var.value} model={'NULL' if model is None else 'OK'}",
                     file=sys.stderr,
                 )
                 return 2
