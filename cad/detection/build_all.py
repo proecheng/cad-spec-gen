@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""
+Build All — One-click STEP + DXF generation for 检测方法与信号处理.
+
+Auto-generated scaffold by codegen/gen_build.py
+Source: D:\Work\cad-spec-gen\cad\detection\CAD_SPEC.md
+Generated: 2026-04-24 22:25
+
+Usage:
+    python cad/detection/build_all.py
+    python cad/detection/build_all.py --render
+    python cad/detection/build_all.py --dry-run
+    python cad/detection/build_all.py --render --timestamp
+"""
+
+import logging
+import os
+import subprocess
+import sys
+import time
+import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import cadquery as cq
+
+log = logging.getLogger("build_all")
+
+OUTPUT_DIR = os.environ.get(
+    "CAD_OUTPUT_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+)
+
+
+# ── Build step definitions (declarative) ─────────────────────────────────────
+
+_STEP_BUILDS = [
+]
+
+_DXF_BUILDS = [
+]
+
+_STD_STEP_BUILDS = [
+]
+
+
+def _build_step(label, module_name, func_name, filename):
+    """Build a single STEP file."""
+    log.info("Building %s...", label)
+    try:
+        mod = __import__(module_name)
+        func = getattr(mod, func_name)
+        solid = func()
+        p = os.path.join(OUTPUT_DIR, filename)
+        cq.exporters.export(solid, p)
+        return p
+    except Exception:
+        log.error("FAILED building %s:\n%s", label, traceback.format_exc())
+        return None
+
+
+def _build_dxf(label, module_name, func_name):
+    """Build a single DXF sheet."""
+    log.info("Drawing %s...", label)
+    try:
+        mod = __import__(module_name)
+        func = getattr(mod, func_name)
+        path = func(OUTPUT_DIR)
+        return path
+    except Exception:
+        log.error("FAILED drawing %s:\n%s", label, traceback.format_exc())
+        return None
+
+
+def build_all(render: bool = False, dry_run: bool = False, timestamp: bool = False):
+    """Run the full build."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%H:%M:%S")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    if dry_run:
+        log.info("DRY RUN — validating imports only")
+        for label, mod_name, func_name, _ in _STEP_BUILDS:
+            mod = __import__(mod_name)
+            assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
+            log.info("  OK: %s.%s", mod_name, func_name)
+        for label, mod_name, func_name, _ in _STD_STEP_BUILDS:
+            mod = __import__(mod_name)
+            assert hasattr(mod, func_name), f"{mod_name}.{func_name} not found"
+            log.info("  OK: %s.%s (std)", mod_name, func_name)
+        log.info("All %d STEP + %d STD + %d DXF targets validated",
+                 len(_STEP_BUILDS), len(_STD_STEP_BUILDS), len(_DXF_BUILDS))
+        return
+
+    # Build STEP files
+    step_results = []
+    for args in _STEP_BUILDS:
+        r = _build_step(*args)
+        step_results.append(r)
+
+    # Build standard part STEP files
+    std_results = []
+    for args in _STD_STEP_BUILDS:
+        r = _build_step(*args)
+        std_results.append(r)
+
+    # Build DXF files
+    dxf_results = []
+    for args in _DXF_BUILDS:
+        r = _build_dxf(*args)
+        dxf_results.append(r)
+
+    # Assembly
+    from assembly import export_assembly
+    export_assembly(OUTPUT_DIR)
+
+    # Summary
+    ok_step = sum(1 for r in step_results if r)
+    ok_std = sum(1 for r in std_results if r)
+    ok_dxf = sum(1 for r in dxf_results if r)
+    log.info("=" * 60)
+    log.info("  STEP: %d/%d OK", ok_step, len(_STEP_BUILDS))
+    log.info("  STD:  %d/%d OK", ok_std, len(_STD_STEP_BUILDS))
+    log.info("  DXF:  %d/%d OK", ok_dxf, len(_DXF_BUILDS))
+    for r in step_results + std_results + dxf_results:
+        if r:
+            size_kb = os.path.getsize(r) / 1024
+            log.info("    %-45s %7.1f KB", os.path.basename(r), size_kb)
+    log.info("=" * 60)
+
+    # Render
+    if render:
+        _run_render(timestamp)
+
+
+def _run_render(timestamp: bool = False):
+    """Invoke Blender rendering."""
+    import json
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "pipeline_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, encoding="utf-8") as f:
+            pcfg = json.load(f)
+        blender = pcfg.get("blender_path", "blender")
+    else:
+        blender = "blender"
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    render_config = os.path.join(script_dir, "render_config.json")
+
+    ts_args = ["--timestamp"] if timestamp else []
+
+    # Standard views
+    cmd = [blender, "-b", "-P", os.path.join(script_dir, "render_3d.py"),
+           "--", "--config", render_config, "--all"] + ts_args
+    log.info("Rendering standard views...")
+    subprocess.run(cmd, check=True)
+
+    # Exploded view
+    cmd = [blender, "-b", "-P", os.path.join(script_dir, "render_exploded.py"),
+           "--", "--config", render_config] + ts_args
+    log.info("Rendering exploded view...")
+    subprocess.run(cmd, check=True)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Build all STEP + DXF for 检测方法与信号处理")
+    parser.add_argument("--render", action="store_true", help="Also run Blender rendering")
+    parser.add_argument("--dry-run", action="store_true", help="Validate imports only")
+    parser.add_argument("--timestamp", action="store_true", help="Add timestamp to output filenames")
+    args = parser.parse_args()
+    build_all(render=args.render, dry_run=args.dry_run, timestamp=args.timestamp)
