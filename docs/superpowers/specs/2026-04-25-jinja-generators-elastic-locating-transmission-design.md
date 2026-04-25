@@ -34,16 +34,25 @@
 "spring" 已有 `_gen_spring`，测试绿，行为正确。`elastic` 覆盖的是 **spring 未捕获** 的弹性件，
 两者关键词不重叠。
 
+### "弹性联轴器" 归属 connector，不归 elastic
+
+`connector` 规则包含"联轴器"和"L050"，在规则列表中排在 `elastic` 之前（first-match 语义）。
+"弹性联轴器 L050" 正确返回 `"connector"`，这是预期行为。
+`elastic` 关键词不含"联轴器"相关词，避免死代码测试用例。
+
 ---
 
 ## 改动范围
 
-### 文件一：`src/cad_spec_gen/data/python_tools/bom_parser.py`
+### 文件一（×2 同步）：`bom_parser.py` — 两处都要改
 
-在 `_PART_CATEGORY_RULES` 的 `("spring", ...)` 之后、`("cable", ...)` 之前插入两条规则：
+> **注意：** 根目录 `bom_parser.py` 与 `src/cad_spec_gen/data/python_tools/bom_parser.py`
+> 内容完全相同（diff 为空），**两个文件必须同步修改**，否则 pip 安装路径和 CLI 路径行为不一致。
+
+在 `_PART_CATEGORY_RULES` 的 `("tank", ...)` 之后、`("cable", ...)` 之前插入两条规则：
 
 ```python
-("elastic",      ["橡胶弹簧", "板弹簧", "弹性联轴器", "弹性卡圈",
+("elastic",      ["橡胶弹簧", "板弹簧", "弹性卡圈",
                   "弹性垫片", "rubber spring", "leaf spring",
                   "elastic coupling", "snap ring"]),
 ("transmission", ["齿轮", "链轮", "皮带轮", "蜗杆", "蜗轮",
@@ -52,15 +61,17 @@
 ```
 
 **关键词边界保证（first-match 语义）：**
-- `elastic` 不含"弹簧"/"碟"/"弹性垫圈"→ 不与 `spring` 重叠
-- `elastic` 用"弹性联轴器"而非裸"联轴器"→ 不与 `connector` 重叠
-- `transmission` 用"皮带轮"而非裸"皮带"→ 不与 `cable`（含"同步带"/"GT2"/"皮带"）重叠
+
+| elastic/transmission 关键词 | 潜在重叠规则 | 为什么安全 |
+|-----------------------------|------------|-----------|
+| `elastic` 不含"弹簧"/"碟" | `spring` | 不重叠 |
+| `elastic` 不含"联轴器"/"L050" | `connector`（排在前面） | 弹性联轴器归 connector，正确 |
+| `transmission` 用"皮带轮" 非裸"皮带" | `cable`（含"同步带"/"皮带"） | 皮带轮 ≠ 皮带 |
+| `transmission` 用"蜗杆"/"蜗轮" | 无已有规则 | 安全 |
 
 ### 文件二：`adapters/parts/jinja_primitive_adapter.py`
 
-新增三个生成器函数，并注册到 `_GENERATORS`。
-
-#### `_gen_locating(dims)` — 圆柱销 + 倒角头
+#### 新增 `_gen_locating(dims)` — 圆柱销 + 倒角头
 
 几何：主体圆柱 + 顶面倒角（chamfer ≈ d × 0.1，最小 0.3 mm）。
 
@@ -71,33 +82,48 @@
    └──┘
 ```
 
-默认尺寸：d=3 mm, l=10 mm（常见 GB/T 119 圆柱销）。
+默认尺寸：d=3 mm, l=10 mm（GB/T 119 圆柱销典型）。
 
-#### `_gen_elastic(dims)` — 弹性件（橡胶/板弹簧）
+#### 新增 `_gen_elastic(dims)` — 弹性件（橡胶/板弹簧）
 
 几何：
-- 有 `d` + `l` → 实心圆柱（橡胶弹簧、弹性减振柱）
-- 有 `w`/`h` → 矩形截面（板弹簧）
+- 有 `d` + `l` → 实心圆柱（橡胶减振柱）
+- 有 `w`/`h`/`l` → 矩形截面（板弹簧）
 
-默认尺寸：d=20 mm, l=30 mm（橡胶减振柱典型尺寸）。
+默认尺寸：d=20 mm, l=30 mm。
 
-#### `_gen_transmission(dims)` — 齿轮近似（非渐开线）
+#### 新增 `_gen_transmission(dims)` — 齿轮近似
 
-几何：外环（齿廓近似，od → root_d=od×0.85 的环形 extrude）union 内盘（root_d → id 的圆盘）。
-视觉上有齿轮"厚度感"，装配全景可读，非精确轮廓。
+几何：**实心圆盘 + 轴孔** = `circle(od/2).circle(id_/2).extrude(w)`。
+
+视觉上是标准齿轮截面（实心盘带中心孔），装配全景可读。
+不做外齿近似轮廓（union 分解在数学上等价于单一环，无附加视觉价值）。
 
 ```
    ╔══════╗  ← 齿顶圆 od
-   ║ ╔══╗ ║
-   ║ ║  ║ ║  ← 齿根圆 root_d ≈ od × 0.85
-   ║ ╚══╝ ║
+   ║      ║
+   ║  ○   ║  ← 轴孔 id
+   ║      ║
    ╚══════╝
-        ↑ 轴孔 id
 ```
 
 默认尺寸：od=30 mm, w=8 mm, id=6 mm。
 
-**_GENERATORS 注册：**
+#### 修复 `_dims_to_envelope()` — 补 "w" fallback
+
+**现有 bug：** `{"od": 30, "w": 8, "id": 6}` 进入 `"od" in dims` 分支时，
+`h = dims.get("h", dims.get("l", dims.get("t", 5)))` 不检查 "w"，返回 `(30, 30, 5)`。
+齿轮厚度 `w=8` 被静默丢弃。
+
+**修复：** 在 fallback 链加入 `dims.get("w", 5)`：
+```python
+if "od" in dims:
+    h = dims.get("h", dims.get("l", dims.get("w", dims.get("t", 5))))
+    return (dims["od"], dims["od"], h)
+```
+
+#### _GENERATORS 注册
+
 ```python
 _GENERATORS = {
     ...（已有）...
@@ -123,26 +149,25 @@ _GENERATORS = {
 
 ### `tests/test_bom_classifier_new_categories.py`
 
-验证 BOM 分类器新规则的正确性和边界不重叠：
-
 | 输入 | 期望输出 | 验证目标 |
 |------|---------|---------|
 | `"橡胶弹簧"` | `"elastic"` | 新规则命中 |
-| `"弹性联轴器 L050"` | `"elastic"` | 不被 connector 先捕 |
+| `"板弹簧 120×30×3mm"` | `"elastic"` | 新规则命中 |
 | `"齿轮 m=1 z=20"` | `"transmission"` | 新规则命中 |
 | `"链轮 GB"` | `"transmission"` | 新规则命中 |
+| `"皮带轮 Φ60"` | `"transmission"` | 皮带轮归 transmission |
 | `"同步带 GT2"` | `"cable"` | 不被 transmission 误捕 |
 | `"弹性垫圈 M6"` | `"spring"` | 不被 elastic 误捕 |
-| `"联轴器 L070"` | `"connector"` | 裸联轴器不触发 elastic |
+| `"联轴器 L070"` | `"connector"` | 裸联轴器归 connector |
+| `"弹性联轴器 L050"` | `"connector"` | 弹性联轴器也归 connector（first-match） |
 
 ### `tests/test_jinja_generators_new.py`
-
-验证三个生成器端到端可用：
 
 - `can_resolve()` 对 locating/elastic/transmission 均返回 `True`
 - `resolve()` 返回 `status="hit"`, `kind="codegen"`
 - `body_code` 包含 `cq.Workplane` 关键字
 - `probe_dims()` 返回非 `None` 的 `(w, d, h)` tuple
+- transmission `probe_dims` 正确返回 `(30, 30, 8)` 而非 `(30, 30, 5)`（验证 `_dims_to_envelope` 修复）
 - 从 material text 提取尺寸：`"Φ5×16mm"` → locating 使用 `d=5, l=16`
 
 ### 回归验收
@@ -167,7 +192,7 @@ uv run pytest                                               # ≥ 1217 passed，
 ## 实现顺序（供 writing-plans 参考）
 
 1. 写失败测试（test_bom_classifier_new_categories.py + test_jinja_generators_new.py）
-2. 实现 bom_parser.py 新规则 → classifier 测试转绿
-3. 实现三个 `_gen_*` 函数 + `_GENERATORS` 注册 → generator 测试转绿
+2. 实现 bom_parser.py 新规则（两处同步）→ classifier 测试转绿
+3. 实现三个 `_gen_*` 函数 + `_dims_to_envelope` 修复 + `_GENERATORS` 注册 → generator 测试转绿
 4. 补 STD_PART_DIMENSIONS 默认 dims
 5. 全量回归验证 ≥ 1217 passed
