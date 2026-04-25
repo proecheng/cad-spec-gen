@@ -159,3 +159,108 @@ def build_enhanced(out_root: Path, dry_run: bool = False) -> tuple[bool, str]:
 
     success = run_render(output_dir, extra_env, dry_run=dry_run)
     return success, textures_dir
+
+
+def assert_features(out_root: Path, textures_dir: str) -> dict:
+    """运行 5 项 feature 断言，返回结果 dict。
+
+    Returns:
+        {
+          "F1": {"ok": bool, "detail": str},
+          "F2": {"ok": bool, "detail": str},
+          "F3": {"ok": bool | None, "detail": str},
+          "F4": {"ok": bool, "detail": str},
+          "F5": {"ok": bool, "detail": str},
+        }
+    """
+    results: dict[str, dict] = {}
+
+    # F1: enhanced runtime_materials.json 至少 1 个 preset 含 base_color_texture
+    json_path = out_root / "enhanced" / "runtime_materials.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        has_texture = any(
+            "base_color_texture" in preset
+            for preset in data.values()
+            if isinstance(preset, dict)
+        )
+        results["F1"] = {
+            "ok": has_texture,
+            "detail": "base_color_texture 字段存在" if has_texture else "无 base_color_texture（SW 未装或纹理回填失败）",
+        }
+    else:
+        results["F1"] = {"ok": False, "detail": "runtime_materials.json 不存在"}
+
+    # F2: SW_TEXTURES_DIR 目录存在且非空
+    if textures_dir and os.path.isdir(textures_dir):
+        files = os.listdir(textures_dir)
+        ok = len(files) > 0
+        results["F2"] = {"ok": ok, "detail": f"{len(files)} 个文件/子目录" if ok else "目录为空"}
+    else:
+        results["F2"] = {"ok": False, "detail": f"目录不存在或为空: {textures_dir!r}"}
+
+    # F3: 最近 resolve_report.json 中 sw_toolbox 命中数 >= 1
+    import glob as _glob
+    reports = sorted(
+        _glob.glob(str(_REPO_ROOT / "artifacts" / "*" / "resolve_report.json"))
+    )
+    if reports:
+        rpt = json.loads(Path(reports[-1]).read_text(encoding="utf-8"))
+        sw_hits = rpt.get("adapter_hits", {}).get("sw_toolbox", {}).get("count", 0)
+        ok = sw_hits >= 1
+        results["F3"] = {
+            "ok": ok,
+            "detail": f"sw_toolbox 命中 {sw_hits} 次（来自 {Path(reports[-1]).parent.name}）",
+        }
+    else:
+        results["F3"] = {
+            "ok": None,
+            "detail": "未找到 resolve_report.json，先运行 sw-inspect --resolve-report",
+        }
+
+    # F4: enhanced V1 PNG 文件大小比 baseline V1 大 5% 以上
+    v1_base = out_root / "baseline" / "end_effector" / "V1_front_iso.png"
+    v1_enh = out_root / "enhanced" / "end_effector" / "V1_front_iso.png"
+    if v1_base.exists() and v1_enh.exists():
+        sz_base = v1_base.stat().st_size
+        sz_enh = v1_enh.stat().st_size
+        ratio = (sz_enh - sz_base) / sz_base if sz_base > 0 else 0.0
+        ok = ratio > 0.05
+        results["F4"] = {
+            "ok": ok,
+            "detail": f"enhanced/baseline 大小比：{ratio:+.1%}（{sz_enh:,}B / {sz_base:,}B）",
+        }
+    else:
+        missing = []
+        if not v1_base.exists():
+            missing.append("baseline V1")
+        if not v1_enh.exists():
+            missing.append("enhanced V1")
+        results["F4"] = {"ok": False, "detail": f"PNG 不存在: {', '.join(missing)}"}
+
+    # F5: baseline 和 enhanced 两组 PNG 均非全黑（max pixel > 10）
+    all_pngs = list((out_root / "baseline" / "end_effector").glob("*.png")) + \
+               list((out_root / "enhanced" / "end_effector").glob("*.png"))
+    if not all_pngs:
+        results["F5"] = {"ok": False, "detail": "PNG 文件不存在"}
+    else:
+        try:
+            from PIL import Image
+            black_files = []
+            for p in all_pngs:
+                img = Image.open(p).convert("L")
+                if max(img.getdata()) <= 10:  # type: ignore[arg-type]
+                    black_files.append(p.name)
+            ok = len(black_files) == 0
+            results["F5"] = {
+                "ok": ok,
+                "detail": "所有 PNG 非全黑" if ok else f"全黑文件: {black_files}",
+            }
+        except ImportError:
+            ok = all(p.stat().st_size > 1024 for p in all_pngs)
+            results["F5"] = {
+                "ok": ok,
+                "detail": f"PIL 未安装，退化为文件大小检查（>1KB），{len(all_pngs)} 个文件{'均通过' if ok else '有失败'}",
+            }
+
+    return results
