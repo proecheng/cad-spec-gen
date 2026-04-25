@@ -68,7 +68,7 @@ class PartQuery:
     project_root: str = ""          # base path for relative STEP paths
 
 
-ResolveKind = Literal["codegen", "step_import", "python_import", "miss"]
+ResolveKind = Literal["codegen", "step_import", "python_import", "miss", "skip"]
 
 
 @dataclass
@@ -83,7 +83,7 @@ class ResolveResult:
         kind="miss"           → nothing matched, caller should skip or fallback
     """
 
-    status: Literal["hit", "miss", "fallback"]
+    status: Literal["hit", "miss", "fallback", "skip"]
     kind: ResolveKind
     adapter: str                            # which adapter produced this
     body_code: Optional[str] = None
@@ -106,6 +106,16 @@ class ResolveResult:
             kind="miss",
             adapter="",
             category=PartCategory.CUSTOM,
+        )
+
+    @classmethod
+    def skip(cls, reason: str = "") -> "ResolveResult":
+        return cls(
+            status="skip",
+            kind="miss",
+            adapter="",
+            category=PartCategory.CUSTOM,
+            source_tag=reason,
         )
 
 
@@ -262,6 +272,10 @@ class PartsResolver:
                     (query.part_no, "jinja_primitive", result.source_tag))
                 if _trace is not None:
                     _trace.append("jinja_primitive(fallback)")
+                return result
+            if result.status == "skip":
+                if _trace is not None:
+                    _trace.append("jinja_primitive(skip)")
                 return result
 
         return ResolveResult.miss()

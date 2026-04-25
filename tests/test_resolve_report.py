@@ -151,3 +151,20 @@ class TestResolveReportTrace:
         r = report.rows[0]
         # jinja_primitive 的 fallback 路径应留下 trace
         assert any("jinja_primitive" in t for t in r.attempted_adapters)
+
+
+class TestResolveResultSkip:
+    def test_skip_factory_status(self):
+        from parts_resolver import ResolveResult
+        r = ResolveResult.skip(reason="cable not modeled")
+        assert r.status == "skip"
+
+    def test_skip_factory_kind_is_miss(self):
+        from parts_resolver import ResolveResult
+        r = ResolveResult.skip()
+        assert r.kind == "miss"
+
+    def test_skip_reason_in_source_tag(self):
+        from parts_resolver import ResolveResult
+        r = ResolveResult.skip(reason="fastener category")
+        assert "fastener" in r.source_tag
