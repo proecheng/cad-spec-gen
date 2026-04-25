@@ -76,6 +76,21 @@ def _extract_size_tokens(bom_dim_signature: str) -> list[str]:
     return [_normalize_for_match(m) for m in matches if m.strip()]
 
 
+def _tok_in_cfg_with_boundary(tok: str, cfg_norm: str) -> bool:
+    """L2 子串包含 + 右边界守卫：tok 命中位置后不能紧跟数字。
+
+    防御 'm1' in 'm10x20' 类假阳性（'m1' 是 'm10x20' 真子串但语义不同）。
+    左边界由 token 自身格式（含 m 前缀或乘号）保证，无需额外检查。
+    """
+    idx = cfg_norm.find(tok)
+    while idx != -1:
+        end = idx + len(tok)
+        if end >= len(cfg_norm) or not cfg_norm[end].isdigit():
+            return True
+        idx = cfg_norm.find(tok, idx + 1)
+    return False
+
+
 def _match_config_by_rule(
     bom_dim_signature: str,
     available: list[str],
@@ -115,7 +130,7 @@ def _match_config_by_rule(
         cfg_norm = _normalize_for_match(cfg)
         # 按 token 长度降序遍历，命中最长 token 后即 break
         for tok in sorted(tokens, key=len, reverse=True):
-            if tok and tok in cfg_norm:
+            if tok and _tok_in_cfg_with_boundary(tok, cfg_norm):
                 # confidence 随 token 长度增长，短 token 置信度低
                 conf = min(0.95, 0.7 + len(tok) / 100.0)
                 l2_hits.append((cfg, conf))
@@ -124,7 +139,8 @@ def _match_config_by_rule(
     if not l2_hits:
         return None
 
-    # 过滤未达阈值的候选
+    # 防御性过滤：当前公式 conf 最低 0.71（len(tok)>=1）≥ 阈值 0.7，no-op；
+    # 但保留以便未来 spec 调整阈值/公式下界时自动生效
     l2_hits = [(c, conf) for c, conf in l2_hits if conf >= AUTO_MATCH_THRESHOLD]
     if not l2_hits:
         return None

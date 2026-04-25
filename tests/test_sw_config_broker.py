@@ -176,16 +176,17 @@ class TestMatchConfigByRuleL2:
 
     def test_l2_short_token_low_confidence(self):
         """短 token (如 'M6') confidence 较低（短 token 长度→低分）。
-        BOM 'M6' + available 'long-name-M6-extra' → L2 命中但 confidence < 0.95"""
+        BOM 'M6' + available 'long-name-M6-extra' → L2 命中 confidence ≈ 0.72"""
         from adapters.solidworks.sw_config_broker import _match_config_by_rule
 
         result = _match_config_by_rule(
             bom_dim_signature="X|M6",
             available=["long-name-M6-extra"],
         )
-        if result:
-            # M6 归一化后 'm6'，len 2 → confidence = min(0.95, 0.7 + 2/100) = 0.72
-            assert result[1] < 0.95
+        assert result is not None
+        assert result[0] == "long-name-M6-extra"
+        # M6 归一 'm6' (len=2) → conf = 0.7 + 2/100 = 0.72
+        assert result[1] == pytest.approx(0.72)
 
     def test_below_threshold_returns_none(self):
         """confidence < 0.7 → 返回 None，让 caller 走含糊路径。
@@ -197,6 +198,29 @@ class TestMatchConfigByRuleL2:
             available=["abc"],
         )
         assert result is None
+
+    def test_l2_word_boundary_m1_not_matches_m10(self):
+        """关键回归：BOM 'M1' + available ['M10x20', 'M11x20'] → 不应命中 M10x20。
+        L2 子串包含必须有右边界守卫（M1 命中位置后不能紧跟数字）。
+        当 available 全部带数字后缀时，L2 没有合理候选 → 返回 None。"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="X|M1",
+            available=["M10x20", "M11x20"],
+        )
+        assert result is None
+
+    def test_l2_word_boundary_m1_matches_m1_suffix(self):
+        """词边界正确性：BOM 'M1' + available 'GB1234-M1-extra' → L2 命中（M1 后是非数字 '-'）"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="X|M1",
+            available=["GB1234-M1-extra", "GB1234-M10-extra"],
+        )
+        assert result is not None
+        assert result[0] == "GB1234-M1-extra"
 
     def test_l2_multi_match_shortest_wins(self):
         """L2 多命中 → 取字符串最短"""
