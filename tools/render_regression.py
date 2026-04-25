@@ -15,6 +15,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows 终端默认 GBK 不支持 emoji，强制 UTF-8 输出
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ── 路径常量 ──────────────────────────────────────────────────────────────
 _REPO_ROOT = Path(__file__).parent.parent.resolve()
 
