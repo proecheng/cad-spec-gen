@@ -224,24 +224,36 @@ def assert_features(out_root: Path, textures_dir: str) -> dict:
             "detail": "未找到 resolve_report.json，先运行 sw-inspect --resolve-report",
         }
 
-    # F4: enhanced V1 PNG 文件大小比 baseline V1 大 5% 以上
-    v1_base = out_root / "baseline" / "end_effector" / "V1_front_iso.png"
-    v1_enh = out_root / "enhanced" / "end_effector" / "V1_front_iso.png"
-    if v1_base.exists() and v1_enh.exists():
-        sz_base = v1_base.stat().st_size
-        sz_enh = v1_enh.stat().st_size
-        ratio = (sz_enh - sz_base) / sz_base if sz_base > 0 else 0.0
+    # F4: enhanced PNG 总字节数比 baseline 大 5% 以上
+    # 使用全部视图总和，避免单视图等轴测角度对纹理不敏感的问题
+    # （正交视图 V5 通常对纹理最敏感，等轴测 V1 最不敏感）
+    base_pngs = sorted((out_root / "baseline" / "end_effector").glob("*.png"))
+    enh_pngs = sorted((out_root / "enhanced" / "end_effector").glob("*.png"))
+    if base_pngs and enh_pngs:
+        base_map = {p.name: p.stat().st_size for p in base_pngs}
+        enh_map = {p.name: p.stat().st_size for p in enh_pngs}
+        common = sorted(set(base_map) & set(enh_map))
+        sz_base_total = sum(base_map[n] for n in common)
+        sz_enh_total = sum(enh_map[n] for n in common)
+        ratio = (sz_enh_total - sz_base_total) / sz_base_total if sz_base_total > 0 else 0.0
         ok = ratio > 0.05
+        per_view = [
+            f"{n[:-4]}:{(enh_map[n] - base_map[n]) / base_map[n]:+.0%}"
+            for n in common
+        ]
         results["F4"] = {
             "ok": ok,
-            "detail": f"enhanced/baseline 大小比：{ratio:+.1%}（{sz_enh:,}B / {sz_base:,}B）",
+            "detail": (
+                f"全视图总大小比：{ratio:+.1%}（{sz_enh_total:,}B / {sz_base_total:,}B，{len(common)}个视图）"
+                f"  各视图: {' '.join(per_view)}"
+            ),
         }
     else:
         missing = []
-        if not v1_base.exists():
-            missing.append("baseline V1")
-        if not v1_enh.exists():
-            missing.append("enhanced V1")
+        if not base_pngs:
+            missing.append("baseline PNGs")
+        if not enh_pngs:
+            missing.append("enhanced PNGs")
         results["F4"] = {"ok": False, "detail": f"PNG 不存在: {', '.join(missing)}"}
 
     # F5: baseline 和 enhanced 两组 PNG 均非全黑（max pixel > 10）
