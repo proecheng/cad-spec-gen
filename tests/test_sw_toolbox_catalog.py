@@ -89,7 +89,7 @@ class TestExtractSize:
                 "exclude_patterns": [r"UN[CFEF]", r"\bTr\d", r"\bG\d/", r"\bNPT"],
             },
             "bearing": {
-                "model": r"\b(\d{4,5})\b",
+                "model": r"\b(\d{3,5})(?:[A-Za-z]{1,3})?\b",
             },
         }
 
@@ -156,7 +156,7 @@ class TestExtractSize:
         assert result == {"model": "6205"}
 
     def test_bearing_suffix_preserved_only_base(self, default_patterns):
-        """v4 §1.3 已知限制: 6205-2RS 只抽 6205。"""
+        """6205-2RS 只抽数字核心 6205，字母后缀被消费但不计入结果。"""
         from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
 
         result = extract_size_from_name(
@@ -197,6 +197,20 @@ class TestExtractSize:
         }
         result = extract_size_from_name("MR84ZZ bearing", patterns_with_mr)
         assert result == {"model_mr": "MR84ZZ"}
+
+    def test_bearing_608zz_three_digit(self, default_patterns):
+        """3 位型号 608ZZ：ZZ 后缀被非捕获组消费，只返回数字核心。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        result = extract_size_from_name("608ZZ 深沟球轴承", default_patterns["bearing"])
+        assert result == {"model": "608"}
+
+    def test_bearing_693zz_three_digit(self, default_patterns):
+        """3 位薄壁型号 693ZZ：同样只抽数字核心。"""
+        from adapters.solidworks.sw_toolbox_catalog import extract_size_from_name
+
+        result = extract_size_from_name("693ZZ 薄壁深沟球轴承", default_patterns["bearing"])
+        assert result == {"model": "693"}
 
 
 class TestValidateSizePatterns:

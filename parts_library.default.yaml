@@ -73,7 +73,7 @@ solidworks_toolbox:
       size: '[Mm](\d+(?:\.\d+)?)'
       exclude_patterns: ['UN[CFEF]', '\bTr\d', '\bG\d/', '\bNPT']
     bearing:
-      model: '\b(\d{4,5})\b'
+      model: '\b(\d{3,5})(?:[A-Za-z]{1,3})?\b'
       model_mr: '\b(MR\d{2,3}[A-Za-z0-9]*)\b'
 
   # COM subprocess 超时 + 熔断（Part 2c P0 后配置瘦身）
