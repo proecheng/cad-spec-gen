@@ -140,3 +140,73 @@ class TestMatchConfigByRule:
         # 应命中 M8x20，不命中 70.1
         assert result is not None
         assert result[0] == "M8x20"
+
+
+class TestMatchConfigByRuleL2:
+    """spec §4.4 #2: L2 包含子串 + spec §10.2 假阳性防御"""
+
+    def test_l2_substring_match(self):
+        """available 'GB1235-80x2.4' 包含归一化 token '80x2.4' → confidence=0.7~0.95"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="O型圈|FKM Φ80×2.4",
+            available=["GB1235-28x1.9", "GB1235-80x2.4", "GB1235-100x3.0"],
+        )
+        assert result is not None
+        config, conf = result
+        assert config == "GB1235-80x2.4"
+        assert 0.7 <= conf <= 0.95
+
+    def test_l2_false_positive_m6_vs_m16(self):
+        """关键防御：BOM M16 + available [M6×20, M16×20] → 必须命中 M16×20 不是 M6×20
+
+        L1 匹配 'm16x20' 与 available 归一化后比对：
+        - 'M6×20' → 'm6x20' ≠ 'm16x20'
+        - 'M16×20' → 'm16x20' == 'm16x20' ✓
+        """
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="内六角螺栓|GB/T 70.1 M16×20",
+            available=["M6×20", "M16×20"],
+        )
+        assert result is not None
+        assert result[0] == "M16×20"
+
+    def test_l2_short_token_low_confidence(self):
+        """短 token (如 'M6') confidence 较低（短 token 长度→低分）。
+        BOM 'M6' + available 'long-name-M6-extra' → L2 命中但 confidence < 0.95"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="X|M6",
+            available=["long-name-M6-extra"],
+        )
+        if result:
+            # M6 归一化后 'm6'，len 2 → confidence = min(0.95, 0.7 + 2/100) = 0.72
+            assert result[1] < 0.95
+
+    def test_below_threshold_returns_none(self):
+        """confidence < 0.7 → 返回 None，让 caller 走含糊路径。
+        BOM token '2.4' 孤立小数，Task 4 正则修复后不被提取 → 自动返回 None"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="X|2.4",  # '2.4' 孤立小数不被正则提取
+            available=["abc"],
+        )
+        assert result is None
+
+    def test_l2_multi_match_shortest_wins(self):
+        """L2 多命中 → 取字符串最短"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="O型圈|FKM Φ80×2.4",
+            available=["VERY_LONG_PREFIX-80x2.4", "80x2.4-suffix", "abc-80x2.4"],
+        )
+        assert result is not None
+        # L1 等值不命中（都有前后缀），L2 子串多命中 → 取最短
+        # 长度: "VERY_LONG_PREFIX-80x2.4"=23, "80x2.4-suffix"=13, "abc-80x2.4"=10
+        assert result[0] == "abc-80x2.4"

@@ -84,7 +84,6 @@ def _match_config_by_rule(
 
     L1 精确归一化（confidence=1.0）：尺寸 token 与 available 字符串归一化后等值
     L2 包含子串（confidence=0.7~0.95）：available 字符串归一化后包含尺寸 token
-      （L2 在 Task 5 实现）
 
     返回 (matched_config, confidence) 或 None。
     同 confidence 多个候选时取**字符串最短**的（最少干扰）。
@@ -110,8 +109,29 @@ def _match_config_by_rule(
         l1_hits.sort(key=lambda x: len(x[0]))
         return l1_hits[0]
 
-    # L2 在下个 task 实现
-    return None
+    # L2: 包含子串匹配，优先匹配最长 token（最具体）
+    l2_hits: list[tuple[str, float]] = []
+    for cfg in available:
+        cfg_norm = _normalize_for_match(cfg)
+        # 按 token 长度降序遍历，命中最长 token 后即 break
+        for tok in sorted(tokens, key=len, reverse=True):
+            if tok and tok in cfg_norm:
+                # confidence 随 token 长度增长，短 token 置信度低
+                conf = min(0.95, 0.7 + len(tok) / 100.0)
+                l2_hits.append((cfg, conf))
+                break
+
+    if not l2_hits:
+        return None
+
+    # 过滤未达阈值的候选
+    l2_hits = [(c, conf) for c, conf in l2_hits if conf >= AUTO_MATCH_THRESHOLD]
+    if not l2_hits:
+        return None
+
+    # 同 confidence 取字符串最短的（最少干扰）；confidence 高者优先
+    l2_hits.sort(key=lambda x: (-x[1], len(x[0])))
+    return l2_hits[0]
 
 
 def _build_bom_dim_signature(bom_row: dict[str, Any]) -> str:
