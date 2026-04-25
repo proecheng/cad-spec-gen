@@ -19,9 +19,14 @@ import pytest
 
 # Ensure src/ is on sys.path BEFORE pytest collects tests, to avoid
 # shadowing from top-level cad_spec_gen.py script.
-_SRC = Path(__file__).parent.parent / "src"
+# Root is appended (low priority) so root-level modules like bom_parser are
+# importable at module scope while src/ stays at position 0 (highest priority).
+_ROOT = Path(__file__).parent.parent
+_SRC = _ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
+if str(_ROOT) not in sys.path:
+    sys.path.append(str(_ROOT))
 
 
 def _dir_state_hash(path: Path) -> str | None:
