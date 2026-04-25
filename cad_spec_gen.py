@@ -898,7 +898,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
                 # results are effectively equivalent to P6 guesses and would
                 # just recompute the same values, so skip them.
                 result = _p7_resolver.resolve(query)
-                if result.status == "miss" or result.kind == "miss":
+                if result.status in {"miss", "skip"} or result.kind == "miss":
                     continue
                 if result.adapter == "jinja_primitive":
                     continue  # Not a library win — skip to keep §6.4 stable
