@@ -32,6 +32,7 @@ bearings:
   圆柱滚子: [cylindrical, roller]
   推力: [thrust]
   滚针: [needle]
+  微型: [miniature]
 
 pins_keys:
   销: [pin, pins]

@@ -40,6 +40,15 @@ class TestLoadCnSynonyms:
         result = load_cn_synonyms(path=custom)
         assert result == {"测试": ["test"]}
 
+    def test_bearing_miniature_synonym_exists(self):
+        """微型 → miniature 同义词须存在，确保微型轴承 token 扩展正确。"""
+        from adapters.solidworks.sw_toolbox_catalog import load_cn_synonyms, _load_cn_synonyms_cached
+
+        _load_cn_synonyms_cached.cache_clear()
+        synonyms = load_cn_synonyms()
+        assert "微型" in synonyms, "缺少 '微型' 同义词条目"
+        assert "miniature" in synonyms["微型"]
+
 
 class TestExpandCnSynonyms:
     def test_cjk_token_substring_match_injects_en_tokens(self):
