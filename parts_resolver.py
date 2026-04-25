@@ -137,7 +137,7 @@ class ResolveReportRow:
     name_cn: str
     matched_adapter: str
     attempted_adapters: list[str]
-    status: str  # "hit" | "fallback" | "miss"
+    status: str  # "hit" | "fallback" | "miss" | "skip"
     config_match: str = "n/a"  # B-16: "matched" | "fallback" | "n/a"
 
 
@@ -447,6 +447,8 @@ class PartsResolver:
 
             if result.status == "miss":
                 matched = "(none)"
+            elif result.status == "skip":
+                matched = "(skip)"
             elif result.status == "fallback":
                 matched = "jinja_primitive"
             else:
@@ -460,6 +462,8 @@ class PartsResolver:
                 status = "hit"
             elif result.status == "fallback":
                 status = "fallback"
+            elif result.status == "skip":
+                status = "skip"
             else:
                 status = "miss"
 
