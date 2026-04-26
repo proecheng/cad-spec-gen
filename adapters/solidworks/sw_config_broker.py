@@ -13,10 +13,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -277,3 +282,70 @@ def _build_pending_record(
         "match_failure_reason": match_failure_reason,
         "suggested_options": suggested,
     }
+
+
+def _decisions_path() -> Path:
+    """返回 spec_decisions.json 路径。
+
+    函数内 import：让 cad_paths.PROJECT_ROOT 实时读，配合 tmp_project_dir
+    fixture 的 reload(cad_paths) 机制保证测试隔离。
+    """
+    from cad_paths import PROJECT_ROOT
+
+    return Path(PROJECT_ROOT) / ".cad-spec-gen" / "spec_decisions.json"
+
+
+def _empty_envelope() -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "last_updated": "",
+        "decisions_by_subsystem": {},
+        "decisions_history": [],
+    }
+
+
+def _load_decisions_envelope() -> dict[str, Any]:
+    """从 spec_decisions.json 读完整 envelope（spec §4.3 / §6）。
+
+    - 文件不存在 → 返回空 envelope（含 schema_version=2）
+    - JSON syntax error → ValueError（含行号 + detail）
+    - schema_version 不一致 → ValueError 提示删文件重做交互（不自动 migrate）
+    """
+    path = _decisions_path()
+    if not path.exists():
+        return _empty_envelope()
+
+    text = path.read_text(encoding="utf-8")
+    try:
+        env = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"decisions 文件 {path} 第 {exc.lineno} 行 syntax error: {exc.msg}"
+        ) from exc
+
+    if env.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            f"决策 schema_version 已升级 v{env.get('schema_version')}→v{SCHEMA_VERSION}，"
+            f"请删除 {path} 后重跑 codegen 让 agent 引导重新决策"
+        )
+
+    env.setdefault("decisions_by_subsystem", {})
+    env.setdefault("decisions_history", [])
+    return env
+
+
+def _save_decisions_envelope(envelope: dict[str, Any]) -> None:
+    """原子写入 spec_decisions.json（先写 .tmp 再 os.replace）。
+
+    注：会 mutate 入参的 last_updated 字段为当前 UTC 时间。
+    """
+    path = _decisions_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    envelope["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp_path, path)

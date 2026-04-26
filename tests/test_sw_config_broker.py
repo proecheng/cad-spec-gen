@@ -416,3 +416,90 @@ class TestFixtures:
 
         # PROJECT_ROOT 经过 normpath 处理，所以两边都 normpath 比对
         assert os.path.normpath(PROJECT_ROOT) == os.path.normpath(str(tmp_project_dir))
+
+
+class TestDecisionsEnvelopeIO:
+    """spec §4.3: _load/_save_decisions_envelope"""
+
+    def test_load_missing_file_returns_empty_envelope(self, tmp_project_dir):
+        from adapters.solidworks.sw_config_broker import _load_decisions_envelope
+
+        env = _load_decisions_envelope()
+        assert env["schema_version"] == 2
+        assert env["decisions_by_subsystem"] == {}
+        assert env["decisions_history"] == []
+
+    def test_save_then_load_roundtrip(self, tmp_project_dir):
+        import json
+
+        from adapters.solidworks.sw_config_broker import (
+            _load_decisions_envelope,
+            _save_decisions_envelope,
+        )
+
+        envelope = {
+            "schema_version": 2,
+            "last_updated": "2026-04-25T22:30:00+00:00",
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {
+                        "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+                        "sldprt_filename": "o-rings series a gb.sldprt",
+                        "decision": "use_config",
+                        "config_name": "80×2.4",
+                        "user_note": "ok",
+                        "decided_at": "2026-04-25T22:25:11+00:00",
+                    }
+                }
+            },
+            "decisions_history": [],
+        }
+        _save_decisions_envelope(envelope)
+
+        # 文件原子写入：必须存在 + JSON 合法
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        assert path.is_file()
+        loaded_raw = json.loads(path.read_text(encoding="utf-8"))
+        assert loaded_raw == envelope
+
+        # _load 接口
+        loaded = _load_decisions_envelope()
+        assert loaded == envelope
+
+    def test_load_corrupt_json_fails_loud(self, tmp_project_dir):
+        """spec §6: decisions.json 损坏 → fail loud 含行号"""
+        from adapters.solidworks.sw_config_broker import _load_decisions_envelope
+
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text('{ "broken JSON syntax', encoding="utf-8")
+
+        with pytest.raises(ValueError, match="syntax error"):
+            _load_decisions_envelope()
+
+    def test_load_schema_version_mismatch_fails(self, tmp_project_dir):
+        """spec §6: schema_version 不一致 → 阻塞"""
+        import json
+
+        from adapters.solidworks.sw_config_broker import _load_decisions_envelope
+
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text(
+            json.dumps({"schema_version": 99, "decisions_by_subsystem": {}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="schema_version"):
+            _load_decisions_envelope()
+
+    def test_save_atomic_write_via_tmp(self, tmp_project_dir):
+        """save 必须先写 .tmp 再 os.replace（防中途崩溃残缺）"""
+        from adapters.solidworks.sw_config_broker import _save_decisions_envelope
+
+        envelope = {"schema_version": 2, "decisions_by_subsystem": {}, "decisions_history": []}
+        _save_decisions_envelope(envelope)
+
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        tmp_path = path.with_suffix(".json.tmp")
+        # 写完后 .tmp 应已被 rename
+        assert path.is_file()
+        assert not tmp_path.exists()
