@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 
 class TestModuleConstants:
     def test_module_imports_and_has_schema_version(self):
