@@ -56,3 +56,27 @@ def _save_config_lists_cache(cache: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(tmp, path)
+
+
+def _load_config_lists_cache() -> dict[str, Any]:
+    """读 cache；4 类自愈情形返 _empty_config_lists_cache：
+    1. 文件不存在
+    2. JSON 损坏
+    3. OSError (权限/磁盘)
+    4. schema_version 不符
+    """
+    path = get_config_lists_cache_path()
+    if not path.exists():
+        return _empty_config_lists_cache()
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("config_lists cache 损坏，重建: %s", e)
+        return _empty_config_lists_cache()
+    if cache.get("schema_version") != CONFIG_LISTS_SCHEMA_VERSION:
+        log.info(
+            "config_lists schema bump %s → %s，重建",
+            cache.get("schema_version"), CONFIG_LISTS_SCHEMA_VERSION,
+        )
+        return _empty_config_lists_cache()
+    return cache

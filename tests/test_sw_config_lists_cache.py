@@ -64,3 +64,46 @@ class TestSaveCache:
         monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: target)
         m._save_config_lists_cache({"entries": {}})
         assert not (tmp_path / "sw_config_lists.json.tmp").exists()
+
+
+class TestLoadCache:
+    def test_load_missing_file_returns_empty(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        monkeypatch.setattr(m, "get_config_lists_cache_path",
+                            lambda: tmp_path / "no_such.json")
+        cache = m._load_config_lists_cache()
+        assert cache["entries"] == {}
+        assert cache["schema_version"] == m.CONFIG_LISTS_SCHEMA_VERSION
+
+    def test_load_valid_file_round_trips(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: target)
+        original = {
+            "schema_version": 1,
+            "generated_at": "2026-04-26T12:34:56+00:00",
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "entries": {"C:/p1.sldprt": {"mtime": 100, "size": 200, "configs": ["A"]}},
+        }
+        target.write_text(json.dumps(original), encoding="utf-8")
+        loaded = m._load_config_lists_cache()
+        assert loaded == original
+
+    def test_load_corrupt_json_returns_empty(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: target)
+        target.write_text("{not valid json", encoding="utf-8")
+        cache = m._load_config_lists_cache()
+        assert cache["entries"] == {}
+
+    def test_load_schema_version_mismatch_returns_empty(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: target)
+        old = {"schema_version": 999, "entries": {"C:/p1.sldprt": {"configs": ["X"]}}}
+        target.write_text(json.dumps(old), encoding="utf-8")
+        cache = m._load_config_lists_cache()
+        assert cache["entries"] == {}  # 旧 v999 entries 不读
+        assert cache["schema_version"] == m.CONFIG_LISTS_SCHEMA_VERSION
