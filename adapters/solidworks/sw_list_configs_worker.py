@@ -20,14 +20,40 @@ import json
 import sys
 
 
-def _list_configs_returning(sldprt_path: str) -> list[str]:
-    """返 SLDPRT configurations list；失败抛 RuntimeError 给调用方处理。
+def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
+    """共享 primitive：在已 boot 的 app 上 OpenDoc6 取配置名 CloseDoc。
 
-    与 _list_configs 不同：不打印 stdout / 不返 exit code，纯函数。
-    单件 CLI 模式包此函数 + 退出码契约；batch 模式直接调此函数收集结果。
+    单件 + batch 都用此函数，差别仅在 SW lifecycle 谁管。失败抛 RuntimeError。
     """
     import pythoncom
-    from win32com.client import VARIANT, DispatchEx
+    from win32com.client import VARIANT
+
+    err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    model = app.OpenDoc6(sldprt_path, 1, 1, "", err_var, warn_var)
+    if err_var.value or model is None:
+        raise RuntimeError(
+            f"OpenDoc6 errors={err_var.value} "
+            f"warnings={warn_var.value} "
+            f"model={'NULL' if model is None else 'OK'}"
+        )
+    try:
+        config_mgr = model.ConfigurationManager
+        return list(config_mgr.GetConfigurationNames())
+    finally:
+        try:
+            app.CloseDoc(model.GetPathName())
+        except Exception as e:
+            print(f"worker: CloseDoc ignored: {e!r}", file=sys.stderr)
+
+
+def _list_configs_returning(sldprt_path: str) -> list[str]:
+    """单件路径：自管 SW lifecycle（CoInit + Dispatch + ExitApp + CoUninit）。
+
+    保留向后兼容（broker 单件 fallback 路径仍调此函数）。失败抛 RuntimeError。
+    """
+    import pythoncom
+    from win32com.client import DispatchEx
 
     pythoncom.CoInitialize()
     try:
@@ -36,24 +62,7 @@ def _list_configs_returning(sldprt_path: str) -> list[str]:
             app.Visible = False
             app.UserControl = False
             app.FrameState = 0
-
-            err_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-            warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-            model = app.OpenDoc6(sldprt_path, 1, 1, "", err_var, warn_var)
-            if err_var.value or model is None:
-                raise RuntimeError(
-                    f"OpenDoc6 errors={err_var.value} "
-                    f"warnings={warn_var.value} "
-                    f"model={'NULL' if model is None else 'OK'}"
-                )
-            try:
-                config_mgr = model.ConfigurationManager
-                return list(config_mgr.GetConfigurationNames())
-            finally:
-                try:
-                    app.CloseDoc(model.GetPathName())
-                except Exception as e:
-                    print(f"worker: CloseDoc ignored: {e!r}", file=sys.stderr)
+            return _open_doc_get_configs(app, sldprt_path)
         finally:
             try:
                 app.ExitApp()
@@ -64,10 +73,7 @@ def _list_configs_returning(sldprt_path: str) -> list[str]:
 
 
 def _list_configs(sldprt_path: str) -> int:
-    """单件 CLI 模式入口：返 exit code，stdout 打印 JSON list of strings。
-
-    保留向后兼容（broker._list_configs_via_com fallback 路径仍调此模式）。
-    """
+    """单件 CLI 模式入口：返 exit code，stdout 打印 JSON list of strings。"""
     try:
         try:
             import pythoncom  # noqa: F401
@@ -78,7 +84,6 @@ def _list_configs(sldprt_path: str) -> int:
         try:
             names = _list_configs_returning(sldprt_path)
         except RuntimeError as e:
-            # 区分 OpenDoc6 失败 (rc=2) vs 其他 RuntimeError (rc=4)
             print(f"worker: {e}", file=sys.stderr)
             if "OpenDoc6" in str(e):
                 return 2
@@ -91,10 +96,11 @@ def _list_configs(sldprt_path: str) -> int:
 
 
 def _run_batch_mode() -> int:
-    """--batch：从 stdin 读 JSON list of sldprt_path → 启 SW 一次 → 逐件
-    调 _list_configs_returning → stdout 输出 JSON list of {path, configs}。
+    """--batch：从 stdin 读 JSON list of sldprt_path → **真正一次** boot SW →
+    loop _open_doc_get_configs → 一次 ExitApp。
 
-    单件失败（RuntimeError / 任何异常）→ configs=[] 不阻其他件；整 batch exit 0。
+    单件失败（OpenDoc6 fail / 任何异常）→ configs=[] 不阻其他件；整 batch exit 0。
+    空 list → 不 boot SW（早返）避免无谓启动。
     """
     try:
         sldprt_list = json.load(sys.stdin)
@@ -105,20 +111,46 @@ def _run_batch_mode() -> int:
         print(f"worker --batch: invalid stdin JSON: {e}", file=sys.stderr)
         return 64
 
-    results = []
-    for sldprt_path in sldprt_list:
-        try:
-            configs = _list_configs_returning(sldprt_path)
-        except Exception as e:
-            print(
-                f"worker --batch: {sldprt_path} failed: {e!r}",
-                file=sys.stderr,
-            )
-            configs = []
-        results.append({"path": sldprt_path, "configs": configs})
+    if not sldprt_list:
+        print(json.dumps([], ensure_ascii=False))
+        return 0
 
-    print(json.dumps(results, ensure_ascii=False))
-    return 0
+    try:
+        import pythoncom
+        from win32com.client import DispatchEx
+    except ImportError as e:
+        print(f"worker --batch: pywin32 import failed: {e!r}", file=sys.stderr)
+        return 4
+
+    pythoncom.CoInitialize()
+    try:
+        app = DispatchEx("SldWorks.Application")
+        try:
+            app.Visible = False
+            app.UserControl = False
+            app.FrameState = 0
+
+            results = []
+            for sldprt_path in sldprt_list:
+                try:
+                    configs = _open_doc_get_configs(app, sldprt_path)
+                except Exception as e:
+                    print(
+                        f"worker --batch: {sldprt_path} failed: {e!r}",
+                        file=sys.stderr,
+                    )
+                    configs = []
+                results.append({"path": sldprt_path, "configs": configs})
+
+            print(json.dumps(results, ensure_ascii=False))
+            return 0
+        finally:
+            try:
+                app.ExitApp()
+            except Exception as e:
+                print(f"worker --batch: ExitApp ignored: {e!r}", file=sys.stderr)
+    finally:
+        pythoncom.CoUninitialize()
 
 
 def main(argv: list[str] | None = None) -> int:
