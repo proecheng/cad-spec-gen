@@ -1,3 +1,4 @@
+import json
 import sys
 
 import pytest
@@ -1153,3 +1154,280 @@ class TestConftestAutouseDefaultsBrokerDisable:
             "conftest autouse fixture 应默认设 CAD_SW_BROKER_DISABLE=1，"
             "实测 env={!r}".format(os.environ.get("CAD_SW_BROKER_DISABLE"))
         )
+
+
+def _stub_completed_process():
+    class FakeProc:
+        returncode = 0
+        stdout = b"[]"
+        stderr = b""
+    return FakeProc()
+
+
+class TestPrewarmConfigLists:
+    """Task 14.6：sw_config_broker.prewarm_config_lists 集成测试（spec §6.1 C 矩阵）。"""
+
+    @pytest.fixture
+    def patch_paths(self, monkeypatch, tmp_path):
+        """所有 cache module 的 path 函数都指向 tmp_path 隔离目录。"""
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(cache_mod, "get_config_lists_cache_path", lambda: target)
+        return target
+
+    @pytest.fixture
+    def fake_sw(self, monkeypatch):
+        """detect_solidworks 返 stable info（version_year=24, toolbox_dir='C:/SW'）。"""
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/SW"),
+        )
+
+    def test_prewarm_disabled_by_safety_valve(self, patch_paths, fake_sw, monkeypatch):
+        """CAD_SW_BROKER_DISABLE=1 → prewarm 立刻返不 spawn worker / 不写 cache."""
+        from adapters.solidworks import sw_config_broker as broker
+
+        # autouse 已设 disable=1；显式 spawn 守卫 mock subprocess 验证未调
+        called = []
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **kw: called.append((a, kw)) or _stub_completed_process(),
+        )
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+        assert called == []
+        assert not patch_paths.exists()
+
+    def test_prewarm_all_miss_spawns_batch_once(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """全 cache miss → 1 次 batch spawn worker → 写回 cache."""
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        # 建 2 个真 sldprt 文件让 _stat_mtime/_stat_size 工作
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        p2 = tmp_path / "p2.sldprt"
+        p2.write_bytes(b"y" * 200)
+
+        spawn_calls = []
+
+        def fake_run(cmd, **kwargs):
+            spawn_calls.append((cmd, kwargs))
+
+            class FakeProc:
+                returncode = 0
+                stderr = b""
+                stdout = json.dumps([
+                    {"path": str(p1), "configs": ["A1", "A2"]},
+                    {"path": str(p2), "configs": ["B1"]},
+                ]).encode()
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1), str(p2)])
+
+        assert len(spawn_calls) == 1  # batch 只 spawn 一次
+        assert "--batch" in spawn_calls[0][0]
+        assert patch_paths.exists()
+        cache = json.loads(patch_paths.read_text(encoding="utf-8"))
+        assert str(p1) in cache["entries"]
+        assert cache["entries"][str(p1)]["configs"] == ["A1", "A2"]
+        assert cache["entries"][str(p2)]["configs"] == ["B1"]
+        assert cache["sw_version"] == 24
+        assert cache["toolbox_path"] == "C:/SW"
+
+    def test_prewarm_all_hit_no_spawn(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """全 cache 命中 → 0 spawn."""
+        from adapters.solidworks import sw_config_broker as broker
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        st = p1.stat()
+        cache = {
+            "schema_version": 1,
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "generated_at": "2026-04-26T00:00:00+00:00",
+            "entries": {
+                str(p1): {
+                    "mtime": int(st.st_mtime),
+                    "size": st.st_size,
+                    "configs": ["X"],
+                },
+            },
+        }
+        cache_mod._save_config_lists_cache(cache)
+
+        spawn_calls = []
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **kw: spawn_calls.append(a) or _stub_completed_process(),
+        )
+        broker.prewarm_config_lists([str(p1)])
+        assert spawn_calls == []  # 0 spawn
+
+    def test_prewarm_partial_miss_only_misses_batched(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """部分 miss → batch spawn 只含 miss 的 sldprt（命中件不重列）."""
+        from adapters.solidworks import sw_config_broker as broker
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        p2 = tmp_path / "p2.sldprt"
+        p2.write_bytes(b"y" * 200)
+        st1 = p1.stat()
+        cache = {
+            "schema_version": 1,
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "generated_at": "2026-04-26T00:00:00+00:00",
+            "entries": {
+                str(p1): {
+                    "mtime": int(st1.st_mtime),
+                    "size": st1.st_size,
+                    "configs": ["P1A"],
+                },
+            },
+        }
+        cache_mod._save_config_lists_cache(cache)
+
+        captured_stdin = []
+
+        def fake_run(cmd, input=None, **kwargs):
+            captured_stdin.append(input)
+
+            class FakeProc:
+                returncode = 0
+                stderr = b""
+                stdout = json.dumps(
+                    [{"path": str(p2), "configs": ["P2A"]}],
+                ).encode()
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1), str(p2)])
+
+        # batch 只含 p2（p1 已命中跳过）
+        assert len(captured_stdin) == 1
+        sent = json.loads(captured_stdin[0])
+        assert sent == [str(p2)]
+
+    def test_prewarm_worker_failure_does_not_write_cache(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """worker exit != 0 → cache 不写；prewarm 静默 return 不抛."""
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+
+        def fake_run(cmd, **kwargs):
+            class FakeProc:
+                returncode = 4
+                stderr = b"worker: pywin32 import failed"
+                stdout = b""
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        # 不抛异常
+        broker.prewarm_config_lists([str(p1)])
+        # cache 未写
+        assert not patch_paths.exists()
+
+    def test_prewarm_worker_timeout_does_not_write_cache(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """subprocess.TimeoutExpired → cache 不写；prewarm 静默 return."""
+        import subprocess
+
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+
+        def fake_run(*a, **kw):
+            raise subprocess.TimeoutExpired(cmd="x", timeout=180)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])  # 不抛
+        assert not patch_paths.exists()
+
+    def test_prewarm_envelope_invalidated_clears_entries(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """SW 升级（cache.sw_version=23, current=24）→ entries 清空 → 全 batch 重列."""
+        from adapters.solidworks import sw_config_broker as broker
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        st = p1.stat()
+        cache_old = {
+            "schema_version": 1,
+            "sw_version": 23,  # 旧 SW
+            "toolbox_path": "C:/SW",
+            "generated_at": "2025-01-01T00:00:00+00:00",
+            "entries": {
+                str(p1): {
+                    "mtime": int(st.st_mtime),
+                    "size": st.st_size,
+                    "configs": ["OLD"],
+                },
+            },
+        }
+        cache_mod._save_config_lists_cache(cache_old)
+
+        captured_stdin = []
+
+        def fake_run(cmd, input=None, **kwargs):
+            captured_stdin.append(input)
+
+            class FakeProc:
+                returncode = 0
+                stderr = b""
+                stdout = json.dumps(
+                    [{"path": str(p1), "configs": ["NEW"]}],
+                ).encode()
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])
+
+        # batch 含 p1（envelope 失效后视为全 miss）
+        assert len(captured_stdin) == 1
+        sent = json.loads(captured_stdin[0])
+        assert sent == [str(p1)]
+        # 新 cache：sw_version 升级 + entries 全新
+        cache_new = json.loads(patch_paths.read_text(encoding="utf-8"))
+        assert cache_new["sw_version"] == 24
+        assert cache_new["entries"][str(p1)]["configs"] == ["NEW"]

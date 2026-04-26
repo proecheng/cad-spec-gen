@@ -500,6 +500,83 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
     return configs
 
 
+def prewarm_config_lists(sldprt_list: list[str]) -> None:
+    """fire-and-forget 预热持久化 cache（spec §3.1）。
+
+    流程：
+      1. CAD_SW_BROKER_DISABLE=1 → 立刻 return（与 resolve_config_for_part 一致安全阀）
+      2. _load_config_lists_cache() → 4 类自愈
+      3. _envelope_invalidated → 整 entries 清重列
+      4. diff 出 cache miss → 一次 batch spawn worker --batch → 解析 stdout → 写回
+      5. 任何失败（worker rc!=0 / TimeoutExpired / OSError / JSONDecodeError）→
+         不抛异常；BOM loop 内的 _list_configs_via_com 走原单件 fallback 路径
+
+    fallback 路径只填 in-process L2，不写 L1 持久化（spec §3.1 issue 4 决策）：
+    - 不写：下次 prewarm 自然修复（fallback 罕见，cost 低）
+    - 写：fallback 路径变复杂 + 并发竞争（不值）
+    """
+    if os.environ.get("CAD_SW_BROKER_DISABLE") == "1":
+        return
+
+    from adapters.solidworks import sw_config_lists_cache as cache_mod
+    from adapters.solidworks.sw_detect import detect_solidworks
+
+    cache = cache_mod._load_config_lists_cache()
+    if cache_mod._envelope_invalidated(cache):
+        log.info("config_lists envelope invalidated → 全 entries 清空重列")
+        cache = cache_mod._empty_config_lists_cache()
+        info = detect_solidworks()
+        cache["sw_version"] = info.version_year
+        cache["toolbox_path"] = info.toolbox_dir
+
+    miss = [
+        p for p in sldprt_list
+        if not cache_mod._config_list_entry_valid(cache, p)
+    ]
+    if not miss:
+        return  # 全命中，无需 spawn
+
+    cmd = [
+        sys.executable,
+        "-m", "adapters.solidworks.sw_list_configs_worker",
+        "--batch",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=json.dumps(miss).encode(),
+            timeout=LIST_CONFIGS_TIMEOUT_SEC * len(miss),  # 按 batch 大小放宽
+            capture_output=True,
+            cwd=str(_PROJECT_ROOT_FOR_WORKER),
+        )
+        if proc.returncode != 0:
+            log.warning(
+                "config_lists batch worker rc=%d stderr=%s",
+                proc.returncode, (proc.stderr or b"").decode()[:500],
+            )
+            return  # cache 不动；BOM loop 走单件 fallback 兜底
+        results = json.loads(proc.stdout.decode())
+        if not isinstance(results, list):
+            log.warning("config_lists batch worker stdout 非 JSON list")
+            return
+        for entry in results:
+            sldprt_path = entry.get("path", "")
+            configs = entry.get("configs", [])
+            mtime = cache_mod._stat_mtime(sldprt_path)
+            size = cache_mod._stat_size(sldprt_path)
+            if mtime is None or size is None:
+                continue  # sldprt 文件已删 — 跳过不写
+            cache["entries"][sldprt_path] = {
+                "mtime": mtime,
+                "size": size,
+                "configs": configs,
+            }
+        cache_mod._save_config_lists_cache(cache)
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as e:
+        log.warning("config_lists prewarm 失败 %s; codegen 退化到单件 fallback", e)
+        # 不抛异常 — prewarm 是加速优化不是必要前置
+
+
 # ---------- 主入口（spec §3.2） ----------
 
 
