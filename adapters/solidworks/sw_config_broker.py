@@ -48,6 +48,10 @@ class ConfigResolution:
         source="auto" + L1 精确:    1.0 （字面完全匹配）
         source="auto" + L2 子串:    0.7 ~ 0.95 （依命中长度）
         source="policy_fallback":   0.0 （非匹配，env var 强制 fallback）
+
+    pending_record: 仅 source="policy_fallback" 时非 None（spec §6 + line 89/278：
+    fallback 仍累积 pending 供事后审阅）。caller (gen_std_parts) 与 NeedsUserDecision.pending_record
+    走同样累积逻辑——见 CP-4 review C-1 修复。
     """
 
     config_name: str | None
@@ -55,6 +59,7 @@ class ConfigResolution:
     confidence: float
     available_configs: list[str]
     notes: str = ""
+    pending_record: dict[str, Any] | None = None
 
 
 class NeedsUserDecision(Exception):
@@ -206,7 +211,14 @@ def _validate_cached_decision(
     if decision.get("sldprt_filename") != current_sldprt_filename:
         return False, "sldprt_filename_changed"
 
-    if decision.get("decision") == "use_config":
+    # 第三项：仅 use_config 检查 + COM 列配置成功才检查（CP-4 review C-2 修复）。
+    # Why: available=[] 通常是 COM transient 失败而非 SW 升级删了 config；
+    # 走 invalidation 会让用户花时间确认的决策被一次 COM 抖动洗掉。
+    # 真删除场景由调用方在 fall-through 后的规则匹配处理。
+    if (
+        decision.get("decision") == "use_config"
+        and current_available_configs
+    ):
         config_name = decision.get("config_name")
         if config_name not in current_available_configs:
             return False, "config_name_not_in_available_configs"
@@ -584,7 +596,8 @@ def _resolve_config_for_part_unlocked(
             cached, bom_signature, sldprt_filename, available,
         )
         if valid:
-            if cached["decision"] == "use_config":
+            decision_kind = cached.get("decision")
+            if decision_kind == "use_config":
                 return ConfigResolution(
                     config_name=cached["config_name"],
                     source="cached_decision",
@@ -592,13 +605,21 @@ def _resolve_config_for_part_unlocked(
                     available_configs=available,
                     notes=f"用户决策（{cached.get('decided_at', '')}）",
                 )
-            elif cached["decision"] == "fallback_cadquery":
+            elif decision_kind == "fallback_cadquery":
                 return ConfigResolution(
                     config_name=None,
                     source="cached_decision",
                     confidence=1.0,
                     available_configs=available,
                     notes=f"用户决策 fallback（{cached.get('decided_at', '')}）",
+                )
+            else:
+                # CP-4 review I-3：未知 decision 字段值不能静默 fall-through 到规则匹配，
+                # 否则破坏"用户决策优先"承诺；坏 schema（如手编出 rev1 老值 spec_amended）
+                # 应阻塞错误而非默默被规则覆盖。
+                raise ValueError(
+                    f"未知 decision 字段值: {decision_kind!r}，"
+                    f"合法值为 ['use_config', 'fallback_cadquery']"
                 )
         else:
             # 失效：先持久化 history（即便后续抛异常，磁盘状态也已收敛）
@@ -631,13 +652,15 @@ def _resolve_config_for_part_unlocked(
 
     policy = os.environ.get("CAD_AMBIGUOUS_CONFIG_POLICY", "halt")
     if policy == "fallback_cadquery":
-        # 静默 fallback —— 用户已显式 opt-in；pending 累积由 caller（gen_std_parts）处理
+        # 用户已显式 opt-in；pending 累积由 caller（gen_std_parts）从 r.pending_record 取出。
+        # spec line 89 + 278 + CP-4 review C-1：fallback 仍累积 pending 供事后审阅。
         return ConfigResolution(
             config_name=None,
             source="policy_fallback",
             confidence=0.0,
             available_configs=available,
             notes=f"CAD_AMBIGUOUS_CONFIG_POLICY=fallback_cadquery：{failure_reason}",
+            pending_record=pending_record,
         )
 
     # 默认 halt → 抛 NeedsUserDecision，caller 累积 pending 后一次性原子写

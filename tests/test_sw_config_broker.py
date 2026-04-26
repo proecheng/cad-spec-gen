@@ -820,6 +820,38 @@ class TestResolveConfigForPart:
         assert r.config_name is None
         assert r.confidence == 0.0
 
+    def test_path_4_policy_fallback_carries_pending_record(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """C-1: spec line 89 + 278 — fallback 分支必须携带 pending_record（事后审阅）。"""
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        monkeypatch.setenv("CAD_AMBIGUOUS_CONFIG_POLICY", "fallback_cadquery")
+        self._patch_com(monkeypatch, ["AAA", "BBB"])
+
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+
+        # 关键契约：caller (gen_std_parts) 能从 ConfigResolution 取出 pending_record
+        # 与 NeedsUserDecision.pending_record 走同样累积逻辑
+        assert r.pending_record is not None
+        assert r.pending_record["part_no"] == "GIS-EE-001-03"
+        assert (
+            r.pending_record["match_failure_reason"]
+            == "no_exact_or_fuzzy_match_with_high_confidence"
+        )
+
+    def test_path_1_auto_match_pending_record_is_none(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """C-1 反例：auto/cached_decision 路径不应有 pending_record（None 表示无需审阅）。"""
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        self._patch_com(monkeypatch, ["28×1.9", "80×2.4"])
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+
+        assert r.source == "auto"
+        assert r.pending_record is None
+
     def test_path_5_halt_raises_needs_user_decision(
         self, tmp_project_dir, monkeypatch
     ):
@@ -842,6 +874,101 @@ class TestResolveConfigForPart:
             exc.pending_record["match_failure_reason"]
             == "no_exact_or_fuzzy_match_with_high_confidence"
         )
+
+
+class TestValidateCachedDecisionRobustness:
+    """C-2 + I-3 修复：cache 校验和 decision 字段值的边界处理。"""
+
+    def test_validate_skips_third_check_when_available_empty(self):
+        """C-2: COM transient 失败（available=[]）时第三项校验应 short-circuit 返回 valid。
+
+        Why: available=[] 意味着 COM 列配置失败而非 SW 升级删除了 config，
+        摧毁缓存会让用户花时间确认的决策被一次 COM 抖动洗掉。
+        """
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = {
+            "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+            "sldprt_filename": "o-rings.sldprt",
+            "decision": "use_config",
+            "config_name": "80×2.4",
+        }
+        # available 为空模拟 COM 失败
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ80×2.4",
+            current_sldprt_filename="o-rings.sldprt",
+            current_available_configs=[],
+        )
+
+        assert valid is True
+        assert reason is None
+
+    def test_validate_still_checks_third_when_available_non_empty_but_missing(self):
+        """C-2 反例：available 非空但 config_name 缺失 → 仍应判失效（真删除场景）。"""
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = {
+            "bom_dim_signature": "X|Y",
+            "sldprt_filename": "f.sldprt",
+            "decision": "use_config",
+            "config_name": "old_name",
+        }
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="X|Y",
+            current_sldprt_filename="f.sldprt",
+            current_available_configs=["new_name"],  # 旧 config 真不在
+        )
+
+        assert valid is False
+        assert reason == "config_name_not_in_available_configs"
+
+    def test_resolve_unknown_decision_value_raises(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """I-3: cached decision 字段值非 use_config/fallback_cadquery → ValueError 而非静默 fall-through。
+
+        Why: 静默 fall-through 到规则匹配会破坏"用户决策优先"承诺；
+        坏 schema（手编 spec_decisions.json 引入未知值）应阻塞错误而非默默被规则覆盖。
+        """
+        import json
+
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        decisions = {
+            "schema_version": 2,
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {
+                        "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+                        "sldprt_filename": "o-rings series a gb.sldprt",
+                        "decision": "spec_amended",  # 未知值
+                        "config_name": "80×2.4",
+                        "decided_at": "2026-04-25T00:00:00+00:00",
+                    }
+                }
+            },
+            "decisions_history": [],
+        }
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text(json.dumps(decisions), encoding="utf-8")
+
+        from adapters.solidworks import sw_config_broker
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: ["80×2.4"]
+        )
+
+        bom = {
+            "part_no": "GIS-EE-001-03",
+            "name_cn": "O型圈",
+            "material": "FKM Φ80×2.4",
+        }
+        with pytest.raises(ValueError, match="未知 decision"):
+            resolve_config_for_part(
+                bom, "/abs/path/o-rings series a gb.sldprt", subsystem="end_effector"
+            )
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="msvcrt only on Windows")

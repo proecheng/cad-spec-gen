@@ -3338,3 +3338,36 @@ EOF
 ---
 
 _本计划基于 spec rev 2 拆出 23 个 task / 8 个 checkpoint；下一步用 subagent-driven-development 或 executing-plans 落地。_
+
+---
+
+## CP-4 review 落地修复 + 推迟 follow-up（2026-04-26）
+
+### 本 PR 已修（commit 待补）
+
+| ID | 严重度 | 修法 |
+|----|--------|------|
+| **C-1** | Critical | `ConfigResolution` 加 `pending_record: dict \| None = None` 字段；`policy_fallback` 分支返回时填入。spec line 89 + 278 双确认 fallback 仍累积 pending（事后审阅）。caller (gen_std_parts) 与 `NeedsUserDecision.pending_record` 走同样累积逻辑 |
+| **C-2** | Critical | `_validate_cached_decision` 第三项加 short-circuit `and current_available_configs`：available=[] 时不动 cache（COM transient 失败 vs SW 真删除 config 无法在该层区分，宁可保守不洗用户决策） |
+| **I-3** | Important | `_resolve_config_for_part_unlocked` cached 分支末尾加 `else: raise ValueError(f"未知 decision 字段值: {decision_kind!r}")`：未知 decision 值不能静默 fall-through 破坏"用户决策优先"承诺 |
+
+### 反驳：I-4 是 reviewer 误读契约方向
+
+`test_list_failure_returns_empty_and_caches` 第二段 `assert call_count[0] == 0` 是验证"失败 cache 不被后续 success 覆盖"——这恰恰是 spec §4.4 #1 "失败也缓存避免重试同 sldprt" 的契约本意。reviewer 想象的"成功应覆盖失败 cache"是另一种契约（不是本 plan 的目标）。**不修**。
+
+### 推迟到独立 follow-up（不在本 PR）
+
+| ID | 严重度 | 内容 | 计划处理时机 |
+|----|--------|------|-------------|
+| **I-1** | Important | `multiple_high_confidence_matches` 是死分支：`_match_config_by_rule` 总取 tie 中最短消除 tie 概念，但 `_build_pending_record` 仍有 multi tie 分支 | spec rev 修订标 deferred 或 `_match_config_by_rule` 补 tie 检测；属 spec drift 而非阻断 |
+| **I-2** | Important | `_resolve_config_for_part_unlocked` 失效路径若 `_save_decisions_envelope` 抛 IOError，内存 envelope 已 mutate 但磁盘未落盘 | 独立 cleanup commit：try/except 回滚 envelope + log error；影响小（进程退出后回到磁盘一致状态） |
+| **M-1** | Minor | `_list_configs_via_com` 中 `raise ValueError("not a list")` 立刻被 `except (json.JSONDecodeError, ValueError)` 捕获，绕一圈 | cleanup commit：直接 `if not isinstance: log.warning + return []` 更直白 |
+| **M-2** | Minor | `cached["decision"]` 用 `[]` 不是 `.get()`，缺字段时 KeyError 而非可控错误（与文件其他 `.get()` 风格不一致） | cleanup commit：统一 `.get()` 风格 |
+| **M-3** | Minor | `_determine_failure_reason` 中 `available == ["Default"]` 字面比对，SW 实际可能返 `"default"` 或 `"Default<As Machined>"` | spec rev 加 normalize 规则 + 代码 `[c.lower() for c in available] == ["default"]` |
+| **M-5** | Minor | `_decisions_path` 注释引用 spec §5.4 但 §5.4 是"Pending 文件生命周期"，应是 §3.4 broker 边界 | cleanup commit：doc drift 修正（顺手与本 plan §6 一致性 sweep 一起做） |
+
+### 复审完成依据
+
+- broker 全文件 60 passed（修复前 55 + 5 新增测试全 GREEN）
+- sw_* 题域 476 passed / 7 skipped（零 regression）
+- 5 新测试覆盖：C-1 正例 + C-1 反例（auto 路径无 pending_record）+ C-2 正例 + C-2 反例（真删除场景仍判失效）+ I-3 ValueError 触发
