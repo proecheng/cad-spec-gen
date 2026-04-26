@@ -570,7 +570,7 @@ class TestEndToEndPipeline:
         out_dir = tmp_path / "generated"
         out_dir.mkdir()
 
-        generated, skipped, _resolver = gen_std_parts.generate_std_part_files(
+        generated, skipped, _resolver, _pending = gen_std_parts.generate_std_part_files(
             spec_path=str(spec_path),
             output_dir=str(out_dir),
             mode="force",
@@ -636,7 +636,7 @@ class TestEndToEndPipeline:
         out_dir = tmp_path / "generated_kill"
         out_dir.mkdir()
 
-        generated, _, _resolver = gen_std_parts.generate_std_part_files(
+        generated, _, _resolver, _pending = gen_std_parts.generate_std_part_files(
             spec_path=str(spec_path),
             output_dir=str(out_dir),
             mode="force",
@@ -694,7 +694,7 @@ def test_resolver_skip_not_in_gen_output(tmp_path, monkeypatch):
     out_dir = tmp_path / "std_parts"
     out_dir.mkdir()
 
-    generated, skipped, _resolver = gen_std_parts.generate_std_part_files(
+    generated, skipped, _resolver, _pending = gen_std_parts.generate_std_part_files(
         spec_path=str(spec_path),
         output_dir=str(out_dir),
         mode="force",

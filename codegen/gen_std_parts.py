@@ -7,8 +7,12 @@ Instead it delegates to `parts_resolver.PartsResolver`, which picks the right
 adapter (bd_warehouse, STEP pool, PartCAD, or jinja_primitive fallback) based
 on a project-local YAML registry (`parts_library.yaml`).
 
-Public contract (unchanged):
-- `generate_std_part_files(spec_path, output_dir, mode)` signature is identical
+Public contract:
+- `generate_std_part_files(spec_path, output_dir, mode)` returns 4-tuple
+  `(generated, skipped, resolver, pending_records)`. The `pending_records` dict
+  (subsystem → list of pending records) is populated by Task 15 when
+  `sw_config_broker` raises `NeedsUserDecision` for ambiguous Toolbox configs;
+  Task 16 atomically writes it to `<project>/.cad-spec-gen/sw_config_pending.json`.
 - Generated `std_*.py` modules expose `make_std_*() -> cq.Workplane` with no args
 - Without a `parts_library.yaml`, behavior is byte-identical to pre-refactor
   (JinjaPrimitiveAdapter is the terminal fallback and reproduces `_gen_*` verbatim)
@@ -20,8 +24,10 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 _PROJECT_ROOT = str(Path(__file__).parent.parent)
@@ -32,6 +38,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+from adapters.solidworks.sw_config_broker import NeedsUserDecision
 from bom_parser import classify_part
 from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
@@ -245,7 +252,7 @@ def generate_std_part_files(
     spec_path: str,
     output_dir: str,
     mode: str = "scaffold",
-) -> tuple[list, list, "PartsResolver"]:
+) -> tuple[list, list, "PartsResolver", dict[str, list[dict]]]:
     """Generate simplified CadQuery files for purchased standard parts.
 
     Args:
@@ -253,7 +260,11 @@ def generate_std_part_files(
         output_dir: Where to write std_*.py files
         mode: "scaffold" (skip existing), "force" (overwrite existing)
 
-    Returns (generated_files, skipped_files).
+    Returns (generated_files, skipped_files, resolver, pending_records).
+
+    pending_records maps subsystem → list of records for parts where
+    sw_config_broker raised NeedsUserDecision (ambiguous Toolbox config).
+    Task 16 turns this into sw_config_pending.json + exit 7.
     """
     parts = parse_bom_tree(spec_path)
     envelopes = parse_envelopes(spec_path)
@@ -266,6 +277,37 @@ def generate_std_part_files(
 
     generated = []
     skipped = []
+    pending_records: dict[str, list[dict]] = {}
+
+    # ─── Task 14.6：build 全 BOM PartQuery list + prewarm 触发 broker batch worker ───
+    # 把现有 loop 内的 PartQuery build 提到 loop 之前，让 prewarm 拿到完整 query 列表
+    # （adapter.prewarm 用 find_sldprt 收集 sldprt → broker.prewarm 1 次 batch spawn）
+    queries_for_prewarm: list[PartQuery] = []
+    for p in parts:
+        if p["is_assembly"]:
+            continue
+        if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
+            continue
+        category = classify_part(p["name_cn"], p["material"])
+        if category in _SKIP_CATEGORIES:
+            continue
+        env = envelopes.get(p["part_no"])
+        queries_for_prewarm.append(PartQuery(
+            part_no=p["part_no"],
+            name_cn=p["name_cn"],
+            material=p["material"],
+            category=category,
+            make_buy=p.get("make_buy", ""),
+            spec_envelope=_envelope_to_spec_envelope(env),
+            spec_envelope_granularity=_envelope_to_granularity(env),
+            project_root=project_root,
+        ))
+    if queries_for_prewarm:
+        try:
+            resolver.prewarm(queries_for_prewarm)
+        except Exception as e:
+            print(f"[gen_std_parts] prewarm 跳过（{type(e).__name__}: {e}）")
+    # ─── /Task 14.6 ───
 
     for p in parts:
         if p["is_assembly"]:
@@ -290,7 +332,19 @@ def generate_std_part_files(
             project_root=project_root,
         )
 
-        result = resolver.resolve(query)
+        try:
+            result = resolver.resolve(query)
+        except NeedsUserDecision as exc:
+            # broker 在含糊匹配时抛此异常，携带 part_no / subsystem / pending_record。
+            # 累积到 pending_records 等待 main 一次性原子写 sw_config_pending.json
+            # （Task 16）。跳过该零件 std_*.py 生成，继续处理后续零件。
+            pending_records.setdefault(exc.subsystem, []).append(exc.pending_record)
+            print(
+                f"[pending] {exc.subsystem}/{exc.part_no} 等待用户决策 "
+                f"({exc.pending_record.get('match_failure_reason', 'unknown')})"
+            )
+            continue
+
         if result.status in {"miss", "skip"} or result.kind == "miss":
             # Nothing matched, not even the jinja fallback → skip silently.
             # This happens for parts the fallback doesn't know how to draw
@@ -320,7 +374,32 @@ def generate_std_part_files(
         for line in report.splitlines():
             print(f"[gen_std_parts] {line}")
 
-    return generated, skipped, resolver
+    return generated, skipped, resolver, pending_records
+
+
+def _write_pending_file(
+    pending_records: dict[str, list[dict]], path: Path
+) -> None:
+    """一次性原子写 sw_config_pending.json schema v2（spec §5.3 + §5.4）。
+
+    封装 envelope 加 schema_version / generated_at / pending_count 字段，
+    items_by_subsystem 嵌套原始 records；先写 .tmp 再 os.replace 保证
+    并发读到的要么是旧文件要么是完整新文件，不出现部分写入。
+    """
+    total = sum(len(items) for items in pending_records.values())
+    envelope = {
+        "schema_version": 2,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "pending_count": total,
+        "items_by_subsystem": pending_records,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
 
 
 def main():
@@ -365,7 +444,7 @@ def main():
     output_dir = args.output_dir or os.path.dirname(spec_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    generated, skipped, resolver = generate_std_part_files(spec_path, output_dir, mode=args.mode)
+    generated, skipped, resolver, pending_records = generate_std_part_files(spec_path, output_dir, mode=args.mode)
 
     # ─── A3: resolve_report.json（必须在 emit_report 前完成，供 HTML routing 区块使用）───
     _rr = None
@@ -416,6 +495,19 @@ def main():
         print(f"  + {os.path.basename(f)}")
     if skipped:
         print(f"  (skipped: {', '.join(os.path.basename(f) for f in skipped)})")
+
+    # ─── Task 16：sw_config_pending.json 一次性原子写（含糊匹配 broker 累积） ───
+    if pending_records:
+        pending_path = (
+            Path(os.environ.get("CAD_PROJECT_ROOT", os.getcwd()))
+            / ".cad-spec-gen" / "sw_config_pending.json"
+        )
+        _write_pending_file(pending_records, pending_path)
+        print(
+            f"[pending] 已写 {sum(len(v) for v in pending_records.values())} "
+            f"项到 {pending_path}（待用户决策；exit 7 在 Task 17 加）"
+        )
+    # ─── /Task 16 ───
 
 
 if __name__ == "__main__":

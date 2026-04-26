@@ -12,6 +12,7 @@ content mutation regardless of timestamp resolution.
 """
 
 import hashlib
+import importlib
 import sys
 from pathlib import Path
 
@@ -167,3 +168,63 @@ def mock_provenance(tmp_path):
 
 
 # ─── /Task 32 ───
+
+
+# ─── Task 8 (sw_config_broker plan)：tmp_project_dir fixture ───
+
+
+@pytest.fixture
+def tmp_project_dir(tmp_path, monkeypatch):
+    """为 broker 测试提供独立项目目录。
+
+    - 在 tmp_path 下建 .cad-spec-gen/ 子目录（broker decisions/pending 文件存放处）
+    - 设 CAD_PROJECT_ROOT env 指向 tmp_path
+    - reload cad_paths 让模块级常量 PROJECT_ROOT 重新读取 env
+
+    yields: tmp_path (Path) — 项目根
+
+    与 isolate_cad_spec_gen_home autouse fixture 正交：
+      - isolate_cad_spec_gen_home 隔离的是 **用户 home** (~/.cad-spec-gen/)
+      - tmp_project_dir 隔离的是 **项目根** (<project>/.cad-spec-gen/)
+      - broker 的 decisions/pending 文件写后者；前者管的是用户级 cache/config
+    """
+    cad_dir = tmp_path / ".cad-spec-gen"
+    cad_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("CAD_PROJECT_ROOT", str(tmp_path))
+
+    if "cad_paths" in sys.modules:
+        importlib.reload(sys.modules["cad_paths"])
+
+    yield tmp_path
+
+    # teardown：再 reload 一次让 PROJECT_ROOT 回到默认 cwd，避免污染下一个测试
+    if "cad_paths" in sys.modules:
+        importlib.reload(sys.modules["cad_paths"])
+
+
+# ─── /Task 8 ───
+
+
+# ─── Task 14.5 (P0)：默认禁用 sw_config_broker 真路径 ───
+
+
+@pytest.fixture(autouse=True, scope="function")
+def disable_sw_config_broker_by_default(monkeypatch):
+    """所有 pytest 默认设 CAD_SW_BROKER_DISABLE=1，broker 走 policy_fallback 短路。
+
+    防护目的（spec rev 2 + Task 14.5 + session 33 真观察）：
+    - SW Premium silent automation 在 license / Toolbox add-in 等场景仍可能弹
+      modal 对话框，卡死 worker subprocess（已实测）
+    - 任何漏 mock 的测试若走到 _list_configs_via_com 会真 spawn worker → 启 SW
+    - 此 autouse 把 broker 默认锁死在 policy_fallback；只有需要真跑 broker 路径的
+      测试（TestResolveConfigForPart / TestValidateCachedDecisionRobustness /
+      TestFileLock / TestBrokerSafetyValve 等）显式 monkeypatch.delenv opt-out
+
+    与 isolate_cad_spec_gen_home 正交：一个守 home dir，一个守 SW 触发。
+    """
+    monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+    yield
+
+
+# ─── /Task 14.5 ───

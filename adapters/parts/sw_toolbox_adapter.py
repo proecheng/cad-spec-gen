@@ -144,7 +144,7 @@ class SwToolboxAdapter(PartsAdapter):
         return True
 
     def resolve(self, query, spec: dict):
-        """主编排流程（v4 §3.2）。
+        """主编排流程（rev 2 接入 sw_config_broker）。
 
         步骤：
         1. 加载 Toolbox 索引
@@ -153,13 +153,18 @@ class SwToolboxAdapter(PartsAdapter):
         4. 构造加权 tokens
         5. token overlap 打分
         6. sldprt 路径遍历防御（决策 #20）
-        7. 构造缓存 STEP 路径
-        8. 缓存命中 → 直接返回（不触发 COM）
-        9. 缓存未命中 → 触发 COM 转换
+        7. 委托 broker.resolve_config_for_part 解析 config_name
+           - source=auto / cached_decision use_config → 触发 STEP 导出
+           - source=cached_decision fallback / policy_fallback → miss 让 CadQuery 兜底
+           - 抛 NeedsUserDecision → propagate 给 caller (gen_std_parts)
         """
         from parts_resolver import ResolveResult
         from adapters.solidworks import sw_toolbox_catalog
         from adapters.solidworks.sw_com_session import get_session
+        from adapters.solidworks.sw_config_broker import (
+            ConfigResolution,
+            resolve_config_for_part,
+        )
         from adapters.solidworks.sw_detect import detect_solidworks
 
         info = detect_solidworks()
@@ -223,58 +228,60 @@ class SwToolboxAdapter(PartsAdapter):
                 "sldprt path validation failed (possible index tampering)"
             )
 
-        # 7. 构造缓存 STEP 路径（B-16：含 config 后缀）
-        cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
-        resolver_cfg = self.config.get("config_name_resolver", {})
-        material = getattr(query, "material", "") or ""
-        target_config = _build_candidate_config(material, resolver_cfg) if resolver_cfg else None
-
-        safe_config = re.sub(r'[^\w.\-]', '_', target_config) if target_config else ""
-        cache_stem = (
-            f"{Path(part.filename).stem}_{safe_config}"
-            if safe_config
-            else Path(part.filename).stem
+        # 7. 委托 broker 解析 config_name（rev 2 接入 sw_config_broker）
+        bom_row = {
+            "part_no": getattr(query, "part_no", "") or "",
+            "name_cn": getattr(query, "name_cn", "") or "",
+            "material": getattr(query, "material", "") or "",
+        }
+        subsystem = (
+            getattr(query, "subsystem", "")
+            or spec.get("subsystem", "")
+            or "default"
         )
-        step_abs = cache_root / part.standard / part.subcategory / (cache_stem + ".step")
 
-        # 8. 缓存命中 → 直接返回
-        if step_abs.exists():
-            dims = self._probe_step_bbox(step_abs)
+        # NeedsUserDecision 不在此层捕获 —— gen_std_parts 累积 pending 后一次性原子写。
+        resolution: ConfigResolution = resolve_config_for_part(
+            bom_row=bom_row,
+            sldprt_path=part.sldprt_path,
+            subsystem=subsystem,
+        )
+
+        # broker 已宣告 fallback（cached_decision fallback_cadquery / policy_fallback）
+        # → adapter 返回 miss 让 CadQuery 兜底
+        if resolution.config_name is None:
             return ResolveResult(
-                status="hit",
-                kind="step_import",
+                status="miss",
+                kind="miss",
                 adapter=self.name,
-                step_path=str(step_abs),
-                real_dims=dims,
-                source_tag=f"sw_toolbox:{part.standard}/{part.subcategory}/{part.filename}",
                 metadata={
-                    "dims": dims,
-                    "match_score": score,
-                    "configuration": target_config or "<default>",
-                    "config_match": "matched" if target_config else "n/a",
+                    "config_match": resolution.source,
+                    "config_confidence": resolution.confidence,
                 },
+                warnings=[
+                    f"broker fallback ({resolution.source}): {resolution.notes}",
+                ],
             )
 
-        # 9. 缓存未命中 → 触发 COM
-        session = get_session()
-        if not session.is_healthy():
-            return self._miss("COM session unhealthy (circuit breaker tripped)")
+        # 8. config_name 有值 → 构造 cache STEP 路径（含 config 后缀）
+        cache_root = sw_toolbox_catalog.get_toolbox_cache_root(self.config)
+        safe_config = re.sub(r'[^\w.\-]', '_', resolution.config_name)
+        cache_stem = f"{Path(part.filename).stem}_{safe_config}"
+        step_abs = cache_root / part.standard / part.subcategory / (cache_stem + ".step")
 
-        ok = session.convert_sldprt_to_step(part.sldprt_path, str(step_abs), target_config)
-        if not ok:
-            stage = (session.last_convert_diagnostics or {}).get("stage", "")
-            if stage == "config_not_found":
-                log.warning(
-                    "Toolbox config 未匹配 %s → 回退 bd_warehouse", target_config
+        # 9. 缓存命中 → 直接返回；未命中 → 触发 COM 转换
+        if not step_abs.exists():
+            session = get_session()
+            if not session.is_healthy():
+                return self._miss("COM session unhealthy (circuit breaker tripped)")
+
+            ok = session.convert_sldprt_to_step(
+                part.sldprt_path, str(step_abs), resolution.config_name,
+            )
+            if not ok:
+                return self._miss(
+                    f"COM convert failed for config={resolution.config_name}"
                 )
-                return ResolveResult(
-                    status="miss",
-                    kind="miss",
-                    adapter=self.name,
-                    metadata={"config_match": "fallback"},
-                    warnings=[f"config not found: {target_config}"],
-                )
-            return self._miss("COM convert failed")
 
         dims = self._probe_step_bbox(step_abs)
         return ResolveResult(
@@ -287,8 +294,9 @@ class SwToolboxAdapter(PartsAdapter):
             metadata={
                 "dims": dims,
                 "match_score": score,
-                "configuration": target_config or "<default>",
-                "config_match": "matched" if target_config else "n/a",
+                "configuration": resolution.config_name,
+                "config_match": resolution.source,
+                "config_confidence": resolution.confidence,
             },
         )
 
@@ -393,6 +401,34 @@ class SwToolboxAdapter(PartsAdapter):
             )
         except Exception:
             return None
+
+    def prewarm(self, candidates) -> None:
+        """Pre-warm broker config_lists cache（Task 14.6 / spec §3.1）。
+
+        candidates: list[tuple[PartQuery, dict]] — PartsResolver 已 rule-match
+        派发到本 adapter 的 (query, rule.spec) 列表。
+
+        流程：
+          1. 对每对 (query, spec) 调 find_sldprt 收集 sldprt_path（catalog-only，不触发 COM）
+          2. 收集到 ≥1 个 sldprt → 调 broker.prewarm_config_lists 触发 batch spawn worker
+          3. 收集到 0 个 → broker 不调（避免 prewarm 空 batch overhead）
+
+        失败容忍：本层不嵌套 try/except；PartsResolver.prewarm 已有 per-adapter 兜底。
+        """
+        from adapters.solidworks.sw_config_broker import prewarm_config_lists
+
+        sldprt_paths = []
+        for query, spec in candidates:
+            match = self.find_sldprt(query, spec)
+            if match is None:
+                continue
+            part, _score = match
+            sldprt_paths.append(part.sldprt_path)
+
+        if not sldprt_paths:
+            return
+
+        prewarm_config_lists(sldprt_paths)
 
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:
         """v4 §1.3 已知限制: 缓存未命中 → None。
