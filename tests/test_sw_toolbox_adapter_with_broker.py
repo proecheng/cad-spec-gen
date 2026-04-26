@@ -353,3 +353,58 @@ class TestWritePendingFile:
         target = tmp_path / "deeper" / "newdir" / "sw_config_pending.json"
         _write_pending_file({"sub": [{"part_no": "P"}]}, target)
         assert target.exists()
+
+
+class TestGenStdPartsPrewarmIntegration:
+    """Task 14.6 / Task 12：gen_std_parts.generate_std_part_files 入口在
+    BOM loop 之前调 resolver.prewarm(queries) 触发预热（spec §3.1）。"""
+
+    def test_generate_calls_resolver_prewarm_before_loop(self, tmp_path, monkeypatch):
+        """generate_std_part_files 在 BOM loop 之前调 resolver.prewarm(queries)，
+        且传的是已 build 的 PartQuery 列表（不是 raw BOM dict）."""
+        from codegen import gen_std_parts as g
+        from parts_resolver import ResolveResult
+
+        fake_parts = [
+            {
+                "part_no": "GIS-EE-001-01", "name_cn": "螺栓1",
+                "material": "GB/T 70.1 M6×20",
+                "is_assembly": False, "make_buy": "外购",
+            },
+            {
+                "part_no": "GIS-EE-001-02", "name_cn": "螺栓2",
+                "material": "GB/T 70.1 M8×30",
+                "is_assembly": False, "make_buy": "外购",
+            },
+        ]
+        monkeypatch.setattr(g, "parse_bom_tree", lambda spec_path: fake_parts)
+        monkeypatch.setattr(g, "parse_envelopes", lambda spec_path: {})
+        # bearing 不在 _SKIP_CATEGORIES → loop 会调 resolver.resolve
+        monkeypatch.setattr(g, "classify_part", lambda name, mat: "bearing")
+
+        prewarm_calls = []
+
+        class FakeResolver:
+            adapters = []
+
+            def prewarm(self, queries):
+                prewarm_calls.append([q.part_no for q in queries])
+
+            def resolve(self, q):
+                return ResolveResult(status="miss", kind="miss", adapter="")
+
+            def coverage_report(self):
+                return ""
+
+        monkeypatch.setattr(g, "default_resolver", lambda **kw: FakeResolver())
+
+        spec_path = tmp_path / "spec.md"
+        spec_path.write_text("# fake\n", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        g.generate_std_part_files(str(spec_path), str(out_dir))
+
+        # prewarm 被调一次，传的 part_no 列表与 BOM 顺序一致
+        assert len(prewarm_calls) == 1
+        assert prewarm_calls[0] == ["GIS-EE-001-01", "GIS-EE-001-02"]

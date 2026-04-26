@@ -279,6 +279,36 @@ def generate_std_part_files(
     skipped = []
     pending_records: dict[str, list[dict]] = {}
 
+    # ─── Task 14.6：build 全 BOM PartQuery list + prewarm 触发 broker batch worker ───
+    # 把现有 loop 内的 PartQuery build 提到 loop 之前，让 prewarm 拿到完整 query 列表
+    # （adapter.prewarm 用 find_sldprt 收集 sldprt → broker.prewarm 1 次 batch spawn）
+    queries_for_prewarm: list[PartQuery] = []
+    for p in parts:
+        if p["is_assembly"]:
+            continue
+        if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
+            continue
+        category = classify_part(p["name_cn"], p["material"])
+        if category in _SKIP_CATEGORIES:
+            continue
+        env = envelopes.get(p["part_no"])
+        queries_for_prewarm.append(PartQuery(
+            part_no=p["part_no"],
+            name_cn=p["name_cn"],
+            material=p["material"],
+            category=category,
+            make_buy=p.get("make_buy", ""),
+            spec_envelope=_envelope_to_spec_envelope(env),
+            spec_envelope_granularity=_envelope_to_granularity(env),
+            project_root=project_root,
+        ))
+    if queries_for_prewarm:
+        try:
+            resolver.prewarm(queries_for_prewarm)
+        except Exception as e:
+            print(f"[gen_std_parts] prewarm 跳过（{type(e).__name__}: {e}）")
+    # ─── /Task 14.6 ───
+
     for p in parts:
         if p["is_assembly"]:
             continue
