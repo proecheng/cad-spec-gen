@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -644,13 +645,30 @@ def _determine_failure_reason(available: list[str]) -> str:
 
 LOCK_FILE_NAME = "lock"
 
+# ━━ I-3 锁等待行为参数（PR #19 review fix，spec §3.2）━━━━━━━━━━━━━━━━━━━━━━━━
+LOCK_POLL_INTERVAL_SEC = 0.5        # 每次 LK_NBLCK 失败后 sleep
+LOCK_PROGRESS_INTERVAL_SEC = 5      # 进度提示间隔（首次立刻，之后每 5s）
+
+_LOCK_WAITING_BANNER = (
+    "⏳ 检测到另一个 codegen 实例正占用项目锁 ({path})，正在排队等待。\n"
+    "   - 想中止：按 Ctrl+C\n"
+    "   - 不要手动删除锁文件：与运行中实例并发改 cache 会损坏决策记录，\n"
+    "     导致下次跑用错的 SW 配置（图像与 BOM 不一致）"
+)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
 @contextlib.contextmanager
 def _project_file_lock() -> Iterator[None]:
-    """文件锁 <project>/.cad-spec-gen/lock（spec §6 并发跑 codegen）。
+    """文件锁 <project>/.cad-spec-gen/lock（spec §6 + PR #19 review I-3）。
 
-    Windows: msvcrt.locking 阻塞模式 LK_LOCK 获取独占锁；
-    非 Windows: 静默 yield（无锁——CI Linux 单元测试不依赖真并发）。
+    Windows: msvcrt.LK_NBLCK 非阻塞 + 永不超时 polling + 撞锁立即提示 + 每 5s 进度
+    非 Windows: 静默 yield（CI Linux 单元测试不依赖真并发；产品 Windows-only）
+
+    永不超时的理由（spec §3.4）：Windows msvcrt 锁 handle 与进程严格绑定，对方进程
+    死必释放，不存在 stale lock。让用户用 Ctrl+C 主动控制，避免自动 hard fail 后引诱
+    用户手动删锁文件造成 cache 数据竞争（损坏 spec_decisions.json → 下次跑用错配置 →
+    SW 件 mismatch → 图像非照片级）。
     """
     if sys.platform != "win32":
         yield
@@ -665,8 +683,33 @@ def _project_file_lock() -> Iterator[None]:
 
     fp = lock_path.open("a+b")
     try:
-        # LK_LOCK = 阻塞模式获取独占锁（最多重试 ~10s 后抛 OSError）
-        msvcrt.locking(fp.fileno(), msvcrt.LK_LOCK, 1)
+        wait_started_at = time.monotonic()
+        last_progress_at = 0.0
+        first_attempt = True
+        while True:
+            try:
+                msvcrt.locking(fp.fileno(), msvcrt.LK_NBLCK, 1)
+                break  # 拿到锁
+            except OSError:
+                now = time.monotonic()
+                elapsed = now - wait_started_at
+                if first_attempt:
+                    print(
+                        _LOCK_WAITING_BANNER.format(path=lock_path),
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    first_attempt = False
+                    last_progress_at = now
+                elif now - last_progress_at >= LOCK_PROGRESS_INTERVAL_SEC:
+                    print(
+                        f"⏳ 仍在等待锁释放...（已等 {int(elapsed)}s）",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    last_progress_at = now
+                time.sleep(LOCK_POLL_INTERVAL_SEC)
+
         try:
             yield
         finally:
