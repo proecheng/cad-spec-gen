@@ -284,6 +284,35 @@ class PartsResolver:
 
         return ResolveResult.miss()
 
+    def prewarm(self, queries: list["PartQuery"]) -> None:
+        """Pre-warm hook：派发 candidates 给所有 adapter（Task 14.6 / spec §3.1）。
+
+        rule matching 在 resolver 层做（不在 adapter 层）：adapter 不知道 rule.spec，
+        必须由 resolver 按 first-hit-wins 算出 (query, rule.spec) tuple 派发给目标 adapter。
+
+        Per-adapter try/except：单 adapter 失败不阻其他 adapter / 不阻 codegen
+        （prewarm 是加速优化不是必要前置）。
+
+        Returns None — fire-and-forget。
+        """
+        for adapter in self.adapters:
+            candidates = []  # list[tuple[PartQuery, dict]]
+            for q in queries:
+                for rule in self.registry.get("mappings", []):
+                    if not _match_rule(rule.get("match", {}), q):
+                        continue
+                    if rule.get("adapter", "") != adapter.name:
+                        break  # first-hit 不归此 adapter，跳过此 query
+                    candidates.append((q, rule.get("spec", {})))
+                    break  # first-hit-wins 与 PartsResolver.resolve 一致
+            if not candidates:
+                continue
+            try:
+                adapter.prewarm(candidates)
+            except Exception as e:
+                self.log(f"  [resolver] prewarm '{adapter.name}' failed: {e}")
+        return None
+
     def probe_dims(self, query: PartQuery) -> Optional[tuple]:
         """Fast (w, d, h) lookup for Phase 1 envelope backfill.
 
