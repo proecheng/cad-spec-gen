@@ -164,3 +164,30 @@ def _build_bom_dim_signature(bom_row: dict[str, Any]) -> str:
     name_cn = bom_row.get("name_cn") or ""
     material = bom_row.get("material") or ""
     return f"{name_cn}|{material}"
+
+
+def _validate_cached_decision(
+    decision: dict[str, Any],
+    current_bom_signature: str,
+    current_sldprt_filename: str,
+    current_available_configs: list[str],
+) -> tuple[bool, str | None]:
+    """三项校验（spec §5.2）。返回 (is_valid, invalidation_reason)。
+
+    - bom_dim_signature_changed: BOM 行字段变了（用户改了 spec）
+    - sldprt_filename_changed: SW 升级换了 SLDPRT 文件
+    - config_name_not_in_available_configs: SW 升级后该 config 改名/删除
+      （仅 decision="use_config" 时检查；fallback_cadquery 跳过）
+    """
+    if decision.get("bom_dim_signature") != current_bom_signature:
+        return False, "bom_dim_signature_changed"
+
+    if decision.get("sldprt_filename") != current_sldprt_filename:
+        return False, "sldprt_filename_changed"
+
+    if decision.get("decision") == "use_config":
+        config_name = decision.get("config_name")
+        if config_name not in current_available_configs:
+            return False, "config_name_not_in_available_configs"
+
+    return True, None

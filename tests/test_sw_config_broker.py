@@ -234,3 +234,85 @@ class TestMatchConfigByRuleL2:
         # L1 等值不命中（都有前后缀），L2 子串多命中 → 取最短
         # 长度: "VERY_LONG_PREFIX-80x2.4"=23, "80x2.4-suffix"=13, "abc-80x2.4"=10
         assert result[0] == "abc-80x2.4"
+
+
+class TestValidateCachedDecision:
+    """spec §5.2: 三项失效条件"""
+
+    def _make_decision(self, **overrides):
+        base = {
+            "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+            "sldprt_filename": "o-rings series a gb.sldprt",
+            "decision": "use_config",
+            "config_name": "80×2.4",
+            "user_note": "",
+            "decided_at": "2026-04-25T22:25:11+00:00",
+        }
+        base.update(overrides)
+        return base
+
+    def test_valid_decision_passes(self):
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = self._make_decision()
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ80×2.4",
+            current_sldprt_filename="o-rings series a gb.sldprt",
+            current_available_configs=["28×1.9", "80×2.4", "100×3.0"],
+        )
+        assert valid is True
+        assert reason is None
+
+    def test_bom_dim_signature_changed(self):
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = self._make_decision()
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ100×3.0",  # 改了
+            current_sldprt_filename="o-rings series a gb.sldprt",
+            current_available_configs=["28×1.9", "80×2.4"],
+        )
+        assert valid is False
+        assert reason == "bom_dim_signature_changed"
+
+    def test_sldprt_filename_changed(self):
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = self._make_decision()
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ80×2.4",
+            current_sldprt_filename="o-rings series b gb.sldprt",  # 改了
+            current_available_configs=["28×1.9", "80×2.4"],
+        )
+        assert valid is False
+        assert reason == "sldprt_filename_changed"
+
+    def test_config_name_not_in_available(self):
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = self._make_decision()
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ80×2.4",
+            current_sldprt_filename="o-rings series a gb.sldprt",
+            current_available_configs=["28×1.9"],  # 没了 80×2.4
+        )
+        assert valid is False
+        assert reason == "config_name_not_in_available_configs"
+
+    def test_fallback_cadquery_skips_config_check(self):
+        """spec §5.2: decision=fallback_cadquery 时跳过第三项检查（无 config_name 可校）"""
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = self._make_decision(decision="fallback_cadquery", config_name=None)
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature="O型圈|FKM Φ80×2.4",
+            current_sldprt_filename="o-rings series a gb.sldprt",
+            current_available_configs=[],  # 即使空也 OK
+        )
+        assert valid is True
+        assert reason is None
