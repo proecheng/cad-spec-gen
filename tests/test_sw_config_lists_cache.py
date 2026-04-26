@@ -107,3 +107,117 @@ class TestLoadCache:
         cache = m._load_config_lists_cache()
         assert cache["entries"] == {}  # 旧 v999 entries 不读
         assert cache["schema_version"] == m.CONFIG_LISTS_SCHEMA_VERSION
+
+
+class TestEnvelopeInvalidated:
+    """Envelope-level 失效（spec §4 场景 D）：sw_version / toolbox_path 任一不符。"""
+
+    def test_first_run_empty_cache_invalidated(self, monkeypatch):
+        """空 cache (sw_version=None) 必失效。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/SW"),
+        )
+        cache = m._empty_config_lists_cache()
+        assert m._envelope_invalidated(cache) is True
+
+    def test_matching_envelope_not_invalidated(self, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/SW"),
+        )
+        cache = {
+            "schema_version": 1, "sw_version": 24, "toolbox_path": "C:/SW",
+            "entries": {},
+        }
+        assert m._envelope_invalidated(cache) is False
+
+    def test_sw_version_mismatch_invalidated(self, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/SW"),
+        )
+        cache = {
+            "schema_version": 1, "sw_version": 23, "toolbox_path": "C:/SW",
+            "entries": {"C:/p.sldprt": {"mtime": 1, "size": 1, "configs": []}},
+        }
+        assert m._envelope_invalidated(cache) is True
+
+    def test_toolbox_path_mismatch_invalidated(self, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/NewSW"),
+        )
+        cache = {
+            "schema_version": 1, "sw_version": 24, "toolbox_path": "C:/SW",
+            "entries": {},
+        }
+        assert m._envelope_invalidated(cache) is True
+
+
+class TestEntryValid:
+    """Per-entry 失效（spec §4 场景 C）：mtime / size 任一不符。"""
+
+    def test_missing_entry_invalid(self, tmp_path):
+        from adapters.solidworks import sw_config_lists_cache as m
+        cache = {"entries": {}}
+        sldprt = tmp_path / "p.sldprt"
+        sldprt.write_bytes(b"x" * 100)
+        assert m._config_list_entry_valid(cache, str(sldprt)) is False
+
+    def test_matching_mtime_size_valid(self, tmp_path):
+        from adapters.solidworks import sw_config_lists_cache as m
+        sldprt = tmp_path / "p.sldprt"
+        sldprt.write_bytes(b"x" * 100)
+        st = sldprt.stat()
+        cache = {"entries": {str(sldprt): {
+            "mtime": int(st.st_mtime), "size": st.st_size, "configs": ["A"],
+        }}}
+        assert m._config_list_entry_valid(cache, str(sldprt)) is True
+
+    def test_mtime_mismatch_invalid(self, tmp_path):
+        from adapters.solidworks import sw_config_lists_cache as m
+        sldprt = tmp_path / "p.sldprt"
+        sldprt.write_bytes(b"x" * 100)
+        cache = {"entries": {str(sldprt): {
+            "mtime": 0, "size": sldprt.stat().st_size, "configs": ["A"],
+        }}}
+        assert m._config_list_entry_valid(cache, str(sldprt)) is False
+
+    def test_size_mismatch_invalid(self, tmp_path):
+        from adapters.solidworks import sw_config_lists_cache as m
+        sldprt = tmp_path / "p.sldprt"
+        sldprt.write_bytes(b"x" * 100)
+        st = sldprt.stat()
+        cache = {"entries": {str(sldprt): {
+            "mtime": int(st.st_mtime), "size": 0, "configs": ["A"],
+        }}}
+        assert m._config_list_entry_valid(cache, str(sldprt)) is False
+
+    def test_missing_sldprt_file_invalid(self):
+        """sldprt 文件已删 → entry 视为 invalid（下次 prewarm 不会重列删了的件）。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+        cache = {"entries": {"C:/no_such.sldprt": {
+            "mtime": 100, "size": 100, "configs": ["A"],
+        }}}
+        assert m._config_list_entry_valid(cache, "C:/no_such.sldprt") is False

@@ -80,3 +80,61 @@ def _load_config_lists_cache() -> dict[str, Any]:
         )
         return _empty_config_lists_cache()
     return cache
+
+
+def _stat_mtime(path: str) -> int | None:
+    """返 sldprt 文件 mtime epoch int；文件不存在/不可读返 None。"""
+    try:
+        return int(Path(path).stat().st_mtime)
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def _stat_size(path: str) -> int | None:
+    """返 sldprt 文件 size bytes；文件不存在/不可读返 None。"""
+    try:
+        return Path(path).stat().st_size
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def _envelope_invalidated(cache: dict[str, Any]) -> bool:
+    """Envelope-level 失效判定（spec §4 场景 D）。
+
+    sw_version 或 toolbox_path 任一与当前 detect_solidworks() 结果不符 → True。
+    True 时调用方应清空 cache['entries'] 视为全 batch 重列。
+
+    detect_solidworks() 在非 Windows / SW 未装时返 SwInfo(installed=False, version_year=0,
+    toolbox_dir="")，此处比较仍 well-defined。
+    """
+    from adapters.solidworks.sw_detect import detect_solidworks
+    info = detect_solidworks()
+    if cache.get("sw_version") != info.version_year:
+        return True
+    if cache.get("toolbox_path") != info.toolbox_dir:
+        return True
+    return False
+
+
+def _config_list_entry_valid(cache: dict[str, Any], sldprt_path: str) -> bool:
+    """Per-entry 失效判定（spec §4 场景 C）。
+
+    True 当且仅当：
+    1. cache['entries'] 含该 sldprt_path
+    2. 当前 sldprt 文件 mtime == cache 记录
+    3. 当前 sldprt 文件 size == cache 记录
+
+    sldprt 文件已删 → mtime/size = None → 必不等 → False。
+    """
+    entry = cache.get("entries", {}).get(sldprt_path)
+    if entry is None:
+        return False
+    current_mtime = _stat_mtime(sldprt_path)
+    current_size = _stat_size(sldprt_path)
+    if current_mtime is None or current_size is None:
+        return False
+    if entry.get("mtime") != current_mtime:
+        return False
+    if entry.get("size") != current_size:
+        return False
+    return True
