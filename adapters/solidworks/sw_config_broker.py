@@ -563,6 +563,21 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
         info = detect_solidworks()
         cache["sw_version"] = info.version_year
         cache["toolbox_path"] = info.toolbox_dir
+        # ━━ I-2 修复（PR #19 review fix）：envelope 升级决策立即落盘 ━━━━━━━━━━━━━━━
+        # 不依赖后续 worker 成功；防"worker 失败 → 内存 envelope 丢 → 下次 prewarm
+        # 又重检测 invalidate"循环。spec §4.1 / §5.2。
+        try:
+            cache_mod._save_config_lists_cache(cache)
+        except Exception as e:
+            # fire-and-forget 契约（spec §5.3 invariant 1）：BOM loop 必须能拿到结果。
+            # except Exception 而非 OSError：cache_mod 内部 bug（KeyError/AttributeError 等）
+            # 也应 warn 而非 abort 整个 codegen。BaseException 子类（KeyboardInterrupt /
+            # SystemExit）天然不被 catch，仍上抛保证 Ctrl+C 立即生效。
+            log.warning(
+                "config_lists envelope save 失败 (%s)；下次 prewarm 仍会重检测 invalidate",
+                e,
+            )
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     miss = [
         p for p in sldprt_list

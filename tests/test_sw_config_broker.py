@@ -3,6 +3,9 @@ import sys
 
 import pytest
 
+from adapters.solidworks import sw_config_broker as broker
+from adapters.solidworks import sw_config_lists_cache as cache_mod
+
 
 def test_config_resolution_dataclass_fields():
     from adapters.solidworks.sw_config_broker import ConfigResolution
@@ -1334,7 +1337,10 @@ class TestPrewarmConfigLists:
     def test_prewarm_worker_failure_does_not_write_cache(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
     ):
-        """worker exit != 0 → cache 不写；prewarm 静默 return 不抛."""
+        """worker exit != 0 → prewarm 静默 return 不抛。
+        I-2 修复后：envelope（sw_version/toolbox_path）已在 invalidate 时落盘，
+        但 entries 仍为空（worker 未成功写入任何条目）。"""
+        import json
         from adapters.solidworks import sw_config_broker as broker
 
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
@@ -1354,13 +1360,19 @@ class TestPrewarmConfigLists:
 
         # 不抛异常
         broker.prewarm_config_lists([str(p1)])
-        # cache 未写
-        assert not patch_paths.exists()
+        # I-2 修复：envelope 已立即落盘（sw_version/toolbox_path 已写），但 entries 为空
+        assert patch_paths.exists(), "envelope 应已在 invalidate 时落盘"
+        saved = json.loads(patch_paths.read_text())
+        assert saved["entries"] == {}, "worker 失败后 entries 应为空"
+        assert saved["sw_version"] == 24, "sw_version 应已写入 envelope"
 
     def test_prewarm_worker_timeout_does_not_write_cache(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
     ):
-        """subprocess.TimeoutExpired → cache 不写；prewarm 静默 return."""
+        """subprocess.TimeoutExpired → prewarm 静默 return 不抛。
+        I-2 修复后：envelope（sw_version/toolbox_path）已在 invalidate 时落盘，
+        但 entries 仍为空（worker 超时未成功写入任何条目）。"""
+        import json
         import subprocess
 
         from adapters.solidworks import sw_config_broker as broker
@@ -1376,7 +1388,11 @@ class TestPrewarmConfigLists:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         broker.prewarm_config_lists([str(p1)])  # 不抛
-        assert not patch_paths.exists()
+        # I-2 修复：envelope 已立即落盘（sw_version/toolbox_path 已写），但 entries 为空
+        assert patch_paths.exists(), "envelope 应已在 invalidate 时落盘"
+        saved = json.loads(patch_paths.read_text())
+        assert saved["entries"] == {}, "worker 超时后 entries 应为空"
+        assert saved["sw_version"] == 24, "sw_version 应已写入 envelope"
 
     def test_prewarm_envelope_invalidated_clears_entries(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
@@ -1593,3 +1609,574 @@ class TestListConfigsViaComThreeLayer:
         broker._CONFIG_LIST_CACHE.clear()  # 清 L2 强制走 L1
         configs2 = broker._list_configs_via_com(backslash_path)
         assert configs2 == ["6201"]
+
+
+# ============================================================
+# PR #19 review followup — I-2 + I-3 修复测试
+# spec: docs/superpowers/specs/2026-04-26-sw-config-broker-i2-i3-fix-design.md
+# ============================================================
+# broker / cache_mod / pytest 已在文件顶部 import；I-3 测试用的 mock helpers
+# (make_fake_msvcrt / make_tracking_save / make_synced_time_mock) 在 I-3 task
+# (Phase B.3+) 引入，按 task-by-task TDD 严格只加当前 task 需要的代码。
+
+
+def make_failing_save(exception_to_raise):
+    """构造抛指定异常的 fake _save_config_lists_cache（spec §6.4）。"""
+    def failing_save(cache):
+        raise exception_to_raise
+    return failing_save
+
+
+# ─── I-2 修复测试（14 测试 / 7 维度 / spec §6.2）───
+
+class TestI2EnvelopePersistence:
+    """spec §6.2 I-2 测试矩阵（14 测试 / 7 维度）。"""
+
+    @pytest.fixture(autouse=True)
+    def _enable_broker(self, monkeypatch):
+        """conftest.py:212 默认 CAD_SW_BROKER_DISABLE=1 锁死 broker；
+        I-2 测试需要进 prewarm 真路径触发 envelope 持久化逻辑。
+        T27 内显式 setenv 覆盖此默认（验证 disable 安全阀仍 work）。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+    # ─── E1. 核心顺序 invariant（2 测试）───
+
+    def test_invalidate_save_called_before_worker_spawn(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T19：spec §6.2 — call_order 列表断言：save(2025, entries={}) 出现在
+        subprocess.run(worker) 之前。防 envelope 升级 save 漏写盘 bug。"""
+        # 旧 cache (sw=2024) — 触发 invalidate
+        old_cache = {
+            "schema_version": 1,
+            "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024,
+            "toolbox_path": "C:/old",
+            "entries": {},
+        }
+
+        call_order = []
+
+        # mock load 返旧 cache
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        # mock detect 返新版本
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # tracking_save：记录调用
+        def tracking_save(cache):
+            call_order.append(("save", cache.get("sw_version"), len(cache.get("entries", {}))))
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", tracking_save)
+
+        # mock subprocess.run：worker fail
+        def tracking_run(cmd, **kwargs):
+            call_order.append(("spawn", "worker"))
+            import subprocess
+            return subprocess.CompletedProcess(cmd, returncode=1, stdout=b"", stderr=b"boom")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 断言顺序：save 必须在 spawn 之前
+        assert call_order[0] == ("save", 2025, 0), f"call_order={call_order}"
+        assert call_order[1] == ("spawn", "worker"), f"call_order={call_order}"
+
+    def test_invalidate_save_content_correct(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T20：spec §6.2 — 测试前提：mock 旧 sw=2024 / 新 sw=2025（值显式不同），
+        防 mutation `cache.get("sw_version", info.version_year)` 偷换旧值仍 pass。"""
+        import json
+
+        # 写真旧 cache 文件触发 invalidate（不 mock _load）
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1,
+            "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024,
+            "toolbox_path": "C:/old",
+            "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        captured = {}
+
+        def capturing_save(cache):
+            # 深拷贝避免 caller mutate 影响断言
+            captured["cache"] = {k: v for k, v in cache.items()}
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", capturing_save)
+
+        # mock subprocess.run：worker fail（让 prewarm 不进 line 612 第二次 save）
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        cache = captured["cache"]
+        assert cache["schema_version"] == 1
+        assert cache["sw_version"] == 2025  # 防 cache.get() 偷换旧 2024
+        assert cache["toolbox_path"] == "C:/new"
+        assert cache["entries"] == {}
+        # generated_at 仅验存在 + ISO 8601 格式
+        assert "generated_at" in cache
+        from datetime import datetime
+        datetime.fromisoformat(cache["generated_at"])  # 抛 ValueError 即 fail
+
+    # ─── E2. save 失败路径（3 测试）───
+
+    def test_invalidate_save_oserror_warns_and_continues_to_worker(
+        self, monkeypatch, tmp_project_dir, caplog,
+    ):
+        """T21：spec §6.2 — mock save 抛 OSError → log.warning（含"envelope save 失败"）+
+        worker spawn 仍调用 + prewarm 不抛。"""
+        import logging
+
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(OSError("disk full")),
+        )
+
+        spawn_called = []
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_called.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        with caplog.at_level(logging.WARNING):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])  # 不应抛
+
+        assert any("envelope save 失败" in rec.message for rec in caplog.records), \
+            f"warn missing: {[r.message for r in caplog.records]}"
+        assert len(spawn_called) == 1, "worker spawn 未被调用（fire-and-forget 契约破）"
+
+    @pytest.mark.parametrize("exc_type", [
+        RuntimeError, KeyError, TypeError, ValueError, AttributeError,
+    ])
+    def test_invalidate_save_any_exception_warns_and_continues(
+        self, exc_type, monkeypatch, tmp_project_dir, caplog,
+    ):
+        """T22：spec §6.2 — 5 种 Exception 子类 parametrize；防 mutation
+        `except (OSError, RuntimeError)` 漏 KeyError 等。"""
+        import logging
+
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(exc_type("test")),
+        )
+
+        spawn_called = []
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_called.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        with caplog.at_level(logging.WARNING):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])  # 不应抛
+
+        assert any("envelope save 失败" in rec.message for rec in caplog.records), \
+            f"warn missing for {exc_type.__name__}"
+        assert len(spawn_called) == 1, \
+            f"worker spawn 未被调用 for {exc_type.__name__}（fire-and-forget 契约破）"
+
+    def test_invalidate_save_baseexception_propagates(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T22b：spec §6.2 — KeyboardInterrupt 是 BaseException 子类，
+        except Exception 天然不 catch → 上抛 + worker spawn 不调用。"""
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(KeyboardInterrupt()),
+        )
+
+        spawn_called = []
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: spawn_called.append(cmd) or None,
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert len(spawn_called) == 0, "worker spawn 不应被调用（KeyboardInterrupt 应立即上抛）"
+
+    # ─── E3. 第二次 prewarm 验证（2 测试）───
+
+    def test_two_prewarm_calls_after_worker_fail_no_redundant_invalidate(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T23：spec §6.2 — 第 1 次 prewarm worker fail → 第 2 次 prewarm 进入时
+        envelope_invalidated == False（这是 I-2 修复的核心 user value）。"""
+        import json
+
+        # 旧 cache (sw=2024) 写盘
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # mock worker fail
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 第 2 次进入：load 应读到新 envelope（sw=2025）→ invalidated False
+        cache_after = cache_mod._load_config_lists_cache()
+        assert cache_after["sw_version"] == 2025, \
+            f"第 1 次 prewarm 后磁盘 sw_version 仍={cache_after.get('sw_version')}（envelope 未持久化）"
+        assert cache_mod._envelope_invalidated(cache_after) is False, \
+            "第 2 次 prewarm envelope_invalidated 应为 False（修复后不再死循环）"
+
+    def test_two_prewarm_calls_after_worker_fail_retries_failed_sldprt(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T24：spec §6.2 — 第 2 次 prewarm 走 miss diff → spawn worker 重试上次失败的 sldprt。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        spawn_count = [0]
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_count[0] += 1
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert spawn_count[0] == 2, \
+            f"第 2 次 prewarm 未重试 worker；spawn_count={spawn_count[0]}"
+
+    # ─── E4. detect 边角（2 测试）───
+
+    def test_invalidate_save_when_sw_not_installed(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T25：spec §6.2 — detect 返 SwInfo(installed=False, version_year=0,
+        toolbox_dir="") → 仍 save sw_version=0 / toolbox_path="" 到磁盘。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            installed = False
+            version_year = 0
+            toolbox_dir = ""
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        cache_after = cache_mod._load_config_lists_cache()
+        assert cache_after["sw_version"] == 0
+        assert cache_after["toolbox_path"] == ""
+
+    def test_invalidate_save_propagates_detect_unexpected_exception(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T26：spec §6.2 — detect 抛 RuntimeError → 上抛（detect 调用不在新 try/except 包围范围内；
+        防实施者把 except 范围误扩到包整个 invalidate 分支）。"""
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        def raising_detect():
+            raise RuntimeError("detect 内部 bug")
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", raising_detect,
+        )
+
+        with pytest.raises(RuntimeError, match="detect 内部 bug"):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+
+    # ─── E5. 安全阀 regression（1 测试）───
+
+    def test_prewarm_disable_env_skips_all_cache_ops(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T27：spec §6.2 — CAD_SW_BROKER_DISABLE=1 → 整函数早返；
+        磁盘 cache 文件不被读 / 不被写。"""
+        monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+
+        save_calls = []
+        load_calls = []
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            lambda c: save_calls.append(c),
+        )
+        monkeypatch.setattr(
+            cache_mod, "_load_config_lists_cache",
+            lambda: load_calls.append(1) or {},
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert save_calls == [], "DISABLE=1 时不应调 save"
+        assert load_calls == [], "DISABLE=1 时不应调 load"
+
+    # ─── E6. 磁盘内容精确性（3 测试）───
+
+    def test_invalidate_save_disk_json_schema_full_match(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T28：spec §6.2 — save 后磁盘 JSON 5 字段全员；schema_version=1 / sw=新 /
+        toolbox=新 / entries={}；generated_at 仅验存在 + ISO 8601 格式。"""
+        import json
+        from datetime import datetime
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        disk = json.loads(cache_path.read_text())
+        # 5 字段全员
+        for k in ("schema_version", "generated_at", "sw_version", "toolbox_path", "entries"):
+            assert k in disk, f"字段 {k} 缺失"
+        assert disk["schema_version"] == 1
+        assert disk["sw_version"] == 2025
+        assert disk["toolbox_path"] == "C:/new"
+        assert disk["entries"] == {}
+        # generated_at ISO 8601 格式校验
+        datetime.fromisoformat(disk["generated_at"])
+
+    def test_invalidate_save_then_worker_success_disk_has_entries(
+        self, monkeypatch, tmp_project_dir, tmp_path,
+    ):
+        """T29：spec §6.2 — invalidate save → worker success → 第 2 次 save → 磁盘 JSON 含 entries{p1, p2}。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # 真建 sldprt 文件让 _stat_mtime/_stat_size 返合理值
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_text("dummy1")
+        p2 = tmp_path / "p2.sldprt"
+        p2.write_text("dummy2")
+
+        import subprocess
+        def success_run(cmd, **kwargs):
+            results = [
+                {"path": str(p1), "configs": ["A"]},
+                {"path": str(p2), "configs": ["B"]},
+            ]
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(results).encode(), b"")
+        monkeypatch.setattr(broker.subprocess, "run", success_run)
+
+        broker.prewarm_config_lists([str(p1), str(p2)])
+
+        disk = json.loads(cache_path.read_text())
+        assert disk["sw_version"] == 2025
+        assert len(disk["entries"]) == 2
+        # 既有 _normalize_sldprt_key 决定 key 格式（resolve()），用同样 normalize 验证
+        from adapters.solidworks.sw_config_broker import _normalize_sldprt_key
+        assert _normalize_sldprt_key(str(p1)) in disk["entries"]
+        assert _normalize_sldprt_key(str(p2)) in disk["entries"]
+
+    def test_invalidate_save_does_not_overwrite_unrelated_user_files(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T30：spec §6.2 — save 只写 sw_config_lists.json；同目录 sw_toolbox_index.json 等不被 touched。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        user_dir = cache_path.parent
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        # 旧 cache + 同目录其他文件
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+        unrelated_index = user_dir / "sw_toolbox_index.json"
+        unrelated_index.write_text('{"unrelated": true}')
+        unrelated_decisions = user_dir / "decisions.json"
+        unrelated_decisions.write_text('{"some": "data"}')
+
+        index_mtime_before = unrelated_index.stat().st_mtime
+        decisions_mtime_before = unrelated_decisions.stat().st_mtime
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 不相关文件 mtime 不变
+        assert unrelated_index.stat().st_mtime == index_mtime_before
+        assert unrelated_decisions.stat().st_mtime == decisions_mtime_before
+        assert unrelated_index.read_text() == '{"unrelated": true}'
+        assert unrelated_decisions.read_text() == '{"some": "data"}'
+
+    # ─── E7. 路径 gating（1 测试）───
+
+    def test_no_invalidate_no_extra_envelope_save(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T31：spec §6.2 — envelope 已新（_envelope_invalidated 返 False）→
+        call_order 中不出现 invalidate 分支 save；只有既有 line 612 save。
+        防实施者把新 save 写成无条件调用、漏在 if 分支外。"""
+        # cache 已是新 envelope（不 invalidate）
+        new_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2025, "toolbox_path": "C:/new", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: new_cache.copy())
+
+        # 强制 _envelope_invalidated 返 False
+        monkeypatch.setattr(cache_mod, "_envelope_invalidated", lambda c: False)
+
+        # 不需 detect mock，因为不进 invalidate 分支
+
+        call_order = []
+
+        def tracking_save(cache):
+            call_order.append(("save", cache.get("sw_version"), len(cache.get("entries", {}))))
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", tracking_save)
+
+        # mock subprocess.run worker fail 让既有 line 612 save 也不触发
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 关键断言：cache 已新 + worker fail → call_order 应为空（无 save）
+        assert call_order == [], \
+            f"envelope 已新且 worker fail 时不应有 save；实际 call_order={call_order}"
