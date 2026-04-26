@@ -71,3 +71,19 @@ class PartsAdapter(ABC):
         Called during Phase 1 envelope backfill. Fast path — no heavy work.
         Return None if the adapter cannot determine dimensions cheaply.
         """
+
+    def prewarm(self, candidates) -> None:
+        """Optional pre-warmup hook called before the BOM resolve loop (Task 14.6).
+
+        candidates: list[tuple[PartQuery, dict]] — (query, rule.spec) tuples that
+        PartsResolver pre-matched to this adapter via _match_rule. Adapter can use
+        this to batch any expensive setup (e.g. spawn helper subprocess once for
+        all sldprt instead of per-part).
+
+        Returns None — fire-and-forget. Failures must not raise (codegen continues
+        via fallback paths in resolve()).
+
+        Default implementation is no-op. Adapters override only if they have
+        batchable expensive operations to amortize.
+        """
+        return None
