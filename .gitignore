@@ -48,4 +48,13 @@ artifacts/*/sw_report_data.json
 
 # SW 参数化建模导出（运行时生成，不 track）
 **/sw_parts/
+artifacts/20260424-*/
 artifacts/20260425-*/
+
+# 端到端 regression 跑出来的渲染基线/增强结果 + log（per-run 产物，不 track）
+artifacts/regression/
+artifacts/regression_run*.log
+
+# 仓库根的临时测试输出 + plan baseline 记录（保留 working dir，不入 git）
+/task0_baseline.txt
+/test_output.txt
