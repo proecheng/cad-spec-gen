@@ -7,8 +7,12 @@ Instead it delegates to `parts_resolver.PartsResolver`, which picks the right
 adapter (bd_warehouse, STEP pool, PartCAD, or jinja_primitive fallback) based
 on a project-local YAML registry (`parts_library.yaml`).
 
-Public contract (unchanged):
-- `generate_std_part_files(spec_path, output_dir, mode)` signature is identical
+Public contract:
+- `generate_std_part_files(spec_path, output_dir, mode)` returns 4-tuple
+  `(generated, skipped, resolver, pending_records)`. The `pending_records` dict
+  (subsystem → list of pending records) is populated by Task 15 when
+  `sw_config_broker` raises `NeedsUserDecision` for ambiguous Toolbox configs;
+  Task 16 atomically writes it to `<project>/.cad-spec-gen/sw_config_pending.json`.
 - Generated `std_*.py` modules expose `make_std_*() -> cq.Workplane` with no args
 - Without a `parts_library.yaml`, behavior is byte-identical to pre-refactor
   (JinjaPrimitiveAdapter is the terminal fallback and reproduces `_gen_*` verbatim)
@@ -32,6 +36,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+from adapters.solidworks.sw_config_broker import NeedsUserDecision
 from bom_parser import classify_part
 from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
@@ -245,7 +250,7 @@ def generate_std_part_files(
     spec_path: str,
     output_dir: str,
     mode: str = "scaffold",
-) -> tuple[list, list, "PartsResolver"]:
+) -> tuple[list, list, "PartsResolver", dict[str, list[dict]]]:
     """Generate simplified CadQuery files for purchased standard parts.
 
     Args:
@@ -253,7 +258,11 @@ def generate_std_part_files(
         output_dir: Where to write std_*.py files
         mode: "scaffold" (skip existing), "force" (overwrite existing)
 
-    Returns (generated_files, skipped_files).
+    Returns (generated_files, skipped_files, resolver, pending_records).
+
+    pending_records maps subsystem → list of records for parts where
+    sw_config_broker raised NeedsUserDecision (ambiguous Toolbox config).
+    Task 16 turns this into sw_config_pending.json + exit 7.
     """
     parts = parse_bom_tree(spec_path)
     envelopes = parse_envelopes(spec_path)
@@ -266,6 +275,7 @@ def generate_std_part_files(
 
     generated = []
     skipped = []
+    pending_records: dict[str, list[dict]] = {}
 
     for p in parts:
         if p["is_assembly"]:
@@ -290,7 +300,19 @@ def generate_std_part_files(
             project_root=project_root,
         )
 
-        result = resolver.resolve(query)
+        try:
+            result = resolver.resolve(query)
+        except NeedsUserDecision as exc:
+            # broker 在含糊匹配时抛此异常，携带 part_no / subsystem / pending_record。
+            # 累积到 pending_records 等待 main 一次性原子写 sw_config_pending.json
+            # （Task 16）。跳过该零件 std_*.py 生成，继续处理后续零件。
+            pending_records.setdefault(exc.subsystem, []).append(exc.pending_record)
+            print(
+                f"[pending] {exc.subsystem}/{exc.part_no} 等待用户决策 "
+                f"({exc.pending_record.get('match_failure_reason', 'unknown')})"
+            )
+            continue
+
         if result.status in {"miss", "skip"} or result.kind == "miss":
             # Nothing matched, not even the jinja fallback → skip silently.
             # This happens for parts the fallback doesn't know how to draw
@@ -320,7 +342,7 @@ def generate_std_part_files(
         for line in report.splitlines():
             print(f"[gen_std_parts] {line}")
 
-    return generated, skipped, resolver
+    return generated, skipped, resolver, pending_records
 
 
 def main():
@@ -365,7 +387,7 @@ def main():
     output_dir = args.output_dir or os.path.dirname(spec_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    generated, skipped, resolver = generate_std_part_files(spec_path, output_dir, mode=args.mode)
+    generated, skipped, resolver, _pending_records = generate_std_part_files(spec_path, output_dir, mode=args.mode)
 
     # ─── A3: resolve_report.json（必须在 emit_report 前完成，供 HTML routing 区块使用）───
     _rr = None

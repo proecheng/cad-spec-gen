@@ -210,3 +210,92 @@ class TestSwToolboxAdapterDelegatesToBroker:
         assert exc_info.value.part_no == "GIS-EE-001-01"
         assert exc_info.value.subsystem == "default"
         assert exc_info.value.pending_record == record
+
+
+class TestGenStdPartsAccumulation:
+    """Task 15：generate_std_part_files 捕获 NeedsUserDecision，按 subsystem 分组累积。"""
+
+    def test_multiple_needs_decision_accumulated_into_pending(
+        self, tmp_path, monkeypatch
+    ):
+        """3 个零件分跨 2 个 subsystem 都抛 NeedsUserDecision → 返回的 pending_records
+        含全部 3 项嵌套到正确 subsystem，零件 std_*.py 不生成。
+        """
+        from adapters.solidworks.sw_config_broker import NeedsUserDecision
+        from codegen import gen_std_parts as g
+
+        # bearing：不在 _SKIP_CATEGORIES（fastener / cable）里，loop 会调 resolver.resolve
+        fake_parts = [
+            {"part_no": "GIS-EE-001-01", "name_cn": "微型轴承1", "material": "MR105ZZ",
+             "is_assembly": False, "make_buy": "外购"},
+            {"part_no": "GIS-EE-001-02", "name_cn": "微型轴承2", "material": "608ZZ",
+             "is_assembly": False, "make_buy": "外购"},
+            {"part_no": "GIS-EL-002-01", "name_cn": "电机轴承", "material": "623ZZ",
+             "is_assembly": False, "make_buy": "外购"},
+        ]
+        monkeypatch.setattr(g, "parse_bom_tree", lambda spec_path: fake_parts)
+        monkeypatch.setattr(g, "parse_envelopes", lambda spec_path: {})
+        monkeypatch.setattr(g, "classify_part", lambda name, mat: "bearing")
+
+        def fake_resolve(query):
+            subsystem = "end_effector" if query.part_no.startswith("GIS-EE") else "electrical"
+            raise NeedsUserDecision(
+                part_no=query.part_no,
+                subsystem=subsystem,
+                pending_record={
+                    "part_no": query.part_no,
+                    "match_failure_reason": "no_exact_or_fuzzy_match_with_high_confidence",
+                },
+            )
+
+        class FakeResolver:
+            adapters = []
+
+            def resolve(self, q):
+                return fake_resolve(q)
+
+            def coverage_report(self):
+                return ""
+
+        monkeypatch.setattr(g, "default_resolver", lambda **kw: FakeResolver())
+
+        spec_path = tmp_path / "spec.md"
+        spec_path.write_text("# fake spec\n", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        result = g.generate_std_part_files(str(spec_path), str(out_dir))
+
+        # Task 15：signature 由 (generated, skipped, resolver) → 4-tuple 加 pending_records
+        assert len(result) == 4
+        generated, skipped, _resolver, pending = result
+        assert generated == []
+        assert pending == {
+            "end_effector": [
+                {"part_no": "GIS-EE-001-01",
+                 "match_failure_reason": "no_exact_or_fuzzy_match_with_high_confidence"},
+                {"part_no": "GIS-EE-001-02",
+                 "match_failure_reason": "no_exact_or_fuzzy_match_with_high_confidence"},
+            ],
+            "electrical": [
+                {"part_no": "GIS-EL-002-01",
+                 "match_failure_reason": "no_exact_or_fuzzy_match_with_high_confidence"},
+            ],
+        }
+
+    def test_no_needs_decision_returns_empty_pending(self, tmp_path, monkeypatch):
+        """空 BOM → pending_records 为空 dict（function 仍返 4-tuple）。"""
+        from codegen import gen_std_parts as g
+
+        monkeypatch.setattr(g, "parse_bom_tree", lambda spec_path: [])
+        monkeypatch.setattr(g, "parse_envelopes", lambda spec_path: {})
+
+        spec_path = tmp_path / "spec.md"
+        spec_path.write_text("# fake spec\n", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        result = g.generate_std_part_files(str(spec_path), str(out_dir))
+        assert len(result) == 4
+        _, _, _, pending = result
+        assert pending == {}
