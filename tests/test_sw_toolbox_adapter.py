@@ -886,3 +886,121 @@ class TestBearingMaterialFallback:
         result = adapter.resolve(query, spec)
         assert result.status == "miss"
         assert "size extraction failed" in (result.warnings or [""])[0]
+
+
+class TestSwToolboxAdapterPrewarm:
+    """Task 14.6 / Task 11：sw_toolbox_adapter.prewarm 收集 sldprt 后调
+    broker.prewarm_config_lists（spec §3.1）。"""
+
+    def test_prewarm_calls_broker_with_collected_sldprt_paths(
+        self, monkeypatch, tmp_path,
+    ):
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from adapters.solidworks import sw_config_broker as broker
+        from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
+        from parts_resolver import PartQuery
+
+        # mock find_sldprt 返不同件
+        def fake_find_sldprt(self, query, spec):
+            if query.part_no == "BOLT-001":
+                return (
+                    SwToolboxPart(
+                        standard="GB", subcategory="bolt",
+                        sldprt_path="C:/SW/bolt.sldprt",
+                        filename="bolt.sldprt", tokens=[],
+                    ),
+                    0.9,
+                )
+            if query.part_no == "NUT-002":
+                return (
+                    SwToolboxPart(
+                        standard="GB", subcategory="nut",
+                        sldprt_path="C:/SW/nut.sldprt",
+                        filename="nut.sldprt", tokens=[],
+                    ),
+                    0.9,
+                )
+            return None
+
+        monkeypatch.setattr(SwToolboxAdapter, "find_sldprt", fake_find_sldprt)
+
+        # mock broker.prewarm_config_lists 记录调用
+        prewarm_calls = []
+        monkeypatch.setattr(
+            broker, "prewarm_config_lists",
+            lambda paths: prewarm_calls.append(list(paths)),
+        )
+
+        adapter = SwToolboxAdapter(config={"min_score": 0.30})
+        candidates = [
+            (
+                PartQuery(
+                    part_no="BOLT-001", name_cn="b", material="",
+                    category="fastener", make_buy="",
+                ),
+                {},
+            ),
+            (
+                PartQuery(
+                    part_no="NUT-002", name_cn="n", material="",
+                    category="fastener", make_buy="",
+                ),
+                {},
+            ),
+            (
+                PartQuery(
+                    part_no="MISS-003", name_cn="m", material="",
+                    category="fastener", make_buy="",
+                ),
+                {},
+            ),  # find_sldprt 返 None
+        ]
+        adapter.prewarm(candidates)
+
+        assert len(prewarm_calls) == 1
+        assert sorted(prewarm_calls[0]) == sorted(
+            ["C:/SW/bolt.sldprt", "C:/SW/nut.sldprt"],
+        )
+
+    def test_prewarm_no_candidates_skips_broker_call(self, monkeypatch):
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from adapters.solidworks import sw_config_broker as broker
+
+        called = []
+        monkeypatch.setattr(
+            broker, "prewarm_config_lists",
+            lambda paths: called.append(paths),
+        )
+
+        adapter = SwToolboxAdapter(config={})
+        adapter.prewarm([])  # 空 candidates
+        assert called == []  # broker 不调
+
+    def test_prewarm_all_find_sldprt_miss_skips_broker_call(self, monkeypatch):
+        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
+        from adapters.solidworks import sw_config_broker as broker
+        from parts_resolver import PartQuery
+
+        # find_sldprt 全返 None
+        monkeypatch.setattr(
+            SwToolboxAdapter, "find_sldprt",
+            lambda self, q, s: None,
+        )
+
+        called = []
+        monkeypatch.setattr(
+            broker, "prewarm_config_lists",
+            lambda paths: called.append(paths),
+        )
+
+        adapter = SwToolboxAdapter(config={"min_score": 0.30})
+        adapter.prewarm([
+            (
+                PartQuery(
+                    part_no="P1", name_cn="x", material="",
+                    category="", make_buy="",
+                ),
+                {},
+            ),
+        ])
+        assert called == []  # 无 sldprt 收集到 → broker 不调

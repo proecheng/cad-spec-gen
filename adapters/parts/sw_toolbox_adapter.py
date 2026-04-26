@@ -402,6 +402,34 @@ class SwToolboxAdapter(PartsAdapter):
         except Exception:
             return None
 
+    def prewarm(self, candidates) -> None:
+        """Pre-warm broker config_lists cache（Task 14.6 / spec §3.1）。
+
+        candidates: list[tuple[PartQuery, dict]] — PartsResolver 已 rule-match
+        派发到本 adapter 的 (query, rule.spec) 列表。
+
+        流程：
+          1. 对每对 (query, spec) 调 find_sldprt 收集 sldprt_path（catalog-only，不触发 COM）
+          2. 收集到 ≥1 个 sldprt → 调 broker.prewarm_config_lists 触发 batch spawn worker
+          3. 收集到 0 个 → broker 不调（避免 prewarm 空 batch overhead）
+
+        失败容忍：本层不嵌套 try/except；PartsResolver.prewarm 已有 per-adapter 兜底。
+        """
+        from adapters.solidworks.sw_config_broker import prewarm_config_lists
+
+        sldprt_paths = []
+        for query, spec in candidates:
+            match = self.find_sldprt(query, spec)
+            if match is None:
+                continue
+            part, _score = match
+            sldprt_paths.append(part.sldprt_path)
+
+        if not sldprt_paths:
+            return
+
+        prewarm_config_lists(sldprt_paths)
+
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:
         """v4 §1.3 已知限制: 缓存未命中 → None。
 
