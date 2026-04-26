@@ -12,6 +12,7 @@ content mutation regardless of timestamp resolution.
 """
 
 import hashlib
+import importlib
 import sys
 from pathlib import Path
 
@@ -167,3 +168,34 @@ def mock_provenance(tmp_path):
 
 
 # ─── /Task 32 ───
+
+
+# ─── Task 8 (sw_config_broker plan)：tmp_project_dir fixture ───
+
+
+@pytest.fixture
+def tmp_project_dir(tmp_path, monkeypatch):
+    """为 broker 测试提供独立项目目录。
+
+    - 在 tmp_path 下建 .cad-spec-gen/ 子目录（broker decisions/pending 文件存放处）
+    - 设 CAD_PROJECT_ROOT env 指向 tmp_path
+    - reload cad_paths 让模块级常量 PROJECT_ROOT 重新读取 env
+
+    yields: tmp_path (Path) — 项目根
+    """
+    cad_dir = tmp_path / ".cad-spec-gen"
+    cad_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("CAD_PROJECT_ROOT", str(tmp_path))
+
+    if "cad_paths" in sys.modules:
+        importlib.reload(sys.modules["cad_paths"])
+
+    yield tmp_path
+
+    # teardown：再 reload 一次让 PROJECT_ROOT 回到默认 cwd，避免污染下一个测试
+    if "cad_paths" in sys.modules:
+        importlib.reload(sys.modules["cad_paths"])
+
+
+# ─── /Task 8 ───

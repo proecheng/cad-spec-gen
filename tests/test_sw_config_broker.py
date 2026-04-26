@@ -396,3 +396,23 @@ class TestBuildPendingRecord:
         )
         use_options = [o for o in rec["suggested_options"] if o["action"] == "use_config"]
         assert len(use_options) >= 2
+
+
+class TestFixtures:
+    """Task 8：tmp_project_dir fixture 验证"""
+
+    def test_tmp_project_dir_creates_cad_dir(self, tmp_project_dir):
+        assert (tmp_project_dir / ".cad-spec-gen").is_dir()
+
+    def test_tmp_project_dir_sets_env(self, tmp_project_dir):
+        import os
+
+        assert os.environ["CAD_PROJECT_ROOT"] == str(tmp_project_dir)
+
+    def test_tmp_project_dir_cad_paths_synced(self, tmp_project_dir):
+        import os
+
+        from cad_paths import PROJECT_ROOT
+
+        # PROJECT_ROOT 经过 normpath 处理，所以两边都 normpath 比对
+        assert os.path.normpath(PROJECT_ROOT) == os.path.normpath(str(tmp_project_dir))
