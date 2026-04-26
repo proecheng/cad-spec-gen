@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 
@@ -840,3 +842,48 @@ class TestResolveConfigForPart:
             exc.pending_record["match_failure_reason"]
             == "no_exact_or_fuzzy_match_with_high_confidence"
         )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="msvcrt only on Windows")
+class TestFileLock:
+    """spec §6 并发跑 codegen：msvcrt.locking 防并发 resolve。
+
+    单元层只验证 contract（加 lock 后串行调用仍能成功 + lock 自释放）；
+    真正的双进程并发阻塞测试在集成层 Task 18。
+    """
+
+    def test_lock_does_not_block_serial_calls(self, tmp_project_dir, monkeypatch):
+        """同进程内串行两次调 resolve_config_for_part 应都成功（lock 自释放）。"""
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: ["80×2.4"]
+        )
+
+        bom = {"part_no": "X", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
+
+        r1 = sw_config_broker.resolve_config_for_part(
+            bom, "/p.sldprt", subsystem="ee"
+        )
+        r2 = sw_config_broker.resolve_config_for_part(
+            bom, "/p.sldprt", subsystem="ee"
+        )
+
+        assert r1.source == "auto"
+        assert r2.source == "auto"
+
+    def test_lock_file_created_under_project_root(self, tmp_project_dir, monkeypatch):
+        """lock 文件应落在 <project>/.cad-spec-gen/lock，证明走了 PROJECT_ROOT 而非真实仓库。"""
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: ["80×2.4"]
+        )
+
+        bom = {"part_no": "X", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
+        sw_config_broker.resolve_config_for_part(bom, "/p.sldprt", subsystem="ee")
+
+        lock_path = tmp_project_dir / ".cad-spec-gen" / "lock"
+        assert lock_path.exists(), "lock 文件未在 tmp_project_dir 创建"

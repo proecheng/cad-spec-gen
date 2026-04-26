@@ -13,12 +13,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -498,13 +500,65 @@ def _determine_failure_reason(available: list[str]) -> str:
     return "no_exact_or_fuzzy_match_with_high_confidence"
 
 
+LOCK_FILE_NAME = "lock"
+
+
+@contextlib.contextmanager
+def _project_file_lock() -> Iterator[None]:
+    """文件锁 <project>/.cad-spec-gen/lock（spec §6 并发跑 codegen）。
+
+    Windows: msvcrt.locking 阻塞模式 LK_LOCK 获取独占锁；
+    非 Windows: 静默 yield（无锁——CI Linux 单元测试不依赖真并发）。
+    """
+    if sys.platform != "win32":
+        yield
+        return
+
+    import msvcrt
+
+    # 函数内 import 与 _decisions_path 一致：让 tmp_project_dir 的 importlib.reload 生效
+    from cad_paths import PROJECT_ROOT
+    lock_path = Path(PROJECT_ROOT) / ".cad-spec-gen" / LOCK_FILE_NAME
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fp = lock_path.open("a+b")
+    try:
+        # LK_LOCK = 阻塞模式获取独占锁（最多重试 ~10s 后抛 OSError）
+        msvcrt.locking(fp.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            try:
+                msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError as e:
+                log.warning("msvcrt unlock 异常（忽略）: %s", e)
+    finally:
+        fp.close()
+
+
 def resolve_config_for_part(
     bom_row: dict[str, Any],
     sldprt_path: str,
     *,
     subsystem: str,
 ) -> ConfigResolution:
-    """主入口（spec §3.2）。
+    """主入口（spec §3.2 + spec §6 文件锁）。
+
+    薄 wrapper：进入 _project_file_lock 后调 _resolve_config_for_part_unlocked。
+    """
+    with _project_file_lock():
+        return _resolve_config_for_part_unlocked(
+            bom_row=bom_row, sldprt_path=sldprt_path, subsystem=subsystem,
+        )
+
+
+def _resolve_config_for_part_unlocked(
+    bom_row: dict[str, Any],
+    sldprt_path: str,
+    *,
+    subsystem: str,
+) -> ConfigResolution:
+    """resolve 主流程（无锁版本，便于单元测试直接调）。
 
     流程：COM list → cache lookup（含三项校验）→ rule match → policy decision
 
