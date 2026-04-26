@@ -484,3 +484,111 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
 
     _CONFIG_LIST_CACHE[abs_path] = configs
     return configs
+
+
+# ---------- 主入口（spec §3.2） ----------
+
+
+def _determine_failure_reason(available: list[str]) -> str:
+    """根据 available 状态推断 match_failure_reason 默认值（spec §5.3）。"""
+    if not available:
+        return "com_open_failed"
+    if available == ["Default"]:
+        return "empty_config_list"
+    return "no_exact_or_fuzzy_match_with_high_confidence"
+
+
+def resolve_config_for_part(
+    bom_row: dict[str, Any],
+    sldprt_path: str,
+    *,
+    subsystem: str,
+) -> ConfigResolution:
+    """主入口（spec §3.2）。
+
+    流程：COM list → cache lookup（含三项校验）→ rule match → policy decision
+
+    返回：ConfigResolution
+    抛出：
+    - NeedsUserDecision：含糊匹配且 policy=halt（默认）
+    - ValueError：decisions.json 损坏 / schema 不一致（由 _load_decisions_envelope 抛）
+    """
+    bom_signature = _build_bom_dim_signature(bom_row)
+    sldprt_filename = Path(sldprt_path).name
+    part_no = bom_row.get("part_no", "")
+
+    # 1. 先调 COM 列当前 available（spec §4.4 #3：先 list 再判 cache，cache 校验依赖 available）
+    available = _list_configs_via_com(sldprt_path)
+
+    # 2. 读 decisions envelope（损坏会 raise ValueError 直接抛给 caller）
+    envelope = _load_decisions_envelope()
+
+    # 3. cache lookup + 三项校验
+    cached = _get_decision_for_part(envelope, subsystem, part_no)
+    if cached is not None:
+        valid, invalid_reason = _validate_cached_decision(
+            cached, bom_signature, sldprt_filename, available,
+        )
+        if valid:
+            if cached["decision"] == "use_config":
+                return ConfigResolution(
+                    config_name=cached["config_name"],
+                    source="cached_decision",
+                    confidence=1.0,
+                    available_configs=available,
+                    notes=f"用户决策（{cached.get('decided_at', '')}）",
+                )
+            elif cached["decision"] == "fallback_cadquery":
+                return ConfigResolution(
+                    config_name=None,
+                    source="cached_decision",
+                    confidence=1.0,
+                    available_configs=available,
+                    notes=f"用户决策 fallback（{cached.get('decided_at', '')}）",
+                )
+        else:
+            # 失效：先持久化 history（即便后续抛异常，磁盘状态也已收敛）
+            _move_decision_to_history(envelope, subsystem, part_no, invalid_reason)
+            _save_decisions_envelope(envelope)
+            # fall through 到规则匹配
+
+    # 4. 规则匹配
+    if available:
+        match = _match_config_by_rule(bom_signature, available)
+        if match:
+            cfg, conf = match
+            return ConfigResolution(
+                config_name=cfg,
+                source="auto",
+                confidence=conf,
+                available_configs=available,
+                notes=f"规则匹配（confidence={conf:.2f}）",
+            )
+
+    # 5. 含糊匹配 → 看 policy
+    failure_reason = _determine_failure_reason(available)
+    pending_record = _build_pending_record(
+        bom_row=bom_row,
+        sldprt_path=sldprt_path,
+        available=available,
+        match_failure_reason=failure_reason,
+        attempted_match=None,
+    )
+
+    policy = os.environ.get("CAD_AMBIGUOUS_CONFIG_POLICY", "halt")
+    if policy == "fallback_cadquery":
+        # 静默 fallback —— 用户已显式 opt-in；pending 累积由 caller（gen_std_parts）处理
+        return ConfigResolution(
+            config_name=None,
+            source="policy_fallback",
+            confidence=0.0,
+            available_configs=available,
+            notes=f"CAD_AMBIGUOUS_CONFIG_POLICY=fallback_cadquery：{failure_reason}",
+        )
+
+    # 默认 halt → 抛 NeedsUserDecision，caller 累积 pending 后一次性原子写
+    raise NeedsUserDecision(
+        part_no=part_no,
+        subsystem=subsystem,
+        pending_record=pending_record,
+    )

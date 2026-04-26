@@ -701,3 +701,142 @@ class TestListConfigsViaCom:
 
         result = sw_config_broker._list_configs_via_com("Z.sldprt")
         assert result == []
+
+
+class TestResolveConfigForPart:
+    """spec §3.2 数据流：5 路径全覆盖（cached / auto / cached_invalidate / policy / halt）。"""
+
+    BOM = {"part_no": "GIS-EE-001-03", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
+    SLDPRT = "/abs/path/o-rings series a gb.sldprt"
+
+    def _patch_com(self, monkeypatch, configs):
+        """注入 _list_configs_via_com 的返回，跳过实际 subprocess 调用。"""
+        from adapters.solidworks import sw_config_broker
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: configs
+        )
+
+    def test_path_1_auto_match_l1_exact(self, tmp_project_dir, monkeypatch):
+        """路径 [3] 规则匹配 L1 命中 → source=auto, confidence=1.0"""
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        self._patch_com(monkeypatch, ["28×1.9", "80×2.4"])
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+
+        assert r.source == "auto"
+        assert r.config_name == "80×2.4"
+        assert r.confidence == 1.0
+        assert r.available_configs == ["28×1.9", "80×2.4"]
+
+    def test_path_2_cached_decision_use_config_valid(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """路径 [2] cache 命中 + 三项校验通过 → source=cached_decision"""
+        import json
+
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        decisions = {
+            "schema_version": 2,
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {
+                        "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+                        "sldprt_filename": "o-rings series a gb.sldprt",
+                        "decision": "use_config",
+                        "config_name": "80×2.4",
+                        "user_note": "ok",
+                        "decided_at": "2026-04-25T22:25:11+00:00",
+                    }
+                }
+            },
+            "decisions_history": [],
+        }
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text(json.dumps(decisions), encoding="utf-8")
+
+        # cached config 仍在 available → 校验通过
+        self._patch_com(monkeypatch, ["80×2.4", "100×3.0"])
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+
+        assert r.source == "cached_decision"
+        assert r.config_name == "80×2.4"
+        assert r.confidence == 1.0
+
+    def test_path_2b_cached_decision_invalidate(self, tmp_project_dir, monkeypatch):
+        """cache 命中但 config 已不在 available → 自动挪 history + 走规则匹配"""
+        import json
+
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        decisions = {
+            "schema_version": 2,
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {
+                        "bom_dim_signature": "O型圈|FKM Φ80×2.4",
+                        "sldprt_filename": "o-rings series a gb.sldprt",
+                        "decision": "use_config",
+                        "config_name": "80×2.4",  # 旧名
+                        "user_note": "",
+                        "decided_at": "2026-04-20T10:00:00+00:00",
+                    }
+                }
+            },
+            "decisions_history": [],
+        }
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text(json.dumps(decisions), encoding="utf-8")
+
+        # SW 升级后 config 改名，旧名不在 available 中
+        self._patch_com(monkeypatch, ["80x2.4 (FKM)"])
+
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+        # L2 子串匹配命中新名字
+        assert r.source == "auto"
+        assert r.config_name == "80x2.4 (FKM)"
+
+        # 旧决策已挪到 history，且持久化到磁盘
+        env = json.loads(path.read_text(encoding="utf-8"))
+        assert "GIS-EE-001-03" not in env["decisions_by_subsystem"]["end_effector"]
+        assert len(env["decisions_history"]) == 1
+        assert (
+            env["decisions_history"][0]["invalidation_reason"]
+            == "config_name_not_in_available_configs"
+        )
+
+    def test_path_4_policy_fallback_silent(self, tmp_project_dir, monkeypatch):
+        """env CAD_AMBIGUOUS_CONFIG_POLICY=fallback_cadquery → 含糊不抛，返回 policy_fallback"""
+        from adapters.solidworks.sw_config_broker import resolve_config_for_part
+
+        monkeypatch.setenv("CAD_AMBIGUOUS_CONFIG_POLICY", "fallback_cadquery")
+        self._patch_com(monkeypatch, ["AAA", "BBB"])  # 完全不匹配
+
+        r = resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+        assert r.source == "policy_fallback"
+        assert r.config_name is None
+        assert r.confidence == 0.0
+
+    def test_path_5_halt_raises_needs_user_decision(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """默认 policy=halt + 含糊匹配 → 抛 NeedsUserDecision"""
+        from adapters.solidworks.sw_config_broker import (
+            NeedsUserDecision,
+            resolve_config_for_part,
+        )
+
+        monkeypatch.delenv("CAD_AMBIGUOUS_CONFIG_POLICY", raising=False)
+        self._patch_com(monkeypatch, ["AAA", "BBB"])
+
+        with pytest.raises(NeedsUserDecision) as exc_info:
+            resolve_config_for_part(self.BOM, self.SLDPRT, subsystem="end_effector")
+
+        exc = exc_info.value
+        assert exc.part_no == "GIS-EE-001-03"
+        assert exc.subsystem == "end_effector"
+        assert (
+            exc.pending_record["match_failure_reason"]
+            == "no_exact_or_fuzzy_match_with_high_confidence"
+        )
