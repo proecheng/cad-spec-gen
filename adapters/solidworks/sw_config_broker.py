@@ -445,6 +445,15 @@ _CONFIG_LIST_CACHE: dict[str, list[str]] = {}
 _PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parents[2]
 
 
+def _normalize_sldprt_key(sldprt_path: str) -> str:
+    """归一化 sldprt 路径为 cache key（spec §3.1 issue I-1 修复）。
+
+    确保 prewarm 写入与 _list_configs_via_com 读取使用同一 key 字面值，
+    防 mixed slash / 未 resolve 路径导致 silent cache miss。
+    """
+    return str(Path(sldprt_path).resolve())
+
+
 def _list_configs_via_com(sldprt_path: str) -> list[str]:
     """调 sw_list_configs_worker 子进程列 SLDPRT 配置名（spec §4.4 #1）。
 
@@ -457,7 +466,7 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
     缓存按 sldprt 绝对路径 key；失败也缓存（[]）以避免重试同一坏 sldprt。
     永不抛异常——任何失败（rc≠0 / TimeoutExpired / JSON 解析错）一律返回空列表。
     """
-    abs_path = str(Path(sldprt_path).resolve())
+    abs_path = _normalize_sldprt_key(sldprt_path)
 
     # Layer 2：in-process cache
     if abs_path in _CONFIG_LIST_CACHE:
@@ -557,7 +566,9 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
 
     miss = [
         p for p in sldprt_list
-        if not cache_mod._config_list_entry_valid(cache, p)
+        if not cache_mod._config_list_entry_valid(
+            cache, _normalize_sldprt_key(p),
+        )
     ]
     if not miss:
         return  # 全命中，无需 spawn
@@ -592,7 +603,8 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
             size = cache_mod._stat_size(sldprt_path)
             if mtime is None or size is None:
                 continue  # sldprt 文件已删 — 跳过不写
-            cache["entries"][sldprt_path] = {
+            key = _normalize_sldprt_key(sldprt_path)
+            cache["entries"][key] = {
                 "mtime": mtime,
                 "size": size,
                 "configs": configs,

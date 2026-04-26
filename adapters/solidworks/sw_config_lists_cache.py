@@ -125,6 +125,9 @@ def _config_list_entry_valid(cache: dict[str, Any], sldprt_path: str) -> bool:
     3. 当前 sldprt 文件 size == cache 记录
 
     sldprt 文件已删 → mtime/size = None → 必不等 → False。
+
+    caller 必须传归一化 key（spec §3.1 issue I-1）：通常是
+    `sw_config_broker._normalize_sldprt_key(p)` 的输出。
     """
     entry = cache.get("entries", {}).get(sldprt_path)
     if entry is None:

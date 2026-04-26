@@ -1549,3 +1549,47 @@ class TestListConfigsViaComThreeLayer:
         assert broker._CONFIG_LIST_CACHE[str(p1.resolve())] == ["FROM_FALLBACK"]
         # L1 持久化文件 未 写（spec §3.1 issue 4 决策）
         assert not patch_paths.exists()
+
+    def test_prewarm_writes_normalized_key_so_reader_hits(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """I-1 regression：prewarm 用 mixed-slash 路径 → cache key 必须归一化 →
+        `_list_configs_via_com` 用同物理文件的不同字面值（forward-slash / 反向）也命中 cache，
+        不再 spawn fallback subprocess。
+        """
+        import json as _json
+        import subprocess as _sp
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        # 建真 sldprt 文件
+        sldprt = tmp_path / "p1.SLDPRT"
+        sldprt.write_text("dummy")
+        # 故意用 forward-slash 字面值（Windows 上与 resolve() 后的反斜杠不同）
+        forward_slash_path = sldprt.as_posix()
+
+        # mock subprocess.run：batch 模式返一条假 result
+        def _fake_run(cmd, **kwargs):
+            if "--batch" in cmd:
+                results = [{"path": forward_slash_path, "configs": ["6201"]}]
+                return _sp.CompletedProcess(
+                    cmd, 0, stdout=_json.dumps(results).encode(), stderr=b"",
+                )
+            # 单件 fallback 不应被调（该断言在 reader 阶段验证）
+            raise AssertionError(f"unexpected single-file spawn: {cmd}")
+
+        monkeypatch.setattr("subprocess.run", _fake_run)
+
+        broker._CONFIG_LIST_CACHE.clear()
+        broker.prewarm_config_lists([forward_slash_path])
+
+        # reader 用 raw forward-slash → 必须命中 cache（不抛 AssertionError）
+        configs = broker._list_configs_via_com(forward_slash_path)
+        assert configs == ["6201"]
+
+        # 第二次：reader 用反斜杠版同一文件 → 也必须命中（key 归一化）
+        backslash_path = str(sldprt)
+        broker._CONFIG_LIST_CACHE.clear()  # 清 L2 强制走 L1
+        configs2 = broker._list_configs_via_com(backslash_path)
+        assert configs2 == ["6201"]
