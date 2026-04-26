@@ -31,3 +31,36 @@ class TestEmptyCache:
         assert cache["sw_version"] is None  # 故意 None → 触发 envelope_invalidated
         assert cache["toolbox_path"] is None
         assert cache["entries"] == {}
+
+
+class TestSaveCache:
+    def test_save_writes_valid_json(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        monkeypatch.setattr(m, "get_config_lists_cache_path",
+                            lambda: tmp_path / "deeper" / "sw_config_lists.json")
+        cache = {
+            "schema_version": 1,
+            "generated_at": "2026-04-26T12:34:56+00:00",
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "entries": {"C:/p1.sldprt": {"mtime": 100, "size": 200, "configs": ["A"]}},
+        }
+        m._save_config_lists_cache(cache)
+        target = tmp_path / "deeper" / "sw_config_lists.json"
+        assert target.exists()
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert data == cache
+
+    def test_save_creates_parent_dir_if_missing(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        monkeypatch.setattr(m, "get_config_lists_cache_path",
+                            lambda: tmp_path / "newdir" / "newer" / "f.json")
+        m._save_config_lists_cache({"entries": {}})
+        assert (tmp_path / "newdir" / "newer" / "f.json").exists()
+
+    def test_save_atomic_no_tmp_residue(self, tmp_path, monkeypatch):
+        from adapters.solidworks import sw_config_lists_cache as m
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: target)
+        m._save_config_lists_cache({"entries": {}})
+        assert not (tmp_path / "sw_config_lists.json.tmp").exists()

@@ -41,3 +41,18 @@ def _empty_config_lists_cache() -> dict[str, Any]:
         "toolbox_path": None,
         "entries": {},
     }
+
+
+def _save_config_lists_cache(cache: dict[str, Any]) -> None:
+    """一次性原子写 cache：先 .tmp 再 os.replace，保证并发读到要么旧文件要么完整新文件。
+
+    parent.mkdir(parents=True, exist_ok=True) 自动建目录。
+    """
+    path = get_config_lists_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
