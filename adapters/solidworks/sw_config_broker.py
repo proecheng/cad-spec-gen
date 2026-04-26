@@ -448,13 +448,38 @@ _PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parents[2]
 def _list_configs_via_com(sldprt_path: str) -> list[str]:
     """调 sw_list_configs_worker 子进程列 SLDPRT 配置名（spec §4.4 #1）。
 
+    Task 14.6 三层 cache：
+      1. in-process L2 (_CONFIG_LIST_CACHE) 命中 → return
+      2. 持久化 L1 cache 命中 → 填 L2 → return
+      3. fallback：单件 spawn worker → 只填 L2 不写 L1
+         （spec §3.1 issue 4：fallback 路径不写 L1，避免并发竞争 / cost 不值）
+
     缓存按 sldprt 绝对路径 key；失败也缓存（[]）以避免重试同一坏 sldprt。
     永不抛异常——任何失败（rc≠0 / TimeoutExpired / JSON 解析错）一律返回空列表。
     """
     abs_path = str(Path(sldprt_path).resolve())
+
+    # Layer 2：in-process cache
     if abs_path in _CONFIG_LIST_CACHE:
         return _CONFIG_LIST_CACHE[abs_path]
 
+    # Layer 1：持久化 cache（Task 14.6 新增）
+    try:
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+        cache = cache_mod._load_config_lists_cache()
+        if not cache_mod._envelope_invalidated(cache):
+            entry = cache.get("entries", {}).get(abs_path)
+            if entry is not None and cache_mod._config_list_entry_valid(
+                cache, abs_path,
+            ):
+                configs = entry["configs"]
+                _CONFIG_LIST_CACHE[abs_path] = configs  # 填 L2
+                return configs
+    except Exception as e:
+        # L1 读失败不影响 fallback；下次 prewarm 自愈
+        log.debug("config_lists L1 read skipped: %s", e)
+
+    # Layer 3：fallback 单件 spawn（现有逻辑保留）
     cmd = [
         sys.executable,
         "-m", "adapters.solidworks.sw_list_configs_worker",
@@ -497,6 +522,7 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
         return []
 
     _CONFIG_LIST_CACHE[abs_path] = configs
+    # spec §3.1 issue 4：fallback 路径不写 L1 持久化（并发竞争代价 > 优化收益）
     return configs
 
 

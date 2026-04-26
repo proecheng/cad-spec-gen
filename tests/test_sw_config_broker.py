@@ -1431,3 +1431,121 @@ class TestPrewarmConfigLists:
         cache_new = json.loads(patch_paths.read_text(encoding="utf-8"))
         assert cache_new["sw_version"] == 24
         assert cache_new["entries"][str(p1)]["configs"] == ["NEW"]
+
+
+class TestListConfigsViaComThreeLayer:
+    """Task 14.6：_list_configs_via_com 三层 cache (L2 → L1 → fallback)."""
+
+    @pytest.fixture
+    def patch_paths(self, monkeypatch, tmp_path):
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(cache_mod, "get_config_lists_cache_path", lambda: target)
+        return target
+
+    @pytest.fixture
+    def fake_sw(self, monkeypatch):
+        from adapters.solidworks import sw_detect
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                     toolbox_dir="C:/SW"),
+        )
+
+    def test_l1_persistent_cache_hit_fills_l2_no_spawn(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """L2 miss + L1 命中 → 填 L2 + 返结果 + 0 spawn."""
+        from adapters.solidworks import sw_config_broker as broker
+        from adapters.solidworks import sw_config_lists_cache as cache_mod
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        # 清 L2
+        broker._CONFIG_LIST_CACHE.clear()
+
+        # 预填 L1（key 必须用 abs_path——_list_configs_via_com 内部用 resolve()）
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        st = p1.stat()
+        cache_mod._save_config_lists_cache({
+            "schema_version": 1,
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "generated_at": "2026-04-26T00:00:00+00:00",
+            "entries": {
+                str(p1.resolve()): {
+                    "mtime": int(st.st_mtime),
+                    "size": st.st_size,
+                    "configs": ["FROM_L1"],
+                },
+            },
+        })
+
+        spawn_calls = []
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **kw: spawn_calls.append(a) or _stub_completed_process(),
+        )
+
+        result = broker._list_configs_via_com(str(p1))
+        assert result == ["FROM_L1"]
+        assert spawn_calls == []  # 0 spawn — L1 命中
+        # L2 已填
+        assert broker._CONFIG_LIST_CACHE[str(p1.resolve())] == ["FROM_L1"]
+
+    def test_l2_in_process_cache_hit_no_spawn_no_l1_read(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """L2 命中 → 不读 L1 文件 + 0 spawn."""
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        # 预填 L2
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        broker._CONFIG_LIST_CACHE[str(p1.resolve())] = ["FROM_L2"]
+
+        spawn_calls = []
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *a, **kw: spawn_calls.append(a) or _stub_completed_process(),
+        )
+
+        # L1 文件不存在；L2 命中即 return
+        result = broker._list_configs_via_com(str(p1))
+        assert result == ["FROM_L2"]
+        assert spawn_calls == []
+
+    def test_fallback_spawns_single_only_fills_l2_not_l1(
+        self, patch_paths, fake_sw, monkeypatch, tmp_path,
+    ):
+        """L1+L2 全 miss → fallback 单件 spawn → 只填 L2 不写 L1."""
+        from adapters.solidworks import sw_config_broker as broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+        broker._CONFIG_LIST_CACHE.clear()
+
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_bytes(b"x" * 100)
+
+        # mock 单件 worker 返一个 config（旧契约：text=True，stdout 是 str）
+        def fake_run(cmd, **kwargs):
+            class FakeProc:
+                returncode = 0
+                stderr = ""
+                stdout = json.dumps(["FROM_FALLBACK"]) + "\n"
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        result = broker._list_configs_via_com(str(p1))
+        assert result == ["FROM_FALLBACK"]
+        # L2 已填
+        assert broker._CONFIG_LIST_CACHE[str(p1.resolve())] == ["FROM_FALLBACK"]
+        # L1 持久化文件 未 写（spec §3.1 issue 4 决策）
+        assert not patch_paths.exists()
