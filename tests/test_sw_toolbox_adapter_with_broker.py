@@ -299,3 +299,57 @@ class TestGenStdPartsAccumulation:
         assert len(result) == 4
         _, _, _, pending = result
         assert pending == {}
+
+
+class TestWritePendingFile:
+    """Task 16：_write_pending_file 一次性原子写 sw_config_pending.json schema v2."""
+
+    def test_pending_file_schema_v2_with_subsystem_nesting(self, tmp_path):
+        """3 个 records 跨 2 subsystem → schema_version=2 + items_by_subsystem 嵌套正确。"""
+        import json
+        from codegen.gen_std_parts import _write_pending_file
+
+        pending_records = {
+            "end_effector": [
+                {"part_no": "X1",
+                 "match_failure_reason": "no_exact_or_fuzzy_match_with_high_confidence"},
+                {"part_no": "X2",
+                 "match_failure_reason": "com_open_failed"},
+            ],
+            "electrical": [
+                {"part_no": "Y1",
+                 "match_failure_reason": "empty_config_list"},
+            ],
+        }
+
+        target = tmp_path / "sw_config_pending.json"
+        _write_pending_file(pending_records, target)
+
+        raw = json.loads(target.read_text(encoding="utf-8"))
+        assert raw["schema_version"] == 2
+        assert raw["pending_count"] == 3
+        assert "generated_at" in raw  # ISO 时间戳，不验具体值
+        assert "end_effector" in raw["items_by_subsystem"]
+        assert "electrical" in raw["items_by_subsystem"]
+        assert len(raw["items_by_subsystem"]["end_effector"]) == 2
+        assert len(raw["items_by_subsystem"]["electrical"]) == 1
+
+    def test_atomic_write_no_tmp_residue(self, tmp_path):
+        """.tmp + os.replace 原子语义：写完后 .tmp 文件不应残留。"""
+        import json
+        from codegen.gen_std_parts import _write_pending_file
+
+        target = tmp_path / "sw_config_pending.json"
+        _write_pending_file({"sub": [{"part_no": "P1"}]}, target)
+
+        assert not (tmp_path / "sw_config_pending.json.tmp").exists()
+        raw = json.loads(target.read_text(encoding="utf-8"))
+        assert raw["pending_count"] == 1
+
+    def test_creates_parent_dir_if_missing(self, tmp_path):
+        """目标路径 parent 不存在时自动 mkdir。"""
+        from codegen.gen_std_parts import _write_pending_file
+
+        target = tmp_path / "deeper" / "newdir" / "sw_config_pending.json"
+        _write_pending_file({"sub": [{"part_no": "P"}]}, target)
+        assert target.exists()

@@ -24,8 +24,10 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 _PROJECT_ROOT = str(Path(__file__).parent.parent)
@@ -345,6 +347,31 @@ def generate_std_part_files(
     return generated, skipped, resolver, pending_records
 
 
+def _write_pending_file(
+    pending_records: dict[str, list[dict]], path: Path
+) -> None:
+    """一次性原子写 sw_config_pending.json schema v2（spec §5.3 + §5.4）。
+
+    封装 envelope 加 schema_version / generated_at / pending_count 字段，
+    items_by_subsystem 嵌套原始 records；先写 .tmp 再 os.replace 保证
+    并发读到的要么是旧文件要么是完整新文件，不出现部分写入。
+    """
+    total = sum(len(items) for items in pending_records.values())
+    envelope = {
+        "schema_version": 2,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "pending_count": total,
+        "items_by_subsystem": pending_records,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate CadQuery files for purchased standard parts "
@@ -387,7 +414,7 @@ def main():
     output_dir = args.output_dir or os.path.dirname(spec_path)
     os.makedirs(output_dir, exist_ok=True)
 
-    generated, skipped, resolver, _pending_records = generate_std_part_files(spec_path, output_dir, mode=args.mode)
+    generated, skipped, resolver, pending_records = generate_std_part_files(spec_path, output_dir, mode=args.mode)
 
     # ─── A3: resolve_report.json（必须在 emit_report 前完成，供 HTML routing 区块使用）───
     _rr = None
@@ -438,6 +465,19 @@ def main():
         print(f"  + {os.path.basename(f)}")
     if skipped:
         print(f"  (skipped: {', '.join(os.path.basename(f) for f in skipped)})")
+
+    # ─── Task 16：sw_config_pending.json 一次性原子写（含糊匹配 broker 累积） ───
+    if pending_records:
+        pending_path = (
+            Path(os.environ.get("CAD_PROJECT_ROOT", os.getcwd()))
+            / ".cad-spec-gen" / "sw_config_pending.json"
+        )
+        _write_pending_file(pending_records, pending_path)
+        print(
+            f"[pending] 已写 {sum(len(v) for v in pending_records.values())} "
+            f"项到 {pending_path}（待用户决策；exit 7 在 Task 17 加）"
+        )
+    # ─── /Task 16 ───
 
 
 if __name__ == "__main__":
