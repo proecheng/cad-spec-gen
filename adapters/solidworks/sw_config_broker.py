@@ -14,12 +14,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 
@@ -410,3 +415,72 @@ def _move_decision_to_history(
         "invalidated_at": datetime.now(timezone.utc).isoformat(),
         "invalidation_reason": invalidation_reason,
     })
+
+
+# ---------- COM 集成层（spec §4.4 #1） ----------
+
+LIST_CONFIGS_TIMEOUT_SEC = 15
+
+# process-local 缓存：sldprt 绝对路径 → configurations 列表。
+# 失败也缓存（[]）以避免对同一坏 sldprt 反复重试。
+_CONFIG_LIST_CACHE: dict[str, list[str]] = {}
+
+# worker 子进程 cwd：repo root（adapters/solidworks/sw_config_broker.py 的 parents[2]）。
+# 顶层求值是有意的——worker 路径不需要 reload，且与 _decisions_path 内 import cad_paths.PROJECT_ROOT
+# 的 reload-friendly 设计哲学不同（详见 spec §5.4 与 session 32 决策记录）。
+_PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parents[2]
+
+
+def _list_configs_via_com(sldprt_path: str) -> list[str]:
+    """调 sw_list_configs_worker 子进程列 SLDPRT 配置名（spec §4.4 #1）。
+
+    缓存按 sldprt 绝对路径 key；失败也缓存（[]）以避免重试同一坏 sldprt。
+    永不抛异常——任何失败（rc≠0 / TimeoutExpired / JSON 解析错）一律返回空列表。
+    """
+    abs_path = str(Path(sldprt_path).resolve())
+    if abs_path in _CONFIG_LIST_CACHE:
+        return _CONFIG_LIST_CACHE[abs_path]
+
+    cmd = [
+        sys.executable,
+        "-m", "adapters.solidworks.sw_list_configs_worker",
+        sldprt_path,
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            timeout=LIST_CONFIGS_TIMEOUT_SEC,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(_PROJECT_ROOT_FOR_WORKER),
+        )
+    except subprocess.TimeoutExpired:
+        log.warning(
+            "list_configs subprocess 超时 %ds: %s",
+            LIST_CONFIGS_TIMEOUT_SEC, sldprt_path,
+        )
+        _CONFIG_LIST_CACHE[abs_path] = []
+        return []
+
+    if proc.returncode != 0:
+        log.warning(
+            "list_configs subprocess rc=%d sldprt=%s stderr=%s",
+            proc.returncode, sldprt_path, (proc.stderr or "")[:300],
+        )
+        _CONFIG_LIST_CACHE[abs_path] = []
+        return []
+
+    try:
+        configs = json.loads(proc.stdout.strip())
+        if not isinstance(configs, list):
+            raise ValueError("not a list")
+    except (json.JSONDecodeError, ValueError) as e:
+        log.warning("list_configs stdout 非合法 JSON list: %s", e)
+        _CONFIG_LIST_CACHE[abs_path] = []
+        return []
+
+    _CONFIG_LIST_CACHE[abs_path] = configs
+    return configs

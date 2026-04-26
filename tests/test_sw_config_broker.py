@@ -607,3 +607,97 @@ class TestDecisionAccessors:
         # 校验失败时不应 mutate envelope
         assert "GIS-EE-001-03" in env["decisions_by_subsystem"]["end_effector"]
         assert env["decisions_history"] == []
+
+
+class TestListConfigsViaCom:
+    """spec §4.3 + §4.4 #1: 调 sw_list_configs_worker 子进程 + 内部 _CONFIG_LIST_CACHE。"""
+
+    def test_list_returns_parsed_json(self, monkeypatch):
+        """worker rc=0 + stdout JSON list → 解析返回。"""
+        import subprocess
+
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout='["28×1.9", "80×2.4", "100×3.0"]\n',
+                stderr="",
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = sw_config_broker._list_configs_via_com("dummy.sldprt")
+        assert result == ["28×1.9", "80×2.4", "100×3.0"]
+
+    def test_list_caches_per_path(self, monkeypatch):
+        """同 sldprt 第二次调 → 从 cache 拿，不再调 subprocess。"""
+        import subprocess
+
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+        call_count = [0]
+
+        def fake_run(cmd, **kwargs):
+            call_count[0] += 1
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout='["A"]\n', stderr=""
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        sw_config_broker._list_configs_via_com("X.sldprt")
+        sw_config_broker._list_configs_via_com("X.sldprt")
+        assert call_count[0] == 1  # 只调一次
+
+    def test_list_failure_returns_empty_and_caches(self, monkeypatch):
+        """worker 失败 → 返回 [] + cache 标记（避免重试）。"""
+        import subprocess
+
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=4, stdout="", stderr="COM crash"
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = sw_config_broker._list_configs_via_com("Y.sldprt")
+        assert result == []
+
+        # 第二次调换成 success worker，验证 cache 命中（call_count 不再增长）
+        call_count = [0]
+
+        def counting_run(cmd, **kwargs):
+            call_count[0] += 1
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="[]", stderr=""
+            )
+
+        monkeypatch.setattr(subprocess, "run", counting_run)
+        sw_config_broker._list_configs_via_com("Y.sldprt")
+        assert call_count[0] == 0
+
+    def test_list_timeout_returns_empty(self, monkeypatch):
+        """subprocess.TimeoutExpired → 返回 []。"""
+        import subprocess
+
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=15)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = sw_config_broker._list_configs_via_com("Z.sldprt")
+        assert result == []
