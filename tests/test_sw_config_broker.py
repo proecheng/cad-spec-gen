@@ -503,3 +503,64 @@ class TestDecisionsEnvelopeIO:
         # 写完后 .tmp 应已被 rename
         assert path.is_file()
         assert not tmp_path.exists()
+
+
+class TestDecisionAccessors:
+    """Task 10：envelope 内按 subsystem/part_no 索引 + 失效归档"""
+
+    def test_get_decision_present(self):
+        from adapters.solidworks.sw_config_broker import _get_decision_for_part
+
+        env = {
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {"decision": "use_config", "config_name": "80×2.4"}
+                }
+            }
+        }
+        d = _get_decision_for_part(env, "end_effector", "GIS-EE-001-03")
+        assert d is not None
+        assert d["config_name"] == "80×2.4"
+
+    def test_get_decision_missing_subsystem(self):
+        from adapters.solidworks.sw_config_broker import _get_decision_for_part
+
+        env = {"decisions_by_subsystem": {}}
+        assert _get_decision_for_part(env, "end_effector", "X") is None
+
+    def test_get_decision_missing_part(self):
+        from adapters.solidworks.sw_config_broker import _get_decision_for_part
+
+        env = {"decisions_by_subsystem": {"end_effector": {}}}
+        assert _get_decision_for_part(env, "end_effector", "X") is None
+
+    def test_move_decision_to_history(self):
+        from adapters.solidworks.sw_config_broker import _move_decision_to_history
+
+        env = {
+            "decisions_by_subsystem": {
+                "end_effector": {
+                    "GIS-EE-001-03": {
+                        "bom_dim_signature": "X|Y",
+                        "decision": "use_config",
+                        "config_name": "80×2.4",
+                        "decided_at": "2026-04-20T10:00:00+00:00",
+                    }
+                }
+            },
+            "decisions_history": [],
+        }
+        _move_decision_to_history(
+            env, "end_effector", "GIS-EE-001-03", "config_name_not_in_available_configs"
+        )
+
+        # 原位删除
+        assert "GIS-EE-001-03" not in env["decisions_by_subsystem"]["end_effector"]
+        # history 增加
+        assert len(env["decisions_history"]) == 1
+        h = env["decisions_history"][0]
+        assert h["subsystem"] == "end_effector"
+        assert h["part_no"] == "GIS-EE-001-03"
+        assert h["invalidation_reason"] == "config_name_not_in_available_configs"
+        assert h["previous_decision"]["config_name"] == "80×2.4"
+        assert "invalidated_at" in h

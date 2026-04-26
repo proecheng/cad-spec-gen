@@ -349,3 +349,38 @@ def _save_decisions_envelope(envelope: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(tmp_path, path)
+
+
+def _get_decision_for_part(
+    envelope: dict[str, Any], subsystem: str, part_no: str
+) -> dict[str, Any] | None:
+    """从 envelope[decisions_by_subsystem][subsystem][part_no] 取，缺失返回 None。
+
+    三层 chained .get(..., {}) 不 mutate envelope（每层 default 是临时空 dict）。
+    """
+    return (
+        envelope.get("decisions_by_subsystem", {})
+        .get(subsystem, {})
+        .get(part_no)
+    )
+
+
+def _move_decision_to_history(
+    envelope: dict[str, Any],
+    subsystem: str,
+    part_no: str,
+    invalidation_reason: str,
+) -> None:
+    """把 decision 拷贝到 envelope[decisions_history] 并删除原位（in-place）。
+
+    调用方负责 _save_decisions_envelope 持久化。
+    invalidation_reason 应为 _validate_cached_decision 返回的三项之一。
+    """
+    decision = envelope["decisions_by_subsystem"][subsystem].pop(part_no)
+    envelope.setdefault("decisions_history", []).append({
+        "subsystem": subsystem,
+        "part_no": part_no,
+        "previous_decision": decision,
+        "invalidated_at": datetime.now(timezone.utc).isoformat(),
+        "invalidation_reason": invalidation_reason,
+    })
