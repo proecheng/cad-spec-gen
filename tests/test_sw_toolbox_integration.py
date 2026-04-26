@@ -61,15 +61,21 @@ def sw_available(monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_bom_resolves_with_mocked_com(sw_available):
+def test_bom_resolves_with_mocked_com(sw_available, monkeypatch):
     """加载 demo_bom.csv → 经 PartsResolver → 至少 1 行命中 sw_toolbox。
 
     fake_toolbox 只含少数 GB sldprt 且命名语言受限，这里测试环境放宽 min_score
     到 0.05（生产默认 0.30）以让中文 BOM 和英/中 fake 部件能产生至少 1 次命中，
-    证端到端链路（BOM → resolver → SW adapter → mocked COM → cache 写入）打通。
+    证端到端链路（BOM → resolver → SW adapter → mocked broker + COM → cache 写入）打通。
+
+    Task 14：mock sw_config_broker 返固定 config_name，让每行 sw_toolbox 候选都能走
+    完 broker → cache stem → fake convert → hit 全链路。
     """
     from parts_resolver import default_resolver
     from tools.sw_warmup import read_bom_csv
+    from tests.sw_toolbox_test_helpers import patch_broker_to_return
+
+    patch_broker_to_return(monkeypatch, config_name="default", source="auto")
 
     queries = read_bom_csv(DEMO_BOM)
     assert len(queries) == 15
@@ -95,10 +101,13 @@ def test_coverage_regression_baseline(monkeypatch, tmp_path):
     会计关系：有 SW 的 sw_hits 来源是 jinja/其他 adapter 迁移量，因此
     jinja_no_sw - jinja_with_sw ≤ sw_with_sw（允许部分 sw_hits 来自 miss
     行变 hit，而非纯 jinja 迁移）。
+
+    Task 14：pass 2 mock sw_config_broker 让 sw_toolbox 走通 hit。
     """
     from adapters.solidworks import sw_com_session, sw_detect, sw_toolbox_catalog
     from parts_resolver import default_resolver
     from tools.sw_warmup import read_bom_csv
+    from tests.sw_toolbox_test_helpers import patch_broker_to_return
 
     queries = read_bom_csv(DEMO_BOM)
 
@@ -153,6 +162,7 @@ def test_coverage_regression_baseline(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sw_com_session.SwComSession, "convert_sldprt_to_step", fake_convert
     )
+    patch_broker_to_return(monkeypatch, config_name="default", source="auto")
 
     resolver2 = default_resolver(project_root=str(tmp_path))
     sw_adapter = next((a for a in resolver2.adapters if a.name == "sw_toolbox"), None)

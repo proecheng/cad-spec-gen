@@ -310,15 +310,22 @@ class TestResolve:
         assert result.status == "miss"
 
     def test_resolve_cache_hit_no_com(self, setup_sw_available, tmp_path, monkeypatch):
-        """v4 §3.2 step 8: 缓存命中不触发 COM。"""
+        """v4 §3.2 step 8: 缓存命中不触发 COM。
+
+        Task 14 (sw_config_broker 接入)：cache stem 现包含 broker 解析的 config 后缀，
+        预建 STEP 文件名也对应 `<filename>_<safe_config>.step`；broker mock 走 auto 路径。
+        """
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks import sw_com_session, sw_toolbox_catalog
+        from tests.sw_toolbox_test_helpers import patch_broker_to_return
 
-        # Put a fake STEP file in cache location
+        patch_broker_to_return(monkeypatch, config_name="default", source="auto")
+
+        # 预建 cache STEP（stem 含 broker 给的 config 后缀）
         monkeypatch.setenv("CAD_SPEC_GEN_SW_TOOLBOX_CACHE", str(tmp_path / "cache"))
         cache_root = sw_toolbox_catalog.get_toolbox_cache_root({})
         cache_root.mkdir(parents=True, exist_ok=True)
-        step_file = cache_root / "GB" / "bolts and studs" / "hex bolt.step"
+        step_file = cache_root / "GB" / "bolts and studs" / "hex bolt_default.step"
         step_file.parent.mkdir(parents=True, exist_ok=True)
         step_file.write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
 
@@ -683,14 +690,19 @@ class TestResolveConfigAware:
     def test_config_aware_cache_path_contains_config_suffix(
         self, monkeypatch, tmp_path
     ):
-        """当 material 解析成功时，缓存路径应含 config 后缀。"""
-        import unittest.mock as mock
+        """当 broker 解析出 config_name 时，缓存路径应含 config 后缀。
+
+        Task 14：原"adapter 内部用 _build_candidate_config 算 config 名"逻辑搬到 broker；
+        此测试改为 mock broker 直接返指定 config_name，验 cache stem 与 convert 参数。
+        """
         from parts_resolver import PartQuery
+        from tests.sw_toolbox_test_helpers import patch_broker_to_return
 
         adapter = self._make_adapter_with_resolver_cfg()
         fake_part, fake_session = self._make_full_mock_resolve_prereqs(
             monkeypatch, tmp_path
         )
+        patch_broker_to_return(monkeypatch, config_name="GB_T70.1-M6x20", source="auto")
 
         # 让 convert_sldprt_to_step 成功并记录调用的 step_out 路径
         captured = []
@@ -720,73 +732,15 @@ class TestResolveConfigAware:
         assert "GB_T70.1-M6x20" in step_out_used
         assert config_used == "GB_T70.1-M6x20"
 
-    def test_exit5_stage_returns_miss_with_config_match_fallback(
-        self, monkeypatch, tmp_path
-    ):
-        """exit 5 → stage=config_not_found → resolve() 返回 miss，config_match=fallback。"""
-        import unittest.mock as mock
-        from parts_resolver import PartQuery
-
-        adapter = self._make_adapter_with_resolver_cfg()
-        fake_part, fake_session = self._make_full_mock_resolve_prereqs(
-            monkeypatch, tmp_path
-        )
-
-        fake_session.convert_sldprt_to_step.return_value = False
-        fake_session.is_healthy.return_value = True
-        fake_session.last_convert_diagnostics = {"stage": "config_not_found", "exit_code": 5}
-
-        query = PartQuery(
-            part_no="001",
-            name_cn="内六角螺栓",
-            material="GB/T 70.1 M6×99",
-            category="fastener",
-            make_buy="标准",
-        )
-        result = adapter.resolve(
-            query,
-            {"standard": "GB", "subcategories": [], "part_category": "fastener"},
-        )
-        assert result.status == "miss"
-        assert result.metadata.get("config_match") == "fallback"
-
-    def test_no_resolver_cfg_uses_default_cache_path(self, monkeypatch, tmp_path):
-        """config_name_resolver 段不存在时，缓存路径不含 config 后缀（向后兼容）。"""
-        import unittest.mock as mock
-        from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
-        from parts_resolver import PartQuery
-
-        adapter = SwToolboxAdapter(config={"min_score": 0.30})  # 无 config_name_resolver
-        fake_part, fake_session = self._make_full_mock_resolve_prereqs(
-            monkeypatch, tmp_path
-        )
-
-        captured = []
-
-        def fake_convert(sldprt, step_out, config=None):
-            captured.append((step_out, config))
-            from pathlib import Path
-            Path(step_out).parent.mkdir(parents=True, exist_ok=True)
-            Path(step_out).write_bytes(b"ISO-10303-214\n" + b"X" * 2000)
-            return True
-
-        fake_session.convert_sldprt_to_step.side_effect = fake_convert
-        fake_session.is_healthy.return_value = True
-
-        query = PartQuery(
-            part_no="001",
-            name_cn="内六角螺栓",
-            material="GB/T 70.1 M6×20",
-            category="fastener",
-            make_buy="标准",
-        )
-        adapter.resolve(query, {"standard": "GB", "subcategories": [], "part_category": "fastener"})
-
-        assert len(captured) == 1
-        step_out_used, config_used = captured[0]
-        # 无 resolver_cfg → target_config=None → 无后缀
-        assert "GB_T70.1" not in step_out_used
-        assert config_used is None
+    # NOTE Task 14：以下两个测试在 broker 接入后已经过时——adapter 内部不再
+    # 自己算 config_name（旧 `_build_candidate_config` 路径），全部委托 sw_config_broker：
+    #   - `test_exit5_stage_returns_miss_with_config_match_fallback`：exit5
+    #     "config_not_found" 由 broker 在 COM convert **之前** 用
+    #     NeedsUserDecision / policy_fallback 表达，adapter 不再有此中间层；
+    #     语义已被 tests/test_sw_toolbox_adapter_with_broker.py 覆盖。
+    #   - `test_no_resolver_cfg_uses_default_cache_path`：无 resolver_cfg → 走
+    #     默认 cache 路径（无后缀）的旧逻辑也消失，broker 永远给 config_name 或 None
+    #     （None 走 miss 不写 cache）。语义被 with_broker.py 的 fallback_returns_miss 覆盖。
 
 
 class TestBearingMaterialFallback:
@@ -828,10 +782,16 @@ class TestBearingMaterialFallback:
 
     def test_bearing_material_fallback_allows_resolve(self, monkeypatch, tmp_path):
         """name_cn '微型轴承' 无法提取 bearing model 时，adapter 应 fallback 查 material，
-        从 'MR105ZZ（Φ10×Φ5×4mm）' 提取 model_mr='MR105ZZ'，不提前 miss。"""
+        从 'MR105ZZ（Φ10×Φ5×4mm）' 提取 model_mr='MR105ZZ'，不提前 miss。
+
+        Task 14：cache stem 含 broker 给的 config 后缀；mock broker 返 config_name='MR105ZZ'。
+        """
         from adapters.parts.sw_toolbox_adapter import SwToolboxAdapter
         from adapters.solidworks.sw_toolbox_catalog import SwToolboxPart
         from parts_resolver import PartQuery
+        from tests.sw_toolbox_test_helpers import patch_broker_to_return
+
+        patch_broker_to_return(monkeypatch, config_name="MR105ZZ", source="auto")
 
         fake_part = SwToolboxPart(
             standard="GB",
@@ -841,10 +801,10 @@ class TestBearingMaterialFallback:
             tokens=["miniature", "radial", "ball", "bearings", "gb", "bearing"],
         )
 
-        # 预建 STEP 缓存文件（触发 cache hit 路径）
+        # 预建 STEP 缓存文件（触发 cache hit 路径；stem = filename + "_" + safe_config）
         step_dir = tmp_path / "cache" / "GB" / "bearing"
         step_dir.mkdir(parents=True)
-        step_file = step_dir / "miniature radial ball bearings gb.step"
+        step_file = step_dir / "miniature radial ball bearings gb_MR105ZZ.step"
         step_file.touch()
 
         self._make_adapter_with_mock_index(monkeypatch, tmp_path, fake_part)
