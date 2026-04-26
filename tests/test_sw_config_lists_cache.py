@@ -17,3 +17,17 @@ class TestModuleConstants:
         from adapters.solidworks.sw_config_lists_cache import get_config_lists_cache_path
         p = get_config_lists_cache_path()
         assert p == Path.home() / ".cad-spec-gen" / "sw_config_lists.json"
+
+
+class TestEmptyCache:
+    def test_empty_cache_has_5_fields(self):
+        from adapters.solidworks.sw_config_lists_cache import (
+            _empty_config_lists_cache,
+            CONFIG_LISTS_SCHEMA_VERSION,
+        )
+        cache = _empty_config_lists_cache()
+        assert cache["schema_version"] == CONFIG_LISTS_SCHEMA_VERSION
+        assert "generated_at" in cache  # ISO timestamp
+        assert cache["sw_version"] is None  # 故意 None → 触发 envelope_invalidated
+        assert cache["toolbox_path"] is None
+        assert cache["entries"] == {}

@@ -26,3 +26,18 @@ CONFIG_LISTS_SCHEMA_VERSION = 1
 def get_config_lists_cache_path() -> Path:
     """用户级 cache 文件路径；与 sw_toolbox_index.json 同目录（catalog.py:70 同模式）。"""
     return Path.home() / ".cad-spec-gen" / "sw_config_lists.json"
+
+
+def _empty_config_lists_cache() -> dict[str, Any]:
+    """返新空 envelope，5 字段全员就位避免 KeyError。
+
+    sw_version=None / toolbox_path=None 是有意：第一次调用 _envelope_invalidated
+    会比较 None != detect_solidworks().version_year → True → 整 entries 清重列。
+    """
+    return {
+        "schema_version": CONFIG_LISTS_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sw_version": None,
+        "toolbox_path": None,
+        "entries": {},
+    }
