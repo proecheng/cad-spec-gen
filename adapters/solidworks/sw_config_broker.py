@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -191,3 +192,88 @@ def _validate_cached_decision(
             return False, "config_name_not_in_available_configs"
 
     return True, None
+
+
+def _build_pending_record(
+    bom_row: dict[str, Any],
+    sldprt_path: str,
+    available: list[str],
+    match_failure_reason: str,
+    attempted_match: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """构造单 item 的 pending record（spec §5.3）。
+
+    schema 按 match_failure_reason 分支：
+    - no_exact_or_fuzzy_match_with_high_confidence: 推 best L2 + fallback
+    - multiple_high_confidence_matches: 列出全部 ≥ 0.7 候选 + fallback
+    - com_open_failed: 仅 fallback
+    - empty_config_list: use_config "Default" + fallback
+    """
+    sldprt_filename = Path(sldprt_path).name
+    suggested: list[dict[str, Any]] = []
+
+    if match_failure_reason == "no_exact_or_fuzzy_match_with_high_confidence":
+        if available:
+            tokens = _extract_size_tokens(_build_bom_dim_signature(bom_row))
+            best_below: tuple[str, float] | None = None
+            for cfg in available:
+                cfg_norm = _normalize_for_match(cfg)
+                for tok in sorted(tokens, key=len, reverse=True):
+                    # 不卡 0.95 上限：让用户看真实近似度
+                    if tok and tok in cfg_norm:
+                        conf = 0.7 + len(tok) / 100.0
+                        if best_below is None or conf > best_below[1]:
+                            best_below = (cfg, conf)
+                        break
+            if best_below:
+                suggested.append({
+                    "action": "use_config",
+                    "config_name": best_below[0],
+                    "rationale": f"模糊匹配最近候选（confidence={best_below[1]:.2f}，未达自动阈值 0.7）",
+                })
+        suggested.append({
+            "action": "fallback_cadquery",
+            "rationale": "SW 配置略有差异时可用尺寸正确的 CadQuery 近似体",
+        })
+
+    elif match_failure_reason == "multiple_high_confidence_matches":
+        for cfg in available:
+            suggested.append({
+                "action": "use_config",
+                "config_name": cfg,
+                "rationale": "高置信度候选之一",
+            })
+        suggested.append({
+            "action": "fallback_cadquery",
+            "rationale": "SW 多候选难辨时可用 CadQuery 近似体",
+        })
+
+    elif match_failure_reason == "com_open_failed":
+        suggested.append({
+            "action": "fallback_cadquery",
+            "rationale": "COM 列配置失败，建议使用 CadQuery 近似",
+        })
+
+    elif match_failure_reason == "empty_config_list":
+        suggested.append({
+            "action": "use_config",
+            "config_name": "Default",
+            "rationale": "SLDPRT 仅含 Default 配置",
+        })
+        suggested.append({
+            "action": "fallback_cadquery",
+            "rationale": "默认配置尺寸不匹配时用 CadQuery 近似",
+        })
+
+    return {
+        "part_no": bom_row.get("part_no", ""),
+        "name_cn": bom_row.get("name_cn") or "",
+        "material": bom_row.get("material") or "",
+        "bom_dim_signature": _build_bom_dim_signature(bom_row),
+        "sldprt_path": sldprt_path,
+        "sldprt_filename": sldprt_filename,
+        "available_configs": available,
+        "attempted_match": attempted_match,
+        "match_failure_reason": match_failure_reason,
+        "suggested_options": suggested,
+    }

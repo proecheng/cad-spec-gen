@@ -316,3 +316,83 @@ class TestValidateCachedDecision:
         )
         assert valid is True
         assert reason is None
+
+
+class TestBuildPendingRecord:
+    """spec §5.3: pending record schema 按 match_failure_reason 分支"""
+
+    BOM_ORING = {
+        "part_no": "GIS-EE-001-03",
+        "name_cn": "O型圈",
+        "material": "FKM Φ80×2.4",
+    }
+    SLDPRT = "C:/SOLIDWORKS Data/browser/GB/o-rings/all o-rings/o-rings series a gb.sldprt"
+
+    def test_no_exact_or_fuzzy_match(self):
+        from adapters.solidworks.sw_config_broker import _build_pending_record
+
+        rec = _build_pending_record(
+            bom_row=self.BOM_ORING,
+            sldprt_path=self.SLDPRT,
+            available=["28×1.9", "100×3.0"],
+            match_failure_reason="no_exact_or_fuzzy_match_with_high_confidence",
+            attempted_match=None,
+        )
+        assert rec["part_no"] == "GIS-EE-001-03"
+        assert rec["name_cn"] == "O型圈"
+        assert rec["material"] == "FKM Φ80×2.4"
+        assert rec["bom_dim_signature"] == "O型圈|FKM Φ80×2.4"
+        assert rec["sldprt_path"] == self.SLDPRT
+        assert rec["sldprt_filename"] == "o-rings series a gb.sldprt"
+        assert rec["available_configs"] == ["28×1.9", "100×3.0"]
+        assert rec["attempted_match"] is None
+        assert rec["match_failure_reason"] == "no_exact_or_fuzzy_match_with_high_confidence"
+        # suggested_options 至少含 fallback_cadquery
+        assert any(opt["action"] == "fallback_cadquery" for opt in rec["suggested_options"])
+
+    def test_com_open_failed(self):
+        """COM 失败 → available_configs=[]，suggested 仅 fallback_cadquery"""
+        from adapters.solidworks.sw_config_broker import _build_pending_record
+
+        rec = _build_pending_record(
+            bom_row=self.BOM_ORING,
+            sldprt_path=self.SLDPRT,
+            available=[],
+            match_failure_reason="com_open_failed",
+            attempted_match=None,
+        )
+        assert rec["available_configs"] == []
+        assert len(rec["suggested_options"]) == 1
+        assert rec["suggested_options"][0]["action"] == "fallback_cadquery"
+
+    def test_empty_config_list_default_only(self):
+        """SLDPRT 仅有 'Default' → suggested 含 use_config + fallback"""
+        from adapters.solidworks.sw_config_broker import _build_pending_record
+
+        rec = _build_pending_record(
+            bom_row=self.BOM_ORING,
+            sldprt_path=self.SLDPRT,
+            available=["Default"],
+            match_failure_reason="empty_config_list",
+            attempted_match=None,
+        )
+        actions = [o["action"] for o in rec["suggested_options"]]
+        assert "use_config" in actions
+        assert "fallback_cadquery" in actions
+        # 找到 use_config 选项 config_name=Default
+        use_default = [o for o in rec["suggested_options"] if o["action"] == "use_config"][0]
+        assert use_default["config_name"] == "Default"
+
+    def test_multiple_high_confidence(self):
+        """多候选 ≥ 0.7 同分 → suggested 列出全部"""
+        from adapters.solidworks.sw_config_broker import _build_pending_record
+
+        rec = _build_pending_record(
+            bom_row=self.BOM_ORING,
+            sldprt_path=self.SLDPRT,
+            available=["80×2.4", "Φ80×2.4mm"],
+            match_failure_reason="multiple_high_confidence_matches",
+            attempted_match=None,
+        )
+        use_options = [o for o in rec["suggested_options"] if o["action"] == "use_config"]
+        assert len(use_options) >= 2
