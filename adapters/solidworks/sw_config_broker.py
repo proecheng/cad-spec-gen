@@ -23,6 +23,14 @@ from typing import Any
 
 SCHEMA_VERSION = 2
 
+# review I-2: invalidation_reason 受控枚举（spec §5.2 三项失效条件之一）。
+# 在 _move_decision_to_history 头部校验防 caller 传错值进 history 后无法 group by 审计。
+INVALIDATION_REASONS = frozenset({
+    "bom_dim_signature_changed",
+    "sldprt_filename_changed",
+    "config_name_not_in_available_configs",
+})
+
 
 @dataclass
 class ConfigResolution:
@@ -323,10 +331,20 @@ def _load_decisions_envelope() -> dict[str, Any]:
             f"decisions 文件 {path} 第 {exc.lineno} 行 syntax error: {exc.msg}"
         ) from exc
 
-    if env.get("schema_version") != SCHEMA_VERSION:
+    # 防御 review I-3：合法 JSON 但顶层不是 object 时（如 [1,2,3]），
+    # env.get() 会 AttributeError，违反 spec §6 "fail loud 含 detail" 承诺。
+    if not isinstance(env, dict):
         raise ValueError(
-            f"决策 schema_version 已升级 v{env.get('schema_version')}→v{SCHEMA_VERSION}，"
-            f"请删除 {path} 后重跑 codegen 让 agent 引导重新决策"
+            f"decisions 文件 {path} 顶层必须是 JSON object，实测 {type(env).__name__}"
+        )
+
+    if env.get("schema_version") != SCHEMA_VERSION:
+        old_ver = env.get("schema_version")
+        backup_path = path.with_suffix(f".v{old_ver}.bak")
+        raise ValueError(
+            f"决策 schema_version 已升级 v{old_ver}→v{SCHEMA_VERSION}，"
+            f"请先备份原文件至 {backup_path}（保留历史决策记录），"
+            f"再删除 {path} 后重跑 codegen 让 agent 引导重新决策"
         )
 
     env.setdefault("decisions_by_subsystem", {})
@@ -337,15 +355,17 @@ def _load_decisions_envelope() -> dict[str, Any]:
 def _save_decisions_envelope(envelope: dict[str, Any]) -> None:
     """原子写入 spec_decisions.json（先写 .tmp 再 os.replace）。
 
-    注：会 mutate 入参的 last_updated 字段为当前 UTC 时间。
+    review I-1: 不 mutate 入参 — 落盘前 shallow-copy 注入 last_updated，
+    避免 caller 多次 save 同一引用时 last_updated 被反复覆盖造成审计混乱。
     """
     path = _decisions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    envelope["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    to_write = {**envelope, "last_updated": datetime.now(timezone.utc).isoformat()}
 
     tmp_path = path.with_suffix(".json.tmp")
     tmp_path.write_text(
-        json.dumps(envelope, ensure_ascii=False, indent=2),
+        json.dumps(to_write, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     os.replace(tmp_path, path)
@@ -374,8 +394,14 @@ def _move_decision_to_history(
     """把 decision 拷贝到 envelope[decisions_history] 并删除原位（in-place）。
 
     调用方负责 _save_decisions_envelope 持久化。
-    invalidation_reason 应为 _validate_cached_decision 返回的三项之一。
+    invalidation_reason 必须是 INVALIDATION_REASONS 之一（review I-2 校验）。
     """
+    if invalidation_reason not in INVALIDATION_REASONS:
+        raise ValueError(
+            f"未知 invalidation_reason: {invalidation_reason!r}，"
+            f"合法值为 {sorted(INVALIDATION_REASONS)}"
+        )
+
     decision = envelope["decisions_by_subsystem"][subsystem].pop(part_no)
     envelope.setdefault("decisions_history", []).append({
         "subsystem": subsystem,

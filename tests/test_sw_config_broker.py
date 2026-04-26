@@ -430,6 +430,8 @@ class TestDecisionsEnvelopeIO:
         assert env["decisions_history"] == []
 
     def test_save_then_load_roundtrip(self, tmp_project_dir):
+        """review I-1: 改硬版 — 显式断言 _save 不 mutate 入参，
+        且磁盘上有 last_updated 而入参 envelope 没有。"""
         import json
 
         from adapters.solidworks.sw_config_broker import (
@@ -439,7 +441,6 @@ class TestDecisionsEnvelopeIO:
 
         envelope = {
             "schema_version": 2,
-            "last_updated": "2026-04-25T22:30:00+00:00",
             "decisions_by_subsystem": {
                 "end_effector": {
                     "GIS-EE-001-03": {
@@ -456,25 +457,41 @@ class TestDecisionsEnvelopeIO:
         }
         _save_decisions_envelope(envelope)
 
-        # 文件原子写入：必须存在 + JSON 合法
+        # I-1 契约：入参不被 mutate
+        assert "last_updated" not in envelope
+
+        # 磁盘文件：含 _save 注入的 last_updated
         path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
         assert path.is_file()
         loaded_raw = json.loads(path.read_text(encoding="utf-8"))
-        assert loaded_raw == envelope
+        assert "last_updated" in loaded_raw
+        assert loaded_raw["last_updated"] != ""
 
-        # _load 接口
+        # 除 last_updated 外其他字段与入参完全一致（真正的 round-trip 校验）
+        loaded_minus_ts = {k: v for k, v in loaded_raw.items() if k != "last_updated"}
+        assert loaded_minus_ts == envelope
+
+        # _load 接口同步回读
         loaded = _load_decisions_envelope()
-        assert loaded == envelope
+        loaded_minus_ts = {k: v for k, v in loaded.items() if k != "last_updated"}
+        assert loaded_minus_ts == envelope
 
     def test_load_corrupt_json_fails_loud(self, tmp_project_dir):
-        """spec §6: decisions.json 损坏 → fail loud 含行号"""
+        """spec §6: decisions.json 损坏 → fail loud 含行号
+
+        review M-1: 断言 __cause__ 是 JSONDecodeError 比 match 文案稳定
+        （未来错误消息 i18n 不会破测试）。
+        """
+        import json as _json
+
         from adapters.solidworks.sw_config_broker import _load_decisions_envelope
 
         path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
         path.write_text('{ "broken JSON syntax', encoding="utf-8")
 
-        with pytest.raises(ValueError, match="syntax error"):
+        with pytest.raises(ValueError) as exc_info:
             _load_decisions_envelope()
+        assert isinstance(exc_info.value.__cause__, _json.JSONDecodeError)
 
     def test_load_schema_version_mismatch_fails(self, tmp_project_dir):
         """spec §6: schema_version 不一致 → 阻塞"""
@@ -489,6 +506,16 @@ class TestDecisionsEnvelopeIO:
         )
 
         with pytest.raises(ValueError, match="schema_version"):
+            _load_decisions_envelope()
+
+    def test_load_top_level_not_dict_fails(self, tmp_project_dir):
+        """review I-3: 合法 JSON 但顶层非 object → fail loud 而非 AttributeError"""
+        from adapters.solidworks.sw_config_broker import _load_decisions_envelope
+
+        path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+        path.write_text("[1, 2, 3]", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="顶层必须是 JSON object"):
             _load_decisions_envelope()
 
     def test_save_atomic_write_via_tmp(self, tmp_project_dir):
@@ -564,3 +591,19 @@ class TestDecisionAccessors:
         assert h["invalidation_reason"] == "config_name_not_in_available_configs"
         assert h["previous_decision"]["config_name"] == "80×2.4"
         assert "invalidated_at" in h
+
+    def test_move_decision_rejects_unknown_reason(self):
+        """review I-2: invalidation_reason 不在 INVALIDATION_REASONS 内 → ValueError"""
+        from adapters.solidworks.sw_config_broker import _move_decision_to_history
+
+        env = {
+            "decisions_by_subsystem": {
+                "end_effector": {"GIS-EE-001-03": {"decision": "use_config", "config_name": "X"}}
+            },
+            "decisions_history": [],
+        }
+        with pytest.raises(ValueError, match="未知 invalidation_reason"):
+            _move_decision_to_history(env, "end_effector", "GIS-EE-001-03", "bom_change")
+        # 校验失败时不应 mutate envelope
+        assert "GIS-EE-001-03" in env["decisions_by_subsystem"]["end_effector"]
+        assert env["decisions_history"] == []

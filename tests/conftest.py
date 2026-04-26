@@ -182,6 +182,11 @@ def tmp_project_dir(tmp_path, monkeypatch):
     - reload cad_paths 让模块级常量 PROJECT_ROOT 重新读取 env
 
     yields: tmp_path (Path) — 项目根
+
+    与 isolate_cad_spec_gen_home autouse fixture 正交：
+      - isolate_cad_spec_gen_home 隔离的是 **用户 home** (~/.cad-spec-gen/)
+      - tmp_project_dir 隔离的是 **项目根** (<project>/.cad-spec-gen/)
+      - broker 的 decisions/pending 文件写后者；前者管的是用户级 cache/config
     """
     cad_dir = tmp_path / ".cad-spec-gen"
     cad_dir.mkdir(parents=True, exist_ok=True)
