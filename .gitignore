@@ -48,6 +48,9 @@ artifacts/*/sw_report_data.json
 
 # SW 参数化建模导出（运行时生成，不 track）
 **/sw_parts/
+
+# sw_config_broker 运行时产物（lock / decisions.json / pending.json）
+.cad-spec-gen/
 artifacts/20260424-*/
 artifacts/20260425-*/
 

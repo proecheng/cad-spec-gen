@@ -708,6 +708,11 @@ class TestListConfigsViaCom:
 class TestResolveConfigForPart:
     """spec §3.2 数据流：5 路径全覆盖（cached / auto / cached_invalidate / policy / halt）。"""
 
+    @pytest.fixture(autouse=True)
+    def _enable_broker(self, monkeypatch):
+        """Task 14.5 opt-out：本 class 测试需要 broker 真路径，覆盖 conftest 全局禁用。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
     BOM = {"part_no": "GIS-EE-001-03", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
     SLDPRT = "/abs/path/o-rings series a gb.sldprt"
 
@@ -879,6 +884,11 @@ class TestResolveConfigForPart:
 class TestValidateCachedDecisionRobustness:
     """C-2 + I-3 修复：cache 校验和 decision 字段值的边界处理。"""
 
+    @pytest.fixture(autouse=True)
+    def _enable_broker(self, monkeypatch):
+        """Task 14.5 opt-out：含 test_resolve_unknown_decision_value_raises 调真 resolve_config_for_part。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
     def test_validate_skips_third_check_when_available_empty(self):
         """C-2: COM transient 失败（available=[]）时第三项校验应 short-circuit 返回 valid。
 
@@ -979,6 +989,11 @@ class TestFileLock:
     真正的双进程并发阻塞测试在集成层 Task 18。
     """
 
+    @pytest.fixture(autouse=True)
+    def _enable_broker(self, monkeypatch):
+        """Task 14.5 opt-out：本 class 验证文件锁行为，需要 broker 真路径。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
     def test_lock_does_not_block_serial_calls(self, tmp_project_dir, monkeypatch):
         """同进程内串行两次调 resolve_config_for_part 应都成功（lock 自释放）。"""
         from adapters.solidworks import sw_config_broker
@@ -1014,3 +1029,127 @@ class TestFileLock:
 
         lock_path = tmp_project_dir / ".cad-spec-gen" / "lock"
         assert lock_path.exists(), "lock 文件未在 tmp_project_dir 创建"
+
+
+class TestBrokerSafetyValve:
+    """Task 14.5 (P0)：CAD_SW_BROKER_DISABLE=1 → 立即 policy_fallback，绝不进 SW。
+
+    防护目的（spec rev 2 + Task 14.5 补丁）：
+    - SW Premium silent automation 在 license check / Toolbox add-in 等场景仍可能弹
+      modal 对话框，卡住 worker subprocess
+    - 安全阀允许用户/CI/测试在 broker 入口立刻短路退到 CadQuery 兜底
+    - tests/conftest.py 的 autouse fixture 默认设此 env，pytest 永不意外触发 SW
+    - 仅 TestResolveConfigForPart / TestValidateCachedDecisionRobustness / TestFileLock
+      三个 class 显式 opt-out（class-level autouse delenv）
+    """
+
+    BOM = {"part_no": "X", "name_cn": "O型圈", "material": "FKM Φ80×2.4"}
+    SLDPRT = "/abs/path/seal.sldprt"
+
+    def test_env_disable_returns_policy_fallback_without_com(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """env=1 时 resolve_config_for_part 立即返 policy_fallback，不调 _list_configs_via_com。"""
+        from adapters.solidworks import sw_config_broker
+
+        monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+
+        # 哨兵：若 _list_configs_via_com 被调，标记 + 返伪数据；测试断言它没被调
+        com_called = {"flag": False}
+
+        def _sentinel(_path: str) -> list[str]:
+            com_called["flag"] = True
+            return ["80×2.4"]
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(sw_config_broker, "_list_configs_via_com", _sentinel)
+
+        r = sw_config_broker.resolve_config_for_part(
+            self.BOM, self.SLDPRT, subsystem="end_effector",
+        )
+
+        assert com_called["flag"] is False, "安全阀启用时不应调 _list_configs_via_com"
+        assert r.source == "policy_fallback"
+        assert r.config_name is None
+        assert r.confidence == 0.0
+        assert r.available_configs == []
+        assert "CAD_SW_BROKER_DISABLE" in r.notes
+
+    def test_env_disable_does_not_acquire_file_lock(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """env=1 时不应进入 _project_file_lock（lock 文件不应被创建）。
+
+        spec rev 2 + Task 14.5：安全阀越早短路越好；连项目锁都不取，
+        最大限度避免任何文件 IO 副作用。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+        sw_config_broker.resolve_config_for_part(
+            self.BOM, self.SLDPRT, subsystem="end_effector",
+        )
+
+        lock_path = tmp_project_dir / ".cad-spec-gen" / "lock"
+        assert not lock_path.exists(), (
+            "安全阀启用时不应创建 lock 文件（应在拿锁前短路）"
+        )
+
+    def test_env_unset_lets_broker_proceed_normally(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """env 未设 → broker 走正常路径（验证安全阀只在显式 =1 时生效）。"""
+        from adapters.solidworks import sw_config_broker
+
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: ["80×2.4"]
+        )
+
+        r = sw_config_broker.resolve_config_for_part(
+            self.BOM, self.SLDPRT, subsystem="end_effector",
+        )
+
+        assert r.source == "auto"
+        assert r.config_name == "80×2.4"
+
+    def test_env_zero_or_empty_does_not_trigger_safety_valve(
+        self, tmp_project_dir, monkeypatch
+    ):
+        """仅严格 ==1 触发；其他取值（空字符串 / "0" / "false"）不短路。
+
+        防御 truthy/falsy 误判：即便用户写 CAD_SW_BROKER_DISABLE=0 也不该误触发。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        sw_config_broker._CONFIG_LIST_CACHE.clear()
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda p: ["80×2.4"]
+        )
+
+        for v in ("", "0", "false", "no"):
+            monkeypatch.setenv("CAD_SW_BROKER_DISABLE", v)
+            r = sw_config_broker.resolve_config_for_part(
+                self.BOM, self.SLDPRT, subsystem="end_effector",
+            )
+            assert r.source == "auto", f"env={v!r} 不应触发安全阀"
+
+
+class TestConftestAutouseDefaultsBrokerDisable:
+    """Task 14.5 (P0)：conftest autouse fixture 应让所有 pytest 默认 CAD_SW_BROKER_DISABLE=1。
+
+    没有此防护时，任何漏 mock 的测试都可能误启 SW；有了此防护，所有测试默认安全，
+    需要真跑 broker 的测试显式 opt-out（class-level autouse delenv）。
+    """
+
+    def test_default_env_is_set_to_1(self):
+        """无任何 monkeypatch 时，os.environ["CAD_SW_BROKER_DISABLE"] 应为 '1'。"""
+        import os
+
+        assert os.environ.get("CAD_SW_BROKER_DISABLE") == "1", (
+            "conftest autouse fixture 应默认设 CAD_SW_BROKER_DISABLE=1，"
+            "实测 env={!r}".format(os.environ.get("CAD_SW_BROKER_DISABLE"))
+        )

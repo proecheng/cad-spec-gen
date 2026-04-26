@@ -204,3 +204,27 @@ def tmp_project_dir(tmp_path, monkeypatch):
 
 
 # ─── /Task 8 ───
+
+
+# ─── Task 14.5 (P0)：默认禁用 sw_config_broker 真路径 ───
+
+
+@pytest.fixture(autouse=True, scope="function")
+def disable_sw_config_broker_by_default(monkeypatch):
+    """所有 pytest 默认设 CAD_SW_BROKER_DISABLE=1，broker 走 policy_fallback 短路。
+
+    防护目的（spec rev 2 + Task 14.5 + session 33 真观察）：
+    - SW Premium silent automation 在 license / Toolbox add-in 等场景仍可能弹
+      modal 对话框，卡死 worker subprocess（已实测）
+    - 任何漏 mock 的测试若走到 _list_configs_via_com 会真 spawn worker → 启 SW
+    - 此 autouse 把 broker 默认锁死在 policy_fallback；只有需要真跑 broker 路径的
+      测试（TestResolveConfigForPart / TestValidateCachedDecisionRobustness /
+      TestFileLock / TestBrokerSafetyValve 等）显式 monkeypatch.delenv opt-out
+
+    与 isolate_cad_spec_gen_home 正交：一个守 home dir，一个守 SW 触发。
+    """
+    monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+    yield
+
+
+# ─── /Task 14.5 ───

@@ -554,10 +554,25 @@ def resolve_config_for_part(
     *,
     subsystem: str,
 ) -> ConfigResolution:
-    """主入口（spec §3.2 + spec §6 文件锁）。
+    """主入口（spec §3.2 + spec §6 文件锁 + Task 14.5 安全阀）。
 
-    薄 wrapper：进入 _project_file_lock 后调 _resolve_config_for_part_unlocked。
+    顺序：
+    1. CAD_SW_BROKER_DISABLE=='1' → 立即 policy_fallback，不进锁也不进 COM
+       （Task 14.5：SW Premium silent automation 仍可能弹 modal 卡死 worker；
+       env 安全阀给 caller 一个零成本退路。tests/conftest.py 的 autouse fixture
+       默认开此 env，只有显式 delenv 的 broker 功能测试才放行真路径）
+    2. 进入项目文件锁
+    3. 调 _resolve_config_for_part_unlocked
     """
+    if os.environ.get("CAD_SW_BROKER_DISABLE") == "1":
+        return ConfigResolution(
+            config_name=None,
+            source="policy_fallback",
+            confidence=0.0,
+            available_configs=[],
+            notes="CAD_SW_BROKER_DISABLE=1 安全阀启用：跳过 SW COM，CadQuery 兜底",
+        )
+
     with _project_file_lock():
         return _resolve_config_for_part_unlocked(
             bom_row=bom_row, sldprt_path=sldprt_path, subsystem=subsystem,
