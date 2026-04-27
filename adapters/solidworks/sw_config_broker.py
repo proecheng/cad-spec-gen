@@ -369,6 +369,18 @@ def _load_decisions_envelope() -> dict[str, Any]:
 
     env.setdefault("decisions_by_subsystem", {})
     env.setdefault("decisions_history", [])
+
+    # M-7 IO 边界守护（spec §2.2 Step 4 / §7.2 invariant 1）：
+    # 跨 IO 边界反序列化的 decisions_history[*].invalidation_reason 可能含
+    # 旧 schema 字符串（PR #19 之前 / 用户手编 / 外部源），mypy 编译期 Literal
+    # 守护对 IO 边界外不生效，读取端 runtime 校验补强。
+    for entry in env.get("decisions_history", []):
+        if entry.get("invalidation_reason") not in INVALIDATION_REASONS:
+            raise ValueError(
+                f"decisions_history 含未知 invalidation_reason: "
+                f"{entry.get('invalidation_reason')!r}（schema 损坏或老版本数据）"
+            )
+
     return env
 
 
