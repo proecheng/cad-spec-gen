@@ -434,6 +434,13 @@ def _move_decision_to_history(
 
 # ---------- COM 集成层（spec §4.4 #1） ----------
 
+# spec §3.1.2 + §3.2.1 — 与 worker 退出码合约同步（双边维护，见 spec §10 maintainer note）
+# rev 5 H：常量名带 WORKER_ 前缀防与本模块其他常量冲突，明示来源
+WORKER_EXIT_OK = 0
+WORKER_EXIT_TERMINAL = 2
+WORKER_EXIT_TRANSIENT = 3
+WORKER_EXIT_LEGACY = 4  # 防御性：旧 worker rc=4（升级期混跑）当 transient 处理
+
 LIST_CONFIGS_TIMEOUT_SEC = 15
 
 # process-local 缓存：sldprt 绝对路径 → configurations 列表。
