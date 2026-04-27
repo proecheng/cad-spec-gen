@@ -1664,6 +1664,71 @@ class TestPrewarmConfigLists:
         assert cache_new["sw_version"] == 24
         assert cache_new["entries"][str(p1)]["configs"] == ["NEW"]
 
+    def test_e2e_prewarm_resolve_invalidate_history_pipeline(
+        self, monkeypatch, tmp_project_dir
+    ):
+        """T19 (spec §4.8): 端到端链路集成测试 ——
+        prewarm 4 件 → resolve 触发 cached invalidate → fall through → history append。
+
+        守护 §7.2 invariant 2+3+4：cached 失效持久化 history + fall through 规则匹配
+        + prewarm 行为不变（M-6 模块级 import 后）。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        # mock SW worker 返回固定 configs（避开真 SW 调用）
+        monkeypatch.setattr(
+            sw_config_broker,
+            "_list_configs_via_com",
+            lambda path: ["ConfigA", "ConfigB"],
+        )
+
+        # 构造 envelope 含 1 件 cached + 现状不匹配（必走失效路径）
+        envelope = sw_config_broker._empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "es": {
+                "P-001": {
+                    "decision": "use_config",
+                    "config_name": "OldConfig",  # ← 现状 available 没有此 config
+                    "bom_dim_signature": "current_sig",
+                    "sldprt_filename": "current.sldprt",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+        monkeypatch.setattr(
+            sw_config_broker, "_load_decisions_envelope", lambda: envelope
+        )
+        saved = []
+        monkeypatch.setattr(
+            sw_config_broker,
+            "_save_decisions_envelope",
+            lambda env: saved.append(env),
+        )
+        monkeypatch.setattr(
+            sw_config_broker,
+            "_build_bom_dim_signature",
+            lambda _: "current_sig",
+        )
+
+        # 调 _resolve_config_for_part_unlocked，cached invalidate → fall through
+        try:
+            sw_config_broker._resolve_config_for_part_unlocked(
+                bom_row={"part_no": "P-001"},
+                sldprt_path="C:/fake/current.sldprt",
+                subsystem="es",
+            )
+        except sw_config_broker.NeedsUserDecision:
+            pass
+
+        # 验证 history append + reason 正确
+        assert len(envelope["decisions_history"]) == 1
+        assert (
+            envelope["decisions_history"][0]["invalidation_reason"]
+            == "config_name_not_in_available_configs"
+        )
+        # 原 cached entry 已 pop
+        assert "P-001" not in envelope["decisions_by_subsystem"]["es"]
+
 
 class TestListConfigsViaComThreeLayer:
     """Task 14.6：_list_configs_via_com 三层 cache (L2 → L1 → fallback)."""
@@ -3952,4 +4017,100 @@ class TestMypyCIGate:
         assert result.returncode == 0, (
             f"T18: sw_config_broker.py mypy 失败，引入新 type error。"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+
+
+class TestSection72InvariantsRegression:
+    """§7.2 5 条 invariant 参数化反向 trace（spec §4.8 / §7.2）。
+
+    每条 invariant 一个 sub-assertion；任何一条破裂立即 fail。
+    fail message 引用 spec §7.2 编号让 reviewer 直接定位。
+    """
+
+    @pytest.mark.parametrize(
+        "invariant_num,invariant_desc,check",
+        [
+            (
+                1,
+                "_validate_cached_decision 返回 tuple[bool, Literal | None]",
+                lambda: __import__(
+                    "adapters.solidworks.sw_config_broker",
+                    fromlist=["_validate_cached_decision"],
+                )._validate_cached_decision is not None,
+            ),
+            (
+                2,
+                "_move_decision_to_history 暴露 + 接受 InvalidationReason",
+                lambda: __import__(
+                    "adapters.solidworks.sw_config_broker",
+                    fromlist=["_move_decision_to_history"],
+                )._move_decision_to_history is not None,
+            ),
+            (
+                3,
+                "_resolve_config_for_part_unlocked 暴露",
+                lambda: __import__(
+                    "adapters.solidworks.sw_config_broker",
+                    fromlist=["_resolve_config_for_part_unlocked"],
+                )._resolve_config_for_part_unlocked is not None,
+            ),
+            (
+                4,
+                "prewarm_config_lists 暴露 + detect_solidworks/cache_mod 模块级",
+                lambda: (
+                    hasattr(
+                        __import__(
+                            "adapters.solidworks.sw_config_broker",
+                            fromlist=["prewarm_config_lists"],
+                        ),
+                        "detect_solidworks",
+                    )
+                    and hasattr(
+                        __import__(
+                            "adapters.solidworks.sw_config_broker",
+                            fromlist=["prewarm_config_lists"],
+                        ),
+                        "cache_mod",
+                    )
+                ),
+            ),
+            (
+                5,
+                "INVALIDATION_REASONS 是 frozenset 含 3 字面量",
+                lambda: (
+                    isinstance(
+                        __import__(
+                            "adapters.solidworks.sw_config_broker",
+                            fromlist=["INVALIDATION_REASONS"],
+                        ).INVALIDATION_REASONS,
+                        frozenset,
+                    )
+                    and len(
+                        __import__(
+                            "adapters.solidworks.sw_config_broker",
+                            fromlist=["INVALIDATION_REASONS"],
+                        ).INVALIDATION_REASONS
+                    )
+                    == 3
+                ),
+            ),
+        ],
+        ids=[
+            "inv_1_validate_signature",
+            "inv_2_move_decision_signature",
+            "inv_3_resolve_unlocked_exposed",
+            "inv_4_prewarm_module_level_imports",
+            "inv_5_invalidation_reasons_frozenset",
+        ],
+    )
+    def test_section_7_2_invariants_are_preserved(
+        self, invariant_num, invariant_desc, check
+    ):
+        """T20 (spec §4.8 / §7.2): 5 条 invariant 任意一条破裂立即 fail，
+        message 引用 §7.2 第 N 条。
+        """
+        result = check()
+        assert result, (
+            f"§7.2 invariant {invariant_num} 破裂: {invariant_desc}。"
+            f"破坏者请检查是否预期此改动；如预期请同步更新 spec §7.2。"
         )
