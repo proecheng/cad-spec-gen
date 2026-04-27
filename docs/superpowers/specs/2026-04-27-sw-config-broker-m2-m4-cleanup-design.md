@@ -827,19 +827,20 @@ def _reset_config_list_caches():
 
 **12 Edge case 中 10 有测试覆盖，2 显式标"不测"** ✓。
 
-### §7.9 测试总数（rev 5 重算）
+### §7.9 测试总数（rev 5 重算 + rev 6 实施后实测）
 
-| 类型 | 测试文件 | 测试数 |
-|------|---------|-------|
-| Worker unit | `tests/test_sw_list_configs_worker.py` | 17（rev 4 14 + rev 5 A 3 invariant 直测）|
-| Broker unit + invariant + negative | `tests/test_sw_config_broker.py` | 22（rev 4 13 + rev 5 A 3 invariant 直测 + rev 5 D 6 negative）|
-| Cache unit + invariant | `tests/test_sw_config_lists_cache.py` | 6（rev 4 4 + rev 5 A 2 invariant 直测）|
-| **集成** | `tests/test_sw_config_broker_integration.py` (**新**) | 8（rev 5 C）|
-| **端到端** | `tests/test_sw_config_broker_e2e.py` (**新**) | 5（rev 5 F）|
-| Conftest fixtures | `tests/conftest.py` | 不计入 |
-| **总计** | — | **58 个新测试** |
+| 类型 | 测试文件 | 本 PR 新增 | 文件总测试数（实施后实测）|
+|------|---------|-----------|--------------------------|
+| Worker unit | `tests/test_sw_list_configs_worker.py` | 17 | 27（含历史 10）|
+| Broker unit + invariant + negative | `tests/test_sw_config_broker.py` | 22 | 134（含历史 112）|
+| Cache unit + invariant | `tests/test_sw_config_lists_cache.py` | 6 | 25（含历史 19）|
+| **集成** | `tests/test_sw_config_broker_integration.py` (**新**) | 8 | 8 |
+| **端到端** | `tests/test_sw_config_broker_e2e.py` (**新**) | 5 | 5 |
+| Conftest fixtures | `tests/conftest.py` | 不计入 | 不计入 |
+| **总计** | — | **58 个新测试** | **199 个测试**（实测） |
 
-> rev 4 31 → rev 5 58（约 1.9x），覆盖率从隐式 → CI 强制 ≥95% (§12)。
+> rev 4 31 → rev 5 58（约 1.9x），实施后 PR commit 累计 199 测试覆盖（含历史保留）。覆盖率从隐式 → CI 强制 ≥95% (§12)。
+> **rev 6 注（plan-final reviewer 加固）**：表头明确区分"本 PR 新增"vs"文件总测试数"防口径混淆。58 是 spec 计划项，199 是实施后真实可见的总盘（含历史保留 + 本 PR 新增）。
 
 ---
 

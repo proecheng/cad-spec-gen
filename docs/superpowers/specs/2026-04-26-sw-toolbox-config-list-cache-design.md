@@ -463,6 +463,7 @@ PR #19 merge 前 self-review 发现 1 Critical (C-1) + 4 Important (I-1..I-4) + 
 - **M-6 `detect_solidworks` 重复 import**：函数内 import 每次 prewarm 都执行；可提到模块级（注意 reload 兼容）。
 - **M-7 `INVALIDATION_REASONS` frozenset 校验**：内部单 caller 函数加防御校验属过度防御，可去除。
 - **M-8 broker.py:865 `_move_decision_to_history` arg type "str | None" → "str"**（2026-04-27 发现）：M-2/M-4 PR Task 24 跑 mypy 发现历史 type error，不在本 PR scope；按 CLAUDE.md `feedback_historical_debt_isolation` 不扩 scope。修复方向：caller 加 None guard 或 _move_decision_to_history 签名改 `str | None`。
+- **M-9 CI gate 三处设计变更 trace**（2026-04-27 plan-final reviewer 提出）：M-2/M-4 PR Task 23 实施 CI gate 时三处 plan-drift fix 配置（pyproject.toml）：①`source` 限三模块（防其他 75-82% 模块拉低加权到 86%）②不启 `branch=true`（防 partial branch 让 95.07%→94.07% fail）③`addopts` 不加 `fail_under` flag（防本地单文件 test 必 fail）。三处互相依赖缺一不可——未来 reviewer 切勿误改回 `branch=true` 或扩 source 范围导致 gate 失效。可选 follow-up：addopts 完全去 cov 让本地默认干净（PR #21 plan-final reviewer 反馈 #2，confidence 80）。
 
 ### 优先级建议
 - ~~下个 PR：I-2 + I-3（影响北极星 gate "稳定可靠 / 傻瓜式"）~~ ✅ 已完成（2026-04-27）

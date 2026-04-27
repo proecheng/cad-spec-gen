@@ -83,7 +83,10 @@ markers = [
 testpaths = ["tests"]
 # rev 5 H：默认所有 pytest 调用启 sw_config_broker M-2/M-4 三模块 cov 报告
 # plan-drift fix：plan 写 --cov-fail-under=95 in addopts 让单文件 test 必 fail；
-# 改为 CI tests.yml 显式加 fail_under flag 而非全局 addopts（本地开发不烦）。
+# 改为 CI tests.yml 显式加 fail_under flag。
+# 注：addopts 仍含 --cov 触发 instrumentation（本地单文件测试有 1-2s overhead +
+# term-missing 报告噪声，但保 CI/local 数据一致）；plan-final reviewer 反馈记录
+# §11 M-9 作为可选 follow-up（addopts 完全去 cov 让本地干净）。
 addopts = [
     "--cov=adapters.solidworks.sw_config_broker",
     "--cov=adapters.solidworks.sw_config_lists_cache",
