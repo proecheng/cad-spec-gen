@@ -13,9 +13,16 @@ import os
 import sys
 import unittest.mock as mock
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+class _FakeComError(Exception):
+    """Fake pythoncom.com_error 供各测试复用 — args[0] = hresult，.hresult attr 也可读。"""
+
+    def __init__(self, hresult):
+        self.hresult = hresult
+        super().__init__(hresult)
+        self.args = (hresult,)
 
 
 def _patch_com(monkeypatch, *, dispatch_return=None, dispatch_raises=None):
@@ -67,7 +74,7 @@ class TestWorkerListConfigs:
 class TestWorkerOpenDocFailure:
     """spec §3.1.3 + §3.1.4：OpenDocFailure 子类异常按 errors 数值分类。"""
 
-    def test_worker_open_doc_failure_terminal_errors_returns_rc2(self, monkeypatch, capsys):
+    def test_worker_open_doc_failure_terminal_errors_returns_rc2(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         fake_app = mock.MagicMock()
@@ -81,7 +88,7 @@ class TestWorkerOpenDocFailure:
         rc = wkr._list_configs("dummy.sldprt")
         assert rc == 2
 
-    def test_worker_open_doc_failure_transient_errors_returns_rc3(self, monkeypatch, capsys):
+    def test_worker_open_doc_failure_transient_errors_returns_rc3(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         fake_app = mock.MagicMock()
@@ -95,7 +102,7 @@ class TestWorkerOpenDocFailure:
         rc = wkr._list_configs("dummy.sldprt")
         assert rc == 3
 
-    def test_worker_open_doc_null_model_returns_rc2(self, monkeypatch, capsys):
+    def test_worker_open_doc_null_model_returns_rc2(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         fake_app = mock.MagicMock()
@@ -113,7 +120,7 @@ class TestWorkerOpenDocFailure:
 class TestWorkerComError:
     """spec §3.1.5：pythoncom.com_error 按 hresult 分类（DispatchEx / GetConfigurationNames 路径）."""
 
-    def test_worker_com_error_transient_hresult_returns_rc3(self, monkeypatch, capsys):
+    def test_worker_com_error_transient_hresult_returns_rc3(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         # mock pythoncom + win32com.client，DispatchEx 抛 com_error
@@ -121,33 +128,25 @@ class TestWorkerComError:
         _patch_com(monkeypatch, dispatch_return=fake_app)
 
         # 构造一个真 com_error subclass 让 isinstance 通过
-        class FakeComError(Exception):
-            def __init__(self, hresult):
-                self.hresult = hresult
-                self.args = (hresult,)
-        sys.modules["pythoncom"].com_error = FakeComError
+        monkeypatch.setattr(sys.modules["pythoncom"], "com_error", _FakeComError)
 
         def raise_transient_com(app, p):
-            raise FakeComError(-2147023170)  # RPC_E_DISCONNECTED
+            raise _FakeComError(-2147023170)  # RPC_E_DISCONNECTED
         monkeypatch.setattr(wkr, "_open_doc_get_configs", raise_transient_com)
 
         rc = wkr._list_configs("dummy.sldprt")
         assert rc == 3
 
-    def test_worker_com_error_terminal_hresult_returns_rc2(self, monkeypatch, capsys):
+    def test_worker_com_error_terminal_hresult_returns_rc2(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         fake_app = mock.MagicMock()
         _patch_com(monkeypatch, dispatch_return=fake_app)
 
-        class FakeComError(Exception):
-            def __init__(self, hresult):
-                self.hresult = hresult
-                self.args = (hresult,)
-        sys.modules["pythoncom"].com_error = FakeComError
+        monkeypatch.setattr(sys.modules["pythoncom"], "com_error", _FakeComError)
 
         def raise_terminal_com(app, p):
-            raise FakeComError(-2147467259)  # 未识别 hresult → terminal
+            raise _FakeComError(-2147467259)  # 未识别 hresult → terminal
         monkeypatch.setattr(wkr, "_open_doc_get_configs", raise_terminal_com)
 
         rc = wkr._list_configs("dummy.sldprt")
@@ -157,7 +156,7 @@ class TestWorkerComError:
 class TestWorkerImportError:
     """ImportError → terminal (pywin32 没装是部署问题)."""
 
-    def test_worker_import_error_returns_rc2(self, monkeypatch, capsys):
+    def test_worker_import_error_returns_rc2(self, monkeypatch):
         from adapters.solidworks import sw_list_configs_worker as wkr
 
         fake_app = mock.MagicMock()
@@ -220,19 +219,15 @@ class TestClassifyWorkerException:
         import pythoncom
 
         # mock pythoncom.com_error
-        class FakeComError(Exception):
-            def __init__(self, hresult):
-                self.hresult = hresult
-                self.args = (hresult,)
-        monkeypatch.setattr(pythoncom, "com_error", FakeComError)
+        monkeypatch.setattr(pythoncom, "com_error", _FakeComError)
 
         # transient hresults
-        assert wkr._classify_worker_exception(FakeComError(-2147023170)) == 3
-        assert wkr._classify_worker_exception(FakeComError(-2147418113)) == 3
-        assert wkr._classify_worker_exception(FakeComError(-2147023174)) == 3
+        assert wkr._classify_worker_exception(_FakeComError(-2147023170)) == 3
+        assert wkr._classify_worker_exception(_FakeComError(-2147418113)) == 3
+        assert wkr._classify_worker_exception(_FakeComError(-2147023174)) == 3
 
         # 未识别 hresult → terminal
-        assert wkr._classify_worker_exception(FakeComError(-2147467259)) == 2
+        assert wkr._classify_worker_exception(_FakeComError(-2147467259)) == 2
 
     def test_classify_worker_exception_without_pythoncom(self, monkeypatch):
         """spec Edge 9：mock pythoncom import 失败 → 走兜底 transient."""
@@ -284,8 +279,8 @@ class TestRunBatchModeBootFail:
             return original_import(name, *args, **kwargs)
 
         # 清掉 mock 的 pythoncom 让 import 真触发 ImportError
-        sys.modules.pop("pythoncom", None)
-        sys.modules.pop("win32com.client", None)
+        monkeypatch.delitem(sys.modules, "pythoncom", raising=False)
+        monkeypatch.delitem(sys.modules, "win32com.client", raising=False)
         monkeypatch.setattr(builtins, "__import__", fake_import)
 
         rc = wkr._run_batch_mode()
@@ -308,18 +303,13 @@ class TestRunBatchModeBootFail:
         monkeypatch.setattr(json, "load", lambda f: sldprt_list)
 
         # mock pythoncom + win32com.client，DispatchEx 抛 com_error
-        class FakeComError(Exception):
-            def __init__(self, hresult):
-                self.hresult = hresult
-                self.args = (hresult,)
-
         fake_pythoncom = mock.MagicMock()
-        fake_pythoncom.com_error = FakeComError
+        fake_pythoncom.com_error = _FakeComError
         fake_pythoncom.CoInitialize = lambda: None
         fake_pythoncom.CoUninitialize = lambda: None
 
         fake_win32com_client = mock.MagicMock()
-        fake_win32com_client.DispatchEx.side_effect = FakeComError(-2147023170)  # RPC_E_DISCONNECTED → transient
+        fake_win32com_client.DispatchEx.side_effect = _FakeComError(-2147023170)  # RPC_E_DISCONNECTED → transient
 
         monkeypatch.setitem(sys.modules, "pythoncom", fake_pythoncom)
         monkeypatch.setitem(sys.modules, "win32com.client", fake_win32com_client)
