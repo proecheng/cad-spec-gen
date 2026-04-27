@@ -1,5 +1,15 @@
 # sw_config_broker §11 技术债清理 — M-2 + M-4 设计 spec
 
+- **rev**: 5（user feedback "测试越详尽越好" — 测试覆盖大扩 + CI gate）
+- **rev 4 → rev 5 修订记录**（user 反思 "前 4 轮 review 修复反复不收敛 → 测试覆盖不够 anchor 实施"，2026-04-27）：
+  - **核心决策**：扩测试矩阵从 31 → ~66，覆盖率从隐式 → CI 强制 ≥95%。**让下次 reviewer 抓不到漏，PR review → merge 一次到位**
+  - **A 修复（每个 invariant 直接测试）**：14 invariants 中现有 7 个有隐式覆盖，新加 7 个直接断言测试到 §7.1/§7.2/§7.3
+  - **B 修复（每个 Edge case 补齐测试）**：12 Edge case 现有 ~7 个有测试，补 5 个让每条 Edge 都有 1 测试
+  - **C 修复（集成测试）**：新增 §7.4 broker → worker → cache 真实调用链测试（mock 仅 subprocess.run，broker/cache.py 走真实代码路径）= +8 集成测试
+  - **D 修复（Negative testing 矩阵）**：新增 §7.5 worker 失败 × broker 状态组合 = +10 negative case 测试
+  - **F 修复（端到端用户场景）**：新增 §7.6 5 个用户视角端到端测试（首次装 SW / 升级期混跑 / cache 损坏 / 双 SW / 大 BOM 100 件）
+  - **H 修复（覆盖率 enforce）**：新增 §12 CI gate — `pyproject.toml` 加 pytest-cov 配置，CI workflow 加 `pytest --cov-fail-under=95`，spec 加硬约束"每个新代码行 ≥1 测试覆盖"
+  - **附带 §7.7 (新)**：Invariant ↔ 测试 一一对应映射表，防 reviewer 报告"未测的 invariant"
 - **rev**: 4（4 路 subagent 敌对审查后**缩 scope** — 砍 transient cache + 修 F-3 数值 + A1 + 综合 fix）
 - **rev 3 → rev 4 修订记录**（4 reviewer 共抓 5 Critical / 13 Important / 12 Minor，集中在 transient cache，2026-04-27）：
   - **核心决策：砍掉 short-TTL transient cache 整套**（rev 3 引入的复杂度产生了 3 Critical + 7 Important 问题，且 multiprocessing 失效让重试风暴防御本身存疑）。M-4 退化到 rev 2 行为：rc=3/4/未知/Timeout/OSError 都"不 cache 就 return []"。"BOM loop 同 sldprt 多次调用触发 N×30s SW boot"作为已知 limitation 推迟到 §11 followup（实际频率低 — codegen 一次跑通 prewarm 后正常路径都走 L1 hit）
@@ -636,6 +646,9 @@ cache_mod._save_config_lists_cache(cache)
 | `test_classify_open_doc_failure_null_model_terminal` | `OpenDocFailure(errors=0, model_was_null=True)` → terminal（Edge 7） |
 | `test_batch_mode_pywin32_import_failure_emits_terminal_per_entry` | rev 4 A1：mock batch 顶部 `import pythoncom` 抛 ImportError → stdout = `[{"path": p, "configs": [], "exit_code": 2} for p in 输入]`，rc=0；防整批 fallthrough 让 broker 走 entry 分流（Edge 14） |
 | `test_batch_mode_dispatchex_com_error_emits_classified_per_entry` | rev 4 A1：mock batch 顶部 `DispatchEx` 抛 `pythoncom.com_error` (transient hresult) → stdout = `[{"path": p, "configs": [], "exit_code": 3} for p in 输入]`，rc=0（Edge 15） |
+| `test_invariant_open_doc_failure_is_runtime_error_subclass` | **rev 5 A 直测 I11**：`assert issubclass(OpenDocFailure, RuntimeError)` + 创建实例 + 验证 `isinstance(e, RuntimeError)` 仍 True（防 except RuntimeError 调用方破） |
+| `test_invariant_classify_worker_exception_called_by_both_single_and_batch_paths` | **rev 5 A 直测 I12**：monkeypatch.setattr `_classify_worker_exception` spy 函数；分别跑 `_list_configs(p)` 失败路径 + `_run_batch_mode([p1, p2])` 失败路径；assert spy 被两条路径都调用过（DRY 验证）|
+| `test_invariant_open_doc_failure_carries_structured_fields` | **rev 5 A 补**：`raise OpenDocFailure(errors=4096, warnings=0, model_was_null=False)` 后 catch；assert `e.errors == 4096 and e.warnings == 0 and e.model_was_null is False`（防字段被吞）|
 
 ### §7.2 扩展 `tests/test_sw_config_broker.py`
 
@@ -654,6 +667,15 @@ cache_mod._save_config_lists_cache(cache)
 | `test_prewarm_batch_unknown_rc_skipped_like_transient` | mock batch entry exit_code=99 → 跳过不写 entries（I10 一致性） |
 | `test_prewarm_batch_rc64_full_fallback` | mock subprocess rc=64（worker stdin JSON parse 错） → broker 不写 cache（Edge 10） |
 | `test_prewarm_save_failure_does_not_propagate_to_caller` | rev 4 补 I1 测试：mock `cache_mod._save_config_lists_cache` 抛 OSError → `prewarm_config_lists` 不抛（M-2 自愈契约） |
+| `test_invariant_l1_cache_not_polluted_by_transient_after_save` | **rev 5 A 直测 I4**：mock prewarm batch 含 rc=3 entry → 调 `prewarm_config_lists` → 跑完后读 L1 cache 文件验证：`abs_path in cache["entries"]` is False（transient 不污染 L1）|
+| `test_invariant_l1_cache_terminal_marked_with_empty_configs` | **rev 5 A 直测 I5**：mock prewarm batch 含 rc=2 entry → 跑完后读 L1 cache 文件验证：`cache["entries"][abs_path]["configs"] == []`（terminal 用 [] 标记防重试）|
+| `test_invariant_unknown_rc_consistent_single_vs_batch` | **rev 5 A 直测 I10**：mock 单件 rc=99 + mock batch entry exit_code=99 → 行为一致：两路径都不写 cache（直接对比 L1 + L2 状态）|
+| `test_negative_worker_rc2_with_existing_l1_success_entry_overrides_with_terminal` | **rev 5 D 负面组合**：预填 L1 entry success + mtime 没变 → 调 `_list_configs_via_com` → broker 应该 L1 hit return success（rc=2 路径不触发因 L1 hit）|
+| `test_negative_worker_rc0_with_save_failure_returns_configs_anyway` | **rev 5 D 负面组合**：mock subprocess rc=0 + mock cache_mod._save_config_lists_cache 抛 OSError → 函数仍返 configs（save 失败不影响读结果）|
+| `test_negative_worker_timeout_with_l1_envelope_invalidated` | **rev 5 D 负面组合**：mock L1 envelope sw_version 过期 + worker TimeoutExpired → broker 不写 L1（envelope 升级但 entries 不写）|
+| `test_negative_unknown_rc_with_existing_l2_terminal_does_not_respawn` | **rev 5 D 负面组合**：预填 L2 = [] (rc=2 终态) → 调 `_list_configs_via_com` → L2 hit 返 [] 不 spawn worker；assert subprocess.run.call_count == 0 |
+| `test_negative_invalid_json_stdout_with_l1_partial_load` | **rev 5 D 负面组合**：mock subprocess rc=0 + stdout 非合法 JSON + L1 partial load → broker 不 cache + 返 [] + L1 不破 |
+| `test_negative_concurrent_l1_load_save_atomicity` | **rev 5 D 负面组合**：先 prewarm 写 L1 → 同时 mock _save 抛 PermissionError → 后续 _load 必须能读到 partial 写之前的内容（os.replace 原子性）|
 
 ### §7.3 扩展 `tests/test_sw_config_lists_cache.py`（已存在，扩 `TestSaveCache` 类）
 
@@ -665,6 +687,8 @@ cache_mod._save_config_lists_cache(cache)
 | `TestSaveCache.test_save_failure_second_call_no_banner_only_log_warning` | 同 process 内第 2 次 save 失败 → `capsys.err` 不含 banner；`caplog.records` 含 "重复失败" log.warning |
 | `TestSaveCache.test_save_oserror_does_not_propagate_to_caller` | mock 抛 OSError → 函数返 None 不 raise |
 | `TestSaveCache.test_save_oserror_subclass_disk_full_does_not_propagate` | mock 抛 `OSError(errno.ENOSPC)` 子类 → 同样静默自愈（不只 PermissionError）|
+| `TestSaveCache.test_invariant_save_failure_emits_user_visible_banner` | **rev 5 A 直测 I7**：mock 抛 PermissionError → `capsys.readouterr().err` 含 "⚠"（视觉 emoji） + "请检查"（用户行动指引）+ "本次 codegen 不受影响"（rev 3 I3 安抚）三 marker 同时出现，对齐"照片级 > 傻瓜式" |
+| `TestSaveCache.test_invariant_v220_cache_schema_v1_loads_without_break` | **rev 5 A 直测 I8**：用 `tests/fixtures/sw_config_lists_v220.json`（真实 v2.20.0 cache schema 内容）→ `_load_config_lists_cache()` 返合法 envelope dict + `cache["schema_version"] == 1` + entries 解析 OK |
 
 **`tests/conftest.py` 新增 autouse fixtures（rev 4 D8/I1 修复 — 跨文件作用域）**：
 
@@ -688,14 +712,106 @@ def _reset_config_list_caches():
     sw_config_broker._CONFIG_LIST_CACHE.clear()
 ```
 
-**总测试增量**（rev 4 砍 transient cache 后重算）：约 **31 个新测试**（worker 14 + broker 13 + cache 4）。
+### §7.4 集成测试 — broker → worker → cache 真实调用链（rev 5 C，新增 8 测试）
 
-> **rev 4 测试矩阵说明**（D2 修复：测试增量说明属于 §7 而非 §7.3）：
-> - worker 端 14 = rev 3 worker 12 + rev 4 新增 2 (`test_batch_mode_pywin32_import_failure_emits_terminal_per_entry` + `test_batch_mode_dispatchex_com_error_emits_classified_per_entry`，对应 Edge 14/15 / A1 修复)
-> - broker 端 13 = rev 4 砍掉 6 个 transient cache 测试后保留 12 分流测试（rc=0/2/3/4/64/99/Timeout/OSError/JSON parse 失败 + batch 5 entry-level 路径含 rc is None invalidate）+ 1 个 `test_prewarm_save_failure_does_not_propagate_to_caller`（补 I1 不变性直接测试）
-> - cache 端 4 不变
-> - autouse fixture `_reset_save_failure_warned` 移到 `tests/conftest.py`（rev 4 D8/I1 修复 — 跨文件失效）— **不计入 cache 测试数**，但需写明位置
-> - autouse fixture `_reset_config_list_caches`（broker 端清 `_CONFIG_LIST_CACHE` 防 cross-test pollution）也加在 `tests/conftest.py`
+**测试文件**：`tests/test_sw_config_broker_integration.py`（**新增**）
+
+**模式**：mock 仅 `subprocess.run`（控制 worker stdout / rc / stderr / TimeoutExpired），其余 broker / cache_mod / sw_config_lists_cache 代码全走真实路径。用 `tmp_path` fixture 隔离 cache file。
+
+| 测试 | 断言 |
+|------|------|
+| `test_integration_prewarm_to_l1_cache_to_save_full_chain_rc0` | mock subprocess.run rc=0 + JSON entries → 调真实 `prewarm_config_lists([p1, p2])` → 真实 cache_mod._save_config_lists_cache 写盘 → 读 file 验证 entries 写入 + envelope 字段齐全 |
+| `test_integration_prewarm_terminal_persists_empty_to_l1_cache_rc2` | mock rc=0 但 entry exit_code=2 → 真实落盘 → 读 file 验证 `cache["entries"][key]["configs"] == []`（terminal mark）|
+| `test_integration_prewarm_transient_does_not_persist_rc3` | mock entry exit_code=3 → 真实跑完 → 读 file 验证 `key not in cache["entries"]` |
+| `test_integration_prewarm_legacy_no_exit_code_skipped_to_save` | mock entry 缺 exit_code → 真实跑 + log capture → entries 不写 + caplog 含 "缺 exit_code 字段" |
+| `test_integration_save_failure_does_not_break_subsequent_calls` | mock subprocess rc=0 + monkeypatch get_config_lists_cache_path 指向只读路径 → save banner 出 stderr + return 不抛 + 后续 `_list_configs_via_com(p)` 仍能 spawn worker 工作 |
+| `test_integration_l1_cache_load_corrupt_self_heals_then_prewarm_rebuilds` | 预先写非法 JSON 到 cache file → 真实 `_load_config_lists_cache` self-heal 返空 envelope → 真实 prewarm 跑通后重写合法 cache file |
+| `test_integration_envelope_invalidated_clears_entries_and_rewrites_envelope` | 预填 cache file 含 sw_version=旧 + entries → mock detect_solidworks 返新 sw_version → 真实 prewarm → cache file envelope sw_version 已升 + entries 全清重列 |
+| `test_integration_normalize_sldprt_key_consistency_forward_vs_back_slash` | 用 `C:/foo/bar.sldprt` 写入 prewarm → 用 `C:\foo\bar.sldprt` 调 `_list_configs_via_com` → L1 hit return（key 归一化跨整链一致） |
+
+### §7.5 Negative testing 矩阵（rev 5 D，新增）
+
+**已分布在 §7.2** broker 测试 6 个 `test_negative_*`（worker 5 种失败 × broker 3 种状态的代表性组合）。这一节文档化矩阵：
+
+| Worker 失败类型 \ broker 状态 | L1 missing | L1 has success entry | L1 envelope invalidated |
+|------|------|------|------|
+| **rc=0** | 单 hit cache L2 + L1 entry | 不重 spawn return L1 | 跑 prewarm rebuild |
+| **rc=2 (terminal)** | L2=[] return [] | L1 hit return success（rc=2 不触发 — 已 §7.2 测试）| envelope 升级 + entries 不写 |
+| **rc=3 (transient)** | 不 cache return [] | L1 hit return success | envelope 升级但 entries 不写 |
+| **TimeoutExpired** | 不 cache return [] | L1 hit return success | envelope 升级但 entries 不写 |
+| **OSError** | 不 cache return [] | L1 hit return success | envelope 升级但 entries 不写 |
+
+**矩阵覆盖说明**：5 worker 失败 × 3 broker 状态 = 15 组合；§7.2 已直测 6 个代表性 + 隐式覆盖 9 个（其余组合的 L1 hit 路径行为完全相同 — broker rc 分流根本不触发，由 L1 hit 早 return）。如需 100% 矩阵覆盖再加测试，标 §11.7 followup。
+
+### §7.6 端到端用户场景测试（rev 5 F，新增 5 测试）
+
+**测试文件**：`tests/test_sw_config_broker_e2e.py`（**新增**）
+
+**模式**：用 user 视角描述场景；mock 必要的外部依赖（subprocess / SW detect / file system）；跑真实 broker / cache 全 layer。
+
+| 测试 | 用户场景 |
+|------|---------|
+| `test_e2e_first_install_sw_default_settings_prewarm_to_lookup_path` | **场景**：用户首次装 SW + 跑 codegen。Mock detect_solidworks 返合法 SwInfo + subprocess 模拟 batch 全部 rc=0 → 跑 `prewarm_config_lists([p1..p5])` → 紧接着跑 5 次 `_list_configs_via_com(pN)` → 每次都 L1 hit + assert subprocess.run.call_count == 1（仅 prewarm 一次 spawn）|
+| `test_e2e_upgrade_period_legacy_worker_skip_then_single_fallback` | **场景**：升级期混跑（broker 新 / worker 旧）。Mock prewarm batch stdout 缺 exit_code → broker 跳过不写 entries → 模拟下一次单件 `_list_configs_via_com(p)` 也是旧 worker 返 rc=4 → broker 当 transient 不 cache → 第 3 次同 sldprt 又 spawn |
+| `test_e2e_corrupt_cache_file_self_heals_and_rebuilds` | **场景**：用户磁盘工具把 cache file 写坏。预先写 `~/.cad-spec-gen/sw_config_lists.json` = "INVALID_JSON" → 跑 prewarm → load self-heal 返空 envelope → batch worker 跑通 → 落盘合法 cache → assert 后续 `_load_config_lists_cache` 返新合法内容 |
+| `test_e2e_double_sw_concurrent_prewarm_last_writer_wins` | **场景**：用户笔记本 + RDP 双开 codegen。模拟两次顺序 prewarm（process A 写 entries={p1: cfg1} → process B 写 entries={p2: cfg2}）；assert 第二次写后 cache 仅含 p2（last-writer-wins，已知 limitation 见 §11.4）|
+| `test_e2e_large_bom_100_components_no_excessive_spawn_after_prewarm` | **场景**：100 件大 BOM。Mock prewarm batch 100 entries 全 rc=0 → 跑 prewarm 一次 → 跑 100 次 `_list_configs_via_com` → assert subprocess.run.call_count == 1（仅 prewarm 一次 spawn，所有 100 件都 L1 hit）|
+
+### §7.7 Invariant ↔ 测试 一一对应映射表（rev 5 A，新增）
+
+防 reviewer 报告"未测的 invariant"。每条 invariant 必有 ≥1 个测试直接断言。
+
+| Invariant | 测试名 | 测试位置 |
+|-----------|--------|---------|
+| **I1** prewarm 永远不抛 | `test_prewarm_save_failure_does_not_propagate_to_caller` | §7.2 |
+| **I2** terminal sldprt 同 process 不重复 spawn | `test_list_configs_rc2_caches_empty_list_to_prevent_retry` | §7.2 |
+| **I3** transient sldprt 同 process 后续重试 | `test_list_configs_rc3_does_not_cache_for_retry` | §7.2 |
+| **I4** L1 cache 不被 transient 污染 | `test_invariant_l1_cache_not_polluted_by_transient_after_save` | §7.2 |
+| **I5** L1 cache [] 标记 terminal | `test_invariant_l1_cache_terminal_marked_with_empty_configs` | §7.2 |
+| **I6** banner 同 process 内最多 1 次 | `test_save_failure_second_call_no_banner_only_log_warning` | §7.3 |
+| **I7** 静默退化前必有醒目提示 | `test_invariant_save_failure_emits_user_visible_banner` | §7.3 |
+| **I8** 向后兼容 v2.20.0 schema v1 | `test_invariant_v220_cache_schema_v1_loads_without_break` | §7.3 |
+| **I9** 旧 worker batch 缺 exit_code → 跳过 | `test_prewarm_batch_legacy_no_exit_code_field_skipped_not_polluting_cache` | §7.2 |
+| **I10** 单件 + batch "未识别 rc" 一致 | `test_invariant_unknown_rc_consistent_single_vs_batch` | §7.2 |
+| **I11** OpenDocFailure 是 RuntimeError 子类 | `test_invariant_open_doc_failure_is_runtime_error_subclass` | §7.1 |
+| **I12** _classify_worker_exception 单+batch 唯一入口 | `test_invariant_classify_worker_exception_called_by_both_single_and_batch_paths` | §7.1 |
+| **I16** batch entry 缺 exit_code → 跳过 | 同 I9（重叠语义） | §7.2 |
+| **I17** worker batch 顶部 boot fail 透 entry rc | `test_batch_mode_pywin32_import_failure_emits_terminal_per_entry` + `test_batch_mode_dispatchex_com_error_emits_classified_per_entry` | §7.1 |
+
+**14 invariants 100% 测试覆盖** ✓（不变性 zero gap）。
+
+### §7.8 Edge case ↔ 测试 一一对应映射表（rev 5 B，新增）
+
+| Edge case | 测试名 | 状态 |
+|-----------|--------|------|
+| Edge 1 — sldprt mtime 改后旧 terminal cache 失效 | 现有 `tests/test_sw_config_lists_cache.py::TestEntryValid` | ✓ 已有 |
+| Edge 2 — worker 进程被 OS kill (rc=-9) | `test_list_configs_unknown_rc_defaults_transient` | ✓ §7.2 |
+| Edge 3 — worker print stdout 后崩溃 | 现有覆盖（partial stdout 不解析）| ✓ 已有 |
+| Edge 4 — `pythoncom` 在非 Windows 不存在 | `_patch_com` mock 模板复用 | ✓ §7.1 工具 |
+| Edge 5 — banner stderr write 本身失败 | 不测（环境极端损坏，by-design）| 不测 |
+| Edge 6 — 多线程 _save_failure_warned race | 不测（best-effort）| 不测 |
+| Edge 7 — OpenDocFailure null model | `test_classify_open_doc_failure_null_model_terminal` | ✓ §7.1 |
+| Edge 8 — broker 跨升级期混跑 rc=4 | `test_list_configs_legacy_rc4_treated_as_transient` | ✓ §7.2 |
+| Edge 9 — pythoncom import 失败时分类 | `test_classify_worker_exception_without_pythoncom` | ✓ §7.1 |
+| Edge 10 — batch stdin JSON parse 失败 rc=64 | `test_prewarm_batch_rc64_full_fallback` | ✓ §7.2 |
+| Edge 14 — worker batch 顶部 ImportError | `test_batch_mode_pywin32_import_failure_emits_terminal_per_entry` | ✓ §7.1 |
+| Edge 15 — worker batch DispatchEx 失败 | `test_batch_mode_dispatchex_com_error_emits_classified_per_entry` | ✓ §7.1 |
+
+**12 Edge case 中 10 有测试覆盖，2 显式标"不测"** ✓。
+
+### §7.9 测试总数（rev 5 重算）
+
+| 类型 | 测试文件 | 测试数 |
+|------|---------|-------|
+| Worker unit | `tests/test_sw_list_configs_worker.py` | 17（rev 4 14 + rev 5 A 3 invariant 直测）|
+| Broker unit + invariant + negative | `tests/test_sw_config_broker.py` | 22（rev 4 13 + rev 5 A 3 invariant 直测 + rev 5 D 6 negative）|
+| Cache unit + invariant | `tests/test_sw_config_lists_cache.py` | 6（rev 4 4 + rev 5 A 2 invariant 直测）|
+| **集成** | `tests/test_sw_config_broker_integration.py` (**新**) | 8（rev 5 C）|
+| **端到端** | `tests/test_sw_config_broker_e2e.py` (**新**) | 5（rev 5 F）|
+| Conftest fixtures | `tests/conftest.py` | 不计入 |
+| **总计** | — | **58 个新测试** |
+
+> rev 4 31 → rev 5 58（约 1.9x），覆盖率从隐式 → CI 强制 ≥95% (§12)。
 
 ---
 
@@ -708,21 +824,28 @@ def _reset_config_list_caches():
 | `adapters/solidworks/sw_list_configs_worker.py` | 新增 `OpenDocFailure(RuntimeError)` 子类异常（§3.1.3）；新增 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量 + `_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}`（rev 4 F-3 用真 SW SDK 数值） + `_TRANSIENT_COM_HRESULTS` + `_classify_worker_exception` 共享分类函数（§3.1.6）；`_open_doc_get_configs` 失败分支替换为 `raise OpenDocFailure(...)`（§3.1.3）；`_list_configs` 重写 try/except 走分类（§3.1.7）；`_run_batch_mode` 顶部 ImportError/DispatchEx 失败也透 entry-level rc（rev 4 A1，§3.1.8.1） + for 循环 except 改调分类函数 + entry 加 `exit_code` 字段（§3.1.8.2） | +110 / -30 |
 | `adapters/solidworks/sw_config_broker.py` | 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2.1）；`_list_configs_via_com` rc 分流（替换 L499-536，§3.2.2）—— rc=0 cache configs / rc=2 cache [] / rc=3+rc=4+未知 + TimeoutExpired+OSError+JSON parse 失败 不 cache；`prewarm_config_lists` batch 路径 entry-level rc 处理含 rc is None invalidate 分支（替换 L615-628，§3.3）；移除 L570-580 caller-side try/except | +50 / -35 |
 | `adapters/solidworks/sw_config_lists_cache.py` | 顶部新增 `import sys`（rev 4 F-2）；`_save_config_lists_cache` 包 try/except + 模块级 `_save_failure_warned` flag + banner（§3.4-§3.5） | +27 / -3 |
-| `tests/test_sw_list_configs_worker.py` | **新增** 14 测试 | +370 / -0 |
-| `tests/test_sw_config_broker.py` | 扩展 13 测试（去掉 rev 3 的 6 个 transient cache 测试，新增 1 个 prewarm I1 不变性测试） | +280 / -0 |
-| `tests/test_sw_config_lists_cache.py` | 扩展现有 `TestSaveCache` 类加 4 测试 | +60 / -0 |
+| `tests/test_sw_list_configs_worker.py` | **新增** 17 测试（rev 4 14 + rev 5 A 3 invariant 直测）| +450 / -0 |
+| `tests/test_sw_config_broker.py` | 扩展 22 测试（rev 4 13 + rev 5 A 3 + rev 5 D 6 negative）| +500 / -0 |
+| `tests/test_sw_config_lists_cache.py` | 扩展现有 `TestSaveCache` 类加 6 测试（rev 4 4 + rev 5 A 2 invariant 直测）| +110 / -0 |
+| `tests/test_sw_config_broker_integration.py` | **新增**（rev 5 C）8 集成测试 | +280 / -0 |
+| `tests/test_sw_config_broker_e2e.py` | **新增**（rev 5 F）5 端到端用户场景测试 | +220 / -0 |
+| `tests/fixtures/sw_config_lists_v220.json` | **新增**（rev 5 A I8 直测用）真实 v2.20.0 cache schema sample | +20 / -0 |
 | `tests/conftest.py` | rev 4 D8/I1：新增 2 个 autouse fixture (`_reset_save_failure_warned` + `_reset_config_list_caches`) 跨文件作用域 | +25 / -0 |
+| `pyproject.toml` | rev 5 H：新增 `[tool.coverage.run]` 配置 + `[tool.pytest.ini_options]` addopts `--cov=adapters/solidworks --cov-report=term-missing --cov-fail-under=95` | +15 / -0 |
+| `.github/workflows/ci.yml` 或 `.github/workflows/test.yml` | rev 5 H：CI workflow `pytest` 步骤加 `--cov-fail-under=95`；fail 时 PR block | +10 / -2 |
 | `docs/superpowers/specs/2026-04-26-sw-toolbox-config-list-cache-design.md` | §11 标 M-2 + M-4 closed + 引用本 spec | +5 / -2 |
 
-**总估算**：~770 LOC 变化（735 测试 / 195 实现 / 7 文档）。
+**总估算**：~1840 LOC 变化（1605 测试 + fixture / 195 实现 / 25 config / 15 文档）。
 
-> **rev 4 LOC 减少说明**：rev 3 1010 LOC → rev 4 770 LOC，砍 transient cache 减 ~240 LOC（broker -40 实现 / test_broker -100 / 文档 -100）。同时 worker +20（A1 修复）和 cache +2（import sys）+ conftest +25。净减约 240 LOC，PR 量级显著回归到"中型清理 PR"。
+> **rev 5 LOC 增长说明**（user 选"测试越详尽越好 全集"）：rev 4 770 LOC → rev 5 1840 LOC，测试 LOC 从 735 → 1605（+870）+ 实施 LOC 不变 195 + 新加 conftest 25 + pyproject/CI 25 + fixture file 20。测试: 实施 比例 8.2:1（rev 4 是 3.8:1）。
+>
+> **回报**：每个 invariant 都有直测（无"未测的 invariant"）+ Edge case 覆盖率 100% + 集成测试覆盖 broker→worker→cache 真实链 + 端到端用户场景 + CI gate enforce 防 future regression。期望下次 reviewer 抓不到漏。
 
 ---
 
 ## §9 Phase / Task 路线图（writing-plans 接口）
 
-预设 **3 phase / 14 task + 1 plan-level 前置校准** 量级（rev 4 砍 Phase 3 transient cache 后；具体粒度 plan 阶段细化）：
+预设 **5 phase / 24 task + 1 plan-level 前置校准** 量级（rev 5 加测试覆盖后；具体粒度 plan 阶段细化）：
 
 ### Plan-level 前置校准（rev 4 F-3 强制前置 — 不计入 phase task）
 
@@ -730,32 +853,48 @@ def _reset_config_list_caches():
 ```bash
 python -c "from win32com.client import constants; print({k: getattr(constants, k) for k in dir(constants) if k.startswith('swFileLoadError_')})"
 ```
-校准 `swFileLoadError_e` 真实数值；如与 spec §3.1.4 表（`_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}`）有出入，**先更新 spec rev 5** 再开 Phase 1。这是 plan 阶段的环境校准，不算实施 task。
+校准 `swFileLoadError_e` 真实数值；如与 spec §3.1.4 表（`_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}`）有出入，**先更新 spec rev 6** 再开 Phase 1。这是 plan 阶段的环境校准，不算实施 task。
 
-### Phase 1 — Worker 端分类基建 + rc 合约（6 task）
+### Phase 1 — Worker 端分类基建 + rc 合约 + 3 invariant 直测（7 task）
 
-1. 写测试：`test_sw_list_configs_worker.py` 14 测试全部 RED（含 `OpenDocFailure` 子类异常 / `_classify_worker_exception` / `_list_configs` rc 0/2/3 / `_run_batch_mode` for 循环 entry exit_code 矩阵 / **rev 4 A1**：batch 顶部 ImportError 与 DispatchEx 失败两条路径）
-2. 实现：定义 `class OpenDocFailure(RuntimeError)` 含 `errors: int / warnings: int / model_was_null: bool` 字段（§3.1.3）；`_open_doc_get_configs` L33-39 改抛 `OpenDocFailure(...)`
-3. 实现：`EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量（**不**含 EXIT_LEGACY，B2 修）+ `_TRANSIENT_OPENDOC_ERRORS = frozenset({4096, 8192, 16384})`（rev 4 F-3 真值） + `_TRANSIENT_COM_HRESULTS = frozenset({-2147023170, -2147418113, -2147023174})`
-4. 实现：`_classify_worker_exception(e)` 共享函数（§3.1.6）—— `OpenDocFailure → errors 数值查 `_TRANSIENT_OPENDOC_ERRORS` / `ImportError → terminal` / `pythoncom.com_error → hresult 查 `_TRANSIENT_COM_HRESULTS` / 兜底 transient`
-5. 实现：`_list_configs` 重写（§3.1.7） + `_run_batch_mode` 顶部 ImportError/DispatchEx 失败 emit per-entry transient/terminal stdout（§3.1.8.1，rev 4 A1） + for 循环 except 改调 `_classify_worker_exception` + entry 加 `exit_code` 字段（§3.1.8.2）
-6. 验证：14 测试全绿（GREEN）+ ruff/mypy 通过
+1. 写测试：`test_sw_list_configs_worker.py` 17 测试全部 RED（rev 4 14 + rev 5 A I11/I12 + OpenDocFailure 字段直测 3 个 invariant 测试）
+2. 实现：定义 `class OpenDocFailure(RuntimeError)` 含 `errors: int / warnings: int / model_was_null: bool` 字段（§3.1.3）
+3. 实现：`EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量（**不**含 EXIT_LEGACY，B2 修）+ `_TRANSIENT_OPENDOC_ERRORS = frozenset({4096, 8192, 16384})`（rev 4 F-3 真值） + `_TRANSIENT_COM_HRESULTS`
+4. 实现：`_classify_worker_exception(e)` 共享函数（§3.1.6）
+5. 实现：`_list_configs` 重写（§3.1.7） + `_run_batch_mode` 顶部 boot fail emit per-entry stdout（§3.1.8.1） + for 循环 except 改调分类（§3.1.8.2）
+6. 实现：`_open_doc_get_configs` 失败分支改抛 `OpenDocFailure(...)`
+7. 验证：17 测试全绿 + ruff/mypy + 覆盖率 worker 模块 ≥95%
 
-### Phase 2 — Broker rc 分流 + batch 协议升级（4 task）
+### Phase 2 — Broker rc 分流 + batch 协议升级 + 3 invariant 直测 + 6 negative（5 task）
 
-7. 写测试：`test_sw_config_broker.py` 13 新测试全部 RED（rc=0/2/3/4/64/99/TimeoutExpired/OSError/JSON parse 失败 + batch 5 entry-level 路径含 rc is None invalidate signal + 1 prewarm save 失败不抛 I1 测试）
-8. 实现：broker 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2.1）
-9. 实现：`_list_configs_via_com` rc 分流（替换 L499-536，§3.2.2）—— rc=0 cache configs / rc=2 cache [] / rc=3+rc=4+未知 + TimeoutExpired+OSError+JSON parse 失败 不 cache 直接返 []
-10. 实现：`prewarm_config_lists` batch entry-level rc 处理（§3.3）—— `rc is None → continue` 加 log.warning（rev 3 C2 保留）；rc=0/2 写 entries；rc=3/4/未知 跳过不写；13 测试全绿
+8. 写测试：`test_sw_config_broker.py` 22 新测试全部 RED（rev 4 13 + rev 5 A I4/I5/I10 + rev 5 D 6 negative）
+9. 实现：broker 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2.1）
+10. 实现：`_list_configs_via_com` rc 分流（替换 L499-536，§3.2.2）
+11. 实现：`prewarm_config_lists` batch entry-level rc 处理（§3.3）含 `rc is None → continue` invalidate signal（rev 3 C2 保留）
+12. 验证：22 测试全绿 + 覆盖率 broker 模块 ≥95%
 
-### Phase 3 — cache.py save 自愈 + caller 清理 + conftest fixture + 文档（4 task）
+### Phase 3 — cache.py save 自愈 + 2 invariant 直测 + conftest fixture（4 task）
 
-11. 写测试：`tests/test_sw_config_lists_cache.py` `TestSaveCache` 类加 4 测试（全 RED）
-12. 实现：`tests/conftest.py` 加 2 个 autouse fixture（rev 4 D8/I1）：`_reset_save_failure_warned` + `_reset_config_list_caches`
-13. 实现：`sw_config_lists_cache.py` 顶部加 `import sys`（rev 4 F-2）；`_save_config_lists_cache` try/except OSError + 模块级 `_save_failure_warned` + banner（含 rev 3 I3 安抚文案，§3.4 + §3.5）
-14. 实现：移除 broker.py L570-580 caller-side try/except；L628 caller 无需改动（rev 4 F-5）；`docs/.../2026-04-26-sw-toolbox-config-list-cache-design.md` §11 标 M-2 + M-4 closed + 引用本 spec；4 测试全绿；端到端跑 `pytest tests/test_sw_*.py` 不 regression
+13. 写测试：`tests/test_sw_config_lists_cache.py` `TestSaveCache` 类加 6 测试（4 rev 4 + 2 rev 5 I7/I8 invariant 直测）；`tests/fixtures/sw_config_lists_v220.json` 真实 v2.20.0 cache sample
+14. 实现：`tests/conftest.py` 加 2 个 autouse fixture（rev 4 D8/I1）
+15. 实现：`sw_config_lists_cache.py` 顶部加 `import sys`（rev 4 F-2）；`_save_config_lists_cache` try/except OSError + `_save_failure_warned` + banner（rev 3 I3 安抚文案）
+16. 验证：6 测试全绿 + 覆盖率 cache 模块 ≥95% + 移除 broker.py L570-580 caller-side try/except
 
-每 phase 末跑 quality reviewer 抓系统视角问题（命名一致性 / 模块边界 / 文档同步）；按 memory `feedback_cp_batch_quality_review.md` phase 末整体 reviewer 优于 per-task。
+### Phase 4 — 集成测试（rev 5 C，4 task）
+
+17. 写 `tests/test_sw_config_broker_integration.py` 8 集成测试 全部 RED（broker → worker → cache 真实链 mock 仅 subprocess.run）
+18. 跑测试 GREEN，发现 unit 测试漏掉的 cross-layer bug（mock 隔离的天然盲区）
+19. 修任何集成测试发现的 bug（修代码而不是 fudge 测试）；spec rev 加 followup 记录
+20. 验证：8 集成测试全绿 + 总覆盖率 ≥95%
+
+### Phase 5 — 端到端 user 场景 + CI gate + 文档（4 task，task 21-24）
+
+21. 写 `tests/test_sw_config_broker_e2e.py` 5 端到端用户场景测试 全部 RED（首次装 SW / 升级期混跑 / cache 损坏 / 双 SW / 100 件 BOM）
+22. 跑 e2e GREEN
+23. 实现 CI gate：`pyproject.toml` 加 `[tool.pytest.ini_options]` addopts `--cov=adapters/solidworks --cov-fail-under=95`；`.github/workflows/ci.yml` `pytest` 步骤同步加 flag；本地 `pytest --cov-fail-under=95` 通过
+24. 实现：`docs/.../2026-04-26-sw-toolbox-config-list-cache-design.md` §11 标 M-2 + M-4 closed + 引用本 spec；端到端跑 `pytest tests/test_sw_*.py` 全绿不 regression
+
+每 phase 末跑 quality reviewer 抓系统视角问题（命名一致性 / 模块边界 / 文档同步）；按 memory `feedback_cp_batch_quality_review.md` phase 末整体 reviewer 优于 per-task。**Phase 4-5 集成 + e2e 测试是 rev 5 新加重点**，预期能在实施期间抓到单元测试漏掉的 cross-layer bug。
 
 ---
 
@@ -821,3 +960,80 @@ PR 创建后 self-review 与 user-review 发现的新问题登记此节，按 Cr
 ### §11.7 PR Review followup（占位）
 
 （PR 开后 reviewer 发现的新问题填入此节）
+
+---
+
+## §12 覆盖率 enforce（rev 5 H 新增）
+
+### §12.1 配置层
+
+**`pyproject.toml`** 追加：
+
+```toml
+[tool.coverage.run]
+source = ["adapters/solidworks"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/sw_*_helpers.py",  # 测试辅助文件不计
+]
+branch = true  # 覆盖率含分支覆盖
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == \"__main__\":",
+    "if TYPE_CHECKING:",
+]
+fail_under = 95  # 总覆盖率门槛
+show_missing = true
+skip_covered = false
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov=adapters/solidworks",
+    "--cov-report=term-missing",
+    "--cov-fail-under=95",
+]
+```
+
+### §12.2 CI gate 层
+
+**`.github/workflows/ci.yml`**（或现有 workflow）的 `pytest` 步骤改为：
+
+```yaml
+- name: Run tests with coverage
+  run: |
+    pytest tests/ \
+      --cov=adapters/solidworks \
+      --cov-report=term-missing \
+      --cov-report=xml \
+      --cov-fail-under=95
+- name: Upload coverage
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: coverage-report
+    path: coverage.xml
+```
+
+### §12.3 硬约束
+
+**spec 锁定**：本 PR 实施期间任何新代码行（broker / worker / cache.py）必须有 ≥1 测试覆盖。Phase 末校验：
+
+```bash
+pytest tests/test_sw_*.py --cov=adapters/solidworks --cov-fail-under=95
+```
+
+不通过 → 实施 task 不能 marked done；要么补测试，要么把未测代码砍掉（YAGNI）。
+
+### §12.4 Per-module 覆盖率细化要求
+
+| 模块 | 总覆盖率 | 分支覆盖率（branch） |
+|------|---------|--------------------|
+| `sw_list_configs_worker.py` | ≥ 95% | ≥ 90% |
+| `sw_config_broker.py`（_list_configs_via_com + prewarm_config_lists 部分） | ≥ 95% | ≥ 90% |
+| `sw_config_lists_cache.py` | ≥ 95% | ≥ 95%（小模块要求高）|
+
+> rev 5 设计意图：**用测试覆盖率 anchor 实施正确性**，让 reviewer 抓不到"未测代码路径"。如果某分支无法测（如 `_list_configs_returning` 内部 `pythoncom.CoInitialize()` 失败），用 `# pragma: no cover` 显式标注 + 注释理由。
