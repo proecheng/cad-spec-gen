@@ -698,8 +698,9 @@ class TestListConfigsViaCom:
         assert call_count[0] == 0
 
     def test_list_timeout_returns_empty(self, monkeypatch):
-        """subprocess.TimeoutExpired → 返回 []。"""
+        """subprocess.TimeoutExpired → 返回 [] + 不 cache（spec rev 5 §3.2.2）。"""
         import subprocess
+        from pathlib import Path
 
         from adapters.solidworks import sw_config_broker
 
@@ -712,6 +713,8 @@ class TestListConfigsViaCom:
 
         result = sw_config_broker._list_configs_via_com("Z.sldprt")
         assert result == []
+        # M-4 新契约：TimeoutExpired 视为 transient 不 cache，区别于旧合约 cache=[]
+        assert str(Path("Z.sldprt").resolve()) not in sw_config_broker._CONFIG_LIST_CACHE
 
 
 class TestResolveConfigForPart:
@@ -1325,7 +1328,7 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps(
-                    [{"path": str(p2), "configs": ["P2A"]}],
+                    [{"path": str(p2), "configs": ["P2A"], "exit_code": 0}],
                 ).encode()
 
             return FakeProc()
