@@ -538,6 +538,123 @@ class TestDecisionsEnvelopeIO:
         assert path.is_file()
         assert not tmp_path.exists()
 
+    @pytest.fixture
+    def _make_envelope_with_history(self, tmp_project_dir):
+        """构造 minimal envelope dict + 写盘，返回该 path 给 _load 测试用。"""
+
+        def _build(history_entries: list[dict]) -> "Path":
+            envelope = {
+                "schema_version": 2,
+                "decisions_by_subsystem": {},
+                "decisions_history": history_entries,
+            }
+            path = tmp_project_dir / ".cad-spec-gen" / "spec_decisions.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(envelope), encoding="utf-8")
+            return path
+
+        return _build
+
+    def test_load_rejects_unknown_string_in_history(
+        self, _make_envelope_with_history, monkeypatch
+    ):
+        """T8 (spec §4.5 IO 边界): decisions_history 含 PR #19 之前的旧字符串
+        'bom_change'，_load_decisions_envelope 必抛 ValueError 守护跨 IO 边界。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        _make_envelope_with_history([
+            {
+                "subsystem": "es",
+                "part_no": "TEST-001",
+                "previous_decision": {"decision": "use_config", "config_name": "A"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": "bom_change",  # ← 旧 schema 字符串
+            }
+        ])
+
+        with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
+            sw_config_broker._load_decisions_envelope()
+
+    def test_load_rejects_none_invalidation_reason(
+        self, _make_envelope_with_history
+    ):
+        """T9 (spec §4.5): invalidation_reason == None 必抛。"""
+        from adapters.solidworks import sw_config_broker
+
+        _make_envelope_with_history([
+            {
+                "subsystem": "es",
+                "part_no": "TEST-001",
+                "previous_decision": {"decision": "use_config"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": None,
+            }
+        ])
+
+        with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
+            sw_config_broker._load_decisions_envelope()
+
+    def test_load_rejects_empty_string_invalidation_reason(
+        self, _make_envelope_with_history
+    ):
+        """T10 (spec §4.5): invalidation_reason == '' 必抛。"""
+        from adapters.solidworks import sw_config_broker
+
+        _make_envelope_with_history([
+            {
+                "subsystem": "es",
+                "part_no": "TEST-001",
+                "previous_decision": {"decision": "use_config"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": "",
+            }
+        ])
+
+        with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
+            sw_config_broker._load_decisions_envelope()
+
+    def test_load_rejects_int_invalidation_reason(
+        self, _make_envelope_with_history
+    ):
+        """T11 (spec §4.5): invalidation_reason == 0（用户手编混入数字）必抛。"""
+        from adapters.solidworks import sw_config_broker
+
+        _make_envelope_with_history([
+            {
+                "subsystem": "es",
+                "part_no": "TEST-001",
+                "previous_decision": {"decision": "use_config"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": 0,
+            }
+        ])
+
+        with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
+            sw_config_broker._load_decisions_envelope()
+
+    def test_load_rejects_partial_corrupted_history(
+        self, _make_envelope_with_history
+    ):
+        """T12 (spec §4.5): 5 条 history，1 条含未知 reason，整体 raise（不 silent skip）。"""
+        from adapters.solidworks import sw_config_broker
+
+        _make_envelope_with_history([
+            {
+                "subsystem": "es",
+                "part_no": f"TEST-{i:03d}",
+                "previous_decision": {"decision": "use_config"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": (
+                    "bom_change_legacy" if i == 2 else "bom_dim_signature_changed"
+                ),
+            }
+            for i in range(5)
+        ])
+
+        with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
+            sw_config_broker._load_decisions_envelope()
+
 
 class TestDecisionAccessors:
     """Task 10：envelope 内按 subsystem/part_no 索引 + 失效归档"""
