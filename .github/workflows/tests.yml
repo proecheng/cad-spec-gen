@@ -63,6 +63,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           pytest tests/ -v --tb=short \
+            -m "not mypy" \
             --cov=adapters.solidworks.sw_config_broker \
             --cov=adapters.solidworks.sw_config_lists_cache \
             --cov-report=term-missing \
@@ -78,7 +79,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          pytest tests/ -v --tb=short --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov=adapters.solidworks.sw_list_configs_worker --cov-report=term-missing --cov-fail-under=95
+          pytest tests/ -v --tb=short -m "not mypy" --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov=adapters.solidworks.sw_list_configs_worker --cov-report=term-missing --cov-fail-under=95
 
       - name: Upload coverage report
         if: always()
@@ -135,5 +136,15 @@ jobs:
           python-version: '3.11'
       - name: Install mypy
         run: pip install "mypy>=1.10"
-      - name: Run mypy strict on sw_config_broker.py
+      - name: Run mypy strict on sw_config_broker.py (T18 等价 — 当前模块必 pass)
         run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py
+      - name: Verify mypy fixture catches type errors (T17 等价 — gate 漂移防御)
+        # 故意类型错的 fixture 必让 mypy fail。如果 fixture 通过 = gate 配置
+        # 漂移（strict=false / exclude broker / 等），CI 立即 fail 提示修复。
+        run: |
+          if mypy --platform=win32 --strict --explicit-package-bases tests/fixtures/_mypy_invalid_literal_fixture.py; then
+            echo "ERROR: mypy fixture should fail (intentional type errors) but passed"
+            echo "→ mypy gate 配置漂移：检查 pyproject.toml [[overrides]] strict=true"
+            exit 1
+          fi
+          echo "✓ fixture correctly fails — gate 配置正确"
