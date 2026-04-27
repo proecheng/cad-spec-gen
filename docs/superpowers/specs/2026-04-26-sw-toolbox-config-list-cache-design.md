@@ -450,10 +450,10 @@ PR #19 merge 前 self-review 发现 1 Critical (C-1) + 4 Important (I-1..I-4) + 
 ### 已修
 - **C-1 worker batch 真单 boot SW**：原 `_run_batch_mode` 每文件调 `_list_configs_returning`（含完整 SW lifecycle）→ N 件 = N×SW boot ≈ 25min/50件，prewarm 优化失效。修复：抽 `_open_doc_get_configs(app, path)` primitive，batch 路径单 lifecycle wrap 全 loop。
 - **I-1 cache key 归一化**：reader 用 `Path.resolve()` 而 writer (prewarm) 用 raw `sldprt_path` → mixed-slash 路径触发 silent cache miss。修复：引入 `_normalize_sldprt_key` 单点 helper，三处统一调用。
+- **I-2 envelope 升级立即落盘** ✅ **closed (2026-04-27)**：worker fail 时 in-memory cache 升级 envelope 但不写盘 → 下次 prewarm 重复无效检查。修复：`_envelope_invalidated` 分支末尾立即 `_save_config_lists_cache` 持久化新 envelope，不依赖 worker 成功。详见 [I-2 + I-3 修复设计 spec](2026-04-26-sw-config-broker-i2-i3-fix-design.md)。
+- **I-3 msvcrt 锁等待永不超时 + 进度提示** ✅ **closed (2026-04-27)**：并发 codegen 撞锁 → raw OSError 出。修复：`_project_file_lock` 重写为 `LK_NBLCK` + 永不超时 polling + 撞锁立即印 banner（含警告勿删锁文件防 cache 数据竞争）+ 每 5s 进度提示。对齐"照片级 > 傻瓜式"原则。详见 [I-2 + I-3 修复设计 spec](2026-04-26-sw-config-broker-i2-i3-fix-design.md)。
 
 ### 推迟
-- **I-2 envelope 升级未持久化**：worker fail 时 in-memory cache 升级 envelope 但不写盘 → 下次 prewarm 重复无效检查。修复方向：envelope invalidated 时先 save empty cache 再尝试 worker spawn。
-- **I-3 msvcrt.locking 无重试 UX**：并发 codegen 撞锁 → raw OSError 出。修复方向：bounded retry + 用户面提示。北极星"傻瓜式" gate 项。
 - **I-4 mtime+size collision 边界**：极罕见 (SW UI 编辑后 mtime+size 撞老缓存)。已知限制，文档化即可。
 - **M-1 fsync 缺失**：tmpfile→rename 不带 fsync，power-loss 可能留空文件。Windows 桌面用例可接受；可 doc 化或加 fsync。
 - **M-2 `_save_config_lists_cache` 异常上抛**：PermissionError 等会冒泡。修复方向：包 try/except 静默 + warn。
@@ -464,6 +464,6 @@ PR #19 merge 前 self-review 发现 1 Critical (C-1) + 4 Important (I-1..I-4) + 
 - **M-7 `INVALIDATION_REASONS` frozenset 校验**：内部单 caller 函数加防御校验属过度防御，可去除。
 
 ### 优先级建议
-- 下个 PR：I-2 + I-3（影响北极星 gate "稳定可靠 / 傻瓜式"）
+- ~~下个 PR：I-2 + I-3（影响北极星 gate "稳定可靠 / 傻瓜式"）~~ ✅ 已完成（2026-04-27）
 - 技术债清单：M-2 + M-4（潜在 robustness 改进）
 - 文档/低优：I-4 + M-1 + M-3 + M-5 + M-6 + M-7

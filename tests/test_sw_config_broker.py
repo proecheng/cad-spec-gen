@@ -1,7 +1,11 @@
 import json
 import sys
+import types
 
 import pytest
+
+from adapters.solidworks import sw_config_broker as broker
+from adapters.solidworks import sw_config_lists_cache as cache_mod
 
 
 def test_config_resolution_dataclass_fields():
@@ -1334,7 +1338,10 @@ class TestPrewarmConfigLists:
     def test_prewarm_worker_failure_does_not_write_cache(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
     ):
-        """worker exit != 0 → cache 不写；prewarm 静默 return 不抛."""
+        """worker exit != 0 → prewarm 静默 return 不抛。
+        I-2 修复后：envelope（sw_version/toolbox_path）已在 invalidate 时落盘，
+        但 entries 仍为空（worker 未成功写入任何条目）。"""
+        import json
         from adapters.solidworks import sw_config_broker as broker
 
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
@@ -1354,13 +1361,19 @@ class TestPrewarmConfigLists:
 
         # 不抛异常
         broker.prewarm_config_lists([str(p1)])
-        # cache 未写
-        assert not patch_paths.exists()
+        # I-2 修复：envelope 已立即落盘（sw_version/toolbox_path 已写），但 entries 为空
+        assert patch_paths.exists(), "envelope 应已在 invalidate 时落盘"
+        saved = json.loads(patch_paths.read_text())
+        assert saved["entries"] == {}, "worker 失败后 entries 应为空"
+        assert saved["sw_version"] == 24, "sw_version 应已写入 envelope"
 
     def test_prewarm_worker_timeout_does_not_write_cache(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
     ):
-        """subprocess.TimeoutExpired → cache 不写；prewarm 静默 return."""
+        """subprocess.TimeoutExpired → prewarm 静默 return 不抛。
+        I-2 修复后：envelope（sw_version/toolbox_path）已在 invalidate 时落盘，
+        但 entries 仍为空（worker 超时未成功写入任何条目）。"""
+        import json
         import subprocess
 
         from adapters.solidworks import sw_config_broker as broker
@@ -1376,7 +1389,11 @@ class TestPrewarmConfigLists:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         broker.prewarm_config_lists([str(p1)])  # 不抛
-        assert not patch_paths.exists()
+        # I-2 修复：envelope 已立即落盘（sw_version/toolbox_path 已写），但 entries 为空
+        assert patch_paths.exists(), "envelope 应已在 invalidate 时落盘"
+        saved = json.loads(patch_paths.read_text())
+        assert saved["entries"] == {}, "worker 超时后 entries 应为空"
+        assert saved["sw_version"] == 24, "sw_version 应已写入 envelope"
 
     def test_prewarm_envelope_invalidated_clears_entries(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
@@ -1593,3 +1610,1004 @@ class TestListConfigsViaComThreeLayer:
         broker._CONFIG_LIST_CACHE.clear()  # 清 L2 强制走 L1
         configs2 = broker._list_configs_via_com(backslash_path)
         assert configs2 == ["6201"]
+
+
+# ============================================================
+# PR #19 review followup — I-2 + I-3 修复测试
+# spec: docs/superpowers/specs/2026-04-26-sw-config-broker-i2-i3-fix-design.md
+# ============================================================
+# broker / cache_mod / pytest 已在文件顶部 import；I-3 测试用的 mock helpers
+# (make_fake_msvcrt / make_tracking_save / make_synced_time_mock) 在 I-3 task
+# (Phase B.3+) 引入，按 task-by-task TDD 严格只加当前 task 需要的代码。
+
+
+def make_failing_save(exception_to_raise):
+    """构造抛指定异常的 fake _save_config_lists_cache（spec §6.4）。"""
+    def failing_save(cache):
+        raise exception_to_raise
+    return failing_save
+
+
+def make_fake_msvcrt(locking_calls: list, contention_count: int = 0):
+    """构造 fake msvcrt 模块（spec §6.4）— 跨平台 universal。
+
+    使用 setitem(sys.modules, "msvcrt", ...) 注入，函数体内 `import msvcrt` 命中 fake。
+    Linux 上 real msvcrt 不存在，setattr 会炸；setitem 模式才能跨平台跑。
+    """
+    fake = types.ModuleType("msvcrt")
+    fake.LK_NBLCK = 1
+    fake.LK_UNLCK = 2
+    fake.LK_LOCK = 3
+    fake.LK_NBRLCK = 4
+
+    def locking(fd, mode, nbytes):
+        mode_name = "LK_NBLCK" if mode == fake.LK_NBLCK else "LK_UNLCK"
+        locking_calls.append((mode_name, fd, nbytes))
+        if mode == fake.LK_NBLCK and len(locking_calls) <= contention_count:
+            raise OSError("contended")
+        return None
+
+    fake.locking = locking
+    return fake
+
+
+def make_synced_time_mock(monkeypatch):
+    """time.monotonic 由 time.sleep 推进（spec §6.4）— 防 busy loop bug 漏测。"""
+    fake_now = [0.0]
+
+    def fake_sleep(seconds):
+        fake_now[0] += seconds
+
+    def fake_monotonic():
+        return fake_now[0]
+
+    monkeypatch.setattr(broker.time, "sleep", fake_sleep)
+    monkeypatch.setattr(broker.time, "monotonic", fake_monotonic)
+    return fake_now
+
+
+# ─── I-2 修复测试（14 测试 / 7 维度 / spec §6.2）───
+
+class TestI2EnvelopePersistence:
+    """spec §6.2 I-2 测试矩阵（14 测试 / 7 维度）。"""
+
+    @pytest.fixture(autouse=True)
+    def _enable_broker(self, monkeypatch):
+        """conftest.py:212 默认 CAD_SW_BROKER_DISABLE=1 锁死 broker；
+        I-2 测试需要进 prewarm 真路径触发 envelope 持久化逻辑。
+        T27 内显式 setenv 覆盖此默认（验证 disable 安全阀仍 work）。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+    # ─── E1. 核心顺序 invariant（2 测试）───
+
+    def test_invalidate_save_called_before_worker_spawn(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T19：spec §6.2 — call_order 列表断言：save(2025, entries={}) 出现在
+        subprocess.run(worker) 之前。防 envelope 升级 save 漏写盘 bug。"""
+        # 旧 cache (sw=2024) — 触发 invalidate
+        old_cache = {
+            "schema_version": 1,
+            "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024,
+            "toolbox_path": "C:/old",
+            "entries": {},
+        }
+
+        call_order = []
+
+        # mock load 返旧 cache
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        # mock detect 返新版本
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # tracking_save：记录调用
+        def tracking_save(cache):
+            call_order.append(("save", cache.get("sw_version"), len(cache.get("entries", {}))))
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", tracking_save)
+
+        # mock subprocess.run：worker fail
+        def tracking_run(cmd, **kwargs):
+            call_order.append(("spawn", "worker"))
+            import subprocess
+            return subprocess.CompletedProcess(cmd, returncode=1, stdout=b"", stderr=b"boom")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 断言顺序：save 必须在 spawn 之前
+        assert call_order[0] == ("save", 2025, 0), f"call_order={call_order}"
+        assert call_order[1] == ("spawn", "worker"), f"call_order={call_order}"
+
+    def test_invalidate_save_content_correct(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T20：spec §6.2 — 测试前提：mock 旧 sw=2024 / 新 sw=2025（值显式不同），
+        防 mutation `cache.get("sw_version", info.version_year)` 偷换旧值仍 pass。"""
+        import json
+
+        # 写真旧 cache 文件触发 invalidate（不 mock _load）
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1,
+            "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024,
+            "toolbox_path": "C:/old",
+            "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        captured = {}
+
+        def capturing_save(cache):
+            # 深拷贝避免 caller mutate 影响断言
+            captured["cache"] = {k: v for k, v in cache.items()}
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", capturing_save)
+
+        # mock subprocess.run：worker fail（让 prewarm 不进 line 612 第二次 save）
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        cache = captured["cache"]
+        assert cache["schema_version"] == 1
+        assert cache["sw_version"] == 2025  # 防 cache.get() 偷换旧 2024
+        assert cache["toolbox_path"] == "C:/new"
+        assert cache["entries"] == {}
+        # generated_at 仅验存在 + ISO 8601 格式
+        assert "generated_at" in cache
+        from datetime import datetime
+        datetime.fromisoformat(cache["generated_at"])  # 抛 ValueError 即 fail
+
+    # ─── E2. save 失败路径（3 测试）───
+
+    def test_invalidate_save_oserror_warns_and_continues_to_worker(
+        self, monkeypatch, tmp_project_dir, caplog,
+    ):
+        """T21：spec §6.2 — mock save 抛 OSError → log.warning（含"envelope save 失败"）+
+        worker spawn 仍调用 + prewarm 不抛。"""
+        import logging
+
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(OSError("disk full")),
+        )
+
+        spawn_called = []
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_called.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        with caplog.at_level(logging.WARNING):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])  # 不应抛
+
+        assert any("envelope save 失败" in rec.message for rec in caplog.records), \
+            f"warn missing: {[r.message for r in caplog.records]}"
+        assert len(spawn_called) == 1, "worker spawn 未被调用（fire-and-forget 契约破）"
+
+    @pytest.mark.parametrize("exc_type", [
+        RuntimeError, KeyError, TypeError, ValueError, AttributeError,
+    ])
+    def test_invalidate_save_any_exception_warns_and_continues(
+        self, exc_type, monkeypatch, tmp_project_dir, caplog,
+    ):
+        """T22：spec §6.2 — 5 种 Exception 子类 parametrize；防 mutation
+        `except (OSError, RuntimeError)` 漏 KeyError 等。"""
+        import logging
+
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(exc_type("test")),
+        )
+
+        spawn_called = []
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_called.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        with caplog.at_level(logging.WARNING):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])  # 不应抛
+
+        assert any("envelope save 失败" in rec.message for rec in caplog.records), \
+            f"warn missing for {exc_type.__name__}"
+        assert len(spawn_called) == 1, \
+            f"worker spawn 未被调用 for {exc_type.__name__}（fire-and-forget 契约破）"
+
+    def test_invalidate_save_baseexception_propagates(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T22b：spec §6.2 — KeyboardInterrupt 是 BaseException 子类，
+        except Exception 天然不 catch → 上抛 + worker spawn 不调用。"""
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            make_failing_save(KeyboardInterrupt()),
+        )
+
+        spawn_called = []
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: spawn_called.append(cmd) or None,
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert len(spawn_called) == 0, "worker spawn 不应被调用（KeyboardInterrupt 应立即上抛）"
+
+    # ─── E3. 第二次 prewarm 验证（2 测试）───
+
+    def test_two_prewarm_calls_after_worker_fail_no_redundant_invalidate(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T23：spec §6.2 — 第 1 次 prewarm worker fail → 第 2 次 prewarm 进入时
+        envelope_invalidated == False（这是 I-2 修复的核心 user value）。"""
+        import json
+
+        # 旧 cache (sw=2024) 写盘
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # mock worker fail
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 第 2 次进入：load 应读到新 envelope（sw=2025）→ invalidated False
+        cache_after = cache_mod._load_config_lists_cache()
+        assert cache_after["sw_version"] == 2025, \
+            f"第 1 次 prewarm 后磁盘 sw_version 仍={cache_after.get('sw_version')}（envelope 未持久化）"
+        assert cache_mod._envelope_invalidated(cache_after) is False, \
+            "第 2 次 prewarm envelope_invalidated 应为 False（修复后不再死循环）"
+
+    def test_two_prewarm_calls_after_worker_fail_retries_failed_sldprt(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T24：spec §6.2 — 第 2 次 prewarm 走 miss diff → spawn worker 重试上次失败的 sldprt。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        spawn_count = [0]
+        import subprocess
+        def tracking_run(cmd, **kwargs):
+            spawn_count[0] += 1
+            return subprocess.CompletedProcess(cmd, 1, b"", b"")
+        monkeypatch.setattr(broker.subprocess, "run", tracking_run)
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert spawn_count[0] == 2, \
+            f"第 2 次 prewarm 未重试 worker；spawn_count={spawn_count[0]}"
+
+    # ─── E4. detect 边角（2 测试）───
+
+    def test_invalidate_save_when_sw_not_installed(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T25：spec §6.2 — detect 返 SwInfo(installed=False, version_year=0,
+        toolbox_dir="") → 仍 save sw_version=0 / toolbox_path="" 到磁盘。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            installed = False
+            version_year = 0
+            toolbox_dir = ""
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        cache_after = cache_mod._load_config_lists_cache()
+        assert cache_after["sw_version"] == 0
+        assert cache_after["toolbox_path"] == ""
+
+    def test_invalidate_save_propagates_detect_unexpected_exception(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T26：spec §6.2 — detect 抛 RuntimeError → 上抛（detect 调用不在新 try/except 包围范围内；
+        防实施者把 except 范围误扩到包整个 invalidate 分支）。"""
+        old_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: old_cache.copy())
+
+        def raising_detect():
+            raise RuntimeError("detect 内部 bug")
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", raising_detect,
+        )
+
+        with pytest.raises(RuntimeError, match="detect 内部 bug"):
+            broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+
+    # ─── E5. 安全阀 regression（1 测试）───
+
+    def test_prewarm_disable_env_skips_all_cache_ops(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T27：spec §6.2 — CAD_SW_BROKER_DISABLE=1 → 整函数早返；
+        磁盘 cache 文件不被读 / 不被写。"""
+        monkeypatch.setenv("CAD_SW_BROKER_DISABLE", "1")
+
+        save_calls = []
+        load_calls = []
+        monkeypatch.setattr(
+            cache_mod, "_save_config_lists_cache",
+            lambda c: save_calls.append(c),
+        )
+        monkeypatch.setattr(
+            cache_mod, "_load_config_lists_cache",
+            lambda: load_calls.append(1) or {},
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        assert save_calls == [], "DISABLE=1 时不应调 save"
+        assert load_calls == [], "DISABLE=1 时不应调 load"
+
+    # ─── E6. 磁盘内容精确性（3 测试）───
+
+    def test_invalidate_save_disk_json_schema_full_match(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T28：spec §6.2 — save 后磁盘 JSON 5 字段全员；schema_version=1 / sw=新 /
+        toolbox=新 / entries={}；generated_at 仅验存在 + ISO 8601 格式。"""
+        import json
+        from datetime import datetime
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        disk = json.loads(cache_path.read_text())
+        # 5 字段全员
+        for k in ("schema_version", "generated_at", "sw_version", "toolbox_path", "entries"):
+            assert k in disk, f"字段 {k} 缺失"
+        assert disk["schema_version"] == 1
+        assert disk["sw_version"] == 2025
+        assert disk["toolbox_path"] == "C:/new"
+        assert disk["entries"] == {}
+        # generated_at ISO 8601 格式校验
+        datetime.fromisoformat(disk["generated_at"])
+
+    def test_invalidate_save_then_worker_success_disk_has_entries(
+        self, monkeypatch, tmp_project_dir, tmp_path,
+    ):
+        """T29：spec §6.2 — invalidate save → worker success → 第 2 次 save → 磁盘 JSON 含 entries{p1, p2}。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        # 真建 sldprt 文件让 _stat_mtime/_stat_size 返合理值
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_text("dummy1")
+        p2 = tmp_path / "p2.sldprt"
+        p2.write_text("dummy2")
+
+        import subprocess
+        def success_run(cmd, **kwargs):
+            results = [
+                {"path": str(p1), "configs": ["A"]},
+                {"path": str(p2), "configs": ["B"]},
+            ]
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(results).encode(), b"")
+        monkeypatch.setattr(broker.subprocess, "run", success_run)
+
+        broker.prewarm_config_lists([str(p1), str(p2)])
+
+        disk = json.loads(cache_path.read_text())
+        assert disk["sw_version"] == 2025
+        assert len(disk["entries"]) == 2
+        # 既有 _normalize_sldprt_key 决定 key 格式（resolve()），用同样 normalize 验证
+        from adapters.solidworks.sw_config_broker import _normalize_sldprt_key
+        assert _normalize_sldprt_key(str(p1)) in disk["entries"]
+        assert _normalize_sldprt_key(str(p2)) in disk["entries"]
+
+    def test_invalidate_save_does_not_overwrite_unrelated_user_files(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T30：spec §6.2 — save 只写 sw_config_lists.json；同目录 sw_toolbox_index.json 等不被 touched。"""
+        import json
+
+        cache_path = cache_mod.get_config_lists_cache_path()
+        user_dir = cache_path.parent
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        # 旧 cache + 同目录其他文件
+        cache_path.write_text(json.dumps({
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2024, "toolbox_path": "C:/old", "entries": {},
+        }))
+        unrelated_index = user_dir / "sw_toolbox_index.json"
+        unrelated_index.write_text('{"unrelated": true}')
+        unrelated_decisions = user_dir / "decisions.json"
+        unrelated_decisions.write_text('{"some": "data"}')
+
+        index_mtime_before = unrelated_index.stat().st_mtime
+        decisions_mtime_before = unrelated_decisions.stat().st_mtime
+
+        class FakeInfo:
+            version_year = 2025
+            toolbox_dir = "C:/new"
+        monkeypatch.setattr(
+            "adapters.solidworks.sw_detect.detect_solidworks", lambda: FakeInfo(),
+        )
+
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 不相关文件 mtime 不变
+        assert unrelated_index.stat().st_mtime == index_mtime_before
+        assert unrelated_decisions.stat().st_mtime == decisions_mtime_before
+        assert unrelated_index.read_text() == '{"unrelated": true}'
+        assert unrelated_decisions.read_text() == '{"some": "data"}'
+
+    # ─── E7. 路径 gating（1 测试）───
+
+    def test_no_invalidate_no_extra_envelope_save(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T31：spec §6.2 — envelope 已新（_envelope_invalidated 返 False）→
+        call_order 中不出现 invalidate 分支 save；只有既有 line 612 save。
+        防实施者把新 save 写成无条件调用、漏在 if 分支外。"""
+        # cache 已是新 envelope（不 invalidate）
+        new_cache = {
+            "schema_version": 1, "generated_at": "2026-04-01T00:00:00+00:00",
+            "sw_version": 2025, "toolbox_path": "C:/new", "entries": {},
+        }
+        monkeypatch.setattr(cache_mod, "_load_config_lists_cache", lambda: new_cache.copy())
+
+        # 强制 _envelope_invalidated 返 False
+        monkeypatch.setattr(cache_mod, "_envelope_invalidated", lambda c: False)
+
+        # 不需 detect mock，因为不进 invalidate 分支
+
+        call_order = []
+
+        def tracking_save(cache):
+            call_order.append(("save", cache.get("sw_version"), len(cache.get("entries", {}))))
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", tracking_save)
+
+        # mock subprocess.run worker fail 让既有 line 612 save 也不触发
+        import subprocess
+        monkeypatch.setattr(
+            broker.subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, b"", b""),
+        )
+
+        broker.prewarm_config_lists(["C:/p1.sldprt"])
+
+        # 关键断言：cache 已新 + worker fail → call_order 应为空（无 save）
+        assert call_order == [], \
+            f"envelope 已新且 worker fail 时不应有 save；实际 call_order={call_order}"
+
+
+# ─── I-3 修复测试（18 测试 / 8 维度 / spec §6.1）───
+
+class TestI3LockBehavior:
+    """spec §6.1 I-3 测试矩阵（18 测试 / 8 维度）。"""
+
+    # ─── D1. happy path（2 测试）───
+
+    def test_lock_yields_immediately_when_uncontended(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T1：spec §6.1 — LK_NBLCK 第 1 次成功 → 0 banner / 0 进度 / yield 正常 / unlock 调用 1 次。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        entered = []
+        with broker._project_file_lock():
+            entered.append(True)
+
+        assert entered == [True], "yield body 未执行"
+        assert len(locking_calls) == 2, f"应有 1 LK_NBLCK + 1 LK_UNLCK；实际 {locking_calls}"
+        assert locking_calls[0][0] == "LK_NBLCK"
+        assert locking_calls[1][0] == "LK_UNLCK"
+
+    def test_lock_yield_body_exception_still_releases_lock(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T2：spec §6.1 — yield body 抛 ValueError → 异常上抛 + unlock 仍调用 + fp.close() 仍执行。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        with pytest.raises(ValueError, match="boom"):
+            with broker._project_file_lock():
+                raise ValueError("boom")
+
+        # unlock 仍被调
+        assert any(c[0] == "LK_UNLCK" for c in locking_calls), \
+            f"unlock 未调用；locking_calls={locking_calls}"
+
+    # ─── D2. 进度提示节奏（4 测试）───
+
+    def test_lock_banner_printed_immediately_on_first_contention(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T3：spec §6.1 — 第 1 次 LK_NBLCK 抛 OSError → banner 立即印（不等 5s）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=2)  # 2 次失败
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        # banner 应在 t=0 立即印（等待 0s 即印）
+        assert "检测到另一个 codegen" in err or "codegen" in err, f"banner 缺失；stderr={err}"
+        assert "占用" in err
+
+    def test_lock_no_progress_when_acquired_within_5s(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T4：spec §6.1 — 撞锁 3s 后拿到 → banner 印 1 次 + 进度行 0 行。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        # contention_count=6 → 6 次失败 × 0.5s = 3s 后第 7 次成功
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=6)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        assert err.count("仍在等待锁释放") == 0, \
+            f"撞锁 3s 不应印进度；stderr={err}"
+
+    def test_lock_one_progress_at_5s_threshold(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T5：spec §6.1 — 撞锁 6s 后拿到 → banner 1 + 进度行 1 行（含 "已等 5s"）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        # contention_count=12 → 12 × 0.5s = 6s 后第 13 次成功
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=12)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        assert err.count("仍在等待锁释放") == 1, \
+            f"撞锁 6s 应印 1 行进度；stderr={err}"
+        assert "已等 5s" in err, f"进度行 elapsed 数不对；stderr={err}"
+
+    def test_lock_progress_intervals_strictly_5s(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T6：spec §6.1 — 撞锁 16s 后拿到 → 进度行 3 行（5s/10s/15s 时刻）；
+        4s/9s/14s 时刻不印。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        # contention_count=32 → 32 × 0.5s = 16s 后第 33 次成功
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=32)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        progress_count = err.count("仍在等待锁释放")
+        assert progress_count == 3, \
+            f"撞锁 16s 应印 3 行进度（5/10/15s）；实际 {progress_count}；stderr={err}"
+        for n in [5, 10, 15]:
+            assert f"已等 {n}s" in err, f"缺 已等 {n}s；stderr={err}"
+
+    # ─── D3. 永不超时（2 测试）───
+
+    def test_lock_never_raises_timeout_at_60s_and_sleeps_between_polls(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T7：spec §6.1 — 撞锁 60s+ → 不抛 OSError + sleep 调用次数 ≥ 100
+        + 每次 sleep == LOCK_POLL_INTERVAL_SEC（防 CPU busy loop / 间隔被改）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        # contention_count=120 → 120 × 0.5s = 60s 后第 121 次成功
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=120)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        # 自定义 mock 跟踪 sleep 调用
+        sleep_calls = []
+        fake_now = [0.0]
+
+        def tracking_sleep(seconds):
+            sleep_calls.append(seconds)
+            fake_now[0] += seconds
+
+        monkeypatch.setattr(broker.time, "sleep", tracking_sleep)
+        monkeypatch.setattr(broker.time, "monotonic", lambda: fake_now[0])
+
+        with broker._project_file_lock():
+            pass
+
+        assert len(sleep_calls) >= 100, \
+            f"sleep 调用次数 {len(sleep_calls)} < 100（防 CPU busy loop）"
+        assert all(s == broker.LOCK_POLL_INTERVAL_SEC for s in sleep_calls), \
+            f"sleep 间隔不严格 {broker.LOCK_POLL_INTERVAL_SEC}s；首 5 个: {sleep_calls[:5]}"
+
+    def test_lock_progress_count_matches_floor_elapsed_div_5(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T8：spec §6.1 — 撞锁 27s 后拿到 → 进度行恰 5 行（5/10/15/20/25 时刻）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        # contention_count=54 → 54 × 0.5s = 27s 后第 55 次成功
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=54)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        progress_count = err.count("仍在等待锁释放")
+        assert progress_count == 5, \
+            f"撞锁 27s 应印 5 行进度（5/10/15/20/25s）；实际 {progress_count}；stderr={err}"
+
+    # ─── D4. Ctrl+C 中止（2 测试）───
+
+    def test_lock_keyboard_interrupt_during_sleep_propagates(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T9：spec §6.1 — sleep 期间 raise KeyboardInterrupt → 立即上抛 +
+        fp.close() 仍执行 + 不调 unlock（锁未拿到）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=999)  # 永不成功
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        def kbd_sleep(seconds):
+            raise KeyboardInterrupt()
+        monkeypatch.setattr(broker.time, "sleep", kbd_sleep)
+        monkeypatch.setattr(broker.time, "monotonic", lambda: 0.0)
+
+        with pytest.raises(KeyboardInterrupt):
+            with broker._project_file_lock():
+                pass
+
+        # unlock 不应被调（锁从未拿到）
+        unlock_count = sum(1 for c in locking_calls if c[0] == "LK_UNLCK")
+        assert unlock_count == 0, f"锁未拿到不应 unlock；locking_calls={locking_calls}"
+
+    def test_lock_keyboard_interrupt_after_lk_nblck_fails_propagates(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T10：spec §6.1 — LK_NBLCK 抛 OSError 后、进 sleep 前 raise KeyboardInterrupt
+        → 立即上抛 + fp.close() 仍执行。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        # locking 抛 OSError，print 抛 KeyboardInterrupt（在 sleep 之前）
+        locking_calls = []
+        def lk_nblck_fail(fd, mode, nbytes):
+            locking_calls.append((mode, fd, nbytes))
+            raise OSError("contended")
+
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+        fake_msvcrt.locking = lk_nblck_fail
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        # print 抛 KeyboardInterrupt（在 banner 那一行）
+        def kbd_print(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr("builtins.print", kbd_print)
+        monkeypatch.setattr(broker.time, "monotonic", lambda: 0.0)
+
+        with pytest.raises(KeyboardInterrupt):
+            with broker._project_file_lock():
+                pass
+
+    # ─── D5. 清理路径（3 测试）───
+
+    def test_lock_unlock_oserror_silently_warned(
+        self, monkeypatch, tmp_project_dir, caplog,
+    ):
+        """T11：spec §6.1 — unlock 抛 OSError → log.warning 触发 + 不冒到 caller。"""
+        import logging
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+
+        def fail_on_unlock(fd, mode, nbytes):
+            locking_calls.append((mode, fd, nbytes))
+            if mode == fake_msvcrt.LK_UNLCK:
+                raise OSError("unlock failed")
+            return None
+
+        fake_msvcrt.locking = fail_on_unlock
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        with caplog.at_level(logging.WARNING):
+            with broker._project_file_lock():
+                pass  # 不应抛
+
+        assert any("unlock 异常" in rec.message for rec in caplog.records), \
+            f"warn 缺；records={[r.message for r in caplog.records]}"
+
+    def test_lock_unlock_non_oserror_propagates(
+        self, monkeypatch, tmp_project_dir,
+    ):
+        """T12：spec §6.1 — unlock 抛 RuntimeError → 上抛（异常类型严格性，防"宽 except"）。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+
+        def fail_on_unlock(fd, mode, nbytes):
+            locking_calls.append((mode, fd, nbytes))
+            if mode == fake_msvcrt.LK_UNLCK:
+                raise RuntimeError("unexpected")
+            return None
+
+        fake_msvcrt.locking = fail_on_unlock
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        with pytest.raises(RuntimeError, match="unexpected"):
+            with broker._project_file_lock():
+                pass
+
+    def test_lock_path_with_chinese_chars_works(
+        self, monkeypatch, tmp_path,
+    ):
+        """T13：spec §6.1 — lock_path 父目录路径含中文字符 → open + locking + unlock
+        全程无 UnicodeError；Windows msvcrt 对 unicode 路径的支持回归。"""
+        chinese_dir = tmp_path / "工作" / "项目"
+        chinese_dir.mkdir(parents=True, exist_ok=True)
+
+        # mock cad_paths.PROJECT_ROOT 指向中文目录
+        import cad_paths
+        monkeypatch.setattr(cad_paths, "PROJECT_ROOT", str(chinese_dir))
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=0)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+        with broker._project_file_lock():
+            pass  # 不应抛 UnicodeError
+
+        # 验证 lock 文件创建在中文目录
+        lock_path = chinese_dir / ".cad-spec-gen" / broker.LOCK_FILE_NAME
+        assert lock_path.exists(), f"lock 文件未创建于中文路径 {lock_path}"
+
+    # ─── D6. 跨平台（2 测试）───
+
+    def test_lock_noop_on_linux(self, monkeypatch, tmp_project_dir):
+        """T14：spec §6.1 — sys.platform = "linux" → 静默 yield + 无 msvcrt 调用 + 无 banner / 进度。"""
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        # 设 msvcrt 为禁用 sentinel 让任何调用炸
+        class FailMsvcrt:
+            def __getattr__(self, name):
+                raise AssertionError(f"msvcrt.{name} should NOT be accessed on Linux")
+
+        monkeypatch.setitem(sys.modules, "msvcrt", FailMsvcrt())
+
+        entered = []
+        with broker._project_file_lock():
+            entered.append(True)
+
+        assert entered == [True]
+
+    def test_lock_noop_on_darwin(self, monkeypatch, tmp_project_dir):
+        """T15：spec §6.1 — sys.platform = "darwin" → 同 T14。"""
+        monkeypatch.setattr(sys, "platform", "darwin")
+
+        class FailMsvcrt:
+            def __getattr__(self, name):
+                raise AssertionError(f"msvcrt.{name} should NOT be accessed on macOS")
+
+        monkeypatch.setitem(sys.modules, "msvcrt", FailMsvcrt())
+
+        entered = []
+        with broker._project_file_lock():
+            entered.append(True)
+
+        assert entered == [True]
+
+    # ─── D7. 文案完整性（2 测试）───
+
+    def test_lock_banner_contains_all_required_keywords(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T16：spec §6.1 — banner stderr 包含全部 6 实体关键词组：
+        codegen / 占用 / Ctrl+C / 删除 / 配置 / BOM。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=2)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        for kw in ["codegen", "占用", "Ctrl+C", "删除", "配置", "BOM"]:
+            assert kw in err, f"banner 缺关键词 '{kw}'；stderr={err}"
+
+    def test_lock_banner_contains_lock_file_path_literal(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T17：spec §6.1 — banner 含 lock_path 字面字符串。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=2)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        err = capsys.readouterr().err
+        # tmp_project_dir 路径片段应在 banner 中
+        assert str(tmp_project_dir) in err or ".cad-spec-gen" in err, \
+            f"banner 缺 lock_path；stderr={err}"
+
+    # ─── D8. 输出 channel（1 测试）───
+
+    def test_lock_banner_and_progress_only_on_stderr(
+        self, monkeypatch, tmp_project_dir, capsys,
+    ):
+        """T18：spec §6.1 — capsys: stdout 为空 / stderr 含 banner + 进度。"""
+        monkeypatch.setattr(sys, "platform", "win32")
+        locking_calls = []
+        fake_msvcrt = make_fake_msvcrt(locking_calls, contention_count=12)  # 6s 撞锁
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        make_synced_time_mock(monkeypatch)
+
+        with broker._project_file_lock():
+            pass
+
+        captured = capsys.readouterr()
+        assert captured.out == "", f"stdout 应为空；实际 {captured.out!r}"
+        assert "codegen" in captured.err
+        assert "仍在等待" in captured.err
