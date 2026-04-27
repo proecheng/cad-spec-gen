@@ -862,6 +862,12 @@ def _resolve_config_for_part_unlocked(
                 )
         else:
             # 失效：先持久化 history（即便后续抛异常，磁盘状态也已收敛）
+            # _validate_cached_decision 契约：valid=False ⇒ invalid_reason is not None。
+            # mypy 无法跨函数推断此契约，显式 assert narrow 类型并锁定不变量
+            # （spec §2.3 / §7.2 invariant 1）。
+            assert invalid_reason is not None, (
+                "_validate_cached_decision contract: valid=False ⇒ reason is not None"
+            )
             _move_decision_to_history(envelope, subsystem, part_no, invalid_reason)
             _save_decisions_envelope(envelope)
             # fall through 到规则匹配
