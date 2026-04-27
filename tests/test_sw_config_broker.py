@@ -655,6 +655,36 @@ class TestDecisionsEnvelopeIO:
         with pytest.raises(ValueError, match="schema 损坏或老版本数据"):
             sw_config_broker._load_decisions_envelope()
 
+    def test_load_with_valid_history_passes(
+        self, _make_envelope_with_history
+    ):
+        """守护 happy path（spec §4.5 补强）：含 3 条 valid invalidation_reason
+        的 history 加载成功，envelope 内容正确。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        valid_entries = [
+            {
+                "subsystem": "es",
+                "part_no": f"TEST-{i:03d}",
+                "previous_decision": {"decision": "use_config"},
+                "invalidated_at": "2026-01-01T00:00:00Z",
+                "invalidation_reason": reason,
+            }
+            for i, reason in enumerate([
+                "bom_dim_signature_changed",
+                "sldprt_filename_changed",
+                "config_name_not_in_available_configs",
+            ])
+        ]
+        _make_envelope_with_history(valid_entries)
+
+        envelope = sw_config_broker._load_decisions_envelope()
+        assert len(envelope["decisions_history"]) == 3
+        assert envelope["decisions_history"][0]["invalidation_reason"] == "bom_dim_signature_changed"
+        assert envelope["decisions_history"][1]["invalidation_reason"] == "sldprt_filename_changed"
+        assert envelope["decisions_history"][2]["invalidation_reason"] == "config_name_not_in_available_configs"
+
 
 class TestDecisionAccessors:
     """Task 10：envelope 内按 subsystem/part_no 索引 + 失效归档"""

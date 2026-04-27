@@ -374,7 +374,12 @@ def _load_decisions_envelope() -> dict[str, Any]:
     # 跨 IO 边界反序列化的 decisions_history[*].invalidation_reason 可能含
     # 旧 schema 字符串（PR #19 之前 / 用户手编 / 外部源），mypy 编译期 Literal
     # 守护对 IO 边界外不生效，读取端 runtime 校验补强。
-    for entry in env.get("decisions_history", []):
+    for entry in env["decisions_history"]:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"decisions_history 含非 dict entry: {entry!r}"
+                f"（schema 损坏或老版本数据）"
+            )
         if entry.get("invalidation_reason") not in INVALIDATION_REASONS:
             raise ValueError(
                 f"decisions_history 含未知 invalidation_reason: "
