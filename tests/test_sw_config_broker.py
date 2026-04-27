@@ -3359,6 +3359,11 @@ class TestM8ContractGuard:
         """T13 (spec §4.6): mock _validate_cached_decision 返回 (False, None)
         契约破裂时 _resolve_config_for_part_unlocked 必抛 AssertionError，
         而非 silent 调 _move_decision_to_history(reason=None) 写脏 history。
+
+        RED 信号路径（缺 assert 时）：mock _move_decision_to_history 后 fall-through
+        到规则匹配 → 无匹配 → 抛 NeedsUserDecision；pytest.raises(AssertionError) 因
+        wrong exception type fail。GREEN（Task 2 加 assert）：assert 在
+        _move_decision_to_history 调用前抢先抛 AssertionError，pytest 捕获 PASS。
         """
         from adapters.solidworks import sw_config_broker
 
@@ -3389,8 +3394,9 @@ class TestM8ContractGuard:
         monkeypatch.setattr(
             sw_config_broker, "_list_configs_via_com", lambda _: ["ConfigA", "ConfigB"]
         )
-        # 额外 mock _move_decision_to_history 防它的 ValueError 干扰 RED 信号
-        # （main 上 _move 头部仍有 INVALIDATION_REASONS 校验，传 None 会先抛 ValueError）
+        # 额外 mock _move_decision_to_history 隔离 assert path：
+        # main 上 _move 头部仍有 INVALIDATION_REASONS 校验，传 None 会先抛 ValueError
+        # 干扰 RED 信号；mock 让 assert 成为唯一可能的早期抛点。
         monkeypatch.setattr(
             sw_config_broker, "_move_decision_to_history", lambda *a, **kw: None
         )
@@ -3405,8 +3411,10 @@ class TestM8ContractGuard:
     def test_assertion_error_message_includes_contract_reference(
         self, monkeypatch, tmp_project_dir
     ):
-        """T14 (spec §4.6): AssertionError message 包含 '_validate_cached_decision contract'
+        """T14 (spec §4.6): AssertionError message 包含 '_validate_cached_decision'
         引用，让 reviewer 失败时直接定位 spec §2.3 注释。
+
+        RED 信号同 T13。
         """
         from adapters.solidworks import sw_config_broker
 
@@ -3433,6 +3441,9 @@ class TestM8ContractGuard:
         monkeypatch.setattr(
             sw_config_broker, "_list_configs_via_com", lambda _: ["ConfigA"]
         )
+        # 额外 mock _move_decision_to_history 隔离 assert path：
+        # main 上 _move 头部仍有 INVALIDATION_REASONS 校验，传 None 会先抛 ValueError
+        # 干扰 RED 信号；mock 让 assert 成为唯一可能的早期抛点。
         monkeypatch.setattr(
             sw_config_broker, "_move_decision_to_history", lambda *a, **kw: None
         )
@@ -3444,8 +3455,7 @@ class TestM8ContractGuard:
                 subsystem="test_sub",
             )
         # message 应引用契约（spec §2.3 注释 "_validate_cached_decision 契约"）
-        assert "_validate_cached_decision" in str(exc_info.value) or \
-               "contract" in str(exc_info.value).lower()
+        assert "_validate_cached_decision" in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "invalid_reason,bom_sig_changes,sldprt_filename_changes,available_configs",
@@ -3490,16 +3500,14 @@ class TestM8ContractGuard:
             sw_config_broker, "_list_configs_via_com", lambda _: available_configs
         )
         # _save_decisions_envelope mock 防真 IO（envelope 改动 in-place 后端到端 verify）
-        saved = []
         monkeypatch.setattr(
-            sw_config_broker,
-            "_save_decisions_envelope",
-            lambda env: saved.append(env),
+            sw_config_broker, "_save_decisions_envelope", lambda env: None
         )
 
-        # bom_row 用"current_sig"（除非 bom 变了让它不同）
-        bom_row = {"part_no": "TEST-001", "size": "current_sig_input"}
-        # 为简化测试，monkeypatch _build_bom_dim_signature 返回 "current_sig"
+        # _build_bom_dim_signature mocked → 始终返回 "current_sig"；
+        # bom_dim_signature 失效场景通过 envelope cached.bom_dim_signature == "old_sig"
+        # 触发，与 bom_row 字段无关
+        bom_row = {"part_no": "TEST-001"}
         monkeypatch.setattr(
             sw_config_broker, "_build_bom_dim_signature", lambda _: "current_sig"
         )
