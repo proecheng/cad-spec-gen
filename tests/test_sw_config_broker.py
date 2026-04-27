@@ -324,6 +324,70 @@ class TestValidateCachedDecision:
         assert valid is True
         assert reason is None
 
+    @pytest.mark.parametrize(
+        "decision_state,expected_valid,expected_reason",
+        [
+            ("match", True, None),
+            ("bom_changed", False, "bom_dim_signature_changed"),
+            ("filename_changed", False, "sldprt_filename_changed"),
+            ("config_renamed", False, "config_name_not_in_available_configs"),
+        ],
+        ids=["valid_match", "bom_changed", "filename_changed", "config_renamed"],
+    )
+    def test_validate_returns_typed_literal_or_none(
+        self, decision_state, expected_valid, expected_reason
+    ):
+        """T5 (spec §4.4 / §7.2 invariant 1): _validate_cached_decision 返回 tuple
+        第二位运行时是 3 字面量字符串之一（valid=False）或 None（valid=True）。
+        """
+        from adapters.solidworks.sw_config_broker import _validate_cached_decision
+
+        decision = {
+            "decision": "use_config",
+            "config_name": "ConfigA",
+            "bom_dim_signature": "match_sig" if decision_state != "bom_changed" else "old",
+            "sldprt_filename": "match.sldprt" if decision_state != "filename_changed" else "old.sldprt",
+        }
+        current_bom_signature = "match_sig"
+        current_sldprt_filename = "match.sldprt"
+        current_available_configs = (
+            ["ConfigA"] if decision_state != "config_renamed" else ["ConfigB"]
+        )
+
+        valid, reason = _validate_cached_decision(
+            decision,
+            current_bom_signature,
+            current_sldprt_filename,
+            current_available_configs,
+        )
+        assert valid is expected_valid
+        assert reason == expected_reason
+        # 类型守护
+        if reason is not None:
+            assert isinstance(reason, str)
+            assert reason in {
+                "bom_dim_signature_changed",
+                "sldprt_filename_changed",
+                "config_name_not_in_available_configs",
+            }
+
+    def test_invalidation_reasons_frozenset_immutable_and_complete(self):
+        """T6 (spec §4.4 / §7.2 invariant 5): INVALIDATION_REASONS 是不可变 frozenset
+        且包含且仅包含 3 个 Literal 字面量。防御未来误删/误改常量。
+        """
+        from adapters.solidworks.sw_config_broker import INVALIDATION_REASONS
+
+        assert isinstance(INVALIDATION_REASONS, frozenset)
+        # 完整性：3 个 Literal 字面量都在
+        assert INVALIDATION_REASONS == {
+            "bom_dim_signature_changed",
+            "sldprt_filename_changed",
+            "config_name_not_in_available_configs",
+        }
+        # 不可变性
+        with pytest.raises(AttributeError):
+            INVALIDATION_REASONS.add("new_reason")  # type: ignore[attr-defined]
+
 
 class TestBuildPendingRecord:
     """spec §5.3: pending record schema 按 match_failure_reason 分支"""
@@ -715,36 +779,48 @@ class TestDecisionAccessors:
         env = {"decisions_by_subsystem": {"end_effector": {}}}
         assert _get_decision_for_part(env, "end_effector", "X") is None
 
-    def test_move_decision_to_history(self):
-        from adapters.solidworks.sw_config_broker import _move_decision_to_history
-
-        env = {
-            "decisions_by_subsystem": {
-                "end_effector": {
-                    "GIS-EE-001-03": {
-                        "bom_dim_signature": "X|Y",
-                        "decision": "use_config",
-                        "config_name": "80×2.4",
-                        "decided_at": "2026-04-20T10:00:00+00:00",
-                    }
-                }
-            },
-            "decisions_history": [],
-        }
-        _move_decision_to_history(
-            env, "end_effector", "GIS-EE-001-03", "config_name_not_in_available_configs"
+    @pytest.mark.parametrize(
+        "invalidation_reason",
+        [
+            "bom_dim_signature_changed",
+            "sldprt_filename_changed",
+            "config_name_not_in_available_configs",
+        ],
+    )
+    def test_move_decision_to_history(self, invalidation_reason):
+        """T7 (spec §4.4 / §7.2 invariant 2): _move_decision_to_history 对 3 reason
+        各自正确 append history + pop 原 entry。
+        """
+        from adapters.solidworks.sw_config_broker import (
+            _empty_envelope,
+            _move_decision_to_history,
         )
 
-        # 原位删除
-        assert "GIS-EE-001-03" not in env["decisions_by_subsystem"]["end_effector"]
-        # history 增加
-        assert len(env["decisions_history"]) == 1
-        h = env["decisions_history"][0]
-        assert h["subsystem"] == "end_effector"
-        assert h["part_no"] == "GIS-EE-001-03"
-        assert h["invalidation_reason"] == "config_name_not_in_available_configs"
-        assert h["previous_decision"]["config_name"] == "80×2.4"
-        assert "invalidated_at" in h
+        envelope = _empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "test_sub": {
+                "TEST-001": {
+                    "decision": "use_config",
+                    "config_name": "ConfigA",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+
+        _move_decision_to_history(
+            envelope, "test_sub", "TEST-001", invalidation_reason
+        )
+
+        # 1. 原 entry 已 pop
+        assert "TEST-001" not in envelope["decisions_by_subsystem"]["test_sub"]
+        # 2. history append 1 条，reason 等于参数
+        assert len(envelope["decisions_history"]) == 1
+        history_entry = envelope["decisions_history"][0]
+        assert history_entry["invalidation_reason"] == invalidation_reason
+        assert history_entry["subsystem"] == "test_sub"
+        assert history_entry["part_no"] == "TEST-001"
+        assert "previous_decision" in history_entry
+        assert "invalidated_at" in history_entry
 
     def test_move_decision_rejects_unknown_reason(self):
         """review I-2: invalidation_reason 不在 INVALIDATION_REASONS 内 → ValueError"""
