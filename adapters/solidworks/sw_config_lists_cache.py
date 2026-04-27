@@ -139,6 +139,9 @@ def _envelope_invalidated(cache: dict[str, Any]) -> bool:
 def _config_list_entry_valid(cache: dict[str, Any], sldprt_path: str) -> bool:
     """Per-entry 失效判定（spec §4 场景 C）。
 
+    I-4 已知限制（spec §5.2 won't fix）：mtime+size 哈希 collision（SW UI
+    编辑保留同字节 + 同 mtime）极罕见——SW 改任何 config 都会更新 mtime；不修。
+
     True 当且仅当：
     1. cache['entries'] 含该 sldprt_path
     2. 当前 sldprt 文件 mtime == cache 记录
