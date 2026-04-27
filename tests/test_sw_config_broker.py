@@ -1728,6 +1728,8 @@ class TestPrewarmConfigLists:
         )
         # 原 cached entry 已 pop
         assert "P-001" not in envelope["decisions_by_subsystem"]["es"]
+        # 验证 _save_decisions_envelope 被调用一次（持久化 history）
+        assert len(saved) == 1
 
 
 class TestListConfigsViaComThreeLayer:
@@ -4032,11 +4034,13 @@ class TestSection72InvariantsRegression:
         [
             (
                 1,
-                "_validate_cached_decision 返回 tuple[bool, Literal | None]",
-                lambda: __import__(
-                    "adapters.solidworks.sw_config_broker",
-                    fromlist=["_validate_cached_decision"],
-                )._validate_cached_decision is not None,
+                "_validate_cached_decision 函数存在 + 可调（签名守护由 mypy 编译期）",
+                lambda: callable(
+                    __import__(
+                        "adapters.solidworks.sw_config_broker",
+                        fromlist=["_validate_cached_decision"],
+                    )._validate_cached_decision
+                ),
             ),
             (
                 2,
@@ -4076,22 +4080,17 @@ class TestSection72InvariantsRegression:
             ),
             (
                 5,
-                "INVALIDATION_REASONS 是 frozenset 含 3 字面量",
+                "INVALIDATION_REASONS 是 frozenset + 严格等于 3 字面量集合",
                 lambda: (
-                    isinstance(
-                        __import__(
-                            "adapters.solidworks.sw_config_broker",
-                            fromlist=["INVALIDATION_REASONS"],
-                        ).INVALIDATION_REASONS,
-                        frozenset,
-                    )
-                    and len(
-                        __import__(
-                            "adapters.solidworks.sw_config_broker",
-                            fromlist=["INVALIDATION_REASONS"],
-                        ).INVALIDATION_REASONS
-                    )
-                    == 3
+                    __import__(
+                        "adapters.solidworks.sw_config_broker",
+                        fromlist=["INVALIDATION_REASONS"],
+                    ).INVALIDATION_REASONS
+                    == frozenset({
+                        "bom_dim_signature_changed",
+                        "sldprt_filename_changed",
+                        "config_name_not_in_available_configs",
+                    })
                 ),
             ),
         ],
