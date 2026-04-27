@@ -4,7 +4,7 @@
 - 创建：2026-04-27
 - 模块：`adapters/solidworks/sw_config_broker.py`（含上下游 spec 与 CI 配置）
 - 目标 PR：v2.21.1（patch）
-- 前置 PR：[v2.21.0 (PR #21) M-2/M-4 cleanup](2026-04-27-sw-config-broker-m2-m4-cleanup-design.md)
+- 前置 PR：[v2.21.0 (PR #21) M-2/M-4 cleanup](2026-04-27-sw-config-broker-m2-m4-cleanup-design.md)（forward link：该文件由 PR #21 创建，main merge 后路径稳定生效）
 - 类型：§11 follow-up cleanup
 
 ---
@@ -53,19 +53,20 @@ PR #21（v2.21.0）关闭 §11 中 M-2 / M-4 后，`2026-04-26-sw-toolbox-config
 
 ### §2.1 M-6 函数级 import → 模块级
 
-**当前** (`sw_config_broker.py:583-587`)：
+**目标位置**：`prewarm_config_lists` 函数体头部两行 `from ... import ...`（main 当前
+line 557-558；plan 实施时 grep 重新定位以防漂移）：
 
 ```python
 def prewarm_config_lists(...):
     if os.environ.get("CAD_SW_BROKER_DISABLE") == "1":
         return
-    from adapters.solidworks import sw_config_lists_cache as cache_mod
-    from adapters.solidworks.sw_detect import detect_solidworks
+    from adapters.solidworks import sw_config_lists_cache as cache_mod  # 移走
+    from adapters.solidworks.sw_detect import detect_solidworks         # 移走
     cache = cache_mod._load_config_lists_cache()
     ...
 ```
 
-**改为**：
+**改为**——把这两行提到文件顶部 import 段（与 `from typing import Any` 等并列）：
 
 ```python
 # 文件顶部 import 段
@@ -79,11 +80,11 @@ def prewarm_config_lists(...):
     ...
 ```
 
-**循环依赖验证**：grep 已确认（spec rev 1 写作时执行）：
-- `sw_config_lists_cache.py` 不反向 import `sw_config_broker`
-- `sw_detect.py` 不反向 import `sw_config_broker`
+**循环依赖验证**（spec rev 1 写作时执行）：
+- `sw_config_lists_cache.py` 不反向 import `sw_config_broker`（grep `from adapters.solidworks.sw_config_broker` 仅 `sw_toolbox_adapter.py` + `gen_std_parts.py` 命中）
+- `sw_detect.py` 同样不反向 import
 
-模块级 import 也是 `cad_pipeline.py:58-59` 既有 best practice（注释明示
+模块级 import 也是 `cad_pipeline.py` 既有 best practice（该文件注释明示
 "`mock.patch('cad_pipeline.detect_solidworks')` 需要名字存在于本模块命名空间"）。
 
 ### §2.2 M-7 Literal type 替代运行时校验
@@ -130,20 +131,22 @@ def _move_decision_to_history(
     invalidation_reason: InvalidationReason,  # 类型收紧（M-7）
 ) -> None:
     """..."""
-    # ── 删除 line 419-423 的 INVALIDATION_REASONS 运行时校验 ──
+    # ── 删除函数头部 4 行 INVALIDATION_REASONS 运行时校验（main 当前 line 419-423）──
     # mypy strict CI gate 编译期保证 caller 传入 InvalidationReason 字面量。
     decision = envelope["decisions_by_subsystem"][subsystem].pop(part_no)
     envelope.setdefault("decisions_history", []).append({...})
 ```
 
 **测试影响**：
-- 删除：现有 `test_move_decision_to_history` 系列中专测 ValueError raise 的用例
-  （搜索关键词：`raise.*ValueError`、`未知 invalidation_reason`、`pytest.raises(ValueError)`）
+- 删除：`tests/test_sw_config_broker.py` 中 `TestDecisionAccessors.test_move_decision_rejects_unknown_reason`
+  方法（main 当前 line 602）—— 该测试断言 `pytest.raises(ValueError, match="未知 invalidation_reason")`，
+  M-7 后此 ValueError 不再 raise（mypy 编译期截获）
 - 改写：`_validate_cached_decision` 返回值断言保持不变（运行时仍是 3 字面量字符串之一）
 
 ### §2.3 M-8 caller None guard
 
-**当前** (`sw_config_broker.py:863-867`)：
+**目标位置**：`_resolve_config_for_part_unlocked` 函数 cached decision 失效分支
+（main 当前 line 812-815；plan 实施时 grep `_move_decision_to_history\(envelope` caller 重新定位）：
 
 ```python
 else:
@@ -173,19 +176,16 @@ else:
 
 ## §3 mypy CI gate（渐进式 typing 政策）
 
-### §3.1 dev 依赖 + mypy 配置
+### §3.1 mypy 依赖 + 配置
 
-**`pyproject.toml`**：
+**安装方式**：跟现有 CI 风格一致——CI step 内直接 `pip install mypy>=1.10`，不动
+`pyproject.toml [project.optional-dependencies]`（main 当前**无** `dev` 群组，pytest 等
+开发依赖也是直接 pip install；为单一 mypy 加 dev 群组属 scope 扩张，违反
+`feedback_historical_debt_isolation`）。
+
+**`pyproject.toml` 仅新增 `[tool.mypy]` section**（main 当前无此 section，干净添加）：
 
 ```toml
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "mypy>=1.10",  # M-7 + M-8 编译期类型保证
-    ...
-]
-
 [tool.mypy]
 # 渐进式 typing 政策（spec §11 M-7 决策）：仅本 PR 触动模块进 strict。
 # 未来 cleanup PR 触动新模块时按需在 [[tool.mypy.overrides]] 加入。
@@ -210,7 +210,7 @@ mypy-strict:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    - run: pip install -e .[dev]
+    - run: pip install "mypy>=1.10"
     - run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py
 ```
 
@@ -239,27 +239,31 @@ mypy 在 ubuntu 跑需告知目标平台。CLI flag 而非 `[tool.mypy] platform
 
 按澄清问题 4 决策（C 粒度）：仅 M-8 加 1 个 assertion 契约测试，M-6/M-7 依赖现有 + mypy CI 守护。
 
-### §4.1 现有测试 inventory（守护范围）
+### §4.1 现有测试 inventory（守护范围；main 实测 grep 结果）
 
 ```
 tests/test_sw_config_broker.py
-├─ Class: TestPrewarmConfigLists           ← M-6 守护
-├─ test_move_decision_to_history()         ← M-7 守护（3 reason 枚举）
-├─ test_move_decision_invalid_reason*      ← M-7 影响（**需删除**）
-├─ TestValidateCachedDecision               ← M-7 守护
-└─ TestRunCachedFallbackToRuleMatch         ← M-8 守护（cached 失效→fall through）
+├─ class TestPrewarmConfigLists                              ← M-6 守护
+├─ class TestDecisionAccessors
+│  ├─ test_move_decision_to_history                          ← M-7 守护（3 reason 枚举）
+│  └─ test_move_decision_rejects_unknown_reason              ← M-7 影响（**需删除**）
+├─ class TestValidateCachedDecision                          ← M-7 守护
+├─ class TestValidateCachedDecisionRobustness                ← M-7 守护（边界）
+└─ class TestResolveConfigForPart                            ← M-8 守护（cached 失效→fall through）
 ```
+
+行号留给 plan 实施时现场 grep（避免 spec drift）。
 
 ### §4.2 M-7 测试删除步骤
 
-执行 M-7 前先 grep：
+执行 M-7 前先 grep 验证：
 
 ```bash
-grep -n "raise.*ValueError\|未知 invalidation_reason\|pytest.raises(ValueError)" tests/test_sw_config_broker.py
+grep -n "test_move_decision_rejects_unknown_reason\|未知 invalidation_reason" tests/test_sw_config_broker.py
 ```
 
-确认匹配的测试用例核心断言是 `_move_decision_to_history` 抛 `ValueError`，**整段删除**
-（不保留为 mypy compile-time 注释——mypy CI gate 已守护）。
+预期匹配 1 个方法定义 + 1 个 `pytest.raises(...match="未知 invalidation_reason")`；
+**整段方法删除**（不保留为 mypy compile-time 注释——mypy CI gate 已守护编译期等价语义）。
 
 ### §4.3 M-8 新增测试
 
@@ -407,8 +411,9 @@ Step 1 严格按 CLAUDE.md TDD 铁律先 fail：commit 1 阶段 `_resolve_config
 
 ### Added
 - **mypy strict CI gate（渐进式 typing 政策）**：仅
-  `adapters/solidworks/sw_config_broker.py` 进 strict 检查，未来 cleanup PR 触动新
-  模块时按需扩展。配置见 `pyproject.toml [tool.mypy]` + `tests.yml mypy-strict job`。
+  `adapters/solidworks/sw_config_broker.py` 进 strict 检查（`pyproject.toml [tool.mypy]`
+  + `tests.yml mypy-strict job`）。未来 cleanup PR 触动新模块时按需扩展。
+  CI step 直接 `pip install "mypy>=1.10"`（main pyproject 无 `dev` 群组，本 PR 不引入）。
 ```
 
 ### §6.4 PR description 模板
@@ -445,7 +450,7 @@ edit 会因 base file 不存在 fail。plan 第一个 task 必为 `pre-check: PR
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| M-7 测试删除遗漏 | 中 | mypy CI fail | grep 关键词 + Step 1 RED 验证 |
+| M-7 测试删除遗漏（仅 1 方法 `test_move_decision_rejects_unknown_reason`） | 低 | mypy CI fail | §4.2 已锁定方法名，grep 验证 1 命中 |
 | mypy `--platform=win32` 在 ubuntu 上仍误报 stub 缺失 | 低 | CI fail | 实施时 hot-loop 调，必要时 mypy `>=1.11` |
 | PR #21 与本 PR §11 区域并行 edit 冲突 | 中 | merge conflict | plan pre-check 强制 PR #21 先 merge |
 | 覆盖率 gate 误算（M-7 删行 vs M-8 加 assert 抵消计算错） | 低 | CI fail | local pytest --cov 实测前置 |
