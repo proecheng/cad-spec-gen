@@ -104,10 +104,10 @@ def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
     warn_var = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     model = app.OpenDoc6(sldprt_path, 1, 1, "", err_var, warn_var)
     if err_var.value or model is None:
-        raise RuntimeError(
-            f"OpenDoc6 errors={err_var.value} "
-            f"warnings={warn_var.value} "
-            f"model={'NULL' if model is None else 'OK'}"
+        raise OpenDocFailure(
+            errors=err_var.value,
+            warnings=warn_var.value,
+            model_was_null=model is None,
         )
     try:
         config_mgr = model.ConfigurationManager
