@@ -18,7 +18,7 @@ def _trigger_mypy_error() -> None:
     Literal 中的字面量，mypy strict 必 fail。
     """
     envelope: dict[str, object] = {"decisions_by_subsystem": {}, "decisions_history": []}
-    # type: ignore 故意不加——让 mypy 必报 type error
+    # 故意不加 type: ignore——让 mypy 必报 type error
     _move_decision_to_history(
         envelope,
         "test_subsystem",
