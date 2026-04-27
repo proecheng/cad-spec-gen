@@ -3774,3 +3774,77 @@ class TestM8ContractGuard:
 
         assert result.source == "cached_decision"
         assert result.config_name == "ConfigA"
+
+
+class TestModuleLevelImports:
+    """M-6 模块级 import 守护（spec §4.3 / §7.2 invariant 4）。
+
+    prewarm_config_lists 内函数级 import (detect_solidworks +
+    sw_config_lists_cache) 移到模块级后，name 必须暴露在 sw_config_broker
+    namespace，让 mock.patch.object 模式可工作（cad_pipeline.py best practice）。
+    """
+
+    def test_detect_solidworks_module_level_attribute(self):
+        """T1 (spec §4.3): hasattr(sw_config_broker, 'detect_solidworks') == True
+        让 mock.patch.object(sw_config_broker, 'detect_solidworks') 可工作。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        assert hasattr(sw_config_broker, "detect_solidworks"), (
+            "M-6: detect_solidworks 应模块级 import 到 sw_config_broker namespace"
+        )
+        # 验证是 callable 而非 module
+        assert callable(sw_config_broker.detect_solidworks)
+
+    def test_cache_mod_module_level_attribute(self):
+        """T2 (spec §4.3): sw_config_broker.cache_mod 暴露 sw_config_lists_cache
+        模块（M-6 第二个 import 移位）。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        assert hasattr(sw_config_broker, "cache_mod"), (
+            "M-6: cache_mod 应模块级 import 到 sw_config_broker namespace"
+        )
+        # 验证是模块（有 _load_config_lists_cache 函数）
+        assert hasattr(sw_config_broker.cache_mod, "_load_config_lists_cache")
+
+    def test_module_level_import_patchable(self, monkeypatch):
+        """T3 (spec §4.3): mock.patch.object(sw_config_broker, 'detect_solidworks')
+        在 prewarm_config_lists 路径生效（M-6 实际 mock 兼容性测试）。
+        """
+        from adapters.solidworks import sw_config_broker
+        from unittest.mock import MagicMock
+
+        fake_sw = MagicMock()
+        fake_sw.version_year = 2024
+        fake_sw.toolbox_dir = "C:/fake/toolbox"
+
+        monkeypatch.setattr(
+            sw_config_broker, "detect_solidworks", lambda: fake_sw
+        )
+
+        # 直接调 detect_solidworks 验证 mock 生效（不必跑全 prewarm，
+        # 因为本测试守护"name 可被替换"，不守护"prewarm 行为"）
+        result = sw_config_broker.detect_solidworks()
+        assert result.version_year == 2024
+        assert result.toolbox_dir == "C:/fake/toolbox"
+
+    def test_no_circular_import_on_reload(self):
+        """T4 (spec §4.3): importlib.reload(sw_config_broker) 不抛 ImportError。
+        反向防 sw_config_lists_cache / sw_detect 未来加 broker 反向 import
+        造成循环依赖。
+        """
+        import importlib
+        from adapters.solidworks import sw_config_broker
+
+        # 第一次 reload
+        try:
+            reloaded = importlib.reload(sw_config_broker)
+        except ImportError as e:
+            pytest.fail(
+                f"M-6: sw_config_broker reload 失败（疑似循环依赖）: {e}"
+            )
+
+        # 验证 reload 后 name 仍在
+        assert hasattr(reloaded, "detect_solidworks")
+        assert hasattr(reloaded, "cache_mod")
