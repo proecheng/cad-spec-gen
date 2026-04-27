@@ -81,18 +81,13 @@ markers = [
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
 ]
 testpaths = ["tests"]
-# rev 5 H：默认所有 pytest 调用启 sw_config_broker M-2/M-4 三模块 cov 报告
-# plan-drift fix：plan 写 --cov-fail-under=95 in addopts 让单文件 test 必 fail；
-# 改为 CI tests.yml 显式加 fail_under flag。
-# 注：addopts 仍含 --cov 触发 instrumentation（本地单文件测试有 1-2s overhead +
-# term-missing 报告噪声，但保 CI/local 数据一致）；plan-final reviewer 反馈记录
-# §11 M-9 作为可选 follow-up（addopts 完全去 cov 让本地干净）。
-addopts = [
-    "--cov=adapters.solidworks.sw_config_broker",
-    "--cov=adapters.solidworks.sw_config_lists_cache",
-    "--cov=adapters.solidworks.sw_list_configs_worker",
-    "--cov-report=term-missing",
-]
+# rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：
+# 不在 addopts 默认启 --cov；CI tests.yml 按平台显式加 cov flag 解决：
+#   - Linux: 只 cov broker + cache（worker 在 Linux 全 SKIP requires_solidworks
+#     marker，cov 0% 拖垮加权到 73%）
+#   - Windows: cov 全 3 模块（worker 测试全跑）
+# 副作用：本地默认 pytest 无 cov（plan-final reviewer #2 满意）；手动跑 cov 用
+# `pytest --cov=adapters.solidworks.<mod> --cov-fail-under=95`。
 
 # rev 5 H：覆盖率 enforce（spec §12）— 仅 sw_config_broker M-2/M-4 三模块
 # plan-drift fix：plan 写 source = ["adapters/solidworks"] 让其他 75-82% 模块拉低

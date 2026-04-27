@@ -52,20 +52,27 @@ jobs:
           if [ "$rc" -gt 1 ]; then exit "$rc"; fi
 
       - name: Run tests with coverage gate (Linux / macOS)
-        # rev 5 H + plan-drift fix：addopts 已触发 cov（pyproject.toml），
-        # 此处显式 --cov-fail-under=95 enforce CI gate（仅本 PR 三模块 ≥95%）
+        # rev 5 H + plan-drift fix：worker 在 Linux 全 SKIP（requires_solidworks）
+        # 不计入 cov 分母 — 只 gate broker + cache 两模块（≥95% 防 future regression）
         if: runner.os != 'Windows'
-        run: pytest tests/ -v --tb=short --cov-fail-under=95
+        run: |
+          pytest tests/ -v --tb=short \
+            --cov=adapters.solidworks.sw_config_broker \
+            --cov=adapters.solidworks.sw_config_lists_cache \
+            --cov-report=term-missing \
+            --cov-fail-under=95
 
       - name: Run tests with coverage gate (Windows, PYTHONUTF8=1)
         # Workaround for gumyr/bd_warehouse#75 — forces Python to use
         # UTF-8 for open() defaults so bd_warehouse CSV reads don't
         # crash on non-UTF-8 locale hosts. Remove once the upstream PR
         # lands and we bump the pin.
+        # Windows cov gate：全 3 模块（worker 测试全跑）
         if: runner.os == 'Windows'
         env:
           PYTHONUTF8: "1"
-        run: pytest tests/ -v --tb=short --cov-fail-under=95
+        run: |
+          pytest tests/ -v --tb=short --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov=adapters.solidworks.sw_list_configs_worker --cov-report=term-missing --cov-fail-under=95
 
       - name: Upload coverage report
         if: always()
