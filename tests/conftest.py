@@ -228,3 +228,34 @@ def disable_sw_config_broker_by_default(monkeypatch):
 
 
 # ─── /Task 14.5 ───
+
+
+# ─── Phase 3 task 14：跨文件 module-level state isolation ───
+# rev 4 D8/I1：现有 conftest 已 redirect ~/.cad-spec-gen/ → tmp_path，
+# 但 module-level flag 跨 process 测试也要 reset，否则 cross-test pollution。
+
+
+@pytest.fixture(autouse=True)
+def _reset_save_failure_warned():
+    """rev 4 D8/I1：cache.py 的 _save_failure_warned flag 跨 process 测试隔离。
+
+    放 conftest.py 而不是单文件 fixture，因 broker 测试也间接触发
+    cache_mod._save_config_lists_cache → 触发 flag set → 后续 cache 测试
+    "first_call" 假设破坏。
+    """
+    import adapters.solidworks.sw_config_lists_cache as mod
+    mod._save_failure_warned = False
+    yield
+    mod._save_failure_warned = False
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_list_caches():
+    """rev 4 补：broker 端 _CONFIG_LIST_CACHE (L2) 跨测试清理 + autouse 防 cross-test pollution。"""
+    from adapters.solidworks import sw_config_broker
+    sw_config_broker._CONFIG_LIST_CACHE.clear()
+    yield
+    sw_config_broker._CONFIG_LIST_CACHE.clear()
+
+
+# ─── /Phase 3 task 14 ───
