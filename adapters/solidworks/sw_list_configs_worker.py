@@ -20,6 +20,25 @@ import json
 import sys
 
 
+class OpenDocFailure(RuntimeError):
+    """OpenDoc6 失败带结构化字段；分类按 errors 数值走，不解析字符串。
+
+    spec §3.1.3 引入：替代原 RuntimeError("OpenDoc6 errors=N ...") 字符串包装，
+    让 _classify_worker_exception 按 e.errors 字段分流。
+
+    向后兼容：仍是 RuntimeError 子类，所有现有 except RuntimeError 不破。
+    """
+
+    def __init__(self, errors: int, warnings: int, model_was_null: bool):
+        self.errors = errors
+        self.warnings = warnings
+        self.model_was_null = model_was_null
+        super().__init__(
+            f"OpenDoc6 errors={errors} warnings={warnings} "
+            f"model={'NULL' if model_was_null else 'OK'}"
+        )
+
+
 def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
     """共享 primitive：在已 boot 的 app 上 OpenDoc6 取配置名 CloseDoc。
 
