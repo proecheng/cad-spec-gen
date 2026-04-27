@@ -454,18 +454,37 @@ PR #19 merge 前 self-review 发现 1 Critical (C-1) + 4 Important (I-1..I-4) + 
 - **I-3 msvcrt 锁等待永不超时 + 进度提示** ✅ **closed (2026-04-27)**：并发 codegen 撞锁 → raw OSError 出。修复：`_project_file_lock` 重写为 `LK_NBLCK` + 永不超时 polling + 撞锁立即印 banner（含警告勿删锁文件防 cache 数据竞争）+ 每 5s 进度提示。对齐"照片级 > 傻瓜式"原则。详见 [I-2 + I-3 修复设计 spec](2026-04-26-sw-config-broker-i2-i3-fix-design.md)。
 
 ### 推迟
-- **I-4 mtime+size collision 边界**：极罕见 (SW UI 编辑后 mtime+size 撞老缓存)。已知限制，文档化即可。
+- **I-4 mtime+size collision 边界** ✅ **closed (2026-04-27 v2.21.1, won't fix)**：极罕见 (SW UI 编辑后 mtime+size 撞老缓存)。已知限制，文档化。在 `_config_list_entry_valid` docstring 加已知限制注释。详见 [v2.21.1 cleanup spec](2026-04-27-sw-config-broker-followup-cleanup-design.md)。
 - **M-1 fsync 缺失**：tmpfile→rename 不带 fsync，power-loss 可能留空文件。Windows 桌面用例可接受；可 doc 化或加 fsync。
 - **M-2 `_save_config_lists_cache` 异常上抛** ✅ **closed (2026-04-27)**：包 try/except + 模块级 _save_failure_warned + 首次失败 stderr banner + 后续仅 log.warning。详见 [M-2 + M-4 清理设计 spec](2026-04-27-sw-config-broker-m2-m4-cleanup-design.md)。
-- **M-3 `_PROJECT_ROOT_FOR_WORKER` 模块级 vs 函数级 import 不对称**：仅文档化，加 reload 测试。
+- **M-3 `_PROJECT_ROOT_FOR_WORKER` 模块级 vs 函数级 import 不对称** ✅ **closed (2026-04-27 v2.21.1, doc-only)**：`sw_config_broker.py` 该常量上方注释已充分 trace，零代码改动。详见 [v2.21.1 cleanup spec](2026-04-27-sw-config-broker-followup-cleanup-design.md)。
 - **M-4 transient COM 失败永久缓存** ✅ **closed (2026-04-27)**：worker rc 合约 (EXIT_OK=0/EXIT_TERMINAL=2/EXIT_TRANSIENT=3) + OpenDocFailure(RuntimeError) 子类异常 + _classify_worker_exception 共享分类函数 + broker rc 分流 (rc=2 cache [] / 其余不 cache 让重试) + batch 路径 entry-level exit_code 字段。详见 [M-2 + M-4 清理设计 spec](2026-04-27-sw-config-broker-m2-m4-cleanup-design.md)。
 - **M-5 prewarm timeout 缩放**：C-1 修复后总时长 ≈ 30s + 2s×N，timeout 公式相应调整（当前 `LIST_CONFIGS_TIMEOUT_SEC × len(miss)` 仍工作但偏保守）。
-- **M-6 `detect_solidworks` 重复 import**：函数内 import 每次 prewarm 都执行；可提到模块级（注意 reload 兼容）。
-- **M-7 `INVALIDATION_REASONS` frozenset 校验**：内部单 caller 函数加防御校验属过度防御，可去除。
-- **M-8 broker.py:865 `_move_decision_to_history` arg type "str | None" → "str"**（2026-04-27 发现）：M-2/M-4 PR Task 24 跑 mypy 发现历史 type error，不在本 PR scope；按 CLAUDE.md `feedback_historical_debt_isolation` 不扩 scope。修复方向：caller 加 None guard 或 _move_decision_to_history 签名改 `str | None`。
+- **M-6 `detect_solidworks` 重复 import** ✅ **closed (2026-04-27 v2.21.1)**：函数内 import 提到模块级（`detect_solidworks` + `sw_config_lists_cache`），注意 reload 兼容已验证。详见 [v2.21.1 cleanup spec](2026-04-27-sw-config-broker-followup-cleanup-design.md)。
+- **M-7 `INVALIDATION_REASONS` frozenset 校验** ✅ **closed (2026-04-27 v2.21.1)**：`_validate_cached_decision` 返回类型改 `Literal[...]`（编译期保证），删除 `_move_decision_to_history` 头部运行时校验（过度防御），同时加 `_load_decisions_envelope` 读取端 IO 边界 runtime 校验（双层守护）。详见 [v2.21.1 cleanup spec](2026-04-27-sw-config-broker-followup-cleanup-design.md)。
+- **M-8 broker.py:865 `_move_decision_to_history` arg type "str | None" → "str"** ✅ **closed (2026-04-27 v2.21.1)**：（2026-04-27 发现）caller 侧加 `assert invalid_reason is not None` 锁定契约——编译期 mypy strict 通过 + 运行期 AssertionError 快失败。详见 [v2.21.1 cleanup spec](2026-04-27-sw-config-broker-followup-cleanup-design.md)。
 - **M-9 CI gate 三处设计变更 trace**（2026-04-27 plan-final reviewer 提出）：M-2/M-4 PR Task 23 实施 CI gate 时三处 plan-drift fix 配置（pyproject.toml）：①`source` 限三模块（防其他 75-82% 模块拉低加权到 86%）②不启 `branch=true`（防 partial branch 让 95.07%→94.07% fail）③`addopts` 不加 `fail_under` flag（防本地单文件 test 必 fail）。三处互相依赖缺一不可——未来 reviewer 切勿误改回 `branch=true` 或扩 source 范围导致 gate 失效。可选 follow-up：addopts 完全去 cov 让本地默认干净（PR #21 plan-final reviewer 反馈 #2，confidence 80）。
 
 ### 优先级建议
 - ~~下个 PR：I-2 + I-3（影响北极星 gate "稳定可靠 / 傻瓜式"）~~ ✅ 已完成（2026-04-27）
 - ~~M-2 + M-4 清理~~ ✅ 已完成（2026-04-27）
-- 文档/低优：I-4 + M-1 + M-3 + M-5 + M-6 + M-7 + M-8
+- ~~文档/低优：I-4 + M-3 + M-6 + M-7 + M-8~~ ✅ 已完成（2026-04-27 v2.21.1）
+- 仍 open（独立 PR）：M-1 fsync 缺失 / M-5 prewarm timeout 公式
+- doc-only tracking：M-9 CI gate trace（已注释化，不修复）
+
+### §11 最终状态（v2.21.1 后）
+
+```
+### 已修（11 项）
+- C-1 / I-1 (PR #19) ✅
+- I-2 / I-3 (PR #20) ✅
+- M-2 / M-4 (PR #21) ✅
+- M-3 / M-6 / M-7 / M-8 / I-4 (v2.21.1) ✅
+
+### 仍 open（2 项）
+- M-1 fsync 缺失（独立 PR）
+- M-5 prewarm timeout 缩放（独立 PR）
+
+### doc-only tracking（1 项）
+- M-9 CI gate trace（纯文档已注释化，保留跟踪不丢线索）
+```

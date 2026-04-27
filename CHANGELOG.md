@@ -6,6 +6,26 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.21.1] - 2026-04-27
+
+### Changed
+- **sw_config_broker §11 minor cleanup（5 项 closed）**：
+  - M-6: 函数级 import (`detect_solidworks` / `sw_config_lists_cache`) 提到模块级
+  - M-7: `_validate_cached_decision` 返回类型用 `Literal[...]` 替代 `str`，
+    删除 `_move_decision_to_history` 头部运行时校验（mypy 编译期保证）+ 加
+    `_load_decisions_envelope` 读取端 IO 边界 runtime 校验（双层守护）
+  - M-8: cached decision 失效路径加 `assert invalid_reason is not None` 锁定契约
+  - M-3 / I-4: 文档化 won't-fix（详见 spec §11）
+
+### Added
+- **mypy strict CI gate（渐进式 typing 政策）**：仅
+  `adapters/solidworks/sw_config_broker.py` 进 strict 检查
+  （`pyproject.toml [tool.mypy] + [[tool.mypy.overrides]]` 两个 section + `tests.yml mypy-strict job`）
+- **20 个新测试守护 §7.2 invariant**：5 类（M-6 / M-7 / M-7 IO 边界 / M-8 / mypy gate / 集成）
+  全维度详尽测试矩阵 + invariant 反向 trace
+
+---
+
 ## [2.11.0] — 2026-04-19
 
 **Theme:** SW 装即用零配置体验 + AGENTS.md 生成。两大 feature 合并发布。
