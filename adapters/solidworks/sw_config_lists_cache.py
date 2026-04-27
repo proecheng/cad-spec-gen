@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys  # rev 4 F-2：banner 写 stderr 用
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 CONFIG_LISTS_SCHEMA_VERSION = 1
+
+# rev 4 D8/I1：模块级 flag — 同 process 内 save 失败首次 banner，后续仅 log.warning
+_save_failure_warned = False
 
 
 def get_config_lists_cache_path() -> Path:
@@ -44,18 +48,34 @@ def _empty_config_lists_cache() -> dict[str, Any]:
 
 
 def _save_config_lists_cache(cache: dict[str, Any]) -> None:
-    """一次性原子写 cache：先 .tmp 再 os.replace，保证并发读到要么旧文件要么完整新文件。
+    """原子写 cache；任何 OSError 静默自愈 + 首次失败 stderr banner + 后续仅 log.warning。
 
-    parent.mkdir(parents=True, exist_ok=True) 自动建目录。
+    与 _load_config_lists_cache 的 self-heal 模式对称：caller 不必 try/except。
+
+    spec §3.4-§3.5 + rev 3 I3 + rev 4 F-5：caller-side try/except 可全移除（broker.py
+    L570-580 + L628 caller 简化）。
     """
+    global _save_failure_warned
     path = get_config_lists_cache_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps(cache, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    os.replace(tmp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except OSError as e:
+        if not _save_failure_warned:
+            _save_failure_warned = True
+            sys.stderr.write(
+                f"\n⚠ cache 文件 {path} 写入失败 ({type(e).__name__}: {e})\n"
+                f"  照片级渲染依赖跨 process 一致 cache — 请检查该路径权限后重启。\n"
+                f"  本次 codegen 不受影响；下次 prewarm 仍会自动重试 cache 写入。\n"
+                f"  本次运行后续失败将仅 log，不再 banner。\n\n"
+            )
+        else:
+            log.warning("config_lists save 重复失败: %s", e)
 
 
 def _load_config_lists_cache() -> dict[str, Any]:

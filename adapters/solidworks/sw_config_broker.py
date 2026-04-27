@@ -434,6 +434,13 @@ def _move_decision_to_history(
 
 # ---------- COM 集成层（spec §4.4 #1） ----------
 
+# spec §3.1.2 + §3.2.1 — 与 worker 退出码合约同步（双边维护，见 spec §10 maintainer note）
+# rev 5 H：常量名带 WORKER_ 前缀防与本模块其他常量冲突，明示来源
+WORKER_EXIT_OK = 0
+WORKER_EXIT_TERMINAL = 2
+WORKER_EXIT_TRANSIENT = 3
+WORKER_EXIT_LEGACY = 4  # 防御性：旧 worker rc=4（升级期混跑）当 transient 处理
+
 LIST_CONFIGS_TIMEOUT_SEC = 15
 
 # process-local 缓存：sldprt 绝对路径 → configurations 列表。
@@ -489,13 +496,12 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
         # L1 读失败不影响 fallback；下次 prewarm 自愈
         log.debug("config_lists L1 read skipped: %s", e)
 
-    # Layer 3：fallback 单件 spawn（现有逻辑保留）
+    # Layer 3：fallback 单件 spawn（spec §3.2.2 rc 分流）
     cmd = [
         sys.executable,
         "-m", "adapters.solidworks.sw_list_configs_worker",
         sldprt_path,
     ]
-
     try:
         proc = subprocess.run(
             cmd,
@@ -511,25 +517,48 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
             "list_configs subprocess 超时 %ds: %s",
             LIST_CONFIGS_TIMEOUT_SEC, sldprt_path,
         )
-        _CONFIG_LIST_CACHE[abs_path] = []
-        return []
+        return []  # 不 cache — TimeoutExpired 视为 transient
+    except OSError as e:
+        log.warning("list_configs subprocess OSError: %s", e)
+        return []  # 不 cache — OSError 视为 transient
 
-    if proc.returncode != 0:
+    rc = proc.returncode
+    if rc == WORKER_EXIT_TERMINAL:
         log.warning(
-            "list_configs subprocess rc=%d sldprt=%s stderr=%s",
-            proc.returncode, sldprt_path, (proc.stderr or "")[:300],
+            "list_configs terminal failure: %s stderr=%s",
+            sldprt_path, (proc.stderr or "")[:300],
         )
-        _CONFIG_LIST_CACHE[abs_path] = []
+        _CONFIG_LIST_CACHE[abs_path] = []  # cache [] 防 BOM loop 反复重试
         return []
 
+    if rc == WORKER_EXIT_TRANSIENT:
+        log.warning(
+            "list_configs transient failure: %s stderr=%s",
+            sldprt_path, (proc.stderr or "")[:300],
+        )
+        return []  # 不 cache — 同 process 后续调用仍重试
+
+    if rc == WORKER_EXIT_LEGACY:
+        # 旧 worker 升级期混跑兜底（spec §3.1.2）
+        log.warning("list_configs legacy rc=4 (旧 worker)：当 transient 处理")
+        return []  # 不 cache
+
+    if rc != WORKER_EXIT_OK:
+        # 未知 rc（SIGKILL=-9 / 旧版 worker 其他值）：保守归 transient
+        log.warning(
+            "list_configs unexpected rc=%d: %s",
+            rc, sldprt_path,
+        )
+        return []  # 不 cache
+
+    # rc=0 success path
     try:
         configs = json.loads(proc.stdout.strip())
         if not isinstance(configs, list):
             raise ValueError("not a list")
     except (json.JSONDecodeError, ValueError) as e:
         log.warning("list_configs stdout 非合法 JSON list: %s", e)
-        _CONFIG_LIST_CACHE[abs_path] = []
-        return []
+        return []  # 不 cache — JSON 损坏归 transient
 
     _CONFIG_LIST_CACHE[abs_path] = configs
     # spec §3.1 issue 4：fallback 路径不写 L1 持久化（并发竞争代价 > 优化收益）
@@ -567,6 +596,11 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
         # ━━ I-2 修复（PR #19 review fix）：envelope 升级决策立即落盘 ━━━━━━━━━━━━━━━
         # 不依赖后续 worker 成功；防"worker 失败 → 内存 envelope 丢 → 下次 prewarm
         # 又重检测 invalidate"循环。spec §4.1 / §5.2。
+        #
+        # 注：plan Task 16 提议"M-2 自愈后移除此 try/except"被 plan-drift 类型 #2
+        # 修正保留 — spec rev 5 §3.4 自愈契约只覆盖 OSError，但 PR #20 review 引入
+        # except Exception 是为防 cache_mod 内部 bug（KeyError/AttributeError 等）
+        # 破 fire-and-forget 契约（spec §5.3 invariant 1）。两条 invariant 独立。
         try:
             cache_mod._save_config_lists_cache(cache)
         except Exception as e:
@@ -612,19 +646,36 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
         if not isinstance(results, list):
             log.warning("config_lists batch worker stdout 非 JSON list")
             return
+        # spec §3.3 + rev 3 C2：缺 exit_code 当 invalidate signal（旧 worker 兜底）
         for entry in results:
             sldprt_path = entry.get("path", "")
             configs = entry.get("configs", [])
+            rc = entry.get("exit_code")  # 不给 default — 缺字段 → None → invalidate
             mtime = cache_mod._stat_mtime(sldprt_path)
             size = cache_mod._stat_size(sldprt_path)
             if mtime is None or size is None:
                 continue  # sldprt 文件已删 — 跳过不写
             key = _normalize_sldprt_key(sldprt_path)
-            cache["entries"][key] = {
-                "mtime": mtime,
-                "size": size,
-                "configs": configs,
-            }
+
+            if rc is None:
+                # rev 3 C2：旧 worker (≤v2.20.0) batch stdout 缺 exit_code 字段。
+                # 旧 worker catch-all 异常分支已设 configs=[]，无法区分成功 vs 失败。
+                # 不写 entries → 强制 broker 走单件 fallback 用新 worker 重 probe。
+                log.warning(
+                    "config_lists batch entry 缺 exit_code 字段（旧 worker schema），"
+                    "跳过不写 entries：%s", sldprt_path,
+                )
+                continue
+            if rc == WORKER_EXIT_OK:
+                cache["entries"][key] = {"mtime": mtime, "size": size, "configs": configs}
+            elif rc == WORKER_EXIT_TERMINAL:
+                # rev 5 I5：写 [] 防重试（与 _list_configs_via_com rc=2 路径对称）
+                cache["entries"][key] = {"mtime": mtime, "size": size, "configs": []}
+            else:
+                # rc=3 (transient) / rc=4 (legacy 当 transient) / 未识别 rc：跳过不写
+                # 跟 _list_configs_via_com 单件路径"未识别 rc → transient"语义对齐 (I10)
+                continue
+
         cache_mod._save_config_lists_cache(cache)
     except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as e:
         log.warning("config_lists prewarm 失败 %s; codegen 退化到单件 fallback", e)

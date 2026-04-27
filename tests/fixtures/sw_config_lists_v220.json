@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-27T00:00:00+00:00",
+  "sw_version": 24,
+  "toolbox_path": "C:\\SOLIDWORKS Data\\Toolbox",
+  "entries": {
+    "C:\\test\\p1.sldprt": {"mtime": 1700000000, "size": 1024, "configs": ["A", "B"]},
+    "C:\\test\\p2.sldprt": {"mtime": 1700000100, "size": 2048, "configs": []}
+  }
+}

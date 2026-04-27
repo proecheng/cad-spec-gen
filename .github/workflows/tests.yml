@@ -41,6 +41,12 @@ jobs:
         run: pip install bd_warehouse
         continue-on-error: true  # bd_warehouse may fail to install on old Python
 
+      - name: Install Windows-only deps (pywin32 for sw_list_configs_worker)
+        # PR #21 hotfix：worker 测试需 pythoncom（pywin32 一部分），CI Windows
+        # runner 不预装。Linux/macOS 不装（worker 测试全 SKIP requires_solidworks）。
+        if: runner.os == 'Windows'
+        run: pip install pywin32
+
       - name: Sync data/ mirrors
         # dev_sync.py 约定：exit 0 = 无变更 / exit 1 = 有文件被同步（非错误）/ exit >1 = 真错误。
         # 用 `|| rc=$?` 避开 bash -e 在 rc=1 时直接终止 step；Windows runner 默认 pwsh 解析不了这段
@@ -51,19 +57,36 @@ jobs:
           python scripts/dev_sync.py || rc=$?
           if [ "$rc" -gt 1 ]; then exit "$rc"; fi
 
-      - name: Run tests (Linux / macOS)
+      - name: Run tests with coverage gate (Linux / macOS)
+        # rev 5 H + plan-drift fix：worker 在 Linux 全 SKIP（requires_solidworks）
+        # 不计入 cov 分母 — 只 gate broker + cache 两模块（≥95% 防 future regression）
         if: runner.os != 'Windows'
-        run: pytest tests/ -v --tb=short
+        run: |
+          pytest tests/ -v --tb=short \
+            --cov=adapters.solidworks.sw_config_broker \
+            --cov=adapters.solidworks.sw_config_lists_cache \
+            --cov-report=term-missing \
+            --cov-fail-under=95
 
-      - name: Run tests (Windows, PYTHONUTF8=1)
+      - name: Run tests with coverage gate (Windows, PYTHONUTF8=1)
         # Workaround for gumyr/bd_warehouse#75 — forces Python to use
         # UTF-8 for open() defaults so bd_warehouse CSV reads don't
         # crash on non-UTF-8 locale hosts. Remove once the upstream PR
         # lands and we bump the pin.
+        # Windows cov gate：全 3 模块（worker 测试全跑）
         if: runner.os == 'Windows'
         env:
           PYTHONUTF8: "1"
-        run: pytest tests/ -v --tb=short
+        run: |
+          pytest tests/ -v --tb=short --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov=adapters.solidworks.sw_list_configs_worker --cov-report=term-missing --cov-fail-under=95
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python-version }}
+          path: .coverage
+          if-no-files-found: ignore
 
   # ─── Byte-identical regression gate ───────────────────────────────────
   # Proves that with CAD_PARTS_LIBRARY_DISABLE=1 OR no parts_library.yaml,

@@ -663,7 +663,11 @@ class TestListConfigsViaCom:
         assert call_count[0] == 1  # 只调一次
 
     def test_list_failure_returns_empty_and_caches(self, monkeypatch):
-        """worker 失败 → 返回 [] + cache 标记（避免重试）。"""
+        """worker terminal 失败 (rc=2) → 返回 [] + cache 标记（避免重试）。
+
+        spec rev 5 §3.2.2：rc=2 是唯一永久 cache 失败路径。原测试用 rc=4 旧合约
+        现按 spec rev 5 是 LEGACY 不 cache —— 此处改 rc=2 保持"cache 命中"测试语义。
+        """
         import subprocess
 
         from adapters.solidworks import sw_config_broker
@@ -672,7 +676,7 @@ class TestListConfigsViaCom:
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
-                args=cmd, returncode=4, stdout="", stderr="COM crash"
+                args=cmd, returncode=2, stdout="", stderr="terminal failure"
             )
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -694,8 +698,9 @@ class TestListConfigsViaCom:
         assert call_count[0] == 0
 
     def test_list_timeout_returns_empty(self, monkeypatch):
-        """subprocess.TimeoutExpired → 返回 []。"""
+        """subprocess.TimeoutExpired → 返回 [] + 不 cache（spec rev 5 §3.2.2）。"""
         import subprocess
+        from pathlib import Path
 
         from adapters.solidworks import sw_config_broker
 
@@ -708,6 +713,8 @@ class TestListConfigsViaCom:
 
         result = sw_config_broker._list_configs_via_com("Z.sldprt")
         assert result == []
+        # M-4 新契约：TimeoutExpired 视为 transient 不 cache，区别于旧合约 cache=[]
+        assert str(Path("Z.sldprt").resolve()) not in sw_config_broker._CONFIG_LIST_CACHE
 
 
 class TestResolveConfigForPart:
@@ -1228,8 +1235,8 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps([
-                    {"path": str(p1), "configs": ["A1", "A2"]},
-                    {"path": str(p2), "configs": ["B1"]},
+                    {"path": str(p1), "configs": ["A1", "A2"], "exit_code": 0},
+                    {"path": str(p2), "configs": ["B1"], "exit_code": 0},
                 ]).encode()
 
             return FakeProc()
@@ -1321,7 +1328,7 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps(
-                    [{"path": str(p2), "configs": ["P2A"]}],
+                    [{"path": str(p2), "configs": ["P2A"], "exit_code": 0}],
                 ).encode()
 
             return FakeProc()
@@ -1431,7 +1438,7 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps(
-                    [{"path": str(p1), "configs": ["NEW"]}],
+                    [{"path": str(p1), "configs": ["NEW"], "exit_code": 0}],
                 ).encode()
 
             return FakeProc()
@@ -1589,7 +1596,7 @@ class TestListConfigsViaComThreeLayer:
         # mock subprocess.run：batch 模式返一条假 result
         def _fake_run(cmd, **kwargs):
             if "--batch" in cmd:
-                results = [{"path": forward_slash_path, "configs": ["6201"]}]
+                results = [{"path": forward_slash_path, "configs": ["6201"], "exit_code": 0}]
                 return _sp.CompletedProcess(
                     cmd, 0, stdout=_json.dumps(results).encode(), stderr=b"",
                 )
@@ -2121,8 +2128,8 @@ class TestI2EnvelopePersistence:
         import subprocess
         def success_run(cmd, **kwargs):
             results = [
-                {"path": str(p1), "configs": ["A"]},
-                {"path": str(p2), "configs": ["B"]},
+                {"path": str(p1), "configs": ["A"], "exit_code": 0},
+                {"path": str(p2), "configs": ["B"], "exit_code": 0},
             ]
             return subprocess.CompletedProcess(cmd, 0, json.dumps(results).encode(), b"")
         monkeypatch.setattr(broker.subprocess, "run", success_run)
@@ -2611,3 +2618,728 @@ class TestI3LockBehavior:
         assert captured.out == "", f"stdout 应为空；实际 {captured.out!r}"
         assert "codegen" in captured.err
         assert "仍在等待" in captured.err
+
+
+# ============================================================
+# Phase 2 Task 8 — sw_config_broker M-2/M-4 cleanup（spec rev 6）
+# spec: docs/superpowers/specs/2026-04-27-sw-config-broker-m2-m4-cleanup-design.md
+#       §3.2 (rc 分流) + §3.3 (batch entry-level rc) + §7.2 + §7.5 + §7.7
+# 22 RED 测试 — 待 plan Task 9-11 实现 broker rc 分流后转 GREEN。
+# ============================================================
+
+
+class TestRev5BrokerRcDispatch:
+    """spec rev 6 §7.2 + §7.7 + §7.5：broker rc 分流 + invariant + negative 矩阵。
+
+    13 主分流测试 + 3 invariant 直测（I4/I5/I10）+ 6 negative 组合。
+
+    全部测试默认 RED — 当前 broker (line 517-523) `if proc.returncode != 0:
+    cache=[]; return []` 不区分 rc=2 vs rc=3 vs rc=4 vs 未知 rc；batch loop
+    (line 615-628) 也未读 entry["exit_code"]。Plan Task 9-11 实施后转 GREEN。
+    """
+
+    # ─── class-internal autouse 隔离 ────────────────────────────────
+    @pytest.fixture(autouse=True)
+    def _opt_out_safety_valve(self, monkeypatch):
+        """全局 conftest 默认 CAD_SW_BROKER_DISABLE=1 — 本 class 测试需 broker 真路径。"""
+        monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
+
+    @pytest.fixture(autouse=True)
+    def _reset_caches(self):
+        """spec §7.2 末 conftest fixture 的 class-local 替代：清 L2 + _save_failure_warned。
+
+        放 class-local 而非 conftest.py 是为避免扩 scope（仅本 class 22 测试需要）。
+        Task 9 落 cache.py `_save_failure_warned` 后 setattr 才能生效；本 RED 阶段
+        cache_mod 还没此 attr，setattr 仍 well-defined（直接挂模块 namespace）。
+        """
+        broker._CONFIG_LIST_CACHE.clear()
+        # spec rev 4：cache.py 引入 _save_failure_warned 后此 reset 才有意义
+        if hasattr(cache_mod, "_save_failure_warned"):
+            cache_mod._save_failure_warned = False
+        yield
+        broker._CONFIG_LIST_CACHE.clear()
+        if hasattr(cache_mod, "_save_failure_warned"):
+            cache_mod._save_failure_warned = False
+
+    @pytest.fixture
+    def patch_cache_path(self, monkeypatch, tmp_path):
+        """L1 cache 文件锚定 tmp_path 隔离每测；返 Path 对象供断言读 cache 内容。"""
+        target = tmp_path / "sw_config_lists.json"
+        monkeypatch.setattr(
+            cache_mod, "get_config_lists_cache_path", lambda: target,
+        )
+        return target
+
+    @pytest.fixture
+    def fake_sw(self, monkeypatch):
+        """detect_solidworks 返 stable info（version_year=24 / toolbox_dir='C:/SW'）。"""
+        from adapters.solidworks import sw_detect
+
+        sw_detect._reset_cache()
+        monkeypatch.setattr(
+            sw_detect, "detect_solidworks",
+            lambda: sw_detect.SwInfo(
+                installed=True, version_year=24, toolbox_dir="C:/SW",
+            ),
+        )
+
+    # ─── helpers ────────────────────────────────────────────────────
+    @staticmethod
+    def _make_run_factory(rc, stdout="", stderr=""):
+        """构造 fake subprocess.run：返计数 list + CompletedProcess（text=True）。"""
+        import subprocess as _sp
+
+        calls = []
+
+        def _fake(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            return _sp.CompletedProcess(
+                args=cmd, returncode=rc, stdout=stdout, stderr=stderr,
+            )
+
+        return _fake, calls
+
+    @staticmethod
+    def _make_batch_run_factory(rc, batch_results, stderr=b""):
+        """构造 fake subprocess.run for batch：bytes stdout per worker --batch 协议。"""
+        calls = []
+
+        def _fake(cmd, input=None, **kwargs):
+            calls.append((cmd, input, kwargs))
+
+            class FakeProc:
+                returncode = rc
+                stdout = json.dumps(batch_results).encode()
+                stderr = b""
+
+            return FakeProc()
+
+        return _fake, calls
+
+    # ─── A. 13 主分流测试（spec §7.2 L685-697） ────────────────────
+
+    def test_list_configs_rc2_caches_empty_list_to_prevent_retry(self, monkeypatch):
+        """rc=2 (TERMINAL) → 第 1 次返 [] + 写 L2；第 2 次同 sldprt L2 hit call_count==1。
+
+        spec §3.2.2 Layer 3 rc=2 分支 + §7.7 invariant I2。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(rc=2, stdout="", stderr="terminal")
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("X.sldprt")
+        r2 = broker._list_configs_via_com("X.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 1, (
+            f"rc=2 terminal 第 2 次必须 L2 hit 不重 spawn；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_rc3_does_not_cache_for_retry(self, monkeypatch):
+        """rc=3 (TRANSIENT) → 第 1 次返 [] 不 cache；第 2 次重 spawn call_count==2。
+
+        spec §3.2.2 Layer 3 rc=3 分支 + §7.7 invariant I3。
+        当前 broker 不分流，rc≠0 全 cache；本测试预期 RED 直到 plan Task 10。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(rc=3, stdout="", stderr="transient")
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("Y.sldprt")
+        r2 = broker._list_configs_via_com("Y.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"rc=3 transient 必须不 cache 让第 2 次重 spawn；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_legacy_rc4_treated_as_transient(self, monkeypatch):
+        """rc=4 (LEGACY 旧 worker) → 当 transient 不 cache（升级期混跑兜底）。
+
+        spec §3.2.2 Layer 3 + §3.1 Drift 1 修复（broker WORKER_EXIT_LEGACY=4）。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(rc=4, stdout="", stderr="legacy")
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("L4.sldprt")
+        r2 = broker._list_configs_via_com("L4.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"rc=4 legacy 必须当 transient 不 cache；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_timeout_treated_as_transient_no_cache(self, monkeypatch):
+        """TimeoutExpired → 不 cache；第 2 次同 sldprt 重 spawn。
+
+        spec §3.2.2 Layer 3 TimeoutExpired 分支 — rev 6 砍 transient cache 后改不 cache。
+        当前 broker line 514 `_CONFIG_LIST_CACHE[abs_path] = []` cache，故 RED。
+        """
+        import subprocess as _sp
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            raise _sp.TimeoutExpired(cmd=cmd, timeout=30)
+
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("T.sldprt")
+        r2 = broker._list_configs_via_com("T.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"TimeoutExpired 必须不 cache 让重试；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_oserror_treated_as_transient_no_cache(self, monkeypatch):
+        """OSError → 不 cache + 不抛 + 第 2 次重 spawn。
+
+        spec §3.2.2 Layer 3 OSError 分支（fork 失败 / FileNotFoundError on python.exe 等）。
+        当前 broker 未 catch OSError 会上抛，故 RED：第 1 次直接 raise。
+        """
+        import subprocess as _sp
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            raise OSError("[Errno 8] Exec format error")
+
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("O.sldprt")
+        r2 = broker._list_configs_via_com("O.sldprt")
+
+        assert r1 == [], "OSError 必须被 catch 返 []，不抛"
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"OSError 必须不 cache 让重试；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_rc0_with_invalid_json_stdout_treated_as_transient(self, monkeypatch):
+        """rc=0 + stdout 非合法 JSON → 不 cache（rev 6：JSON 错也归 transient）。
+
+        spec §3.2.2 Layer 3 rc=0 JSON parse 失败分支。
+        当前 broker line 531 cache []，故 RED：第 2 次 L2 hit call_count==1。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(rc=0, stdout="<<not_json>>", stderr="")
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("J.sldprt")
+        r2 = broker._list_configs_via_com("J.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"rc=0 + JSON 错必须不 cache；实际 spawn {len(calls)} 次"
+        )
+
+    def test_list_configs_unknown_rc_defaults_transient(self, monkeypatch):
+        """rc=99（未知）→ 当 transient 不 cache；第 2 次重 spawn。
+
+        spec §3.2.2 Layer 3 "其他 rc" 分支 — 保守归 transient。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(rc=99, stdout="", stderr="weird")
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        r1 = broker._list_configs_via_com("U.sldprt")
+        r2 = broker._list_configs_via_com("U.sldprt")
+
+        assert r1 == []
+        assert r2 == []
+        assert len(calls) == 2, (
+            f"rc=99 未知必须当 transient 不 cache；实际 spawn {len(calls)} 次"
+        )
+
+    def test_prewarm_batch_mixed_rc_writes_terminal_skips_transient(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """batch stdout 三 entry 混合 exit_code → 写 rc=0 + rc=2 项跳 rc=3 项。
+
+        spec §3.3 batch 分流 + §7.2 表格。
+        当前 broker 写所有 entries（无 rc 过滤），故 RED：rc=3 entry 也被写入。
+        """
+        p_ok = tmp_path / "ok.sldprt"; p_ok.write_bytes(b"a" * 100)
+        p_term = tmp_path / "term.sldprt"; p_term.write_bytes(b"b" * 200)
+        p_trans = tmp_path / "trans.sldprt"; p_trans.write_bytes(b"c" * 300)
+
+        results = [
+            {"path": str(p_ok), "configs": ["A1", "A2"], "exit_code": 0},
+            {"path": str(p_term), "configs": [], "exit_code": 2},
+            {"path": str(p_trans), "configs": [], "exit_code": 3},
+        ]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p_ok), str(p_term), str(p_trans)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        entries = cache["entries"]
+
+        key_ok = str(p_ok.resolve())
+        key_term = str(p_term.resolve())
+        key_trans = str(p_trans.resolve())
+
+        assert key_ok in entries, "rc=0 entry 必须写入"
+        assert entries[key_ok]["configs"] == ["A1", "A2"]
+        assert key_term in entries, "rc=2 terminal 必须写入（[] 标记防重试）"
+        assert entries[key_term]["configs"] == []
+        assert key_trans not in entries, (
+            "rc=3 transient 必须跳过不写 entries（防 L1 污染）"
+        )
+
+    def test_prewarm_batch_legacy_no_exit_code_field_skipped_not_polluting_cache(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path, caplog,
+    ):
+        """batch entry 缺 exit_code → 当 invalidate signal 跳过 + caplog warning。
+
+        spec §3.3 rev 3 C2 修复 — 旧 worker stdout 缺 exit_code 不可信。
+        """
+        import logging
+        p1 = tmp_path / "legacy.sldprt"; p1.write_bytes(b"x" * 100)
+        results = [{"path": str(p1), "configs": []}]  # 缺 exit_code
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        with caplog.at_level(logging.WARNING):
+            broker.prewarm_config_lists([str(p1)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p1.resolve()) not in cache["entries"], (
+            "缺 exit_code 字段（旧 worker）必须跳过不写 entries"
+        )
+        assert any(
+            "缺 exit_code 字段（旧 worker schema）" in r.message
+            for r in caplog.records
+        ), "必须 log warning 含 '缺 exit_code 字段（旧 worker schema）' 标记"
+
+    def test_prewarm_batch_rc4_legacy_skipped_like_transient(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """batch entry exit_code=4 → 当 transient 跳过不写 entries（与单件一致）。
+
+        spec §3.3 向后兼容三层 + §3.2 rc=4 单件路径对齐。
+        """
+        p1 = tmp_path / "legacy4.sldprt"; p1.write_bytes(b"x" * 100)
+        results = [{"path": str(p1), "configs": [], "exit_code": 4}]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p1.resolve()) not in cache["entries"], (
+            "rc=4 legacy 必须跳过不写 entries（与单件 transient 路径一致）"
+        )
+
+    def test_prewarm_batch_unknown_rc_skipped_like_transient(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """batch entry exit_code=99 (未识别) → 跳过不写 entries (I10 一致性)。
+
+        spec §3.3 + §7.7 invariant I10：未识别 rc 单件 vs batch 行为对齐。
+        """
+        p1 = tmp_path / "unknown.sldprt"; p1.write_bytes(b"x" * 100)
+        results = [{"path": str(p1), "configs": [], "exit_code": 99}]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p1.resolve()) not in cache["entries"], (
+            "未识别 rc=99 必须跳过不写 entries"
+        )
+
+    def test_prewarm_batch_rc64_full_fallback(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """subprocess rc=64 (worker stdin JSON 错) → broker 整 batch 不写 entries。
+
+        spec §3.3 + Edge 10：worker EXIT_USAGE 是外部错（broker 端 BUG）— prewarm 完整 fallback。
+        I-2 修复：envelope 已落盘但 entries 为空。
+        """
+        p1 = tmp_path / "rc64.sldprt"; p1.write_bytes(b"x" * 100)
+
+        def fake_run(cmd, **kwargs):
+            class FakeProc:
+                returncode = 64
+                stdout = b""
+                stderr = b"worker: stdin not JSON"
+
+            return FakeProc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])  # 不抛
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p1.resolve()) not in cache["entries"], (
+            "rc=64 worker usage 错 → entries 不写"
+        )
+
+    def test_prewarm_save_failure_does_not_propagate_to_caller(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """mock cache_mod._save_config_lists_cache 抛 OSError → prewarm 不抛（M-2 自愈）。
+
+        spec §7.7 invariant I1 + §7.2 rev 4 补 I1 测试。
+        I1：prewarm 永远不抛（fire-and-forget 契约）。
+        当前 broker prewarm except 只 catch (TimeoutExpired, OSError, JSONDecodeError)，
+        但 _save 抛 OSError 在 try block 内末尾——会被 catch；envelope 升级时的 _save
+        失败也已处理（line 572 except Exception）。本测试确保整体不抛。
+        """
+        p1 = tmp_path / "save_fail.sldprt"; p1.write_bytes(b"x" * 100)
+        results = [{"path": str(p1), "configs": ["A"], "exit_code": 0}]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        save_call_count = {"n": 0}
+
+        def failing_save(cache):
+            save_call_count["n"] += 1
+            raise OSError("[Errno 13] Permission denied")
+
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", failing_save)
+
+        # 不抛任何异常（fire-and-forget 契约）
+        broker.prewarm_config_lists([str(p1)])
+
+        # 必须真调过 _save（否则失败注入根本无意义）
+        assert save_call_count["n"] >= 1, (
+            f"_save_config_lists_cache 必须被调过；实际 {save_call_count['n']} 次"
+        )
+
+    # ─── B. 3 invariant 直测（spec §7.2 L698-700 + §7.7） ──────────
+
+    def test_invariant_l1_cache_not_polluted_by_transient_after_save(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """I4 直测：mock prewarm batch 含 rc=3 entry → 跑完读 L1 文件断 key NOT in entries。
+
+        spec §7.7 invariant I4：transient sldprt 永不污染持久化 L1 cache。
+        """
+        p_trans = tmp_path / "i4_trans.sldprt"; p_trans.write_bytes(b"z" * 100)
+        results = [{"path": str(p_trans), "configs": [], "exit_code": 3}]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p_trans)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        abs_path = str(p_trans.resolve())
+        assert abs_path not in cache["entries"], (
+            f"I4 invariant 违反：transient (rc=3) 不应写入 L1 entries；"
+            f"实际 entries={list(cache['entries'].keys())}"
+        )
+
+    def test_invariant_l1_cache_terminal_marked_with_empty_configs(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """I5 直测：mock prewarm batch 含 rc=2 entry (worker 返 ['JUNK']) → broker 强制写 [].
+
+        spec §7.7 invariant I5：terminal 用 [] 显式标记防重试。
+        强化断言：worker 故意返 configs=['JUNK'] (不该信任的非空 list) →
+        broker 必须按 §3.3 rc=2 分支 OVERRIDE 为 []。当前 broker 不区分 rc，
+        会写 ['JUNK']，故 RED。
+        """
+        p_term = tmp_path / "i5_term.sldprt"; p_term.write_bytes(b"y" * 100)
+        # ★ 故意：rc=2 但 configs 非空（worker 不该这样返但要防御）
+        results = [{"path": str(p_term), "configs": ["JUNK"], "exit_code": 2}]
+        fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        broker.prewarm_config_lists([str(p_term)])
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        abs_path = str(p_term.resolve())
+        assert abs_path in cache["entries"], "I5：terminal 必须写入（[] 标记）"
+        assert cache["entries"][abs_path]["configs"] == [], (
+            f"I5 invariant 违反：terminal (rc=2) 必须显式写 []；"
+            f"实际 configs={cache['entries'][abs_path]['configs']}"
+        )
+
+    def test_invariant_unknown_rc_consistent_single_vs_batch(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """I10 直测：未识别 rc=99 在单件 + batch 两路径都不写 cache（行为一致）。
+
+        spec §7.7 invariant I10：单件 vs batch 路径未知 rc 处理对齐。
+        """
+        # === Phase A：batch 路径（rc=99 entry）===
+        p_b = tmp_path / "i10_batch.sldprt"; p_b.write_bytes(b"a" * 100)
+        results = [{"path": str(p_b), "configs": [], "exit_code": 99}]
+        fake_run_batch, _ = self._make_batch_run_factory(rc=0, batch_results=results)
+        monkeypatch.setattr("subprocess.run", fake_run_batch)
+
+        broker.prewarm_config_lists([str(p_b)])
+
+        cache_after_batch = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p_b.resolve()) not in cache_after_batch["entries"], (
+            "I10：batch 路径 rc=99 必须不写 entries"
+        )
+
+        # === Phase B：单件路径（rc=99 spawn）===
+        broker._CONFIG_LIST_CACHE.clear()
+        fake_run_single, calls_single = self._make_run_factory(
+            rc=99, stdout="", stderr="single_unknown",
+        )
+        monkeypatch.setattr("subprocess.run", fake_run_single)
+
+        r1 = broker._list_configs_via_com("i10_single.sldprt")
+        r2 = broker._list_configs_via_com("i10_single.sldprt")
+
+        assert r1 == [] and r2 == []
+        assert len(calls_single) == 2, (
+            f"I10：单件路径 rc=99 必须不 cache 让重 spawn；"
+            f"实际 spawn {len(calls_single)} 次"
+        )
+
+    # ─── C. 6 negative 组合（spec §7.2 L701-706 + §7.5 矩阵） ──────
+
+    def test_negative_worker_rc2_with_existing_l1_success_entry_overrides_with_terminal(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """negative：预填 L1 success + mtime 不变 → _list_configs_via_com L1 hit return success。
+
+        spec §7.5 矩阵：rc=2 worker 失败 × L1 has success entry → L1 hit 早 return（rc=2 不触发）。
+        当前 broker 三层 cache L1 hit 路径已正确（§3.2.2 Layer 1）— 测试预期 GREEN
+        作为 regression sentinel；若未来 L1 hit 短路被破，本测试抓到。
+        """
+        import subprocess as _sp
+        p1 = tmp_path / "neg1.sldprt"; p1.write_bytes(b"x" * 100)
+        st = p1.stat()
+        cache_mod._save_config_lists_cache({
+            "schema_version": 1,
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "generated_at": "2026-04-26T00:00:00+00:00",
+            "entries": {
+                str(p1.resolve()): {
+                    "mtime": int(st.st_mtime),
+                    "size": st.st_size,
+                    "configs": ["L1_SUCCESS"],
+                },
+            },
+        })
+
+        # 守卫：subprocess 不该被调（L1 hit 早 return）
+        spawn_calls = []
+
+        def _guard_run(cmd, **kwargs):
+            spawn_calls.append(cmd)
+            # 即使被错调也返 rc=2 — 测断言会抓到差异
+            return _sp.CompletedProcess(args=cmd, returncode=2, stdout="", stderr="")
+
+        monkeypatch.setattr(_sp, "run", _guard_run)
+
+        result = broker._list_configs_via_com(str(p1))
+
+        assert result == ["L1_SUCCESS"], (
+            f"L1 hit 必须早 return success（不触发 rc=2 路径）；实际 {result}"
+        )
+        assert spawn_calls == [], (
+            f"L1 hit 必须 0 spawn；实际 {len(spawn_calls)} 次"
+        )
+
+    def test_negative_worker_rc0_with_save_failure_returns_configs_anyway(self, monkeypatch):
+        """negative：rc=0 + _save 抛 OSError → 函数仍返 configs（save 不影响读）。
+
+        spec §7.5 矩阵 + §7.7 invariant I1 派生：fallback 单件路径不写 L1
+        （spec §3.1 issue 4），所以 mock _save 不该被调；但即使被调失败也不影响 return。
+        """
+        import subprocess as _sp
+        fake_run, calls = self._make_run_factory(
+            rc=0, stdout=json.dumps(["CFG_A", "CFG_B"]) + "\n", stderr="",
+        )
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        save_calls = {"n": 0}
+
+        def failing_save(_cache):
+            save_calls["n"] += 1
+            raise OSError("[Errno 13] Permission denied")
+
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", failing_save)
+
+        result = broker._list_configs_via_com("neg2.sldprt")
+
+        assert result == ["CFG_A", "CFG_B"], (
+            f"rc=0 必须返 worker 解析的 configs（save 失败不影响）；实际 {result}"
+        )
+        # spec §3.1 issue 4：fallback 路径**不写** L1，所以 _save 不应被调
+        assert save_calls["n"] == 0, (
+            f"spec §3.1 issue 4：fallback 单件不写 L1；_save 不该被调，实际 {save_calls['n']} 次"
+        )
+
+    def test_negative_worker_timeout_with_l1_envelope_invalidated(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """negative：L1 envelope sw_version 过期 + worker TimeoutExpired → 升级 envelope 但 entries 不写。
+
+        spec §7.5 矩阵：TimeoutExpired × envelope invalidated → I-2 修复保证 envelope 落盘 +
+        entries 不写（worker 失败）。
+        """
+        import subprocess as _sp
+        p1 = tmp_path / "neg3.sldprt"; p1.write_bytes(b"x" * 100)
+        st = p1.stat()
+        # 预填 envelope=旧 sw_version
+        cache_mod._save_config_lists_cache({
+            "schema_version": 1,
+            "sw_version": 23,  # 旧
+            "toolbox_path": "C:/SW",
+            "generated_at": "2025-01-01T00:00:00+00:00",
+            "entries": {
+                str(p1.resolve()): {
+                    "mtime": int(st.st_mtime),
+                    "size": st.st_size,
+                    "configs": ["OLD_ENTRY"],
+                },
+            },
+        })
+
+        def fake_run(cmd, **kwargs):
+            raise _sp.TimeoutExpired(cmd=cmd, timeout=180)
+
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        broker.prewarm_config_lists([str(p1)])  # 不抛
+
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        # I-2 修复：envelope 升级立即落盘
+        assert cache["sw_version"] == 24, (
+            f"I-2：envelope sw_version 必须立即升至 24；实际 {cache['sw_version']}"
+        )
+        # entries 不写（worker 超时）
+        assert str(p1.resolve()) not in cache["entries"], (
+            "TimeoutExpired 必须不写 entries"
+        )
+
+    def test_negative_unknown_rc_with_existing_l2_terminal_does_not_respawn(
+        self, monkeypatch,
+    ):
+        """negative：预填 L2=[] (rc=2 终态) → _list_configs_via_com L2 hit 不 spawn。
+
+        spec §7.5 矩阵 + §3.2.2 Layer 2：L2 hit 早 return 不触发 rc 分流。
+        """
+        import subprocess as _sp
+        # 预填 L2=[]（模拟之前 rc=2 终态写入）
+        fake_path = "Z_l2_terminal.sldprt"
+        from pathlib import Path as _P
+        broker._CONFIG_LIST_CACHE[str(_P(fake_path).resolve())] = []
+
+        spawn_calls = []
+
+        def _guard_run(cmd, **kwargs):
+            spawn_calls.append(cmd)
+            return _sp.CompletedProcess(args=cmd, returncode=99, stdout="", stderr="")
+
+        monkeypatch.setattr(_sp, "run", _guard_run)
+
+        result = broker._list_configs_via_com(fake_path)
+
+        assert result == [], f"L2 hit 必须返 []；实际 {result}"
+        assert len(spawn_calls) == 0, (
+            f"L2 hit 必须 0 spawn；实际 spawn {len(spawn_calls)} 次"
+        )
+
+    def test_negative_invalid_json_stdout_with_l1_partial_load(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """negative：rc=0 + 非 JSON stdout + L1 partial（其他 sldprt 已 cache）→
+        broker 不 cache 当前 sldprt + 返 [] + L1 不破其他 entry。
+
+        spec §7.5 矩阵：JSON 错 × L1 部分填充。
+        """
+        import subprocess as _sp
+        p_other = tmp_path / "other.sldprt"; p_other.write_bytes(b"o" * 100)
+        st_other = p_other.stat()
+        cache_mod._save_config_lists_cache({
+            "schema_version": 1,
+            "sw_version": 24,
+            "toolbox_path": "C:/SW",
+            "generated_at": "2026-04-26T00:00:00+00:00",
+            "entries": {
+                str(p_other.resolve()): {
+                    "mtime": int(st_other.st_mtime),
+                    "size": st_other.st_size,
+                    "configs": ["OTHER_CFG"],
+                },
+            },
+        })
+
+        # 当前 sldprt：worker 返 rc=0 + 非 JSON
+        fake_run, calls = self._make_run_factory(
+            rc=0, stdout="<<malformed>>", stderr="",
+        )
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        result = broker._list_configs_via_com("J_partial.sldprt")
+        assert result == [], "JSON 错必须返 []"
+
+        # L1 文件未被破（other 仍可读）
+        cache = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p_other.resolve()) in cache["entries"], "L1 其他 entry 不应丢"
+        assert cache["entries"][str(p_other.resolve())]["configs"] == ["OTHER_CFG"]
+
+        # 第 2 次：必须重 spawn（rev 6 transient 不 cache JSON 错）
+        result2 = broker._list_configs_via_com("J_partial.sldprt")
+        assert result2 == []
+        assert len(calls) == 2, (
+            f"JSON 错必须不 cache 让重 spawn；实际 {len(calls)} 次"
+        )
+
+    def test_negative_concurrent_l1_load_save_atomicity(
+        self, patch_cache_path, fake_sw, monkeypatch, tmp_path,
+    ):
+        """negative：先成功 prewarm 写 L1 → 后续 _save 抛 PermissionError →
+        _load 仍读到 partial 写之前的合法内容（os.replace 原子性）。
+
+        spec §7.5 矩阵 + §11 known limitation：last-writer-wins 但 partial write 不允许。
+        """
+        import subprocess as _sp
+        p1 = tmp_path / "atom1.sldprt"; p1.write_bytes(b"x" * 100)
+        p2 = tmp_path / "atom2.sldprt"; p2.write_bytes(b"y" * 200)
+
+        # === Phase A：成功 prewarm 写 L1 含 p1 ===
+        results_a = [{"path": str(p1), "configs": ["A_CFG"], "exit_code": 0}]
+        fake_run_a, _ = self._make_batch_run_factory(rc=0, batch_results=results_a)
+        monkeypatch.setattr(_sp, "run", fake_run_a)
+
+        broker.prewarm_config_lists([str(p1)])
+        cache_phase_a = json.loads(patch_cache_path.read_text(encoding="utf-8"))
+        assert str(p1.resolve()) in cache_phase_a["entries"], "Phase A 写 p1 必须成功"
+
+        # === Phase B：mock _save 抛 PermissionError → 后续写 p2 失败 ===
+        # 但 phase A 写的 p1 不应被破坏（os.replace 原子性 + .tmp 写失败前不 replace）
+        results_b = [{"path": str(p2), "configs": ["B_CFG"], "exit_code": 0}]
+        fake_run_b, _ = self._make_batch_run_factory(rc=0, batch_results=results_b)
+        monkeypatch.setattr(_sp, "run", fake_run_b)
+
+        original_save = cache_mod._save_config_lists_cache
+
+        def failing_save(_cache):
+            raise PermissionError("[Errno 13] Permission denied")
+
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", failing_save)
+
+        broker.prewarm_config_lists([str(p2)])  # 不抛（M-2 自愈）
+
+        # 恢复原 _save
+        monkeypatch.setattr(cache_mod, "_save_config_lists_cache", original_save)
+
+        # === Phase C：_load 仍读到 phase A 写的内容 ===
+        cache_phase_c = cache_mod._load_config_lists_cache()
+        assert str(p1.resolve()) in cache_phase_c["entries"], (
+            "os.replace 原子性：phase B 写失败不应破坏 phase A 已写 p1 entry"
+        )
+        assert cache_phase_c["entries"][str(p1.resolve())]["configs"] == ["A_CFG"]
