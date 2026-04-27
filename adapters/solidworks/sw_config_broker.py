@@ -27,6 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+# M-6 (spec §2.1): 函数级 import 提到模块级，让 mock.patch.object 可工作
+# （cad_pipeline.py best practice）+ 避免重复 import 性能开销。
+from adapters.solidworks import sw_config_lists_cache as cache_mod
+from adapters.solidworks.sw_detect import detect_solidworks
+
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
@@ -600,9 +605,6 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
     """
     if os.environ.get("CAD_SW_BROKER_DISABLE") == "1":
         return
-
-    from adapters.solidworks import sw_config_lists_cache as cache_mod
-    from adapters.solidworks.sw_detect import detect_solidworks
 
     cache = cache_mod._load_config_lists_cache()
     if cache_mod._envelope_invalidated(cache):
