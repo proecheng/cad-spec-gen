@@ -11,12 +11,13 @@
 
 ## §1 背景 + 范围
 
-PR #21（v2.21.0）关闭 §11 中 M-2 / M-4 后，`2026-04-26-sw-toolbox-config-list-cache-design.md`
-§11 仍 open 7 项：M-1 / M-3 / M-5 / M-6 / M-7 / M-8 / I-4。
+PR #21（v2.21.0）关闭 §11 中 M-2 / M-4 + 新登记 M-8 / M-9 后，
+`2026-04-26-sw-toolbox-config-list-cache-design.md` §11 共 open 8 项：
+M-1 / M-3 / M-5 / M-6 / M-7 / M-8 / I-4 / M-9。
 
 本 PR 收官其中 5 项（**M-3 / M-6 / M-7 / M-8 / I-4**），剩余 3 项（M-1 fsync / M-5 timeout
-公式 / M-9 CI gate trace）推迟到独立 PR——这两项涉及真持久化语义改动 + 真行为基线
-重测，scope 与本 cleanup PR 风格不一致。
+公式 / M-9 CI gate trace）保留 open——M-1/M-5 涉及真持久化语义改动 + 真行为基线重测，
+推迟到独立 PR；M-9 是纯文档 trace，已在 PR #21 spec 注释化，无需独立 PR。
 
 ### §1.1 范围分类
 
@@ -26,8 +27,8 @@ PR #21（v2.21.0）关闭 §11 中 M-2 / M-4 后，`2026-04-26-sw-toolbox-config
 | 真改代码 | M-7 | `_validate_cached_decision` 返回类型用 `Literal[...]` 替代 `str`，删除 `_move_decision_to_history` 头部运行时校验 |
 | 真改代码 | M-8 | cached decision 失效路径加 `assert invalid_reason is not None`（caller 侧 None guard） |
 | CI 新增 | — | mypy strict gate，scope 仅 `adapters/solidworks/sw_config_broker.py`（渐进式 typing 政策） |
-| 文档化 | M-3 | `_PROJECT_ROOT_FOR_WORKER` 模块级 vs 函数级 import 不对称——line 451-452 注释已充分 trace，**零代码改动** |
-| 文档化 | I-4 | mtime+size collision 极罕见——`_envelope_invalidated` 附近加 1 行已知限制注释 |
+| 文档化 | M-3 | `_PROJECT_ROOT_FOR_WORKER` 模块级 vs 函数级 import 不对称——`sw_config_broker.py` 该常量上方注释已充分 trace，**零代码改动** |
+| 文档化 | I-4 | mtime+size collision 极罕见——在 **`sw_config_lists_cache.py`** `_envelope_invalidated`（定义处）附近加 1 行已知限制注释 |
 
 ### §1.2 北极星 5 gate 对齐
 
@@ -189,7 +190,8 @@ else:
 [tool.mypy]
 # 渐进式 typing 政策（spec §11 M-7 决策）：仅本 PR 触动模块进 strict。
 # 未来 cleanup PR 触动新模块时按需在 [[tool.mypy.overrides]] 加入。
-python_version = "3.11"
+python_version = "3.10"  # 与 pyproject.toml `requires-python = ">=3.10"` 对齐，
+                          # 让 mypy 检查 3.10 不支持的语法（如 PEP 695 type alias）
 strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
@@ -214,9 +216,10 @@ mypy-strict:
     - run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py
 ```
 
-**`--platform=win32` 必需**：模块含 `msvcrt`（line 728，函数级 import，Windows-only API）；
-mypy 在 ubuntu 跑需告知目标平台。CLI flag 而非 `[tool.mypy] platform = "win32"`——
-配置全局 platform 会污染未来其他跨平台模块（`[[overrides]] platform` mypy 不支持）。
+**`--platform=win32` 必需**：模块含 `msvcrt`（`_project_file_lock` 函数体内函数级 import，
+Windows-only API；plan 实施时 grep `import msvcrt` 现场定位）；mypy 在 ubuntu 跑需告知
+目标平台。CLI flag 而非 `[tool.mypy] platform = "win32"`——配置全局 platform 会污染未来
+其他跨平台模块（`[[overrides]] platform` mypy 不支持）。
 
 ### §3.3 渐进扩展政策
 
@@ -310,19 +313,19 @@ def test_invalid_reason_assertion_holds_under_validate_contract(
 
 | 改动 | 覆盖率影响 |
 |---|---|
-| M-7 删运行时校验 4 行 | 分母 -4（覆盖率 ↑） |
-| M-6 移 import | 不变 |
+| M-7 删运行时校验（main line 419-423 物理 5 行 = 2 statement：1 `if` + 1 `raise`） | 分母 -2 statement（覆盖率 ↑） |
+| M-6 移 import | 不变（模块级 import 不计 statement 覆盖） |
 | M-8 加 assert | 分母 +1，分子 +1（M-8 测试覆盖该 assert）→ 覆盖率几乎不变 |
 
 **净影响**：覆盖率轻微 ↑，无 gate 风险。
 
 ### §4.6 测试统计预估
 
-- 删除：1-2 个 `_move_decision_to_history` ValueError 测试（M-7）
+- 删除：1 个测试方法 `test_move_decision_rejects_unknown_reason`（§4.2 锁定）
 - 新增：1 个 M-8 assertion 契约测试
 - 修改：0（refactor 行为一致）
 
-**净增 ≈ -1 ~ 0 个用例**，CI 跑时间无感影响。
+**净增 = 0 个用例**（-1 + 1），CI 跑时间无感影响。
 
 ---
 
@@ -330,9 +333,10 @@ def test_invalid_reason_assertion_holds_under_validate_contract(
 
 ### §5.1 M-3 处理
 
-`sw_config_broker.py:450-453` 注释已充分 trace 设计意图（worker 路径不需要 reload，
-与 `_decisions_path` 哲学不同——session 32 决策记录）；M-3 spec 原话"加 reload 测试"
-需求由 `tests/conftest.py` 的 `tmp_project_dir` fixture 既有覆盖。
+`sw_config_broker.py` 中 `_PROJECT_ROOT_FOR_WORKER` 常量上方的注释（说明"worker 路径
+不需要 reload，与 `_decisions_path` 哲学不同——session 32 决策记录"）已充分 trace
+设计意图；M-3 spec 原话"加 reload 测试"需求由 `tests/conftest.py` 的 `tmp_project_dir`
+fixture 既有覆盖（行号 plan 实施时现场 grep）。
 
 **本 PR 动作**：
 - ✅ 在 `2026-04-26-sw-toolbox-config-list-cache-design.md` §11 标 M-3 closed (doc-only)
@@ -340,7 +344,9 @@ def test_invalid_reason_assertion_holds_under_validate_contract(
 
 ### §5.2 I-4 处理
 
-`_envelope_invalidated` 附近加 1 行注释（具体行号实施时 grep 定位）：
+**目标文件**：`adapters/solidworks/sw_config_lists_cache.py`（`_envelope_invalidated`
+**定义处**——main grep 显示该函数定义在此文件 line 101，broker 只是 caller）。
+具体行号 plan 实施时 grep 定位。
 
 ```python
 # I-4 已知限制：mtime+size 哈希 collision（SW UI 编辑保留同字节 + 同 mtime）
@@ -349,9 +355,11 @@ def test_invalid_reason_assertion_holds_under_validate_contract(
 
 spec §11 标 I-4 closed (won't fix)。
 
-### §5.3 spec rev 6（PR #21）§11 联动 edit
+### §5.3 PR #19 spec §11 联动 edit
 
-`2026-04-26-sw-toolbox-config-list-cache-design.md` 在 main 已存在（PR #19 创建），
+§11 follow-up 列表的源头是 PR #19 创建的 `2026-04-26-sw-toolbox-config-list-cache-design.md`
+（main 已存在）。后续每个 cleanup PR（PR #20 / PR #21 / 本 PR）都在该文件 §11 标对应项 closed。
+
 PR #21 与本 PR 都只 edit 其 §11 区域。merge 顺序前置条件：**PR #21 必须先 merge 进 main**，
 否则两 PR 同 section edit 会触发合并冲突。
 
@@ -425,7 +433,7 @@ Step 1 严格按 CLAUDE.md TDD 铁律先 fail：commit 1 阶段 `_resolve_config
 - spec §11 close 5 项 → 仍 open 3 项（M-1 / M-5 / M-9）
 
 ## Test plan
-- [ ] 既有 broker 测试 199+ PASS 不 regression
+- [ ] 既有 broker 测试全 PASS 不 regression（基线数：PR #21 merge 后 main 上 ~199 个，main 当前 108 个；实施时以前置条件 PR #21 merge 后状态为准）
 - [ ] M-8 新增契约测试 PASS
 - [ ] mypy strict gate ubuntu CI 绿
 - [ ] 覆盖率 gate 仍 ≥95%（Linux/Windows）
@@ -454,7 +462,7 @@ edit 会因 base file 不存在 fail。plan 第一个 task 必为 `pre-check: PR
 | mypy `--platform=win32` 在 ubuntu 上仍误报 stub 缺失 | 低 | CI fail | 实施时 hot-loop 调，必要时 mypy `>=1.11` |
 | PR #21 与本 PR §11 区域并行 edit 冲突 | 中 | merge conflict | plan pre-check 强制 PR #21 先 merge |
 | 覆盖率 gate 误算（M-7 删行 vs M-8 加 assert 抵消计算错） | 低 | CI fail | local pytest --cov 实测前置 |
-| msvcrt-only 函数 mypy strict 仍判 unreachable | 低 | CI fail | `if TYPE_CHECKING:` import 兜底 |
+| mypy 对函数级 `import msvcrt` 在 `sys.platform != "win32"` early return 后判 unreachable | 低 | CI fail | mypy `--platform=win32` 已让 sys.platform=='win32' 分支 reachable；如仍误报，方案备选：(a) 在 `[[overrides]]` 显式声明该函数 `disable_error_code = ["unreachable"]`（违反 §3.3 但单点特批可文档化）；(b) 重构 msvcrt 操作进单独 helper 函数 |
 
 ### §7.2 不变量（行为契约）
 
@@ -464,7 +472,10 @@ edit 会因 base file 不存在 fail。plan 第一个 task 必为 `pre-check: PR
 2. `_move_decision_to_history` 仍把 decision 拷贝到 history + 删除原位
 3. cached decision 失效路径仍持久化 history 后 fall through 规则匹配
 4. `prewarm_config_lists` 行为不变（M-6 纯结构调整）
-5. `INVALIDATION_REASONS` frozenset 仍可被外部 import（log/序列化用例）
+5. `INVALIDATION_REASONS` frozenset 保留为模块级常量（**当前无外部 caller**——grep 验证仅
+   `sw_config_broker.py` 内部 line 36 定义 + 删除前的运行时校验引用 + 1 个待删测试方法引用）；
+   保留意图：未来外部需要 import 时无需修改本模块。如未来确认无任何外部需求，可在后续
+   cleanup PR 一并删除常量本身。
 
 ---
 
@@ -472,10 +483,11 @@ edit 会因 base file 不存在 fail。plan 第一个 task 必为 `pre-check: PR
 
 - [ ] PR #21 已 merge 进 main（前置条件）
 - [ ] 6 个 commit 按 §6.2 顺序提交（含 RED 测试 commit 1）
-- [ ] 既有 199+ broker 测试全 PASS
+- [ ] 既有 broker 测试全 PASS（基线 ~199，前置条件 PR #21 merge 后）
 - [ ] M-8 新增 1 测试 PASS
-- [ ] M-7 删除 1-2 ValueError 测试，无遗漏
-- [ ] `mypy --platform=win32 --strict adapters/solidworks/sw_config_broker.py` 退出码 0
+- [ ] M-7 删除 1 个测试方法 `test_move_decision_rejects_unknown_reason`，无遗漏
+- [ ] `mypy --platform=win32 adapters/solidworks/sw_config_broker.py` 退出码 0
+      （strict 通过 §3.1 `[[overrides]] strict = true` 已生效）
 - [ ] CI matrix 6 平台 × py 版本全绿 + `regression` job 绿 + 新 `mypy-strict` job 绿
 - [ ] 覆盖率 gate ≥95%（Linux + Windows）
 - [ ] CHANGELOG.md 加 v2.21.1 条目
