@@ -39,6 +39,7 @@ InvalidationReason = Literal[
 ]
 
 # review I-2: invalidation_reason 受控枚举（spec §5.2 三项失效条件之一）。
+# 写入端由 mypy Literal 守护（M-7）；读取端 IO 反序列化由 _load_decisions_envelope 校验。
 INVALIDATION_REASONS: frozenset[InvalidationReason] = frozenset({
     "bom_dim_signature_changed",
     "sldprt_filename_changed",
