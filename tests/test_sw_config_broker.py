@@ -3931,25 +3931,29 @@ class TestModuleLevelImports:
         assert result.version_year == 2024
         assert result.toolbox_dir == "C:/fake/toolbox"
 
-    def test_no_circular_import_on_reload(self):
-        """T4 (spec §4.3): importlib.reload(sw_config_broker) 不抛 ImportError。
-        反向防 sw_config_lists_cache / sw_detect 未来加 broker 反向 import
-        造成循环依赖。
+    def test_no_circular_import_at_static_level(self):
+        """T4 (spec §4.3): 静态验证 sw_config_lists_cache / sw_detect 不反向
+        import sw_config_broker——M-6 module-level import 安全的前提。
+
+        不用 importlib.reload(broker)：reload 会重新创建 broker.NeedsUserDecision
+        class，让其他 test 已 import 的旧 class 引用失效（state pollution），
+        让全 suite 跑 fail 单跑 pass。改用 inspect.getsource 静态 grep。
         """
-        import importlib
-        from adapters.solidworks import sw_config_broker
+        import inspect
+        from adapters.solidworks import sw_config_lists_cache, sw_detect
 
-        # 第一次 reload
-        try:
-            reloaded = importlib.reload(sw_config_broker)
-        except ImportError as e:
-            pytest.fail(
-                f"M-6: sw_config_broker reload 失败（疑似循环依赖）: {e}"
-            )
+        cache_src = inspect.getsource(sw_config_lists_cache)
+        detect_src = inspect.getsource(sw_detect)
 
-        # 验证 reload 后 name 仍在
-        assert hasattr(reloaded, "detect_solidworks")
-        assert hasattr(reloaded, "cache_mod")
+        # M-6 / spec §2.1 循环依赖静态防御
+        assert "from adapters.solidworks.sw_config_broker" not in cache_src, (
+            "T4: sw_config_lists_cache 不应反向 import sw_config_broker"
+        )
+        assert "from adapters.solidworks.sw_config_broker" not in detect_src, (
+            "T4: sw_detect 不应反向 import sw_config_broker"
+        )
+        assert "import adapters.solidworks.sw_config_broker" not in cache_src
+        assert "import adapters.solidworks.sw_config_broker" not in detect_src
 
 
 class TestMypyCIGate:
