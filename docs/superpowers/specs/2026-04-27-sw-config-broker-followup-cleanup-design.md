@@ -12,12 +12,15 @@
 ## §1 背景 + 范围
 
 PR #21（v2.21.0）关闭 §11 中 M-2 / M-4 + 新登记 M-8 / M-9 后，
-`2026-04-26-sw-toolbox-config-list-cache-design.md` §11 共 open 8 项：
-M-1 / M-3 / M-5 / M-6 / M-7 / M-8 / I-4 / M-9。
+`2026-04-26-sw-toolbox-config-list-cache-design.md` §11 状态：
 
-本 PR 收官其中 5 项（**M-3 / M-6 / M-7 / M-8 / I-4**），剩余 3 项（M-1 fsync / M-5 timeout
-公式 / M-9 CI gate trace）保留 open——M-1/M-5 涉及真持久化语义改动 + 真行为基线重测，
-推迟到独立 PR；M-9 是纯文档 trace，已在 PR #21 spec 注释化，无需独立 PR。
+- **open 7 项**（需修复）：M-1 / M-3 / M-5 / M-6 / M-7 / M-8 / I-4
+- **doc-only tracking 1 项**：M-9（CI gate trace 已在 PR #21 spec 注释化，无需修复，仅
+  保留跟踪不丢线索）
+
+本 PR 收官 open 中 5 项（**M-3 / M-6 / M-7 / M-8 / I-4**），剩 open 2 项（M-1 fsync /
+M-5 timeout 公式）涉及真持久化语义改动 + 真行为基线重测，推迟到独立 PR。M-9 状态
+不变（doc-only tracking）。
 
 ### §1.1 范围分类
 
@@ -208,8 +211,8 @@ strict = true
 mypy-strict:
   runs-on: ubuntu-latest
   steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
+    - uses: actions/checkout@v6  # 与现有 tests.yml 既有 jobs 版本对齐
+    - uses: actions/setup-python@v6
       with:
         python-version: '3.11'
     - run: pip install "mypy>=1.10"
@@ -294,11 +297,17 @@ def test_invalid_reason_assertion_holds_under_validate_contract(
         sw_config_broker, "_validate_cached_decision", _broken_validate
     )
 
-    # 复用 TestRunCachedFallbackToRuleMatch 的 envelope/bom_row fixtures
-    # 走到 cached_decision 失效路径
+    # 复用 TestResolveConfigForPart.test_path_2b_cached_decision_invalidate
+    # 的 envelope/bom_row fixture pattern 走到 cached_decision 失效路径
+    # （main 当前该测试在 line 779；plan 实施时 grep 重定位）
     with pytest.raises(AssertionError):
-        sw_config_broker._resolve_config(...)
+        sw_config_broker._resolve_config_for_part_unlocked(...)
 ```
+
+**注**：真实模块 API 是 `resolve_config_for_part`（public, 走 file lock）+
+`_resolve_config_for_part_unlocked`（private, 真正 cache 校验逻辑所在）；本测试 mock
+`_validate_cached_decision` 触发 `_resolve_config_for_part_unlocked` 内 `assert` 路径，
+所以调 unlocked 版（与 §2.3 "目标位置"一致）。
 
 ### §4.4 mypy CI 守护范围（M-7 + M-8 通用）
 
@@ -374,10 +383,12 @@ implementation plan 必须包含此前置条件检查（plan task：`pre-check: 
 - M-2 / M-4 (PR #21) ✅
 - M-3 / M-6 / M-7 / M-8 / I-4 (本 PR) ✅
 
-### 仍 open（3 项）
+### 仍 open（2 项）
 - M-1 fsync 缺失（独立 PR）
 - M-5 prewarm timeout 缩放（独立 PR）
-- M-9 CI gate trace（纯文档已注释化，开放跟踪不丢线索）
+
+### doc-only tracking（1 项）
+- M-9 CI gate trace（纯文档已注释化，保留跟踪不丢线索）
 ```
 
 ---
@@ -390,15 +401,16 @@ implementation plan 必须包含此前置条件检查（plan task：`pre-check: 
 
 ### §6.2 Commit 切分
 
-按"单一主题、可回滚"切 6 个 commit：
+按"单一主题、可回滚"切 6 个 commit。**重要：spec §11 closure mark（commit 6）
+必须排在所有代码改动 commit 之后**——避免回滚某个代码 commit 后 spec 仍声明 closed。
 
 ```
 1. test(sw_config_broker): RED — M-8 assertion 契约测试（先 fail）
 2. feat(sw_config_broker): M-7 + M-8 — Literal type + caller assert
 3. chore(sw_config_broker): M-6 — 函数级 import 提到模块级
 4. ci(mypy): mypy strict gate (sw_config_broker.py only)
-5. docs(spec): §11 标 M-3/M-6/M-7/M-8/I-4 closed + 引用本 spec
-6. chore(sw_config_broker): I-4 加 1 行已知限制注释
+5. chore(sw_config_lists_cache): I-4 加 1 行已知限制注释
+6. docs(spec): §11 标 M-3/M-6/M-7/M-8/I-4 closed + 引用本 spec
 ```
 
 Step 1 严格按 CLAUDE.md TDD 铁律先 fail：commit 1 阶段 `_resolve_config` 还未加
@@ -419,8 +431,9 @@ Step 1 严格按 CLAUDE.md TDD 铁律先 fail：commit 1 阶段 `_resolve_config
 
 ### Added
 - **mypy strict CI gate（渐进式 typing 政策）**：仅
-  `adapters/solidworks/sw_config_broker.py` 进 strict 检查（`pyproject.toml [tool.mypy]`
-  + `tests.yml mypy-strict job`）。未来 cleanup PR 触动新模块时按需扩展。
+  `adapters/solidworks/sw_config_broker.py` 进 strict 检查
+  （`pyproject.toml [tool.mypy] + [[tool.mypy.overrides]]` 两个 section，strict 在
+  overrides 内启用）+ `tests.yml mypy-strict job`。未来 cleanup PR 触动新模块时按需扩展。
   CI step 直接 `pip install "mypy>=1.10"`（main pyproject 无 `dev` 群组，本 PR 不引入）。
 ```
 
@@ -430,7 +443,7 @@ Step 1 严格按 CLAUDE.md TDD 铁律先 fail：commit 1 阶段 `_resolve_config
 ## Summary
 - §11 follow-up cleanup: M-6/M-7/M-8 真改 + M-3/I-4 文档化
 - mypy strict CI gate scope = sw_config_broker.py 一文件（渐进式 typing）
-- spec §11 close 5 项 → 仍 open 3 项（M-1 / M-5 / M-9）
+- spec §11 close 5 项 → 仍 open 2 项（M-1 / M-5）+ 1 doc-only tracking（M-9）
 
 ## Test plan
 - [ ] 既有 broker 测试全 PASS 不 regression（基线数：PR #21 merge 后 main 上 ~199 个，main 当前 108 个；实施时以前置条件 PR #21 merge 后状态为准）
@@ -511,7 +524,10 @@ edit 会因 base file 不存在 fail。plan 第一个 task 必为 `pre-check: PR
 
 - mypy strict scope 扩展规则严格按 §3.3 渐进式政策——**禁止**为绕过本 PR 范围而扫历史模块加 strict
 - M-7 删除 INVALIDATION_REASONS 运行时校验是有意决策（YAGNI + 类型系统已守）；未来若有人想"加回防御校验"，须先 grep 调用方已加新 caller，否则保持删除状态
-- M-8 用 `assert` 是 mypy narrow 策略；如未来项目跑 `python -O` 部署，须升级为 `if invalid_reason is None: raise RuntimeError(...)`，并保留 §4.3 测试
+- M-8 用 `assert` 是 mypy narrow 策略；如未来项目跑 `python -O` 部署，须升级为
+  `if invalid_reason is None: raise RuntimeError(...)`，并把 §4.3 测试中
+  `pytest.raises(AssertionError)` 同步改为 `pytest.raises(RuntimeError)`（核心契约
+  "契约破裂必须显式失败"语义不变；仅断言异常类型变更）
 
 ---
 
