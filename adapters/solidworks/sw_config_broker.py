@@ -25,15 +25,21 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 
+# spec §2.2 Step 1 (M-7)：Literal 类型别名让 mypy 编译期捕获错传字面量。
+InvalidationReason = Literal[
+    "bom_dim_signature_changed",
+    "sldprt_filename_changed",
+    "config_name_not_in_available_configs",
+]
+
 # review I-2: invalidation_reason 受控枚举（spec §5.2 三项失效条件之一）。
-# 在 _move_decision_to_history 头部校验防 caller 传错值进 history 后无法 group by 审计。
-INVALIDATION_REASONS = frozenset({
+INVALIDATION_REASONS: frozenset[InvalidationReason] = frozenset({
     "bom_dim_signature_changed",
     "sldprt_filename_changed",
     "config_name_not_in_available_configs",
@@ -198,7 +204,7 @@ def _validate_cached_decision(
     current_bom_signature: str,
     current_sldprt_filename: str,
     current_available_configs: list[str],
-) -> tuple[bool, str | None]:
+) -> tuple[bool, InvalidationReason | None]:
     """三项校验（spec §5.2）。返回 (is_valid, invalidation_reason)。
 
     - bom_dim_signature_changed: BOM 行字段变了（用户改了 spec）
@@ -426,19 +432,13 @@ def _move_decision_to_history(
     envelope: dict[str, Any],
     subsystem: str,
     part_no: str,
-    invalidation_reason: str,
+    invalidation_reason: InvalidationReason,
 ) -> None:
     """把 decision 拷贝到 envelope[decisions_history] 并删除原位（in-place）。
 
     调用方负责 _save_decisions_envelope 持久化。
-    invalidation_reason 必须是 INVALIDATION_REASONS 之一（review I-2 校验）。
+    invalidation_reason 类型由 mypy 编译期 Literal 守护（spec §2.2 Step 3 M-7）。
     """
-    if invalidation_reason not in INVALIDATION_REASONS:
-        raise ValueError(
-            f"未知 invalidation_reason: {invalidation_reason!r}，"
-            f"合法值为 {sorted(INVALIDATION_REASONS)}"
-        )
-
     decision = envelope["decisions_by_subsystem"][subsystem].pop(part_no)
     envelope.setdefault("decisions_history", []).append({
         "subsystem": subsystem,

@@ -822,21 +822,6 @@ class TestDecisionAccessors:
         assert "previous_decision" in history_entry
         assert "invalidated_at" in history_entry
 
-    def test_move_decision_rejects_unknown_reason(self):
-        """review I-2: invalidation_reason 不在 INVALIDATION_REASONS 内 → ValueError"""
-        from adapters.solidworks.sw_config_broker import _move_decision_to_history
-
-        env = {
-            "decisions_by_subsystem": {
-                "end_effector": {"GIS-EE-001-03": {"decision": "use_config", "config_name": "X"}}
-            },
-            "decisions_history": [],
-        }
-        with pytest.raises(ValueError, match="未知 invalidation_reason"):
-            _move_decision_to_history(env, "end_effector", "GIS-EE-001-03", "bom_change")
-        # 校验失败时不应 mutate envelope
-        assert "GIS-EE-001-03" in env["decisions_by_subsystem"]["end_effector"]
-        assert env["decisions_history"] == []
 
 
 class TestListConfigsViaCom:
