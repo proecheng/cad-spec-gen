@@ -3929,6 +3929,10 @@ class TestMypyCIGate:
     def test_mypy_strict_passes_current_module(self):
         """T18 (spec §4.7): 当前 sw_config_broker.py 在 mypy --platform=win32 --strict
         下必 pass（退出码 0）。守护 PR 自身不引入新 type error。
+
+        注：CLI 显式带 --strict 是有意——T18 测试比 CI mypy-strict job 命令
+        （依赖 pyproject [[overrides]] 提供 strict）更严格的场景，双层守护
+        防 pyproject 配置漂移误降 strict。两种模式都应 pass。
         """
         import subprocess
         import sys
