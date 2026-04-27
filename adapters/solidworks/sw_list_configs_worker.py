@@ -3,11 +3,12 @@
 Task 14.6：加 --batch 模式（stdin JSON list → stdout JSON list of {path, configs}），
 保留单件 CLI 模式（python -m ... <sldprt_path>）兼容（broker fallback 路径仍调单件）。
 
-退出码契约：
-    0  成功（stdout 输出 JSON）
-    2  OpenDoc6 errors 非 0 或返回 null model（仅单件模式）
-    4  任何未预期 Exception（COM 崩溃、pywin32 import 失败等，仅单件模式）
-    64 命令行参数错误 / batch stdin 非合法 JSON
+退出码契约（spec §3.1.2，M-2/M-4 cleanup PR 生效）：
+    0  EXIT_OK — 成功（stdout 输出 JSON）
+    2  EXIT_TERMINAL — 重试仍失败（SLDPRT 损坏 / pywin32 未装 / 已知 terminal 错误）
+    3  EXIT_TRANSIENT — 重试可能成功（资源不足 / COM 暂断 / 未识别异常兜底）
+    64 EXIT_USAGE — 命令行参数错误 / batch stdin 非合法 JSON
+注：rc=4 已在本 PR 废弃（分流到 rc=2/3）；broker 端保留 WORKER_EXIT_LEGACY=4 兜底旧 worker 进程。
 
 CLI:
     python -m adapters.solidworks.sw_list_configs_worker <sldprt_path>
