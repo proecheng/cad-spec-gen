@@ -80,7 +80,9 @@ def _classify_worker_exception(e: BaseException) -> int:
     # pythoncom.com_error 仅在 worker 已 import pythoncom 后才能 isinstance 检查
     try:
         import pythoncom
-        if isinstance(e, pythoncom.com_error):
+        # type guard 防御 mock pythoncom（缺 com_error / com_error 非类型）+ 真实 unload 边角
+        com_error = getattr(pythoncom, "com_error", None)
+        if isinstance(com_error, type) and isinstance(e, com_error):
             hresult = getattr(e, "hresult", None) or (e.args[0] if e.args else None)
             return EXIT_TRANSIENT if hresult in _TRANSIENT_COM_HRESULTS else EXIT_TERMINAL
     except ImportError:
@@ -145,26 +147,19 @@ def _list_configs_returning(sldprt_path: str) -> list[str]:
 
 
 def _list_configs(sldprt_path: str) -> int:
-    """单件 CLI 模式入口：返 exit code，stdout 打印 JSON list of strings。"""
+    """单件 CLI 模式入口：返 exit code，stdout 打印 JSON list of strings.
+
+    spec §3.1.7：所有异常喂给 _classify_worker_exception 分流（DRY，I12）。
+    """
     try:
-        try:
-            import pythoncom  # noqa: F401
-            import win32com.client  # noqa: F401
-        except ImportError as e:
-            print(f"worker: pywin32 import failed: {e!r}", file=sys.stderr)
-            return 4
-        try:
-            names = _list_configs_returning(sldprt_path)
-        except RuntimeError as e:
-            print(f"worker: {e}", file=sys.stderr)
-            if "OpenDoc6" in str(e):
-                return 2
-            return 4
+        names = _list_configs_returning(sldprt_path)
         print(json.dumps(names, ensure_ascii=False))
-        return 0
-    except Exception as e:
-        print(f"worker: unexpected exception: {e!r}", file=sys.stderr)
-        return 4
+        return EXIT_OK
+    except (KeyboardInterrupt, SystemExit):
+        raise  # 永不当作可恢复错误吞掉
+    except BaseException as e:
+        print(f"worker: {type(e).__name__}: {e!r}", file=sys.stderr)
+        return _classify_worker_exception(e)
 
 
 def _run_batch_mode() -> int:
@@ -192,11 +187,26 @@ def _run_batch_mode() -> int:
         from win32com.client import DispatchEx
     except ImportError as e:
         print(f"worker --batch: pywin32 import failed: {e!r}", file=sys.stderr)
-        return 4
+        # rev 4 A1：emit per-entry transient/terminal stdout 让 broker 走 entry 分流
+        # 防整批 fallthrough M-4 失效
+        print(json.dumps([
+            {"path": p, "configs": [], "exit_code": EXIT_TERMINAL}
+            for p in sldprt_list
+        ], ensure_ascii=False))
+        return EXIT_OK
 
     pythoncom.CoInitialize()
     try:
-        app = DispatchEx("SldWorks.Application")
+        try:
+            app = DispatchEx("SldWorks.Application")
+        except pythoncom.com_error as e:
+            # rev 4 A1：DispatchEx 失败也透 entry-level rc
+            print(f"worker --batch: DispatchEx failed: {e!r}", file=sys.stderr)
+            print(json.dumps([
+                {"path": p, "configs": [], "exit_code": _classify_worker_exception(e)}
+                for p in sldprt_list
+            ], ensure_ascii=False))
+            return EXIT_OK
         try:
             app.Visible = False
             app.UserControl = False
@@ -206,16 +216,25 @@ def _run_batch_mode() -> int:
             for sldprt_path in sldprt_list:
                 try:
                     configs = _open_doc_get_configs(app, sldprt_path)
-                except Exception as e:
+                    exit_code = EXIT_OK
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException as e:
                     print(
-                        f"worker --batch: {sldprt_path} failed: {e!r}",
+                        f"worker --batch: {sldprt_path} failed: "
+                        f"{type(e).__name__}: {e!r}",
                         file=sys.stderr,
                     )
                     configs = []
-                results.append({"path": sldprt_path, "configs": configs})
+                    exit_code = _classify_worker_exception(e)
+                results.append({
+                    "path": sldprt_path,
+                    "configs": configs,
+                    "exit_code": exit_code,  # 新增字段（spec §3.3）
+                })
 
             print(json.dumps(results, ensure_ascii=False))
-            return 0
+            return EXIT_OK
         finally:
             try:
                 app.ExitApp()
