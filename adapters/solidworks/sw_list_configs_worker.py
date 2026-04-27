@@ -39,6 +39,30 @@ class OpenDocFailure(RuntimeError):
         )
 
 
+# spec §3.1.2 退出码合约
+EXIT_OK = 0
+EXIT_TERMINAL = 2
+EXIT_TRANSIENT = 3
+EXIT_USAGE = 64
+# 注：EXIT_LEGACY=4 仅 broker 端定义（WORKER_EXIT_LEGACY），worker 不再产出此值
+# spec rev 5 B2 修：worker 端不要列 EXIT_LEGACY 常量
+
+# spec §3.1.4 swFileLoadError transient 数值集合
+# 来源：plan task 0 本机 SW 2024 swconst.tlb 校准真值（spec rev 6）
+_TRANSIENT_OPENDOC_ERRORS: frozenset[int] = frozenset({
+    65536,    # swFileWithSameTitleAlreadyOpen — 同名文件已开
+    262144,   # swLowResourcesError — 资源不足 / 内存压力（注：复数 Resources）
+    8388608,  # swApplicationBusy — SW 进程忙（典型 boot 中）
+})
+
+# spec §3.1.5 已知 transient COM hresult
+_TRANSIENT_COM_HRESULTS: frozenset[int] = frozenset({
+    -2147023170,  # RPC_E_DISCONNECTED — RPC 服务器不可用
+    -2147418113,  # E_FAIL — 通用失败保守归 transient
+    -2147023174,  # RPC_S_CALL_FAILED — 调用瞬时中断
+})
+
+
 def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
     """共享 primitive：在已 boot 的 app 上 OpenDoc6 取配置名 CloseDoc。
 
