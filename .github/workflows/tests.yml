@@ -41,6 +41,12 @@ jobs:
         run: pip install bd_warehouse
         continue-on-error: true  # bd_warehouse may fail to install on old Python
 
+      - name: Install Windows-only deps (pywin32 for sw_list_configs_worker)
+        # PR #21 hotfix：worker 测试需 pythoncom（pywin32 一部分），CI Windows
+        # runner 不预装。Linux/macOS 不装（worker 测试全 SKIP requires_solidworks）。
+        if: runner.os == 'Windows'
+        run: pip install pywin32
+
       - name: Sync data/ mirrors
         # dev_sync.py 约定：exit 0 = 无变更 / exit 1 = 有文件被同步（非错误）/ exit >1 = 真错误。
         # 用 `|| rc=$?` 避开 bash -e 在 rc=1 时直接终止 step；Windows runner 默认 pwsh 解析不了这段

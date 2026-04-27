@@ -10,6 +10,7 @@ spec 引用: docs/superpowers/specs/2026-04-27-sw-config-broker-m2-m4-cleanup-de
 from __future__ import annotations
 
 import json
+import sys
 import unittest.mock as mock
 from pathlib import Path
 
@@ -270,6 +271,10 @@ class TestIntegrationBrokerToCacheChain:
         assert "C:/p_old.sldprt" not in data["entries"]  # 旧 entries 清
         assert str(p1.resolve()) in data["entries"]
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="forward/back slash 一致性是 Windows-specific 问题（Linux 上 \\ 在路径中无意义）",
+    )
     def test_integration_normalize_sldprt_key_consistency_forward_vs_back_slash(
         self, monkeypatch, tmp_path, isolated_cache, mock_sw_detect,
     ):
