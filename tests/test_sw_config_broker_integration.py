@@ -154,52 +154,52 @@ class TestIntegrationBrokerToCacheChain:
     def test_integration_save_failure_does_not_break_subsequent_calls(
         self, monkeypatch, tmp_path, mock_sw_detect, capsys,
     ):
-        """spec §7.4 / I1：save 失败 banner 出 stderr + 不抛 + 后续调用 OK."""
+        """spec §7.4 / I1：save 失败 banner 出 stderr + 不抛 + 后续调用 OK.
+
+        Task 19 修 plan-drift #1（plan 原代码 setup 顺序错 + mock 不区分 batch/single）：
+        1. 先建 sldprt（无 patch 干扰）；2. selective Path.write_text 只拦 cache 路径；
+        3. smart subprocess mock 区分 --batch（list of dict）与 single（list of str）。
+        """
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
         from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
 
-        # cache 路径指向只读不存在的目录（写入会 OSError）
-        readonly_dir = tmp_path / "readonly"
-        # 不创建 readonly_dir → mkdir(parents=True) 创建后写入仍可能 OK；改用 mock
-        from pathlib import Path
-        original_write_text = Path.write_text
+        # 1. 先创 sldprt（无 patch 干扰）
+        p1 = tmp_path / "p1.sldprt"
+        p1.write_text("dummy")
 
-        call_count = {"n": 0}
-        def fake_write_text(self, *args, **kwargs):
-            call_count["n"] += 1
-            raise PermissionError("simulated lock")
-        monkeypatch.setattr(Path, "write_text", fake_write_text)
+        # 2. monkeypatch cache 路径 → tmp_path 隔离
         monkeypatch.setattr(
             cache_mod, "get_config_lists_cache_path",
             lambda: tmp_path / "sw_config_lists.json",
         )
 
-        p1 = tmp_path / "p1.sldprt"
-        p1.write_text("dummy")
-        monkeypatch.setattr(Path, "write_text", original_write_text)  # 恢复给 sldprt 写
-        # 重新 patch 仅 cache 路径
-        cache_path = tmp_path / "sw_config_lists.json"
-        original_replace = monkeypatch.setattr  # noqa
-        def fake_write_text_cache(self, *args, **kwargs):
+        # 3. selective Path.write_text — 只对 cache 文件抛 PermissionError
+        from pathlib import Path
+        original_write_text = Path.write_text
+        def fake_write_text_selective(self, *args, **kwargs):
             if "sw_config_lists" in str(self):
                 raise PermissionError("simulated lock")
             return original_write_text(self, *args, **kwargs)
-        monkeypatch.setattr(Path, "write_text", fake_write_text_cache)
+        monkeypatch.setattr(Path, "write_text", fake_write_text_selective)
 
-        worker_stdout = json.dumps([{"path": str(p1), "configs": ["A"], "exit_code": 0}])
-        monkeypatch.setattr(
-            "subprocess.run",
-            lambda *a, **kw: mock.MagicMock(returncode=0, stdout=worker_stdout.encode(),
-                                              stderr=b""),
-        )
+        # 4. smart subprocess.run mock：batch 返 list of dict / single 返 list of str
+        worker_batch_stdout = json.dumps(
+            [{"path": str(p1), "configs": ["A"], "exit_code": 0}],
+        ).encode()
+        worker_single_stdout = json.dumps(["A"]).encode()
+        def smart_run(cmd, *a, **kw):
+            stdout = worker_batch_stdout if "--batch" in cmd else worker_single_stdout
+            return mock.MagicMock(returncode=0, stdout=stdout, stderr=b"")
+        monkeypatch.setattr("subprocess.run", smart_run)
 
-        # 第 1 次：banner 出 + 不抛
+        # 5. 第 1 次 prewarm：cache save 抛 PermissionError → banner 出 + 不抛
         broker.prewarm_config_lists([str(p1)])
         err = capsys.readouterr().err
         assert "⚠ cache 文件" in err
 
-        # 第 2 次：仍能调
+        # 6. 第 2 次：_list_configs_via_com 不抛 + 返合法 list（spec I1 fire-and-forget）
+        # 注：save 失败让 L1 没落盘 → fallback 走 single worker → 返 ["A"]
         result = broker._list_configs_via_com(str(p1))
         assert result == ["A"]  # L2 hit
 
