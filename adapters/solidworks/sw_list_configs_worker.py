@@ -63,6 +63,35 @@ _TRANSIENT_COM_HRESULTS: frozenset[int] = frozenset({
 })
 
 
+def _classify_worker_exception(e: BaseException) -> int:
+    """worker 端异常分类的唯一入口；单件 + batch 共享调用（DRY，spec §3.1.6 / I12）。
+
+    返回 EXIT_TERMINAL (2) / EXIT_TRANSIENT (3)。
+    KeyboardInterrupt / SystemExit 不应进入此函数 — caller 必须先 raise。
+    """
+    if isinstance(e, OpenDocFailure):
+        if e.errors in _TRANSIENT_OPENDOC_ERRORS:
+            return EXIT_TRANSIENT
+        return EXIT_TERMINAL  # 含未识别 errors 值 + null model 边角
+
+    if isinstance(e, ImportError):
+        return EXIT_TERMINAL  # pywin32 没装是部署问题，重试不会变
+
+    # pythoncom.com_error 仅在 worker 已 import pythoncom 后才能 isinstance 检查
+    try:
+        import pythoncom
+        if isinstance(e, pythoncom.com_error):
+            hresult = getattr(e, "hresult", None) or (e.args[0] if e.args else None)
+            return EXIT_TRANSIENT if hresult in _TRANSIENT_COM_HRESULTS else EXIT_TERMINAL
+    except ImportError:
+        # rev 3 M4 注：理论 dead code — _list_configs_returning 已 import pythoncom，
+        # 此处 import 不会失败。保留作防御：worker 启动后 pythoncom 异常 unload 边角。
+        pass
+
+    # 兜底：未识别 Exception 归 transient（避免 worker 自身 bug 永久污染 cache）
+    return EXIT_TRANSIENT
+
+
 def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
     """共享 primitive：在已 boot 的 app 上 OpenDoc6 取配置名 CloseDoc。
 
