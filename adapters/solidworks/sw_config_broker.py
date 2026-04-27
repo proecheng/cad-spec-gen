@@ -496,13 +496,12 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
         # L1 读失败不影响 fallback；下次 prewarm 自愈
         log.debug("config_lists L1 read skipped: %s", e)
 
-    # Layer 3：fallback 单件 spawn（现有逻辑保留）
+    # Layer 3：fallback 单件 spawn（spec §3.2.2 rc 分流）
     cmd = [
         sys.executable,
         "-m", "adapters.solidworks.sw_list_configs_worker",
         sldprt_path,
     ]
-
     try:
         proc = subprocess.run(
             cmd,
@@ -518,25 +517,48 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
             "list_configs subprocess 超时 %ds: %s",
             LIST_CONFIGS_TIMEOUT_SEC, sldprt_path,
         )
-        _CONFIG_LIST_CACHE[abs_path] = []
-        return []
+        return []  # 不 cache — TimeoutExpired 视为 transient
+    except OSError as e:
+        log.warning("list_configs subprocess OSError: %s", e)
+        return []  # 不 cache — OSError 视为 transient
 
-    if proc.returncode != 0:
+    rc = proc.returncode
+    if rc == WORKER_EXIT_TERMINAL:
         log.warning(
-            "list_configs subprocess rc=%d sldprt=%s stderr=%s",
-            proc.returncode, sldprt_path, (proc.stderr or "")[:300],
+            "list_configs terminal failure: %s stderr=%s",
+            sldprt_path, (proc.stderr or "")[:300],
         )
-        _CONFIG_LIST_CACHE[abs_path] = []
+        _CONFIG_LIST_CACHE[abs_path] = []  # cache [] 防 BOM loop 反复重试
         return []
 
+    if rc == WORKER_EXIT_TRANSIENT:
+        log.warning(
+            "list_configs transient failure: %s stderr=%s",
+            sldprt_path, (proc.stderr or "")[:300],
+        )
+        return []  # 不 cache — 同 process 后续调用仍重试
+
+    if rc == WORKER_EXIT_LEGACY:
+        # 旧 worker 升级期混跑兜底（spec §3.1.2）
+        log.warning("list_configs legacy rc=4 (旧 worker)：当 transient 处理")
+        return []  # 不 cache
+
+    if rc != WORKER_EXIT_OK:
+        # 未知 rc（SIGKILL=-9 / 旧版 worker 其他值）：保守归 transient
+        log.warning(
+            "list_configs unexpected rc=%d: %s",
+            rc, sldprt_path,
+        )
+        return []  # 不 cache
+
+    # rc=0 success path
     try:
         configs = json.loads(proc.stdout.strip())
         if not isinstance(configs, list):
             raise ValueError("not a list")
     except (json.JSONDecodeError, ValueError) as e:
         log.warning("list_configs stdout 非合法 JSON list: %s", e)
-        _CONFIG_LIST_CACHE[abs_path] = []
-        return []
+        return []  # 不 cache — JSON 损坏归 transient
 
     _CONFIG_LIST_CACHE[abs_path] = configs
     # spec §3.1 issue 4：fallback 路径不写 L1 持久化（并发竞争代价 > 优化收益）
