@@ -51,11 +51,13 @@ jobs:
           python scripts/dev_sync.py || rc=$?
           if [ "$rc" -gt 1 ]; then exit "$rc"; fi
 
-      - name: Run tests (Linux / macOS)
+      - name: Run tests with coverage gate (Linux / macOS)
+        # rev 5 H + plan-drift fix：addopts 已触发 cov（pyproject.toml），
+        # 此处显式 --cov-fail-under=95 enforce CI gate（仅本 PR 三模块 ≥95%）
         if: runner.os != 'Windows'
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --cov-fail-under=95
 
-      - name: Run tests (Windows, PYTHONUTF8=1)
+      - name: Run tests with coverage gate (Windows, PYTHONUTF8=1)
         # Workaround for gumyr/bd_warehouse#75 — forces Python to use
         # UTF-8 for open() defaults so bd_warehouse CSV reads don't
         # crash on non-UTF-8 locale hosts. Remove once the upstream PR
@@ -63,7 +65,15 @@ jobs:
         if: runner.os == 'Windows'
         env:
           PYTHONUTF8: "1"
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --cov-fail-under=95
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python-version }}
+          path: .coverage
+          if-no-files-found: ignore
 
   # ─── Byte-identical regression gate ───────────────────────────────────
   # Proves that with CAD_PARTS_LIBRARY_DISABLE=1 OR no parts_library.yaml,

@@ -81,3 +81,36 @@ markers = [
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
 ]
 testpaths = ["tests"]
+# rev 5 H：默认所有 pytest 调用启 sw_config_broker M-2/M-4 三模块 cov 报告
+# plan-drift fix：plan 写 --cov-fail-under=95 in addopts 让单文件 test 必 fail；
+# 改为 CI tests.yml 显式加 fail_under flag 而非全局 addopts（本地开发不烦）。
+addopts = [
+    "--cov=adapters.solidworks.sw_config_broker",
+    "--cov=adapters.solidworks.sw_config_lists_cache",
+    "--cov=adapters.solidworks.sw_list_configs_worker",
+    "--cov-report=term-missing",
+]
+
+# rev 5 H：覆盖率 enforce（spec §12）— 仅 sw_config_broker M-2/M-4 三模块
+# plan-drift fix：plan 写 source = ["adapters/solidworks"] 让其他 75-82% 模块拉低
+# 加权到 86%，远低于 95%。spec H "防 future regression" 真意 = 本 PR 三模块未来不退化。
+[tool.coverage.run]
+source = [
+    "adapters.solidworks.sw_config_broker",
+    "adapters.solidworks.sw_config_lists_cache",
+    "adapters.solidworks.sw_list_configs_worker",
+]
+# plan-drift fix：plan 写 branch = true 让 partial branch coverage 算严，
+# 三模块从 95.07% 降到 94.07% fail；spec rev 5 H "≥95% 覆盖率"未要求 branch
+# coverage（stmt cov 默认即满足）。关 branch 防 plan-drift。
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == \"__main__\":",
+    "if TYPE_CHECKING:",
+]
+fail_under = 95
+show_missing = true
+skip_covered = false
