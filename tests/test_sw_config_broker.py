@@ -1400,11 +1400,11 @@ class TestPrewarmConfigLists:
         from adapters.solidworks import sw_detect
 
         sw_detect._reset_cache()
-        _fake = lambda: sw_detect.SwInfo(installed=True, version_year=24,
-                                         toolbox_dir="C:/SW")
-        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake)
+        _fake_detect = lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                                toolbox_dir="C:/SW")
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
-        monkeypatch.setattr(broker, "detect_solidworks", _fake)
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
     def test_prewarm_disabled_by_safety_valve(self, patch_paths, fake_sw, monkeypatch):
         """CAD_SW_BROKER_DISABLE=1 → prewarm 立刻返不 spawn worker / 不写 cache."""
@@ -1679,11 +1679,11 @@ class TestListConfigsViaComThreeLayer:
     def fake_sw(self, monkeypatch):
         from adapters.solidworks import sw_detect
         sw_detect._reset_cache()
-        _fake = lambda: sw_detect.SwInfo(installed=True, version_year=24,
-                                         toolbox_dir="C:/SW")
-        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake)
+        _fake_detect = lambda: sw_detect.SwInfo(installed=True, version_year=24,
+                                                toolbox_dir="C:/SW")
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
-        monkeypatch.setattr(broker, "detect_solidworks", _fake)
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
     def test_l1_persistent_cache_hit_fills_l2_no_spawn(
         self, patch_paths, fake_sw, monkeypatch, tmp_path,
@@ -2919,12 +2919,12 @@ class TestRev5BrokerRcDispatch:
         from adapters.solidworks import sw_detect
 
         sw_detect._reset_cache()
-        _fake = lambda: sw_detect.SwInfo(
+        _fake_detect = lambda: sw_detect.SwInfo(
             installed=True, version_year=24, toolbox_dir="C:/SW",
         )
-        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake)
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
-        monkeypatch.setattr(broker, "detect_solidworks", _fake)
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
     # ─── helpers ────────────────────────────────────────────────────
     @staticmethod

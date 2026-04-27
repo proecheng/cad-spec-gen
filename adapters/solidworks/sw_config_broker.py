@@ -505,7 +505,6 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
 
     # Layer 1：持久化 cache（Task 14.6 新增）
     try:
-        from adapters.solidworks import sw_config_lists_cache as cache_mod
         cache = cache_mod._load_config_lists_cache()
         if not cache_mod._envelope_invalidated(cache):
             entry = cache.get("entries", {}).get(abs_path)
