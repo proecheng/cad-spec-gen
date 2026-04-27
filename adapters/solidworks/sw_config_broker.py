@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # M-6 (spec §2.1): 函数级 import 提到模块级，让 mock.patch.object 可工作
 # （cad_pipeline.py best practice）+ 避免重复 import 性能开销。
@@ -427,10 +427,11 @@ def _get_decision_for_part(
 
     三层 chained .get(..., {}) 不 mutate envelope（每层 default 是临时空 dict）。
     """
-    return (
+    return cast(
+        "dict[str, Any] | None",
         envelope.get("decisions_by_subsystem", {})
         .get(subsystem, {})
-        .get(part_no)
+        .get(part_no),
     )
 
 
@@ -511,7 +512,7 @@ def _list_configs_via_com(sldprt_path: str) -> list[str]:
             if entry is not None and cache_mod._config_list_entry_valid(
                 cache, abs_path,
             ):
-                configs = entry["configs"]
+                configs: list[str] = entry["configs"]
                 _CONFIG_LIST_CACHE[abs_path] = configs  # 填 L2
                 return configs
     except Exception as e:

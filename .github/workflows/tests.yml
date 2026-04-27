@@ -122,3 +122,18 @@ jobs:
           CAD_PARTS_LIBRARY_DISABLE: "1"
         run: |
           pytest tests/test_parts_resolver.py tests/test_parts_adapters.py -v
+
+  # ─── mypy strict CI gate (spec §3) ────────────────────────────────────
+  # Scope: 仅 adapters/solidworks/sw_config_broker.py（渐进式 typing 政策）。
+  # --platform=win32 让 mypy 看见 msvcrt（_project_file_lock 内 Windows-only API）。
+  mypy-strict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install mypy
+        run: pip install "mypy>=1.10"
+      - name: Run mypy strict on sw_config_broker.py
+        run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py

@@ -79,7 +79,7 @@ markers = [
     "blender: real Blender headless smoke tests (v2.9.2+); auto-skip if Blender missing",
     "real_subprocess: 真 subprocess / 真 IO 集成测试，无需真实 SolidWorks，默认 pytest 不跑；需 -m real_subprocess",
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
-    "mypy: mypy CI gate self-check tests (subprocess mypy invocation)",
+    "mypy: mypy CI gate 自校验测试（subprocess 调 mypy 验证 gate 有效）",
 ]
 testpaths = ["tests"]
 # rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：
@@ -113,3 +113,28 @@ exclude_lines = [
 fail_under = 95
 show_missing = true
 skip_covered = false
+
+[tool.mypy]
+# 渐进式 typing 政策（spec §3 / §11 M-7 决策）：仅本 PR 触动模块进 strict。
+# 未来 cleanup PR 触动新模块时按需在 [[tool.mypy.overrides]] 加入。
+python_version = "3.10"  # 与 requires-python = ">=3.10" 对齐
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true  # 默认非 strict 防历史债爆炸
+explicit_package_bases = true  # 解决 adapters.solidworks 双重 module 名
+
+[[tool.mypy.overrides]]
+module = "adapters.solidworks.sw_config_broker"
+strict = true
+
+[[tool.mypy.overrides]]
+# 历史债模块（sw_detect / sw_config_lists_cache）：transitive import 被 broker
+# gate 扫到；暂不进 strict，ignore_errors 防止它们的历史 type error 污染 broker gate。
+# 未来 cleanup PR 触动这些模块时再移除 ignore_errors + 加 strict。
+module = [
+    "adapters.solidworks.sw_detect",
+    "adapters.solidworks.sw_config_lists_cache",
+    "cad_paths",
+]
+ignore_errors = true

@@ -3898,6 +3898,7 @@ class TestMypyCIGate:
         fixture 文件。subprocess 调 mypy 验证退出码非零。
         """
         import subprocess
+        import sys
         from pathlib import Path
 
         repo_root = Path(__file__).resolve().parents[1]
@@ -3909,7 +3910,7 @@ class TestMypyCIGate:
         )
 
         result = subprocess.run(
-            ["mypy", "--platform=win32", "--strict",
+            [sys.executable, "-m", "mypy", "--platform=win32", "--strict",
              "--explicit-package-bases", str(fixture_path)],
             capture_output=True,
             text=True,
@@ -3922,4 +3923,29 @@ class TestMypyCIGate:
         )
         assert "error:" in result.stdout, (
             f"T17: mypy 输出应含 error。stdout: {result.stdout}"
+        )
+
+    @pytest.mark.mypy
+    def test_mypy_strict_passes_current_module(self):
+        """T18 (spec §4.7): 当前 sw_config_broker.py 在 mypy --platform=win32 --strict
+        下必 pass（退出码 0）。守护 PR 自身不引入新 type error。
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[1]
+        target = repo_root / "adapters" / "solidworks" / "sw_config_broker.py"
+
+        result = subprocess.run(
+            [sys.executable, "-m", "mypy", "--platform=win32",
+             "--strict", str(target)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, (
+            f"T18: sw_config_broker.py mypy 失败，引入新 type error。"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
