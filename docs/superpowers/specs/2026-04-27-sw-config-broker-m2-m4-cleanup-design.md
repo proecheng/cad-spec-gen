@@ -1,7 +1,13 @@
 # sw_config_broker §11 技术债清理 — M-2 + M-4 设计 spec
 
-- **rev**: 2（user-review 抓 5 处 drift 后修订）
-- **rev 1 → rev 2 修订记录**（user-review 触发，2026-04-27）：
+- **rev**: 3（user-review 二轮抓"改完跟没改一样"风险后修订）
+- **rev 2 → rev 3 修订记录**（user 反向影响审查触发，2026-04-27）：
+  - **C1 修复（重试风暴防御）**：rev 2 的 `rc=3 → 不 cache + 重试` 在 BOM loop × 多次调用同 sldprt 场景下会触发 N × 30s SW boot 浪费。改为 **short-TTL cache**（60s 内同 process 同 sldprt 复用 `[]`，超 60s 失效允许重试）— 见 §3.2 + §4 Path 6 + I13 + Edge 11
+  - **C2 修复（旧 worker batch 兼容真兼容）**：rev 2 `entry.get("exit_code", WORKER_EXIT_OK)` 让旧 worker 的 catch-all `configs=[]` 被当 success 永久 cache 污染（M-4 在升级期窗口完全失效）。改为 **缺字段当 invalidate signal**（不写 entries）— 见 §3.3 改写 + 测试断言反转
+  - **I3 修复（banner 信息密度）**：banner 加安抚文案"本次 codegen 不受影响；下次 prewarm 仍会自动重试"防止用户误以为 hard fail
+  - **M4 标注（dead code 防御性）**：§3.1.6 `try: import pythoncom / except ImportError: pass` 加注释说明"防御 worker 启动后 pythoncom 异常 unload 边角，几乎不触发"
+  - **M5 标注（worker/broker 常量双边维护）**：§10 加 maintainer note "worker `EXIT_*` 改值必同步 broker `WORKER_EXIT_*`"
+- **rev 1 → rev 2 修订记录**（user-review drift 触发，2026-04-27）：
   - **Drift 1 修复**：明确 worker 现状已有 4 退出码合约（0/2/4/64），`rc=4` 在本 PR 后**废弃**并分流到 `rc=2/rc=3`；broker 端为兼容旧 worker 进程混跑场景加 `rc=4 → transient` 兜底
   - **Drift 2 修复**：worker 改造点是**重写 `_list_configs` 内部 except 映射**（L75-95），不是新建 `main()` try/except；伪代码位置错误已修
   - **Drift 3 修复**：`pythoncom.com_error` 在 OpenDoc6 路径上被 `RuntimeError("OpenDoc6 errors=N ...")` 包装，**hresult 分类只对 DispatchEx / GetConfigurationNames 路径有效**；OpenDoc6 路径改用**带字段的 `OpenDocFailure(RuntimeError)` 子类异常**（用户 review 选 B 方案：改 primitive 而不是字符串解析），按 `errors: int` 数值分流；新增"swFileLoadError 数值表"作分类基底
@@ -175,7 +181,11 @@ def _classify_worker_exception(e: BaseException) -> int:
             hresult = getattr(e, "hresult", None) or (e.args[0] if e.args else None)
             return EXIT_TRANSIENT if hresult in _TRANSIENT_COM_HRESULTS else EXIT_TERMINAL
     except ImportError:
-        pass  # pythoncom 不可用 → 不可能是 com_error 实例
+        # rev 3 M4 注：理论 dead code — _list_configs_returning 已 import pythoncom，
+        # 此处 import 不会失败。保留作防御：worker 启动后 pythoncom 异常 unload 边角，
+        # 或者 _classify_worker_exception 被 _list_configs 路径以外的 caller 误调
+        # （现状无此 caller，但函数应自完备）。
+        pass
     # 兜底：未识别 Exception 归 transient（避免 worker 自身 bug 永久污染 cache）
     return EXIT_TRANSIENT
 ```
@@ -231,33 +241,81 @@ for sldprt_path in sldprt_list:
 
 **整 batch rc 仍是 0**（外部错误如 stdin JSON parse 错走原 rc=64 不变）；分类信号通过 entry-level `exit_code` 字段透传给 broker。
 
-### §3.2 Broker rc 分流
+### §3.2 Broker rc 分流（rev 3：含 short-TTL transient cache）
 
-`adapters/solidworks/sw_config_broker.py` `_list_configs_via_com`（替换 L499-536）：
+#### §3.2.1 broker 端常量与 transient cache 数据结构
 
-```
-spawn worker
-├─ subprocess.TimeoutExpired → log + return [] （★ 不 cache，transient）
-├─ OSError → log + return [] （★ 不 cache，transient）
-├─ rc=0 (EXIT_OK) → JSON parse → cache L2 = configs + return configs
-│   └─ JSON parse 失败 → log + return [] （★ 不 cache，transient — worker stdout 损坏可能瞬时态）
-├─ rc=2 (EXIT_TERMINAL) → cache L2 = [] + return []
-├─ rc=3 (EXIT_TRANSIENT) → return [] （★ 不 cache）
-├─ rc=4 (EXIT_LEGACY，旧 worker) → return [] （★ 不 cache，向后兼容当 transient 处理；spec §3.1.2）
-└─ 其他 rc（未知值 / SIGKILL=-9 / 等） → return [] （★ 不 cache，保守归 transient）
-```
-
-**broker 端常量同步**：`adapters/solidworks/sw_config_broker.py` 顶部新增模块级常量与 worker 端语义对齐：
+`adapters/solidworks/sw_config_broker.py` 顶部新增：
 
 ```python
-# spec §3.1.2 — 与 worker 退出码合约同步
+# spec §3.1.2 — 与 worker 退出码合约同步（双边维护，见 §10 maintainer note）
 WORKER_EXIT_OK = 0
 WORKER_EXIT_TERMINAL = 2
 WORKER_EXIT_TRANSIENT = 3
 WORKER_EXIT_LEGACY = 4  # 废弃，broker 收到当 transient 处理
+
+# spec §3.2.2 short-TTL transient cache：防 BOM loop × 多次调用同 sldprt 触发重试风暴
+TRANSIENT_CACHE_TTL_SEC = 60.0
+
+# transient 失败 short-TTL cache：sldprt_path → (timestamp_set_at, [])
+# 60s 内同 sldprt 复用 [] 不重 spawn worker；超 60s 自动失效允许重试
+_CONFIG_LIST_TRANSIENT_CACHE: dict[str, tuple[float, list[str]]] = {}
 ```
 
-**不变性**：rc=2 是**唯一**会污染 L2 cache 为 `[]` 的路径；其余失败都让下次调用重试。
+#### §3.2.2 `_list_configs_via_com` rc 分流流程（替换 L499-536）
+
+**Layer 优先级**（rev 3 self-correction：transient cache 放 L1/L2 之后、spawn 之前 — 让 prewarm 成功写入的 L1 entry 始终优先于历史 transient cache）：
+
+```
+入参 sldprt_path → abs_path = _normalize_sldprt_key(...)
+
+├─ Layer 2 (in-process L2 success)：现有 _CONFIG_LIST_CACHE 查询（不变） → hit return
+├─ Layer 1 (持久化 L1)：现有 cache_mod 查询（不变） → hit return
+│   ★ rev 3：L1 hit 时如果 transient cache 同 key 存在 → del transient cache entry（success
+│     已用 prewarm 写 L1 后超越 transient 决策；保持 cache 一致性，避免 60s 后 L1 又被读但
+│     transient cache 还残留的过渡污染）
+│
+├─ Layer 0.5: transient cache 查询（spawn worker 前最后一道防线）
+│   if abs_path in _CONFIG_LIST_TRANSIENT_CACHE:
+│       (ts, val) = _CONFIG_LIST_TRANSIENT_CACHE[abs_path]
+│       if time.monotonic() - ts < TRANSIENT_CACHE_TTL_SEC:
+│           return val  # 60s 内命中 → 直接返 []，不重 spawn
+│       else:
+│           del _CONFIG_LIST_TRANSIENT_CACHE[abs_path]  # TTL 过期 → 失效继续
+│
+└─ Layer 3 (fallback) spawn worker：
+    ├─ subprocess.TimeoutExpired → ★ 写 transient cache + return []
+    ├─ OSError → ★ 写 transient cache + return []
+    ├─ rc=0 (EXIT_OK):
+    │   ├─ JSON parse 成功 → cache L2 = configs + return configs
+    │   │   （★ rev 3：成功写 L2 时也 del 同 key 的 transient cache entry —
+    │   │    防 60s 内 process 又看到旧 transient []，保持成功优先语义）
+    │   └─ JSON parse 失败 → ★ 写 transient cache + return []
+    ├─ rc=2 (EXIT_TERMINAL) → cache L2 = [] + return []  （永久 cache）
+    │   （★ rev 3：写 L2 = [] 时也 del 同 key transient cache —
+    │    L2 [] 已是 terminal 决策更强；transient cache 应让位）
+    ├─ rc=3 (EXIT_TRANSIENT) → ★ 写 transient cache + return []
+    ├─ rc=4 (EXIT_LEGACY，旧 worker) → ★ 写 transient cache + return []
+    └─ 其他 rc（SIGKILL=-9 / 未知） → ★ 写 transient cache + return []
+
+★ "写 transient cache" =
+    _CONFIG_LIST_TRANSIENT_CACHE[abs_path] = (time.monotonic(), [])
+```
+
+**Layer 顺序的关键不变性**：L1/L2 的成功/terminal 决策**永远优先于** transient cache 的 []。transient cache 仅在 L1/L2 都 miss + 历史 60s 内同 sldprt 失败过的窗口生效。
+
+**TTL 设计意图**：
+- 60s 短 enough → SW boot/license 短暂故障期过后能自愈重试
+- 60s 长 enough → BOM loop 内同 sldprt 多次调用（典型 component_resolver + validation + apply 3 次）期间不重 spawn
+- `time.monotonic()` 不受系统时钟跳变影响
+
+**transient cache 在 process 退出时丢失** — 这是 by-design：进程内 transient 缓解重试风暴；跨进程要么 prewarm 命中 L1（rc=0/2 写入），要么下次进程重新探测。
+
+#### §3.2.3 不变性
+
+- rc=2 是**唯一**会污染 L1+L2 永久 cache 为 `[]` 的路径
+- transient cache 仅 in-process L0 层；从不写 L1+L2
+- transient cache TTL 过期后自动重试（防永久阻塞）
 
 ### §3.3 Prewarm batch 路径 entry-level rc 分流
 
@@ -276,19 +334,30 @@ worker `--batch` 模式 stdout JSON schema 升级：
 ]
 ```
 
-broker `prewarm_config_lists` L615-628 改为：
+broker `prewarm_config_lists` L615-628 改为（rev 3：缺 exit_code 当 invalidate signal）：
 
 ```python
 for entry in results:
     sldprt_path = entry.get("path", "")
     configs = entry.get("configs", [])
-    rc = entry.get("exit_code", WORKER_EXIT_OK)  # 缺字段 = 旧 worker，默认 0 兼容
+    rc = entry.get("exit_code")  # ★ rev 3：不给 default，缺字段 → None → 当 invalidate
     mtime = cache_mod._stat_mtime(sldprt_path)
     size = cache_mod._stat_size(sldprt_path)
     if mtime is None or size is None:
         continue  # sldprt 文件已删 — 跳过不写（现状 L620-621 行为保留）
     key = _normalize_sldprt_key(sldprt_path)
 
+    if rc is None:
+        # ★ rev 3 C2 修复：旧 worker (≤v2.20.0) batch stdout 缺 exit_code 字段。
+        # 旧 worker 的 catch-all 异常分支已设 configs=[]，无法区分成功 vs 失败。
+        # 不写 entries → 强制 broker 走单件 fallback 路径（_list_configs_via_com）
+        # 用新 worker 的 rc 合约重新 probe；防 cache 永久污染。
+        # 升级期窗口结束后，新 worker 始终带 exit_code，此分支不再触发。
+        log.warning(
+            "config_lists batch entry 缺 exit_code 字段（旧 worker schema），"
+            "跳过不写 entries：%s", sldprt_path,
+        )
+        continue
     if rc == WORKER_EXIT_OK:
         cache["entries"][key] = {"mtime": mtime, "size": size, "configs": configs}
     elif rc == WORKER_EXIT_TERMINAL:
@@ -301,9 +370,10 @@ for entry in results:
         continue
 ```
 
-**向后兼容两层（与 §3.2 单件路径语义严格对齐）**：
-1. 缺 `exit_code` 字段当 `WORKER_EXIT_OK=0`（旧 worker stdout 格式不破 broker）
+**向后兼容三层（与 §3.2 单件路径语义严格对齐）**：
+1. 缺 `exit_code` 字段（rc is None）→ ★ **invalidate signal** 不写 entries（rev 3 C2 修复，防旧 worker 永久污染 cache）
 2. `WORKER_EXIT_LEGACY=4` + 未识别 rc 都走 transient 分支（不 cache，下次重试）— 跟单件路径 §3.2 `_list_configs_via_com` 完全一致
+3. `WORKER_EXIT_OK=0` + `WORKER_EXIT_TERMINAL=2` 写 entries（前者写 configs / 后者写 []）
 
 ### §3.4 cache.py `_save_config_lists_cache` 异常下沉
 
@@ -326,6 +396,7 @@ def _save_config_lists_cache(cache: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"\n⚠ cache 文件 {path} 写入失败 ({type(e).__name__}: {e})\n"
                 f"  照片级渲染依赖跨 process 一致 cache — 请检查该路径权限后重启。\n"
+                f"  本次 codegen 不受影响；下次 prewarm 仍会自动重试 cache 写入。\n"
                 f"  本次运行后续失败将仅 log，不再 banner。\n\n"
             )
         else:
@@ -398,19 +469,53 @@ broker._list_configs_via_com(p)
   同 process 后续调用 = L2 hit → return [] 不再 spawn ✓
 ```
 
-### Path 3 — Transient 失败（OpenDoc6 swApplicationBusy / DispatchEx COM 暂断）
+### Path 3 — Transient 失败（首次：触发 short-TTL transient cache）
 
 ```
 broker._list_configs_via_com(p)
-  L2 miss → L1 miss
+  Layer 2 miss → Layer 1 miss → Layer 0.5 (transient cache) miss
   spawn worker(p)
   worker._list_configs_returning(p)
     → app.OpenDoc6(...) errors=4096 (swApplicationBusy)
     → OpenDocFailure(errors=4096) → _classify_worker_exception
     → e.errors=4096 ∈ _TRANSIENT_OPENDOC_ERRORS → return EXIT_TRANSIENT=3
   worker exit(3)
-  broker: rc=3 → 不 cache + return []
-  同 process 后续调用 = L2 miss → 重新 spawn worker → 第 2 次可能成功
+  broker: rc=3 → _CONFIG_LIST_TRANSIENT_CACHE[abs_path] = (now, []) + return []
+```
+
+### Path 6 — Transient 失败（同 process 60s 内同 sldprt 第 2~N 次：transient cache hit，rev 3 C1 防重试风暴）
+
+```
+broker._list_configs_via_com(p)  # ts < 60s 后第 2~N 次调用
+  Layer 2 miss → Layer 1 miss
+  Layer 0.5 (transient cache) hit:
+    (ts_set, []) = _CONFIG_LIST_TRANSIENT_CACHE[abs_path]
+    if time.monotonic() - ts_set < 60.0:
+      return []  # ★ 不 spawn worker，秒返
+```
+
+### Path 7 — Transient 失败 后 prewarm 跑过 success（rev 3 self-correction：L1 优先）
+
+```
+[场景] 先 transient cache 写入 (ts=T0, [])，然后 prewarm 重跑写 L1 success
+  ts < T0 + 60s 时 _list_configs_via_com(p):
+    Layer 2 miss
+    Layer 1 hit → entry.configs = ["A","B"]
+      → ★ del _CONFIG_LIST_TRANSIENT_CACHE[abs_path]（清 transient 残留）
+      → return ["A","B"]
+  L1 success 永远胜过 transient cache []
+```
+
+### Path 8 — Transient 失败（同 process 超 60s 后同 sldprt 调用：自动重试）
+
+```
+broker._list_configs_via_com(p)  # ts > 60s 后调用
+  Layer 2 miss → Layer 1 miss
+  Layer 0.5 (transient cache) hit but TTL expired:
+    del _CONFIG_LIST_TRANSIENT_CACHE[abs_path]
+    继续 spawn worker
+    若 worker 这次成功 (rc=0) → cache L2 + del transient + return configs ✓
+    若仍 transient → 重新写 transient cache (新 ts) + return []
 ```
 
 ### Path 4 — Prewarm batch（混合 rc）
@@ -462,6 +567,10 @@ cache_mod._save_config_lists_cache(cache)
 | **I10** | 单件 + batch 路径"未识别 rc"语义严格一致（都归 transient 不 cache） | 两路径都走 `else: 不 cache` 兜底；spec §3.2 + §3.3 镜像 |
 | **I11** | OpenDocFailure 是 RuntimeError 子类，不破现有 `except RuntimeError` 调用方 | spec §3.1.3 类定义 |
 | **I12** | `_classify_worker_exception` 是单件 + batch 唯一分类入口（DRY） | spec §3.1.6 共享函数；§3.1.7 + §3.1.8 调用 |
+| **I13** | 同 process transient 失败 60s 内同 sldprt 不重 spawn worker（防重试风暴） | rev 3 C1：`_CONFIG_LIST_TRANSIENT_CACHE` short-TTL；§3.2.2 Layer 0 |
+| **I14** | transient cache TTL 过期后**必须**允许重试（防永久阻塞） | TTL 命中检查 `time.monotonic() - ts < TTL_SEC`，过期 del entry 继续走 spawn 路径 |
+| **I15** | transient cache 仅 in-process（永不写 L1+L2 持久化） | rev 3 C1：仅 `_CONFIG_LIST_TRANSIENT_CACHE` dict；prewarm `prewarm_config_lists` 不读不写此 dict |
+| **I16** | batch entry 缺 `exit_code` 字段 → 跳过不写 entries（防旧 worker 永久污染） | rev 3 C2：§3.3 `if rc is None: continue` |
 
 ---
 
@@ -479,6 +588,9 @@ cache_mod._save_config_lists_cache(cache)
 | Edge 8 — broker 跨升级期混跑：旧 worker 进程返 rc=4 | broker 视 rc=4 为 transient（不 cache，下次 prewarm 自然换新 worker） | `test_list_configs_legacy_rc4_treated_as_transient` |
 | Edge 9 — `pythoncom` import 失败时分类 com_error 实例（理论不可能但代码路径要稳） | `_classify_worker_exception` 内部 `try: import pythoncom` 失败时 `pass` 走兜底 transient | `test_classify_worker_exception_without_pythoncom` |
 | Edge 10 — batch 模式整批 stdin JSON parse 失败 | rc=64（不变）— 现有路径保留；broker 收到 rc=64 不命中任一 entry 分流分支 → batch 整体 fallback 到 _list_configs_via_com 单件路径（已有逻辑 L605-610 retain） | 已有测试 + `test_prewarm_batch_rc64_full_fallback` |
+| Edge 11 — transient cache TTL 边界（59.9s vs 60.1s） | `time.monotonic()` 单调时钟，差值严格比较；59.9s hit / 60.1s 失效。测试用 monkeypatch 控制 monotonic 返回值 | `test_transient_cache_within_ttl_returns_cached_empty` + `test_transient_cache_after_ttl_allows_respawn` |
+| Edge 12 — transient cache 内存增长（极长 process + 大 BOM 库） | 进程退出即丢；典型 codegen process 寿命 < 10min，TTL 60s，cache size ≤ BOM 件数 (50-300)，dict 内存可忽略 | 不测 |
+| Edge 13 — transient cache 与 prewarm 交互（prewarm 写入 L1 success 后下次单件调用结果） | rev 3 self-correction：transient cache 在 L1/L2 之后查询。prewarm 写 L1 success → 下次 `_list_configs_via_com` 调用 Layer 1 hit → 返 success configs（**transient cache 不会干扰**）；同时 L1 hit 路径触发 `del _CONFIG_LIST_TRANSIENT_CACHE[abs_path]` 主动清理避免后续 60s 残留。设计意图：L1/L2 成功决策永远优先于 transient cache 的 [] | `test_l1_hit_clears_transient_cache` + `test_l1_hit_preferred_over_transient_cache` |
 
 ---
 
@@ -508,14 +620,19 @@ cache_mod._save_config_lists_cache(cache)
 | 测试 | 断言 |
 |------|------|
 | `test_list_configs_rc2_caches_empty_list_to_prevent_retry` | mock subprocess rc=2 → 第 1 次返 []；**第 2 次同 sldprt `subprocess.run.call_count == 1`**（L2 hit） |
-| `test_list_configs_rc3_does_not_cache_for_retry` | mock subprocess rc=3 → 第 1 次返 []；**第 2 次同 sldprt `subprocess.run.call_count == 2`**（重 spawn） |
+| `test_list_configs_rc3_writes_transient_cache_within_ttl_no_respawn` | mock subprocess rc=3 → 第 1 次返 []；monkeypatch `time.monotonic` 推进 30s；**第 2 次同 sldprt `subprocess.run.call_count == 1`**（transient cache hit，不重 spawn） |
+| `test_list_configs_rc3_after_ttl_allows_respawn` | mock subprocess rc=3 → 第 1 次写 transient cache；monkeypatch `time.monotonic` 推进 61s；**第 2 次同 sldprt `subprocess.run.call_count == 2`**（TTL 过期重 spawn） |
+| `test_l1_hit_clears_transient_cache_entry` | 预填 _CONFIG_LIST_TRANSIENT_CACHE + 预填 L1 cache → `_list_configs_via_com` Layer 1 hit → 返 success configs；assert `_CONFIG_LIST_TRANSIENT_CACHE[abs_path]` 已被 del |
+| `test_rc0_success_clears_transient_cache_entry` | 预填 _CONFIG_LIST_TRANSIENT_CACHE → mock subprocess rc=0 success → return configs；assert `_CONFIG_LIST_TRANSIENT_CACHE[abs_path]` 已被 del |
+| `test_rc2_terminal_clears_transient_cache_entry` | 预填 _CONFIG_LIST_TRANSIENT_CACHE → mock subprocess rc=2 → cache L2 = [] return []；assert `_CONFIG_LIST_TRANSIENT_CACHE[abs_path]` 已被 del |
+| `test_transient_cache_dict_pollution_isolated_per_test` | autouse fixture 清 `_CONFIG_LIST_TRANSIENT_CACHE` 防 cross-test 残留 |
 | `test_list_configs_legacy_rc4_treated_as_transient` | mock subprocess rc=4 → 不 cache；第 2 次重试（Edge 8 兼容） |
 | `test_list_configs_timeout_treated_as_transient_no_cache` | TimeoutExpired → 不 cache；第 2 次重试 |
 | `test_list_configs_oserror_treated_as_transient_no_cache` | OSError → 不 cache；第 2 次重试 |
 | `test_list_configs_rc0_with_invalid_json_stdout_treated_as_transient` | mock rc=0 + stdout 非合法 JSON → 不 cache；第 2 次重试 |
 | `test_list_configs_unknown_rc_defaults_transient` | mock rc=99 → 不 cache；第 2 次重试 |
 | `test_prewarm_batch_mixed_rc_writes_terminal_skips_transient` | mock batch stdout 含 3 entry 混合 exit_code → cache entries 写 rc=0 与 rc=2 项，跳过 rc=3 项 |
-| `test_prewarm_batch_legacy_no_exit_code_field_treated_as_rc0` | mock batch stdout 缺 `exit_code` 字段 → 当 rc=0 写 cache（向后兼容） |
+| `test_prewarm_batch_legacy_no_exit_code_field_skipped_not_polluting_cache` | ★ rev 3 C2：mock batch stdout 缺 `exit_code` 字段 → broker 跳过不写 entries（防旧 worker 永久污染）；caplog 含 "缺 exit_code 字段（旧 worker schema）" |
 | `test_prewarm_batch_rc4_legacy_skipped_like_transient` | mock batch entry exit_code=4 → 跳过不写 entries（与单件路径一致） |
 | `test_prewarm_batch_unknown_rc_skipped_like_transient` | mock batch entry exit_code=99 → 跳过不写 entries（I10 一致性） |
 | `test_prewarm_batch_rc64_full_fallback` | mock subprocess rc=64（worker stdin JSON parse 错） → broker 不写 cache（Edge 10） |
@@ -542,7 +659,9 @@ def _reset_save_failure_warned():
     mod._save_failure_warned = False
 ```
 
-**总测试增量**：约 **28 个新测试**（worker 12 + broker 12 + cache 4）。
+**总测试增量**：约 **33 个新测试**（worker 12 + broker 17 + cache 4）。
+
+> **rev 3 测试增量说明**：broker 12 → 17 是因为新增 short-TTL transient cache 的 6 个测试（C1 修复，覆盖 transient cache hit/miss/TTL 边界 / L1 success 清 transient / rc=0 success 清 transient / rc=2 terminal 清 transient / autouse fixture isolation），同时删除原 `test_list_configs_rc3_does_not_cache_for_retry`（已被 transient cache 矩阵替代）；`test_prewarm_batch_legacy_no_exit_code_field` 重命名 + 反转断言（C2 修复）。
 
 ---
 
@@ -551,20 +670,20 @@ def _reset_save_failure_warned():
 | 文件 | 改动 | 估算 LOC |
 |------|------|---------|
 | `adapters/solidworks/sw_list_configs_worker.py` | 新增 `OpenDocFailure(RuntimeError)` 子类异常（§3.1.3）；新增 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量 + `_TRANSIENT_OPENDOC_ERRORS` + `_TRANSIENT_COM_HRESULTS` + `_classify_worker_exception` 共享分类函数（§3.1.6）；`_open_doc_get_configs` 失败分支替换为 `raise OpenDocFailure(...)`（§3.1.3）；`_list_configs` 重写 try/except 走分类（§3.1.7）；`_run_batch_mode` for 循环 except 改调分类函数 + entry 加 `exit_code` 字段（§3.1.8） | +90 / -25 |
-| `adapters/solidworks/sw_config_broker.py` | 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2）；`_list_configs_via_com` rc 分流（替换 L499-536）；`prewarm_config_lists` batch 路径 entry-level rc 处理（替换 L615-628）；移除 L570-580 caller-side try/except | +50 / -35 |
+| `adapters/solidworks/sw_config_broker.py` | 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量 + `TRANSIENT_CACHE_TTL_SEC` + `_CONFIG_LIST_TRANSIENT_CACHE` dict（§3.2.1）；`_list_configs_via_com` rc 分流 + Layer 0.5 transient cache 查询 + L1/L2/rc=0/rc=2 路径主动清 transient cache entry（替换 L499-536，§3.2.2）；`prewarm_config_lists` batch 路径 entry-level rc 处理含 rc is None invalidate 分支（替换 L615-628，§3.3）；移除 L570-580 caller-side try/except | +90 / -35 |
 | `adapters/solidworks/sw_config_lists_cache.py` | `_save_config_lists_cache` 包 try/except + 模块级 `_save_failure_warned` flag + banner（§3.4-§3.5） | +25 / -3 |
 | `tests/test_sw_list_configs_worker.py` | **新增** 12 测试 | +320 / -0 |
-| `tests/test_sw_config_broker.py` | 扩展 12 测试 | +280 / -0 |
+| `tests/test_sw_config_broker.py` | 扩展 17 测试（含 6 transient cache 测试 + autouse fixture，1 测试名重命名 + 断言反转） | +380 / -0 |
 | `tests/test_sw_config_lists_cache.py` | 扩展现有 `TestSaveCache` 类加 4 测试 + module 顶部 autouse fixture | +95 / -0 |
 | `docs/superpowers/specs/2026-04-26-sw-toolbox-config-list-cache-design.md` | §11 标 M-2 + M-4 closed + 引用本 spec | +5 / -2 |
 
-**总估算**：~870 LOC 变化（695 测试 / 165 实现）。
+**总估算**：~1010 LOC 变化（795 测试 / 215 实现）。
 
 ---
 
 ## §9 Phase / Task 路线图（writing-plans 接口）
 
-预设 **3 phase / 14 task** 量级（具体粒度 plan 阶段细化）：
+预设 **4 phase / 17 task** 量级（具体粒度 plan 阶段细化）：
 
 ### Phase 1 — Worker 端分类基建 + rc 合约（6 task）
 
@@ -575,19 +694,25 @@ def _reset_save_failure_warned():
 5. 实现：`_list_configs` 重写（§3.1.7） + `_run_batch_mode` for 循环 except 改调 `_classify_worker_exception` + entry 加 `exit_code` 字段（§3.1.8）
 6. 验证：12 测试全绿（GREEN）+ ruff/mypy 通过
 
-### Phase 2 — Broker rc 分流 + batch 协议升级（5 task）
+### Phase 2 — Broker rc 分流 + batch 协议升级（4 task）
 
-7. 写测试：`test_sw_config_broker.py` 12 新测试 全部 RED（含 rc=0/2/3/4/64/99/TimeoutExpired/OSError + batch 4 entry-level 路径）
-8. 实现：broker 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2）
-9. 实现：`_list_configs_via_com` rc 分流（替换 L499-536）—— rc=0 cache configs / rc=2 cache [] / rc=3+rc=4+未知 不 cache / TimeoutExpired+OSError 不 cache
-10. 实现：`prewarm_config_lists` batch entry-level rc 处理（替换 L615-628）—— 复用同一组 WORKER_EXIT_* 常量；rc=0/2 写 entries（不同 configs 值），rc=3/4/未知 跳过不写（§3.3 与 §3.2 严格对称 / I10）
-11. 验证：12 测试全绿 + ruff/mypy + `pytest tests/test_sw_*.py` 全跑不 regression
+7. 写测试：`test_sw_config_broker.py` 12 新测试 全部 RED（rc=0/2/3/4/64/99/TimeoutExpired/OSError + batch 5 entry-level 路径，含 rc is None invalidate signal）
+8. 实现：broker 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2.1）
+9. 实现：`_list_configs_via_com` rc 分流主体（不含 transient cache，§3.2.2 主流程）—— rc=0 cache configs / rc=2 cache [] / rc=3+rc=4+未知 + TimeoutExpired+OSError 暂返 [] 不 cache（transient cache 在 Phase 3 加）
+10. 实现：`prewarm_config_lists` batch entry-level rc 处理（§3.3）—— `rc is None → continue` 加 log.warning（rev 3 C2）；rc=0/2 写 entries（不同 configs 值）；rc=3/4/未知 跳过不写；12 测试全绿
 
-### Phase 3 — cache.py save 自愈 + caller 清理 + 文档（3 task）
+### Phase 3 — Short-TTL transient cache（防重试风暴，rev 3 C1）（4 task）
 
-12. 写测试：`tests/test_sw_config_lists_cache.py` `TestSaveCache` 类加 4 测试 + module 顶部 autouse fixture（全 RED）
-13. 实现：`_save_config_lists_cache` try/except OSError + 模块级 `_save_failure_warned` + banner（§3.4 + §3.5）
-14. 实现：移除 broker.py L570-580 caller-side try/except；`docs/.../2026-04-26-sw-toolbox-config-list-cache-design.md` §11 标 M-2 + M-4 closed + 引用本 spec；4 测试全绿；端到端跑 `pytest tests/test_sw_*.py` 不 regression
+11. 写测试：`test_sw_config_broker.py` 6 transient cache 测试 全部 RED（hit/miss/TTL 边界 / L1 hit 清 transient / rc=0 success 清 transient / rc=2 terminal 清 transient / autouse fixture isolation）
+12. 实现：broker 顶部新增 `TRANSIENT_CACHE_TTL_SEC = 60.0` + `_CONFIG_LIST_TRANSIENT_CACHE: dict[str, tuple[float, list[str]]] = {}`（§3.2.1）
+13. 实现：`_list_configs_via_com` 改造 — Layer 2/L1 之后 spawn worker 之前插入 Layer 0.5 transient cache 查询（含 TTL 检查 + 过期 del entry）；rc=3/4/未知/TimeoutExpired/OSError/JSONDecodeError 路径写 transient cache；rc=0/rc=2/L1 hit 路径主动 del transient cache entry（§3.2.2）
+14. 验证：17 测试全绿（broker 总数）+ `pytest tests/test_sw_*.py` 全跑不 regression
+
+### Phase 4 — cache.py save 自愈 + caller 清理 + 文档（3 task）
+
+15. 写测试：`tests/test_sw_config_lists_cache.py` `TestSaveCache` 类加 4 测试 + module 顶部 autouse fixture（全 RED）
+16. 实现：`_save_config_lists_cache` try/except OSError + 模块级 `_save_failure_warned` + banner（含 rev 3 I3 安抚文案"本次 codegen 不受影响；下次 prewarm 仍会自动重试 cache 写入"，§3.4 + §3.5）
+17. 实现：移除 broker.py L570-580 caller-side try/except；`docs/.../2026-04-26-sw-toolbox-config-list-cache-design.md` §11 标 M-2 + M-4 closed + 引用本 spec；4 测试全绿；端到端跑 `pytest tests/test_sw_*.py` 不 regression
 
 每 phase 末跑 quality reviewer 抓系统视角问题（命名一致性 / 模块边界 / 文档同步）；按 memory `feedback_cp_batch_quality_review.md` phase 末整体 reviewer 优于 per-task。
 
@@ -600,6 +725,14 @@ def _reset_save_failure_warned():
 - **memory `feedback_external_subsystem_safety_valve.md`** — `CAD_SW_BROKER_DISABLE` env 安全阀已存在；本 PR 无新 env
 - **spec `2026-04-26-sw-config-broker-i2-i3-fix-design.md` §3** — banner 风格模板（与 I-3 锁等待 banner 同模板）
 - **spec `2026-04-25-sw-toolbox-llm-config-broker-design.md` §5.3** — invariant 1 「prewarm 永不抛打断 codegen」
+
+### §10.1 Maintainer notes（rev 3 M5 标注）
+
+| 跟点 | 说明 |
+|------|------|
+| **Worker rc 双边维护** | `sw_list_configs_worker.py` 的 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 与 `sw_config_broker.py` 的 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 是**两边独立定义**；改 worker 端任一 rc 数值或新增 rc 时**必须同步 broker 端常量 + `_list_configs_via_com` rc 分流分支 + `prewarm_config_lists` batch entry-level 处理**。未来若需进一步解耦可抽 `adapters/solidworks/sw_worker_contract.py` 共享 module，但当前两文件距离短，重复定义的维护成本可接受 |
+| **transient cache TTL 调优** | `TRANSIENT_CACHE_TTL_SEC = 60.0` 是经验值（覆盖 BOM loop 内典型 3 次同 sldprt 调用 + SW boot 短暂故障期）。生产观察后可调；改值不影响正确性，仅性能 vs 重试机会 trade-off |
+| **swFileLoadError 数值表扩充** | `_TRANSIENT_OPENDOC_ERRORS = {128, 256, 4096}` 是工程估算（§3.1.4）。如生产观察某 errors 值实际呈现 transient 行为（例如 swFileLoadError_X 在某 SW 版本 retry 后成功率 > 50%），按 memory feedback 模式收证后扩充集合 |
 
 ---
 
