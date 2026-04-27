@@ -663,7 +663,11 @@ class TestListConfigsViaCom:
         assert call_count[0] == 1  # 只调一次
 
     def test_list_failure_returns_empty_and_caches(self, monkeypatch):
-        """worker 失败 → 返回 [] + cache 标记（避免重试）。"""
+        """worker terminal 失败 (rc=2) → 返回 [] + cache 标记（避免重试）。
+
+        spec rev 5 §3.2.2：rc=2 是唯一永久 cache 失败路径。原测试用 rc=4 旧合约
+        现按 spec rev 5 是 LEGACY 不 cache —— 此处改 rc=2 保持"cache 命中"测试语义。
+        """
         import subprocess
 
         from adapters.solidworks import sw_config_broker
@@ -672,7 +676,7 @@ class TestListConfigsViaCom:
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
-                args=cmd, returncode=4, stdout="", stderr="COM crash"
+                args=cmd, returncode=2, stdout="", stderr="terminal failure"
             )
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -1228,8 +1232,8 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps([
-                    {"path": str(p1), "configs": ["A1", "A2"]},
-                    {"path": str(p2), "configs": ["B1"]},
+                    {"path": str(p1), "configs": ["A1", "A2"], "exit_code": 0},
+                    {"path": str(p2), "configs": ["B1"], "exit_code": 0},
                 ]).encode()
 
             return FakeProc()
@@ -1431,7 +1435,7 @@ class TestPrewarmConfigLists:
                 returncode = 0
                 stderr = b""
                 stdout = json.dumps(
-                    [{"path": str(p1), "configs": ["NEW"]}],
+                    [{"path": str(p1), "configs": ["NEW"], "exit_code": 0}],
                 ).encode()
 
             return FakeProc()
@@ -1589,7 +1593,7 @@ class TestListConfigsViaComThreeLayer:
         # mock subprocess.run：batch 模式返一条假 result
         def _fake_run(cmd, **kwargs):
             if "--batch" in cmd:
-                results = [{"path": forward_slash_path, "configs": ["6201"]}]
+                results = [{"path": forward_slash_path, "configs": ["6201"], "exit_code": 0}]
                 return _sp.CompletedProcess(
                     cmd, 0, stdout=_json.dumps(results).encode(), stderr=b"",
                 )
@@ -2121,8 +2125,8 @@ class TestI2EnvelopePersistence:
         import subprocess
         def success_run(cmd, **kwargs):
             results = [
-                {"path": str(p1), "configs": ["A"]},
-                {"path": str(p2), "configs": ["B"]},
+                {"path": str(p1), "configs": ["A"], "exit_code": 0},
+                {"path": str(p2), "configs": ["B"], "exit_code": 0},
             ]
             return subprocess.CompletedProcess(cmd, 0, json.dumps(results).encode(), b"")
         monkeypatch.setattr(broker.subprocess, "run", success_run)

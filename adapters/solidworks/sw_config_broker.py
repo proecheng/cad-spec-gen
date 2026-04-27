@@ -641,19 +641,36 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
         if not isinstance(results, list):
             log.warning("config_lists batch worker stdout 非 JSON list")
             return
+        # spec §3.3 + rev 3 C2：缺 exit_code 当 invalidate signal（旧 worker 兜底）
         for entry in results:
             sldprt_path = entry.get("path", "")
             configs = entry.get("configs", [])
+            rc = entry.get("exit_code")  # 不给 default — 缺字段 → None → invalidate
             mtime = cache_mod._stat_mtime(sldprt_path)
             size = cache_mod._stat_size(sldprt_path)
             if mtime is None or size is None:
                 continue  # sldprt 文件已删 — 跳过不写
             key = _normalize_sldprt_key(sldprt_path)
-            cache["entries"][key] = {
-                "mtime": mtime,
-                "size": size,
-                "configs": configs,
-            }
+
+            if rc is None:
+                # rev 3 C2：旧 worker (≤v2.20.0) batch stdout 缺 exit_code 字段。
+                # 旧 worker catch-all 异常分支已设 configs=[]，无法区分成功 vs 失败。
+                # 不写 entries → 强制 broker 走单件 fallback 用新 worker 重 probe。
+                log.warning(
+                    "config_lists batch entry 缺 exit_code 字段（旧 worker schema），"
+                    "跳过不写 entries：%s", sldprt_path,
+                )
+                continue
+            if rc == WORKER_EXIT_OK:
+                cache["entries"][key] = {"mtime": mtime, "size": size, "configs": configs}
+            elif rc == WORKER_EXIT_TERMINAL:
+                # rev 5 I5：写 [] 防重试（与 _list_configs_via_com rc=2 路径对称）
+                cache["entries"][key] = {"mtime": mtime, "size": size, "configs": []}
+            else:
+                # rc=3 (transient) / rc=4 (legacy 当 transient) / 未识别 rc：跳过不写
+                # 跟 _list_configs_via_com 单件路径"未识别 rc → transient"语义对齐 (I10)
+                continue
+
         cache_mod._save_config_lists_cache(cache)
     except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as e:
         log.warning("config_lists prewarm 失败 %s; codegen 退化到单件 fallback", e)
