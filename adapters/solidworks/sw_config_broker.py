@@ -596,6 +596,11 @@ def prewarm_config_lists(sldprt_list: list[str]) -> None:
         # ━━ I-2 修复（PR #19 review fix）：envelope 升级决策立即落盘 ━━━━━━━━━━━━━━━
         # 不依赖后续 worker 成功；防"worker 失败 → 内存 envelope 丢 → 下次 prewarm
         # 又重检测 invalidate"循环。spec §4.1 / §5.2。
+        #
+        # 注：plan Task 16 提议"M-2 自愈后移除此 try/except"被 plan-drift 类型 #2
+        # 修正保留 — spec rev 5 §3.4 自愈契约只覆盖 OSError，但 PR #20 review 引入
+        # except Exception 是为防 cache_mod 内部 bug（KeyError/AttributeError 等）
+        # 破 fire-and-forget 契约（spec §5.3 invariant 1）。两条 invariant 独立。
         try:
             cache_mod._save_config_lists_cache(cache)
         except Exception as e:
