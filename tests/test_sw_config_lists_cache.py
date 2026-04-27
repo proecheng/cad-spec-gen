@@ -63,6 +63,154 @@ class TestSaveCache:
         m._save_config_lists_cache({"entries": {}})
         assert not (tmp_path / "sw_config_lists.json.tmp").exists()
 
+    # ─── rev 4 + rev 5 新增（spec rev 6 §3.4 + §3.5 + §5 I7/I8）───
+
+    def test_save_permission_error_first_call_writes_banner_to_stderr(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """spec §3.4：mock write_text 抛 PermissionError → stderr banner 出现。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        monkeypatch.setattr(
+            m, "get_config_lists_cache_path",
+            lambda: tmp_path / "sw_config_lists.json",
+        )
+        from pathlib import Path
+        def fake_write_text(self, *args, **kwargs):
+            raise PermissionError("OneDrive 锁定")
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        m._save_config_lists_cache({
+            "schema_version": 1, "generated_at": "x",
+            "sw_version": 24, "toolbox_path": "X", "entries": {},
+        })
+
+        err = capsys.readouterr().err
+        assert "⚠ cache 文件" in err
+        assert "PermissionError" in err
+        assert "本次 codegen 不受影响" in err  # rev 3 I3 安抚文案
+
+    def test_save_failure_second_call_no_banner_only_log_warning(
+        self, monkeypatch, tmp_path, capsys, caplog,
+    ):
+        """spec §3.5 / I6：同 process 第 2 次 save 失败 → 不再 banner，只 log.warning。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        monkeypatch.setattr(
+            m, "get_config_lists_cache_path",
+            lambda: tmp_path / "sw_config_lists.json",
+        )
+        from pathlib import Path
+        def fake_write_text(self, *args, **kwargs):
+            raise PermissionError("锁定中")
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        cache = {
+            "schema_version": 1, "generated_at": "x",
+            "sw_version": 24, "toolbox_path": "X", "entries": {},
+        }
+
+        # 第 1 次：banner
+        m._save_config_lists_cache(cache)
+        capsys.readouterr()  # 清空
+
+        # 第 2 次：仅 log.warning，不 banner
+        with caplog.at_level("WARNING"):
+            m._save_config_lists_cache(cache)
+        err = capsys.readouterr().err
+        assert "⚠ cache 文件" not in err
+        assert any("重复失败" in r.message for r in caplog.records)
+
+    def test_save_oserror_does_not_propagate_to_caller(
+        self, monkeypatch, tmp_path,
+    ):
+        """spec §3.4 / I1：函数返 None 不 raise。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        monkeypatch.setattr(
+            m, "get_config_lists_cache_path",
+            lambda: tmp_path / "sw_config_lists.json",
+        )
+        from pathlib import Path
+        def fake_write_text(self, *args, **kwargs):
+            raise OSError("disk full")
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        result = m._save_config_lists_cache({
+            "schema_version": 1, "generated_at": "x",
+            "sw_version": 24, "toolbox_path": "X", "entries": {},
+        })
+        assert result is None  # 不 raise
+
+    def test_save_oserror_subclass_disk_full_does_not_propagate(
+        self, monkeypatch, tmp_path,
+    ):
+        """spec §3.4 边角：OSError 子类（ENOSPC 等）也静默自愈。"""
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        monkeypatch.setattr(
+            m, "get_config_lists_cache_path",
+            lambda: tmp_path / "sw_config_lists.json",
+        )
+        from pathlib import Path
+        import errno
+
+        def fake_write_text(self, *args, **kwargs):
+            raise OSError(errno.ENOSPC, "No space left on device")
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        # 不 raise
+        m._save_config_lists_cache({
+            "schema_version": 1, "generated_at": "x",
+            "sw_version": 24, "toolbox_path": "X", "entries": {},
+        })
+
+    def test_invariant_save_failure_emits_user_visible_banner(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """spec §5 I7 直测：banner 含 ⚠ + 用户行动指引 + 安抚文案三 marker."""
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        monkeypatch.setattr(
+            m, "get_config_lists_cache_path",
+            lambda: tmp_path / "sw_config_lists.json",
+        )
+        from pathlib import Path
+        def fake_write_text(self, *args, **kwargs):
+            raise PermissionError("test")
+        monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+        m._save_config_lists_cache({
+            "schema_version": 1, "generated_at": "x",
+            "sw_version": 24, "toolbox_path": "X", "entries": {},
+        })
+
+        err = capsys.readouterr().err
+        assert "⚠" in err  # 视觉 emoji marker
+        assert "请检查" in err  # 用户行动指引
+        assert "本次 codegen 不受影响" in err  # rev 3 I3 安抚
+
+    def test_invariant_v220_cache_schema_v1_loads_without_break(
+        self, monkeypatch, tmp_path,
+    ):
+        """spec §5 I8 直测：v2.20.0 cache schema v1 fixture 加载 OK."""
+        import shutil
+        from pathlib import Path
+        from adapters.solidworks import sw_config_lists_cache as m
+
+        # 拷贝 fixture 到 tmp
+        fixture_src = Path(__file__).parent / "fixtures" / "sw_config_lists_v220.json"
+        fixture_dst = tmp_path / "sw_config_lists.json"
+        shutil.copy(fixture_src, fixture_dst)
+
+        monkeypatch.setattr(m, "get_config_lists_cache_path", lambda: fixture_dst)
+
+        cache = m._load_config_lists_cache()
+        assert cache["schema_version"] == 1
+        assert cache["sw_version"] == 24
+        assert "C:\\test\\p1.sldprt" in cache["entries"]
+        assert cache["entries"]["C:\\test\\p1.sldprt"]["configs"] == ["A", "B"]
+
 
 class TestLoadCache:
     def test_load_missing_file_returns_empty(self, tmp_path, monkeypatch):
