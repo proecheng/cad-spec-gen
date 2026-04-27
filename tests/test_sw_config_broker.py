@@ -4113,3 +4113,27 @@ class TestSection72InvariantsRegression:
             f"§7.2 invariant {invariant_num} 破裂: {invariant_desc}。"
             f"破坏者请检查是否预期此改动；如预期请同步更新 spec §7.2。"
         )
+
+
+class TestDetermineFailureReason:
+    """spec §5.3 _determine_failure_reason 3 分支覆盖（cov gap 补全）。"""
+
+    def test_empty_available_returns_com_open_failed(self):
+        """available=[] → 'com_open_failed'（SW 拒绝 OpenDoc）."""
+        from adapters.solidworks.sw_config_broker import _determine_failure_reason
+
+        assert _determine_failure_reason([]) == "com_open_failed"
+
+    def test_default_only_returns_empty_config_list(self):
+        """available=['Default'] → 'empty_config_list'（零用户配置件）."""
+        from adapters.solidworks.sw_config_broker import _determine_failure_reason
+
+        assert _determine_failure_reason(["Default"]) == "empty_config_list"
+
+    def test_multi_configs_returns_no_match(self):
+        """available=['A', 'B'] → 'no_exact_or_fuzzy_match_with_high_confidence'."""
+        from adapters.solidworks.sw_config_broker import _determine_failure_reason
+
+        assert _determine_failure_reason(["A", "B"]) == (
+            "no_exact_or_fuzzy_match_with_high_confidence"
+        )

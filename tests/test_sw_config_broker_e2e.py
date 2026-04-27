@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from adapters.solidworks import sw_config_broker as broker
+
 
 class TestE2EUserScenarios:
     """5 个用户视角端到端场景."""
@@ -33,7 +35,10 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         sldprts = []
         for i in range(5):
@@ -76,7 +81,10 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         p1 = tmp_path / "p1.sldprt"
         p1.write_text("dummy")
@@ -119,7 +127,10 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         p1 = tmp_path / "p1.sldprt"
         p1.write_text("dummy")
@@ -153,7 +164,10 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         p1 = tmp_path / "p1.sldprt"
         p2 = tmp_path / "p2.sldprt"
@@ -205,7 +219,10 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         sldprts = []
         for i in range(100):

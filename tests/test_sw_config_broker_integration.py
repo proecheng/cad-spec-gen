@@ -31,11 +31,15 @@ def isolated_cache(monkeypatch, tmp_path):
 def mock_sw_detect(monkeypatch):
     """mock detect_solidworks 返合法 SwInfo（防 envelope_invalidated 触发）."""
     from adapters.solidworks import sw_detect
+    from adapters.solidworks import sw_config_broker as broker
 
     fake_info = mock.MagicMock()
     fake_info.version_year = 24
     fake_info.toolbox_dir = "C:\\SOLIDWORKS Data\\Toolbox"
-    monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+    _fake_detect = lambda: fake_info
+    monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+    # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+    monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
     yield fake_info
 
 
@@ -248,10 +252,14 @@ class TestIntegrationBrokerToCacheChain:
         }), encoding="utf-8")
 
         # mock 返新 sw_version
+        from adapters.solidworks import sw_config_broker as broker
         fake_info = mock.MagicMock()
         fake_info.version_year = 24  # 新版本
         fake_info.toolbox_dir = "C:/new"
-        monkeypatch.setattr(sw_detect, "detect_solidworks", lambda: fake_info)
+        _fake_detect = lambda: fake_info
+        monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
+        # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
+        monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
 
         p1 = tmp_path / "p1.sldprt"
         p1.write_text("dummy")
