@@ -3883,3 +3883,43 @@ class TestModuleLevelImports:
         # 验证 reload 后 name 仍在
         assert hasattr(reloaded, "detect_solidworks")
         assert hasattr(reloaded, "cache_mod")
+
+
+class TestMypyCIGate:
+    """mypy CI gate 自校验（spec §4.7）。
+
+    防御 reviewer 误改 [[overrides]] strict=true 为 false 或 exclude
+    sw_config_broker.py 让 gate 形同虚设。
+    """
+
+    @pytest.mark.mypy
+    def test_mypy_strict_catches_invalid_literal_assignment(self):
+        """T17 (spec §4.7): mypy --platform=win32 --strict 必能捕获故意类型错的
+        fixture 文件。subprocess 调 mypy 验证退出码非零。
+        """
+        import subprocess
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[1]
+        fixture_path = (
+            repo_root / "tests" / "fixtures" / "_mypy_invalid_literal_fixture.py"
+        )
+        assert fixture_path.exists(), (
+            f"T17 fixture 文件不存在: {fixture_path}"
+        )
+
+        result = subprocess.run(
+            ["mypy", "--platform=win32", "--strict",
+             "--explicit-package-bases", str(fixture_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        # mypy 必 fail（exit code 1+）+ stdout 含 "error:"
+        assert result.returncode != 0, (
+            f"T17: mypy 应捕获 fixture 类型错但通过了。stdout: {result.stdout}"
+        )
+        assert "error:" in result.stdout, (
+            f"T17: mypy 输出应含 error。stdout: {result.stdout}"
+        )

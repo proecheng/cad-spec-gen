@@ -79,6 +79,7 @@ markers = [
     "blender: real Blender headless smoke tests (v2.9.2+); auto-skip if Blender missing",
     "real_subprocess: 真 subprocess / 真 IO 集成测试，无需真实 SolidWorks，默认 pytest 不跑；需 -m real_subprocess",
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
+    "mypy: mypy CI gate self-check tests (subprocess mypy invocation)",
 ]
 testpaths = ["tests"]
 # rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：
