@@ -3343,3 +3343,218 @@ class TestRev5BrokerRcDispatch:
             "os.replace 原子性：phase B 写失败不应破坏 phase A 已写 p1 entry"
         )
         assert cache_phase_c["entries"][str(p1.resolve())]["configs"] == ["A_CFG"]
+
+
+class TestM8ContractGuard:
+    """M-8 caller assert 契约守护（spec §4.6 / §7.2 invariant 1 + 3）。
+
+    _validate_cached_decision 契约：valid=False ⇒ invalid_reason 非 None。
+    caller `_resolve_config_for_part_unlocked` 失效路径用 `assert invalid_reason is not None`
+    锁定不变量。本测试套守护 4 个角度（T13-T16）。
+    """
+
+    def test_assertion_holds_under_broken_validate_contract(
+        self, monkeypatch, tmp_project_dir
+    ):
+        """T13 (spec §4.6): mock _validate_cached_decision 返回 (False, None)
+        契约破裂时 _resolve_config_for_part_unlocked 必抛 AssertionError，
+        而非 silent 调 _move_decision_to_history(reason=None) 写脏 history。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        # 构造最小 envelope 含 cached decision（让 _resolve 走到 cached 分支）
+        envelope = sw_config_broker._empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "test_sub": {
+                "TEST-001": {
+                    "decision": "use_config",
+                    "config_name": "ConfigA",
+                    "bom_dim_signature": "old_sig",
+                    "sldprt_filename": "old.sldprt",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+
+        # mock _validate 契约破裂
+        def _broken_validate(*args, **kwargs):
+            return (False, None)  # ← 违反契约：valid=False 但 reason=None
+
+        monkeypatch.setattr(
+            sw_config_broker, "_validate_cached_decision", _broken_validate
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_load_decisions_envelope", lambda: envelope
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda _: ["ConfigA", "ConfigB"]
+        )
+        # 额外 mock _move_decision_to_history 防它的 ValueError 干扰 RED 信号
+        # （main 上 _move 头部仍有 INVALIDATION_REASONS 校验，传 None 会先抛 ValueError）
+        monkeypatch.setattr(
+            sw_config_broker, "_move_decision_to_history", lambda *a, **kw: None
+        )
+
+        with pytest.raises(AssertionError):
+            sw_config_broker._resolve_config_for_part_unlocked(
+                bom_row={"part_no": "TEST-001"},
+                sldprt_path="C:/fake/test.sldprt",
+                subsystem="test_sub",
+            )
+
+    def test_assertion_error_message_includes_contract_reference(
+        self, monkeypatch, tmp_project_dir
+    ):
+        """T14 (spec §4.6): AssertionError message 包含 '_validate_cached_decision contract'
+        引用，让 reviewer 失败时直接定位 spec §2.3 注释。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        envelope = sw_config_broker._empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "test_sub": {
+                "TEST-001": {
+                    "decision": "use_config",
+                    "config_name": "ConfigA",
+                    "bom_dim_signature": "old_sig",
+                    "sldprt_filename": "old.sldprt",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+        monkeypatch.setattr(
+            sw_config_broker,
+            "_validate_cached_decision",
+            lambda *a, **kw: (False, None),
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_load_decisions_envelope", lambda: envelope
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda _: ["ConfigA"]
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_move_decision_to_history", lambda *a, **kw: None
+        )
+
+        with pytest.raises(AssertionError) as exc_info:
+            sw_config_broker._resolve_config_for_part_unlocked(
+                bom_row={"part_no": "TEST-001"},
+                sldprt_path="C:/fake/test.sldprt",
+                subsystem="test_sub",
+            )
+        # message 应引用契约（spec §2.3 注释 "_validate_cached_decision 契约"）
+        assert "_validate_cached_decision" in str(exc_info.value) or \
+               "contract" in str(exc_info.value).lower()
+
+    @pytest.mark.parametrize(
+        "invalid_reason,bom_sig_changes,sldprt_filename_changes,available_configs",
+        [
+            ("bom_dim_signature_changed", True, False, ["ConfigA"]),
+            ("sldprt_filename_changed", False, True, ["ConfigA"]),
+            ("config_name_not_in_available_configs", False, False, ["ConfigB"]),
+        ],
+        ids=["bom_changed", "filename_changed", "config_renamed"],
+    )
+    def test_cached_invalid_with_each_reason_triggers_history(
+        self,
+        monkeypatch,
+        tmp_project_dir,
+        invalid_reason,
+        bom_sig_changes,
+        sldprt_filename_changes,
+        available_configs,
+    ):
+        """T15 (spec §4.6): cached decision 在 3 种失效场景下都正确 append history。
+        端到端测试，不 mock _validate_cached_decision —— 用真实失效条件触发。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        # 构造 envelope cached
+        envelope = sw_config_broker._empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "test_sub": {
+                "TEST-001": {
+                    "decision": "use_config",
+                    "config_name": "ConfigA",
+                    "bom_dim_signature": "current_sig" if not bom_sig_changes else "old_sig",
+                    "sldprt_filename": "current.sldprt" if not sldprt_filename_changes else "old.sldprt",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+        monkeypatch.setattr(
+            sw_config_broker, "_load_decisions_envelope", lambda: envelope
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda _: available_configs
+        )
+        # _save_decisions_envelope mock 防真 IO（envelope 改动 in-place 后端到端 verify）
+        saved = []
+        monkeypatch.setattr(
+            sw_config_broker,
+            "_save_decisions_envelope",
+            lambda env: saved.append(env),
+        )
+
+        # bom_row 用"current_sig"（除非 bom 变了让它不同）
+        bom_row = {"part_no": "TEST-001", "size": "current_sig_input"}
+        # 为简化测试，monkeypatch _build_bom_dim_signature 返回 "current_sig"
+        monkeypatch.setattr(
+            sw_config_broker, "_build_bom_dim_signature", lambda _: "current_sig"
+        )
+
+        try:
+            sw_config_broker._resolve_config_for_part_unlocked(
+                bom_row=bom_row,
+                sldprt_path="C:/fake/current.sldprt",
+                subsystem="test_sub",
+            )
+        except sw_config_broker.NeedsUserDecision:
+            pass  # 失效 fall through 到规则匹配，可能 raise NeedsUserDecision
+
+        # 验证 history 含失效条目，reason 等于参数化值
+        assert "decisions_history" in envelope
+        assert len(envelope["decisions_history"]) == 1
+        assert envelope["decisions_history"][0]["invalidation_reason"] == invalid_reason
+        # 验证原 entry 已被 pop
+        assert "TEST-001" not in envelope["decisions_by_subsystem"].get("test_sub", {})
+
+    def test_cached_valid_does_not_trigger_assert(
+        self, monkeypatch, tmp_project_dir
+    ):
+        """T16 (spec §4.6): 防御性——valid=True 路径不触发 M-8 assert，
+        正常返回 ConfigResolution(source='cached_decision')。
+        """
+        from adapters.solidworks import sw_config_broker
+
+        envelope = sw_config_broker._empty_envelope()
+        envelope["decisions_by_subsystem"] = {
+            "test_sub": {
+                "TEST-001": {
+                    "decision": "use_config",
+                    "config_name": "ConfigA",
+                    "bom_dim_signature": "match_sig",
+                    "sldprt_filename": "match.sldprt",
+                    "decided_at": "2026-04-27T00:00:00Z",
+                }
+            }
+        }
+        monkeypatch.setattr(
+            sw_config_broker, "_load_decisions_envelope", lambda: envelope
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_list_configs_via_com", lambda _: ["ConfigA"]
+        )
+        monkeypatch.setattr(
+            sw_config_broker, "_build_bom_dim_signature", lambda _: "match_sig"
+        )
+
+        result = sw_config_broker._resolve_config_for_part_unlocked(
+            bom_row={"part_no": "TEST-001"},
+            sldprt_path="C:/fake/match.sldprt",
+            subsystem="test_sub",
+        )
+
+        assert result.source == "cached_decision"
+        assert result.config_name == "ConfigA"
