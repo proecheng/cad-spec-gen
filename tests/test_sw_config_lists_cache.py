@@ -189,6 +189,7 @@ class TestSaveCache:
         assert "⚠" in err  # 视觉 emoji marker
         assert "请检查" in err  # 用户行动指引
         assert "本次 codegen 不受影响" in err  # rev 3 I3 安抚
+        assert "不再 banner" in err  # 防 spam 提示（reviewer 加固，spec §3.4 第 4 marker）
 
     def test_invariant_v220_cache_schema_v1_loads_without_break(
         self, monkeypatch, tmp_path,
@@ -210,6 +211,9 @@ class TestSaveCache:
         assert cache["sw_version"] == 24
         assert "C:\\test\\p1.sldprt" in cache["entries"]
         assert cache["entries"]["C:\\test\\p1.sldprt"]["configs"] == ["A", "B"]
+        # reviewer 加固：spec I5 terminal mark [] 双 entry 结构第二半（防 fixture 改删未感知）
+        assert "C:\\test\\p2.sldprt" in cache["entries"]
+        assert cache["entries"]["C:\\test\\p2.sldprt"]["configs"] == []
 
 
 class TestLoadCache:
