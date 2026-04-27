@@ -117,7 +117,9 @@ skip_covered = false
 [tool.mypy]
 # 渐进式 typing 政策（spec §3 / §11 M-7 决策）：仅本 PR 触动模块进 strict。
 # 未来 cleanup PR 触动新模块时按需在 [[tool.mypy.overrides]] 加入。
-python_version = "3.10"  # 与 requires-python = ">=3.10" 对齐
+python_version = "3.10"  # mypy 分析目标版本（与 requires-python = ">=3.10" 对齐
+                          # 让 mypy 检查 3.10 不支持的语法）；与 CI runtime Python
+                          # 版本（mypy-strict job 用 3.11）正交概念，不必一致
 strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
