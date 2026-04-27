@@ -1,5 +1,11 @@
 # sw_config_broker §11 M-2 + M-4 清理 Implementation Plan
 
+> **rev 2** (2026-04-27): plan task 0 校准发现 spec rev 5 §3.1.4 数值全错，**spec 升 rev 6 用本机 SW 2024 真值**。同步 plan 测试代码 + 实现代码 + Task 0 校准证据：
+> - `_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}`（原 {4096, 8192, 16384}）
+> - swFileLoadError 数值表完整重写（spec §3.1.4 rev 6）
+> - Task 1 / Task 3 代码块数值修正
+> - Task 0 step 3 校准结果记录已写入证据
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 清理 sw_config_broker §11 follow-up M-2（save 异常下沉 + banner）+ M-4（worker rc 合约 + transient/terminal 分类 + broker rc 分流），让"单次 SW hiccup 不打废 BOM 件" + "save 失败不打断 codegen"。
@@ -46,25 +52,31 @@ python -c "from win32com.client import constants; print({k: getattr(constants, k
 
 - [ ] **Step 2: 对比 spec §3.1.4 表**
 
-预期值（spec §3.1.4）：
-- `swFutureVersion = 8`
-- `swFileWithSameTitleAlreadyOpen = 4096`
-- `swApplicationBusy = 8192`
-- `swLowResourceError = 16384`
+预期值（spec §3.1.4 rev 6 — 本机 SW 2024 校准真值）：
+- `swFileWithSameTitleAlreadyOpen = 65536`
+- `swLowResourcesError = 262144`（注：复数 Resources）
+- `swApplicationBusy = 8388608`
+- `swFutureVersion = 8192`
 
-如本机输出与 spec 不同 → 修 spec 后重提交 spec rev 6 → 再回来开 Phase 1。
+如本机输出与 spec rev 6 不同 → 修 spec 后重提交 spec rev 7 → 再回来开 Phase 1。
 
-- [ ] **Step 3: 校准结果记录**
+- [ ] **Step 3: 校准结果记录（plan rev 2 已写入）**
 
-无论结果是否一致，把本机输出写入 plan-level 注释（commit message 或本 plan 文件 §0 末尾）作证据：
+**实测本机 SW 2024 校准证据**（CLSID `{4687F359-55D0-4CD3-B6CF-2EB42C11F989}` major=32 minor=0，gen_py wrapper at `~/AppData/Local/Temp/gen_py/3.12/4687F359-55D0-4CD3-B6CF-2EB42C11F989x0x32x0.py`）：
 
-```bash
-# 例：本机 SW 2024 校准结果
-# swFutureVersion=8, swFileWithSameTitleAlreadyOpen=4096, swApplicationBusy=8192, swLowResourceError=16384
-# 与 spec §3.1.4 一致 ✓
+```
+swFileWithSameTitleAlreadyOpen = 65536    # transient
+swLowResourcesError            = 262144   # transient (注：复数 Resources)
+swApplicationBusy              = 8388608  # transient
+swFutureVersion                = 8192     # terminal
+swFileNotFoundError            = 2        # terminal
+swInvalidFileTypeError         = 1024     # terminal
+... (完整 24 项见 spec §3.1.4 rev 6 表)
 ```
 
-- [ ] **Step 4: 不需要 commit**（校准是 plan 阶段动作；如改 spec 才需要新 commit）
+**与 spec rev 5 §3.1.4 偏差**：4 个 transient 数值全错 → spec 已升 rev 6 + plan 升 rev 2。
+
+- [ ] **Step 4: spec rev 6 + plan rev 2 commit 已就位** — 见对应 commit 消息
 
 ---
 
@@ -176,9 +188,9 @@ class TestWorkerOpenDocFailure:
         fake_app = mock.MagicMock()
         _patch_com(monkeypatch, dispatch_return=fake_app)
 
-        # OpenDocFailure errors=8 (swFutureVersion) → terminal
+        # OpenDocFailure errors=8192 (swFutureVersion，rev 6 本机校准) → terminal
         def raise_terminal(app, p):
-            raise wkr.OpenDocFailure(errors=8, warnings=0, model_was_null=False)
+            raise wkr.OpenDocFailure(errors=8192, warnings=0, model_was_null=False)
         monkeypatch.setattr(wkr, "_open_doc_get_configs", raise_terminal)
 
         rc = wkr._list_configs("dummy.sldprt")
@@ -190,9 +202,9 @@ class TestWorkerOpenDocFailure:
         fake_app = mock.MagicMock()
         _patch_com(monkeypatch, dispatch_return=fake_app)
 
-        # OpenDocFailure errors=8192 (swApplicationBusy) → transient
+        # OpenDocFailure errors=8388608 (swApplicationBusy，rev 6 本机校准) → transient
         def raise_transient(app, p):
-            raise wkr.OpenDocFailure(errors=8192, warnings=0, model_was_null=False)
+            raise wkr.OpenDocFailure(errors=8388608, warnings=0, model_was_null=False)
         monkeypatch.setattr(wkr, "_open_doc_get_configs", raise_transient)
 
         rc = wkr._list_configs("dummy.sldprt")
@@ -212,7 +224,7 @@ class TestInvariantI11I12:
         from adapters.solidworks.sw_list_configs_worker import OpenDocFailure
         assert issubclass(OpenDocFailure, RuntimeError)
 
-        e = OpenDocFailure(errors=4096, warnings=0, model_was_null=False)
+        e = OpenDocFailure(errors=65536, warnings=0, model_was_null=False)  # rev 6: swFileWithSameTitleAlreadyOpen
         assert isinstance(e, RuntimeError)
         # 现有 except RuntimeError 调用方不破
         try:
@@ -254,12 +266,12 @@ class TestInvariantI11I12:
         from adapters.solidworks.sw_list_configs_worker import OpenDocFailure
 
         try:
-            raise OpenDocFailure(errors=4096, warnings=2, model_was_null=False)
+            raise OpenDocFailure(errors=65536, warnings=2, model_was_null=False)  # rev 6
         except OpenDocFailure as e:
-            assert e.errors == 4096
+            assert e.errors == 65536
             assert e.warnings == 2
             assert e.model_was_null is False
-            assert "OpenDoc6 errors=4096" in str(e)
+            assert "OpenDoc6 errors=65536" in str(e)
 ```
 
 - [ ] **Step 4: 跑全部 RED 验证**
@@ -355,11 +367,11 @@ EXIT_USAGE = 64
 # spec rev 5 B2 修：worker 端不要列 EXIT_LEGACY 常量
 
 # spec §3.1.4 swFileLoadError transient 数值集合
-# 来源：SW SDK 2021/2022 文档 + plan task 0 校准
+# 来源：plan task 0 本机 SW 2024 swconst.tlb 校准真值（spec rev 6）
 _TRANSIENT_OPENDOC_ERRORS: frozenset[int] = frozenset({
-    4096,   # swFileWithSameTitleAlreadyOpen — 同名文件已开
-    8192,   # swApplicationBusy — SW 进程忙（典型 boot 中）
-    16384,  # swLowResourceError — 资源不足 / 内存压力
+    65536,    # swFileWithSameTitleAlreadyOpen — 同名文件已开
+    262144,   # swLowResourcesError — 资源不足 / 内存压力（注：复数 Resources）
+    8388608,  # swApplicationBusy — SW 进程忙（典型 boot 中）
 })
 
 # spec §3.1.5 已知 transient COM hresult
@@ -380,7 +392,7 @@ spec §3.1.2 + §3.1.4 + §3.1.5：建立 worker rc 合约基线。
 EXIT_OK=0 / EXIT_TERMINAL=2 / EXIT_TRANSIENT=3 / EXIT_USAGE=64（worker 不
 定义 EXIT_LEGACY=4，那是 broker 端识别旧 worker 的兼容常量）。
 
-_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}（rev 5 F-3 真值）
+_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}（rev 6 本机 SW 2024 校准真值）
 _TRANSIENT_COM_HRESULTS = {-2147023170, -2147418113, -2147023174}
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
@@ -2375,7 +2387,7 @@ EOF
 - `OpenDocFailure(errors: int, warnings: int, model_was_null: bool)` — Task 2 / Task 5 / Task 1 测试 一致 ✓
 - `_classify_worker_exception(e: BaseException) -> int` — Task 4 / Task 6 / Task 1 测试 一致 ✓
 - `EXIT_OK = 0 / EXIT_TERMINAL = 2 / EXIT_TRANSIENT = 3 / EXIT_USAGE = 64` — Task 3 worker 端 vs Task 9 broker 端 `WORKER_EXIT_*` 数值同步 ✓
-- `_TRANSIENT_OPENDOC_ERRORS = frozenset({4096, 8192, 16384})` — Task 3 / Task 1 测试用 errors=8 (terminal) / errors=8192 (transient) 一致 ✓
+- `_TRANSIENT_OPENDOC_ERRORS = frozenset({65536, 262144, 8388608})` — Task 3 / Task 1 测试用 errors=8192 (terminal swFutureVersion) / errors=8388608 (transient swApplicationBusy) 一致 ✓
 - `_save_failure_warned` 模块级 flag — Task 15 (cache.py) + Task 14 (conftest reset fixture) + Task 13 测试用名一致 ✓
 
 ✅ 命名 + 类型签名跨 task 一致。

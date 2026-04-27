@@ -1,5 +1,16 @@
 # sw_config_broker §11 技术债清理 — M-2 + M-4 设计 spec
 
+- **rev**: 6（plan task 0 本机校准发现 §3.1.4 数值全错 — 改用本机 SW 2024 真值）
+- **rev 5 → rev 6 修订记录**（plan task 0 校准触发，2026-04-27）：
+  - **核心修复（F-3 重做）**：用本机 SW 2024 swconst.tlb 的 `gen_py` wrapper 校准枚举值，发现 spec rev 5 §3.1.4 数值表**4 个 transient 数值全错**：
+    - `swFutureVersion`: spec=8 → **真值=8192**
+    - `swFileWithSameTitleAlreadyOpen`: spec=4096 → **真值=65536**
+    - `swApplicationBusy`: spec=4096 → **真值=8388608**
+    - `swLowResourcesError`（注：Resources 不是 Resource）: spec=256 → **真值=262144**
+  - 同时 spec 还把 `swViewOnlyRestrictions=4096` 错标为 `swFileWithSameTitleAlreadyOpen`，把 `swViewMissingReferencedConfig=16384` 错标为 `swLowResourceError` —— spec rev 4 的 reality reviewer 用公开 SW SDK 文档校准时撞了**版本数值漂移 + 命名拼写错误**两个坑
+  - **新 `_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}`**（rev 5 错的是 {4096, 8192, 16384}）
+  - **校准证据**：本机 SW 2024 (CLSID `{4687F359-55D0-4CD3-B6CF-2EB42C11F989}`, major=32 minor=0)，gen_py wrapper at `~/AppData/Local/Temp/gen_py/3.12/4687F359-55D0-4CD3-B6CF-2EB42C11F989x0x32x0.py`，`grep "swFileLoadError_e"` 输出 24 个 enum 值
+  - 本次校准证明 plan task 0 强制前置的价值 — 否则 worker 端会按错数值实现，整个 M-4 transient 分类生产不命中
 - **rev**: 5（user feedback "测试越详尽越好" — 测试覆盖大扩 + CI gate）
 - **rev 4 → rev 5 修订记录**（user 反思 "前 4 轮 review 修复反复不收敛 → 测试覆盖不够 anchor 实施"，2026-04-27）：
   - **核心决策**：扩测试矩阵从 31 → ~66，覆盖率从隐式 → CI 强制 ≥95%。**让下次 reviewer 抓不到漏，PR review → merge 一次到位**
@@ -137,38 +148,55 @@ class OpenDocFailure(RuntimeError):
 
 **向后兼容**：`OpenDocFailure(RuntimeError)` 子类，所有现有 `except RuntimeError` 不破。
 
-#### §3.1.4 swFileLoadError 数值映射表（rev 4 F-3 用真 SW SDK 文档校准）
+#### §3.1.4 swFileLoadError 数值映射表（rev 6 用本机 SW 2024 真值校准）
 
-来源：SolidWorks SDK `swFileLoadError_e` 枚举（SOLIDWORKS API Help 2021/2022 — bitmask 枚举值）。
+**校准来源**：本机 SW 2024 swconst.tlb gen_py wrapper（plan task 0 完成 2026-04-27）。CLSID `{4687F359-55D0-4CD3-B6CF-2EB42C11F989}` major=32 minor=0。完整 24 项枚举来自 `~/AppData/Local/Temp/gen_py/3.12/4687F359-55D0-4CD3-B6CF-2EB42C11F989x0x32x0.py`。
 
-| errors 值 | 名称 | 分类 | 理由 |
+> **rev 5 → rev 6 关键修复**：rev 5 §3.1.4 数值表用公开 SW SDK 文档（API Help 2021/2022）校准，但本机 SW 2024 真值与之**完全不同**（4 个 transient 数值全错 + 命名拼写错误 swLowResourceError vs swLowResourcesError）。本表用本机 gen_py 真值。
+
+| errors 值（本机真值） | 名称 | 分类 | 理由 |
 |----------|------|------|------|
-| 1 | `swGenericError` | terminal | 通用未知错，重试不变 |
+| 1 | `swGenericError` | terminal | 通用未知错 |
 | 2 | `swFileNotFoundError` | terminal | 文件不存在 |
-| 8 | `swFutureVersion`（SLDPRT 比 SW 版本新） | terminal | 升级前重试不会变 |
-| 32 | `swInvalidFileTypeError` | terminal | 文件类型错 |
-| 64 | `swFileNotFoundWarning` | terminal | 同 2 |
-| 128 | `swNoDisplayData` | terminal | LDR 显示数据缺失 |
-| 1024 | `swFileRequiresRepair` | terminal | 需手动修复 |
-| **4096** | `swFileWithSameTitleAlreadyOpen` | **transient** | 同名文件已开（典型 UI 残留 / 并发场景） |
-| **8192** | `swApplicationBusy` | **transient** | SW 进程忙（典型 boot 中） |
-| **16384** | `swLowResourceError` | **transient** | 资源不足 / 内存压力 |
+| 4 | `swIdMatchError` | terminal | ID 不匹配 |
+| 8 | `swReadOnlyWarn` | terminal（warning，OpenDoc6 不阻塞） | — |
+| 16 | `swSharingViolationWarn` | terminal（warning） | — |
+| 32 | `swDrawingANSIUpdateWarn` | terminal（warning） | — |
+| 64 | `swSheetScaleUpdateWarn` | terminal（warning） | — |
+| 128 | `swNeedsRegenWarn` | terminal（warning） | — |
+| 256 | `swBasePartNotLoadedWarn` | terminal（warning） | — |
+| 512 | `swFileAlreadyOpenWarn` | terminal（warning，OpenDoc6 复用现有实例） | — |
+| 1024 | `swInvalidFileTypeError` | terminal | 文件类型错 |
+| 2048 | `swDrawingsOnlyRapidDraftWarn` | terminal（warning） | — |
+| 4096 | `swViewOnlyRestrictions` | terminal | 仅显示限制 |
+| 8192 | `swFutureVersion` | terminal | SLDPRT 比 SW 版本新，升级前重试不变 |
+| 16384 | `swViewMissingReferencedConfig` | terminal | 视图引用配置缺失 |
+| 32768 | `swDrawingSFSymbolConvertWarn` | terminal（warning） | — |
+| **65536** | `swFileWithSameTitleAlreadyOpen` | **transient** | 同名文件已开（典型 UI 残留 / 并发场景） |
+| 131072 | `swLiquidMachineDoc` | terminal | 特殊文档类型 |
+| **262144** | `swLowResourcesError`（注：复数 Resources） | **transient** | 资源不足 / 内存压力 |
+| 524288 | `swNoDisplayData` | terminal | LDR 显示数据缺失 |
+| 1048576 | `swAddinInteruptError` | terminal（addin 流程不应触发于 OpenDoc6） | — |
+| 2097152 | `swFileRequiresRepairError` | terminal | 需手动修复 |
+| 4194304 | `swFileCriticalDataRepairError` | terminal | 严重数据损坏 |
+| **8388608** | `swApplicationBusy` | **transient** | SW 进程忙（典型 boot 中） |
+| 16777216 | `swConnectedIsOffline` | terminal（本地 SLDPRT 不受 offline 影响） | — |
 | **null model（errors=0）** | `model is None` 但 errors=0 | terminal | 罕见边角，归 terminal 保守 |
 
-**`_TRANSIENT_OPENDOC_ERRORS` 集合**：`{4096, 8192, 16384}`（未来扩充走单独 PR）。
+**`_TRANSIENT_OPENDOC_ERRORS` 集合**：`{65536, 262144, 8388608}`（rev 6 修，未来扩充走单独 PR）。
 
-> **🔴 实施前强制校准（rev 4 F-3 修复）**：上表数值取自公开 SW SDK 2021/2022 文档；plan task 0 必须在本机 SW 装好的环境用 `from win32com.client import constants` 校准实际枚举值（不同 SW 版本可能微调 bitmask 位）。校准代码：
+> **plan task 0 校准命令**（已跑通）：
 >
-> ```python
-> from win32com.client import constants
-> _TRANSIENT_OPENDOC_ERRORS = frozenset({
->     constants.swFileLoadError_FileWithSameTitleAlreadyOpen,
->     constants.swFileLoadError_ApplicationBusy,
->     constants.swFileLoadError_LowResourceError,
-> })
+> ```bash
+> # 1. makepy 喂 .tlb 文件直接生成 gen_py wrapper（绕过注册表）
+> python -m win32com.client.makepy "C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\swconst.tlb"
+> # 2. grep enum 拿真值
+> grep "from enum swFileLoadError_e\b" "C:\Users\<user>\AppData\Local\Temp\gen_py\3.12\4687F359-55D0-4CD3-B6CF-2EB42C11F989x0x32x0.py"
 > ```
 >
-> 若 `pywin32` constants 不可读（极罕见），保留裸数字 + 注释枚举名 + 在 `tests/test_sw_list_configs_worker.py` 加一个 SDK 校准 fixture 验证数字与本机 SW 实际匹配。
+> **WHY makepy 而不是 EnsureDispatch**：本机测试发现 `gencache.EnsureDispatch('SldWorks.Application')` 抛 `TypeError: This COM object can not automate the makepy process`（SW ProgID 的 GetTypeInfo 在某些版本不可用）。改为 makepy 直接喂 swconst.tlb 文件路径绕过注册表（rev 6 实测路径：`C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\swconst.tlb`）。
+>
+> 若用户实施时 .tlb 路径不同，先跑 `python -c "from win32com.client.selecttlb import EnumTlbs; [print(t.dll) for t in EnumTlbs() if 'Constant' in t.desc and 'SOLIDWORKS' in t.desc]"` 拿路径。
 
 #### §3.1.5 已知 transient COM hresult（DispatchEx / GetConfigurationNames 路径）
 
@@ -192,7 +220,7 @@ EXIT_TERMINAL = 2
 EXIT_TRANSIENT = 3
 EXIT_USAGE = 64
 
-_TRANSIENT_OPENDOC_ERRORS: frozenset[int] = frozenset({4096, 8192, 16384})  # spec §3.1.4 (rev 4 F-3)
+_TRANSIENT_OPENDOC_ERRORS: frozenset[int] = frozenset({65536, 262144, 8388608})  # spec §3.1.4 (rev 6 本机校准真值)
 _TRANSIENT_COM_HRESULTS: frozenset[int] = frozenset({                    # spec §3.1.5
     -2147023170, -2147418113, -2147023174,
 })
@@ -520,10 +548,10 @@ broker._list_configs_via_com(p)
   L2 miss → L1 miss
   spawn worker(p)
   worker._list_configs_returning(p)
-    → app.OpenDoc6(...) errors=64 (swFutureVersion)
-    → _open_doc_get_configs raise OpenDocFailure(errors=64, ...)
+    → app.OpenDoc6(...) errors=8192 (swFutureVersion)
+    → _open_doc_get_configs raise OpenDocFailure(errors=8192, ...)
     → 冒到 _list_configs except → _classify_worker_exception(e)
-    → e.errors=64 ∉ _TRANSIENT_OPENDOC_ERRORS → return EXIT_TERMINAL=2
+    → e.errors=8192 ∉ _TRANSIENT_OPENDOC_ERRORS → return EXIT_TERMINAL=2
   worker exit(2)
   broker: rc=2 → cache L2 = [] + return []
   同 process 后续调用 = L2 hit → return [] 不再 spawn ✓
@@ -536,9 +564,9 @@ broker._list_configs_via_com(p)
   Layer 2 miss → Layer 1 miss
   spawn worker(p)
   worker._list_configs_returning(p)
-    → app.OpenDoc6(...) errors=8192 (swApplicationBusy)
-    → OpenDocFailure(errors=8192) → _classify_worker_exception
-    → e.errors=8192 ∈ _TRANSIENT_OPENDOC_ERRORS → return EXIT_TRANSIENT=3
+    → app.OpenDoc6(...) errors=8388608 (swApplicationBusy)
+    → OpenDocFailure(errors=8388608) → _classify_worker_exception
+    → e.errors=8388608 ∈ _TRANSIENT_OPENDOC_ERRORS → return EXIT_TRANSIENT=3
   worker exit(3)
   broker: rc=3 → log + return [] (不 cache)
   同 process 后续调用 = L2 miss → L1 miss → 重新 spawn worker → 第 2 次可能成功
@@ -633,8 +661,8 @@ cache_mod._save_config_lists_cache(cache)
 | 测试 | 断言 |
 |------|------|
 | `test_worker_success_returns_rc0_with_configs_json` | mock `_list_configs_returning` 返 ["A","B"] → rc=0；stdout 解析为 ["A","B"] |
-| `test_worker_open_doc_failure_terminal_errors_returns_rc2` | mock OpenDoc6 errors=64 (swFutureVersion) → 抛 `OpenDocFailure` → rc=2 |
-| `test_worker_open_doc_failure_transient_errors_returns_rc3` | mock OpenDoc6 errors=4096 (swApplicationBusy) → 抛 `OpenDocFailure` → rc=3 |
+| `test_worker_open_doc_failure_terminal_errors_returns_rc2` | mock OpenDoc6 errors=8192 (swFutureVersion) → 抛 `OpenDocFailure` → rc=2 |
+| `test_worker_open_doc_failure_transient_errors_returns_rc3` | mock OpenDoc6 errors=8388608 (swApplicationBusy) → 抛 `OpenDocFailure` → rc=3 |
 | `test_worker_open_doc_null_model_returns_rc2` | mock OpenDoc6 returns None (errors=0) → `OpenDocFailure(errors=0, model_was_null=True)` → rc=2 |
 | `test_worker_com_error_transient_hresult_returns_rc3` | mock `pythoncom.com_error` hresult=-2147023170 (RPC_E_DISCONNECTED) → rc=3 |
 | `test_worker_com_error_terminal_hresult_returns_rc2` | mock `pythoncom.com_error` hresult=-2147467259（未识别） → rc=2 |
@@ -648,7 +676,7 @@ cache_mod._save_config_lists_cache(cache)
 | `test_batch_mode_dispatchex_com_error_emits_classified_per_entry` | rev 4 A1：mock batch 顶部 `DispatchEx` 抛 `pythoncom.com_error` (transient hresult) → stdout = `[{"path": p, "configs": [], "exit_code": 3} for p in 输入]`，rc=0（Edge 15） |
 | `test_invariant_open_doc_failure_is_runtime_error_subclass` | **rev 5 A 直测 I11**：`assert issubclass(OpenDocFailure, RuntimeError)` + 创建实例 + 验证 `isinstance(e, RuntimeError)` 仍 True（防 except RuntimeError 调用方破） |
 | `test_invariant_classify_worker_exception_called_by_both_single_and_batch_paths` | **rev 5 A 直测 I12**：monkeypatch.setattr `_classify_worker_exception` spy 函数；分别跑 `_list_configs(p)` 失败路径 + `_run_batch_mode([p1, p2])` 失败路径；assert spy 被两条路径都调用过（DRY 验证）|
-| `test_invariant_open_doc_failure_carries_structured_fields` | **rev 5 A 补**：`raise OpenDocFailure(errors=4096, warnings=0, model_was_null=False)` 后 catch；assert `e.errors == 4096 and e.warnings == 0 and e.model_was_null is False`（防字段被吞）|
+| `test_invariant_open_doc_failure_carries_structured_fields` | **rev 5 A 补**：`raise OpenDocFailure(errors=65536, warnings=0, model_was_null=False)` 后 catch；assert `e.errors == 65536 and e.warnings == 0 and e.model_was_null is False`（防字段被吞，65536=swFileWithSameTitleAlreadyOpen）|
 
 ### §7.2 扩展 `tests/test_sw_config_broker.py`
 
@@ -821,7 +849,7 @@ def _reset_config_list_caches():
 |------|------|---------|
 | 文件 | 改动 | 估算 LOC |
 |------|------|---------|
-| `adapters/solidworks/sw_list_configs_worker.py` | 新增 `OpenDocFailure(RuntimeError)` 子类异常（§3.1.3）；新增 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量 + `_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}`（rev 4 F-3 用真 SW SDK 数值） + `_TRANSIENT_COM_HRESULTS` + `_classify_worker_exception` 共享分类函数（§3.1.6）；`_open_doc_get_configs` 失败分支替换为 `raise OpenDocFailure(...)`（§3.1.3）；`_list_configs` 重写 try/except 走分类（§3.1.7）；`_run_batch_mode` 顶部 ImportError/DispatchEx 失败也透 entry-level rc（rev 4 A1，§3.1.8.1） + for 循环 except 改调分类函数 + entry 加 `exit_code` 字段（§3.1.8.2） | +110 / -30 |
+| `adapters/solidworks/sw_list_configs_worker.py` | 新增 `OpenDocFailure(RuntimeError)` 子类异常（§3.1.3）；新增 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量 + `_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}`（rev 6 本机 SW 2024 真值校准） + `_TRANSIENT_COM_HRESULTS` + `_classify_worker_exception` 共享分类函数（§3.1.6）；`_open_doc_get_configs` 失败分支替换为 `raise OpenDocFailure(...)`（§3.1.3）；`_list_configs` 重写 try/except 走分类（§3.1.7）；`_run_batch_mode` 顶部 ImportError/DispatchEx 失败也透 entry-level rc（rev 4 A1，§3.1.8.1） + for 循环 except 改调分类函数 + entry 加 `exit_code` 字段（§3.1.8.2） | +110 / -30 |
 | `adapters/solidworks/sw_config_broker.py` | 顶部新增 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 常量（§3.2.1）；`_list_configs_via_com` rc 分流（替换 L499-536，§3.2.2）—— rc=0 cache configs / rc=2 cache [] / rc=3+rc=4+未知 + TimeoutExpired+OSError+JSON parse 失败 不 cache；`prewarm_config_lists` batch 路径 entry-level rc 处理含 rc is None invalidate 分支（替换 L615-628，§3.3）；移除 L570-580 caller-side try/except | +50 / -35 |
 | `adapters/solidworks/sw_config_lists_cache.py` | 顶部新增 `import sys`（rev 4 F-2）；`_save_config_lists_cache` 包 try/except + 模块级 `_save_failure_warned` flag + banner（§3.4-§3.5） | +27 / -3 |
 | `tests/test_sw_list_configs_worker.py` | **新增** 17 测试（rev 4 14 + rev 5 A 3 invariant 直测）| +450 / -0 |
@@ -853,13 +881,13 @@ def _reset_config_list_caches():
 ```bash
 python -c "from win32com.client import constants; print({k: getattr(constants, k) for k in dir(constants) if k.startswith('swFileLoadError_')})"
 ```
-校准 `swFileLoadError_e` 真实数值；如与 spec §3.1.4 表（`_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}`）有出入，**先更新 spec rev 6** 再开 Phase 1。这是 plan 阶段的环境校准，不算实施 task。
+校准 `swFileLoadError_e` 真实数值；如与 spec §3.1.4 表（`_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}`，rev 6 已用本机 SW 2024 校准）有出入，**先更新 spec rev 7** 再开 Phase 1。这是 plan 阶段的环境校准，不算实施 task。
 
 ### Phase 1 — Worker 端分类基建 + rc 合约 + 3 invariant 直测（7 task）
 
 1. 写测试：`test_sw_list_configs_worker.py` 17 测试全部 RED（rev 4 14 + rev 5 A I11/I12 + OpenDocFailure 字段直测 3 个 invariant 测试）
 2. 实现：定义 `class OpenDocFailure(RuntimeError)` 含 `errors: int / warnings: int / model_was_null: bool` 字段（§3.1.3）
-3. 实现：`EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量（**不**含 EXIT_LEGACY，B2 修）+ `_TRANSIENT_OPENDOC_ERRORS = frozenset({4096, 8192, 16384})`（rev 4 F-3 真值） + `_TRANSIENT_COM_HRESULTS`
+3. 实现：`EXIT_OK/TERMINAL/TRANSIENT/USAGE` 常量（**不**含 EXIT_LEGACY，B2 修）+ `_TRANSIENT_OPENDOC_ERRORS = frozenset({65536, 262144, 8388608})`（rev 6 本机 SW 2024 校准真值） + `_TRANSIENT_COM_HRESULTS`
 4. 实现：`_classify_worker_exception(e)` 共享函数（§3.1.6）
 5. 实现：`_list_configs` 重写（§3.1.7） + `_run_batch_mode` 顶部 boot fail emit per-entry stdout（§3.1.8.1） + for 循环 except 改调分类（§3.1.8.2）
 6. 实现：`_open_doc_get_configs` 失败分支改抛 `OpenDocFailure(...)`
@@ -912,7 +940,7 @@ python -c "from win32com.client import constants; print({k: getattr(constants, k
 |------|------|
 | **Worker rc 双边维护** | `sw_list_configs_worker.py` 的 `EXIT_OK/TERMINAL/TRANSIENT/USAGE` 与 `sw_config_broker.py` 的 `WORKER_EXIT_OK/TERMINAL/TRANSIENT/LEGACY` 是**两边独立定义**；改 worker 端任一 rc 数值或新增 rc 时**必须同步 broker 端常量 + `_list_configs_via_com` rc 分流分支 + `prewarm_config_lists` batch entry-level 处理**。未来若需进一步解耦可抽 `adapters/solidworks/sw_worker_contract.py` 共享 module，但当前两文件距离短，重复定义的维护成本可接受 |
 | **transient cache TTL 调优** | rev 4 删除（已砍 transient cache）|
-| **swFileLoadError 数值表（rev 4 F-3 已用真值）** | `_TRANSIENT_OPENDOC_ERRORS = {4096, 8192, 16384}` 来自 SW SDK 2021/2022 公开文档 + plan task 0 校准。如生产观察某 errors 值实际呈现 transient 行为（例如 swFileLoadError_X 在某 SW 版本 retry 后成功率 > 50%），按 memory feedback 模式收证后扩充集合 |
+| **swFileLoadError 数值表（rev 6 本机 SW 2024 真值校准）** | `_TRANSIENT_OPENDOC_ERRORS = {65536, 262144, 8388608}` (swFileWithSameTitleAlreadyOpen / swLowResourcesError / swApplicationBusy) 来自 plan task 0 本机 SW 2024 swconst.tlb 校准。如生产观察某 errors 值实际呈现 transient 行为（例如 swFileLoadError_X 在某 SW 版本 retry 后成功率 > 50%），按 memory feedback 模式收证后扩充集合 |
 
 ---
 
