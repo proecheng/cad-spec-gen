@@ -556,7 +556,7 @@ class TestDecisionsEnvelopeIO:
         return _build
 
     def test_load_rejects_unknown_string_in_history(
-        self, _make_envelope_with_history, monkeypatch
+        self, _make_envelope_with_history
     ):
         """T8 (spec §4.5 IO 边界): decisions_history 含 PR #19 之前的旧字符串
         'bom_change'，_load_decisions_envelope 必抛 ValueError 守护跨 IO 边界。
