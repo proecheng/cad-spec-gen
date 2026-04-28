@@ -125,3 +125,22 @@ Stage C（STEP 转换）仍为 `pre=None post=None`，根因为 SolidWorks COM S
 - v2 二审（artifact 数据流 + 依赖安装）
 - v3 多角色审查（D4 → long-lived / D7 → cancel-in-progress: false；
   + D13/D14/D15/D16 新决策）
+
+---
+
+## #40 TODO 来源口径：历史 checklist 不等于活跃待办（2026-04-28）
+
+**决策：** `docs/superpowers/plans/*.md` 与 `docs/superpowers/specs/*.md`
+中的裸 `- [ ]` checklist 视为历史实施记录或当时验收草案，不再直接作为
+当前活跃 TODO 来源。当前活跃待办以
+`docs/superpowers/reports/todo-triage-2026-04-28.md` 的 Backlog 为准。
+
+**依据：** 当前仓库中历史 plan/spec 仍有 2751 条 unchecked checklist，但
+对应功能已经经过后续 commit、release、CI、审查报告或方案替代。继续按裸
+checkbox 判断会把历史计划误读成当前缺口。
+
+**应用方式：**
+- 新审查发现必须落到新的报告、issue、spec 或 plan，不能只依赖旧 checklist。
+- 历史 checklist 若仍有效，必须复制/归并到 `todo-triage` 的活跃 Backlog。
+- `cad/` 生成样例中的 TODO 属样例/脚手架质量债；只有进入 Backlog 后才阻塞后续版本。
+- 模板与 Gate-2 文案中的 TODO 是用户补全机制，不作为内部未完成功能。
