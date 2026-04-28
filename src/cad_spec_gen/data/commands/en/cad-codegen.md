@@ -61,7 +61,7 @@ Code generation runs in 5 steps using generators in `codegen/` and Jinja2 templa
 | 2 | `gen_build.py` | `build_all.py.j2` | §5 BOM tree | `build_all.py` — STD STEP + DXF build table |
 | 3 | `gen_parts.py` | `part_module.py.j2` | §5 BOM (fabricated leaf parts) + §2 tolerance/surface + §title | `ee_NNN_NN.py` — approximate part geometry (with auto-annotation) |
 | 4 | `gen_assembly.py` | `assembly.py.j2` | §4 connections + §5 BOM + §6 poses | `assembly.py` — assembly structure (with radial positioning + direction transform) |
-| 5 | `gen_std_parts.py` | — | §5 BOM (purchased parts) | `std_ee_NNN_NN.py` — simplified standard part geometry |
+| 5 | `gen_std_parts.py` | — | §5 BOM (purchased parts) + `parts_library.yaml` | `std_ee_NNN_NN.py` — real STEP / parametric library / simplified fallback geometry |
 
 **Naming rules**: Part numbers are stripped via `strip_part_prefix()` with generic prefix removal (not hardcoded to "GIS-"), e.g. `GIS-EE-001-01` → `ee_001_01.py` / `make_ee_001_01()`; purchased parts `std_ee_001_03.py` / `make_std_ee_001_03()`
 
@@ -113,15 +113,16 @@ Parts without offset data remain origin-aligned.
 
 Outputs `ASSEMBLY_REPORT.json` (PASS/WARN/FAIL per check). FAIL items block subsequent Phase 4 RENDER.
 
-**Parts Library System** (v2.8.0+): Purchased parts are no longer hardcoded to `_gen_*` simplified geometry — they route through `parts_resolver.PartsResolver` to one of three adapters:
-- **`StepPoolAdapter`**: load real vendor STEP files from project-local `std_parts/` (Maxon / LEMO / ATI etc.)
+**Parts Library System** (v2.8.0+, v2.21.2 geometry-quality loop): Purchased parts are no longer hardcoded to `_gen_*` simplified geometry — they route through `parts_resolver.PartsResolver` to real models, parametric models, or terminal fallback geometry:
+- **`StepPoolAdapter`**: load real vendor STEP files from project-local `std_parts/` (Maxon / LEMO / ATI etc.) or from the shared `~/.cad-spec-gen/step_cache/` vendor cache/synthesizer
+- **`SwToolboxAdapter`**: route GB/ISO/DIN standard parts to local SolidWorks Toolbox STEP cache/export; `inspect` / `probe` cache misses do not trigger COM export
 - **`BdWarehouseAdapter`**: parametric ISO hardware (deep-groove bearings, fasteners, threads) via lazy `bd_warehouse` import
 - **`PartCADAdapter`**: opt-in package manager (`partcad`) for cross-project shared parametric parts
 - **`JinjaPrimitiveAdapter`**: terminal fallback that reuses the legacy `_gen_*` simplified geometry (pre-v2.8.0 behavior)
 
 Routing is driven by the `parts_library.yaml` registry at the project root. Without a yaml, the system is a no-op and output is byte-identical to v2.7.x. The CI regression job (`CAD_PARTS_LIBRARY_DISABLE=1`) enforces this guarantee.
 
-**§6.4 P7 Envelope Backfill** (v2.8.0+): Phase 1's `cad_spec_gen.py` adds a P7 backfill loop after P5/P6, calling `resolver.probe_dims()` for every purchased BOM row and writing library-derived dimensions into §6.4 with source tags `P7:STEP` / `P7:BW` / `P7:PC`. Priority:
+**§6.4 P7 Envelope Backfill** (v2.8.0+): Phase 1's `cad_spec_gen.py` adds a P7 backfill loop after P5/P6, calling `resolver.probe_dims()` for every purchased BOM row and writing library-derived dimensions into §6.4 with source tags `P7:STEP` / `P7:BW` / `P7:sw_toolbox` / `P7:PC`. Priority:
 - P1..P4 (author-provided): **never** overridden by P7
 - P5..P6 (auto-inferred): overridden by P7 (tagged `P7:STEP(override_P5)` etc.)
 - Missing rows: filled with the P7 value
@@ -144,6 +145,18 @@ Routing is driven by the `parts_library.yaml` registry at the project root. With
 ```
 The hint footer is suppressed when there are no jinja fallbacks. See `docs/PARTS_LIBRARY.md` for the mapping vocabulary.
 
+**Geometry Quality Report** (v2.21.2+): `gen_std_parts.py` writes `cad/<subsystem>/.cad-spec-gen/geometry_report.json` from the same resolver decisions used to emit `std_*.py`. The report uses `GeometryDecision` / `ResolveResult` fields (`geometry_source`, `geometry_quality`, `validated`, `hash`, `path_kind`, `requires_model_review`) and grades geometry A-E:
+
+| Quality | Typical source | Meaning |
+|---|---|---|
+| A | real STEP / SW Toolbox STEP | closest to real or official standard geometry |
+| B | `bd_warehouse` / `partcad` | credible parametric library geometry |
+| C | mechanical template or partially validated STEP | recognizable stand-in, better than an envelope |
+| D | `jinja_primitive` | simplified placeholder for rough visualization |
+| E | missing | no usable geometry |
+
+`resolve_report.json` is built from the same decision log. Standalone diagnostics may use `mode="inspect"` read-only fallback, but must not trigger COM export, STEP synthesis, or cache writes just to produce a report.
+
 **F1+F3 disc_arms Template Rewrite** (v2.8.2+): Flange-class parts (`disc_arms` geometry) now extrude arms + mounting platforms through the FULL disc thickness (not just the top 8mm slice). The 4-arm cross structure is visible from any viewing angle including straight-down from below. Plus chamfer/fillet polish makes the platforms look CNC-machined. A 2mm `_arm_overlap` fixes the OCCT tangent boolean bug:
 - Before: `make_ee_001_01().val()` returned 5 disjoint Solids (arm box was tangent to disc cylinder with zero volume overlap)
 - After: 1 fused Solid, bbox unchanged, volume 200 → 309 cm³
@@ -156,9 +169,11 @@ The hint footer is suppressed when there are no jinja fallbacks. See `docs/PARTS
 
 ### Standard Part Auto-generation (Step 5)
 
-`gen_std_parts.py` extracts all `purchased` parts from the BOM, auto-classifies them by name/model, then generates simplified CadQuery geometry:
+`gen_std_parts.py` extracts all `purchased` parts from the BOM, auto-classifies them by name/model, then tries real/parametric geometry first. Simplified CadQuery geometry is only the terminal fallback.
 
-| Category | Simplified Geometry | Example Models |
+The effective `parts_library.yaml` `mappings:` list controls priority (first hit wins). Recommended order: project/user STEP -> SW Toolbox STEP -> `bd_warehouse` / `partcad` -> `jinja_primitive`.
+
+| Category | Fallback Simplified Geometry | Example Models |
 |----------|--------------------|-----------------|
 | motor | Cylinder + shaft | Maxon ECX SPEED 22L |
 | reducer | Cylinder (wider) | Maxon GP22C |

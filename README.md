@@ -4,7 +4,7 @@
 
 A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
-**Latest: v2.21.2** — 当前版本元数据以 `pyproject.toml` 为单一事实源，`skill.json`、包内 `data/skill.json`、安装标记、AGENTS 和 README 的版本号保持一致。See [`CHANGELOG.md`](CHANGELOG.md).
+**Latest: v2.21.2** — 当前版本元数据以 `pyproject.toml` 为单一事实源，`skill.json`、包内 `data/skill.json`、安装标记、AGENTS 和 README 的版本号保持一致。Purchased parts are model-library-first: project/user STEP, shared vendor STEP cache, SolidWorks Toolbox STEP, `bd_warehouse`, and `partcad` are tried before `jinja_primitive` fallback. Codegen emits `cad/<subsystem>/.cad-spec-gen/geometry_report.json` with A-E geometry quality, and structured `model_choices` supplements can copy user STEP files into `std_parts/user_provided/` and prepend `parts_library.yaml` mappings. See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/PARTS_LIBRARY.md`](docs/PARTS_LIBRARY.md).
 
 **v2.9.1** — End-to-end regression-hardening release, shipped after a full real-document pipeline test on the GISBOT end-effector design doc. Four skill bugs fixed: (1) `check_env.py` now reads `blender_path` from `pipeline_config.json` so Level 4 RENDER is detected correctly when Blender isn't on `PATH`; (2) `assembly_validator.py` GATE-3.5 no longer crashes on `parse_envelopes()` v2.9 dict return — new `_envelope_dims()` adapter tolerates both tuple and dict shapes; (3) `cad_pipeline.py enhance --backend engineering` now accepted in argparse choices (was silently falling through to gemini); (4) **new `engineering_enhancer.py`** — fully implements the zero-AI backend long documented in `pipeline_config.json` (Blender PBR PNG → PIL sharpness/contrast/saturation → JPG). See [`RELEASE_v2.9.1.md`](RELEASE_v2.9.1.md).
 
@@ -149,9 +149,10 @@ Labeled PNG — with leader lines and component names
 │     ⚠ Scaffolds are incomplete: params.py needs correct naming,  │
 │     build_all.py needs valid module refs, assembly.py needs       │
 │     hand-written mate logic. Complete before Phase 4.             │
-│     v2.8.0: parts_library.yaml routes purchased parts through    │
-│     bd_warehouse / STEP pool / PartCAD adapters (jinja_primitive  │
-│     terminal fallback). v2.8.1: extends:default registry         │
+│     v2.21.2: parts_library.yaml routes purchased parts through   │
+│     user/project STEP, shared STEP cache, SW Toolbox,             │
+│     bd_warehouse / PartCAD adapters before jinja_primitive        │
+│     terminal fallback. v2.8.1: extends:default registry          │
 │     inheritance + per-build resolver coverage report.            │
 │     v2.8.2: F1+F3 disc_arms flange (full-thickness arms +        │
 │     chamfer/fillet) + GLB consolidator (per-face → per-part).    │
@@ -162,8 +163,8 @@ Labeled PNG — with leader lines and component names
 │     individual purchased parts as the full station bounding box. │
 │     Vendor STEP auto-synthesizer (adapters/parts/                │
 │     vendor_synthesizer.py) warms ~/.cad-spec-gen/step_cache/     │
-│     on first use — fresh projects route Maxon/LEMO/ATI BOM rows  │
-│     to real geometry without hand-crafted parts_library.yaml.    │
+│     on first use. geometry_report.json records A-E quality and   │
+│     flags remaining D/E simplified placeholders for upgrade.     │
 │  ✋ [GATE-2] TODO scan — exit code 2 if unfilled TODO: markers   │
 │                                                                 │
 │  4. PARAMETRIC MODELING                                         │
@@ -252,7 +253,7 @@ Gate 3 is skipped if `orientation_check.py` does not exist in the subsystem dire
 - **Auto-detect**: checks FAL_KEY → ComfyUI server → Gemini config → falls back to engineering
 - **Fallback chain**: fal → gemini → engineering (batch-locked after downgrade to ensure consistency)
 - **Geometry-locked**: Blender PNG provides exact geometry; AI only changes surface appearance
-- **Standard parts**: simplified CadQuery shapes (motors, bearings, springs) enhanced to realistic appearance via `{standard_parts_description}` prompt
+- **Standard parts**: real STEP / SW Toolbox / parametric library models are preferred; simplified CadQuery shapes are terminal fallback and are reported through `geometry_report.json`
 - **Cross-view consistent**: all 5 views share the same 3D source
 - **Dual output**: PNG for engineering, JPG for presentation
 - **Prompt templates**: auto-generated from render config variables
@@ -514,7 +515,7 @@ Create a JSON config file (see `config/gisbot.json` for a full 19-subsystem exam
 │   ├── gen_params.py               # §1 params → params.py
 │   ├── gen_build.py                # §5 BOM → build_all.py (STEP + STD + DXF)
 │   ├── gen_parts.py                # §5 custom leaf parts → station_*.py scaffolds
-│   ├── gen_std_parts.py            # §5 purchased parts → std_*.py (simplified geometry)
+│   ├── gen_std_parts.py            # §5 purchased parts → std_*.py + geometry_report.json
 │   └── gen_assembly.py             # §4+§5+§6 → assembly.py (incl. standard parts)
 ├── templates/
 │   ├── params.py.j2                # Jinja2: params.py generation

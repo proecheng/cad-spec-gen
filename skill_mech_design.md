@@ -48,8 +48,16 @@ MOUNT_CENTER_R = 40.0    # 安装中心半径 mm
 规则：
 - 区分自制件/外购件
 - 自制件需精确 CadQuery 建模
-- 外购件用简化几何（圆柱、方盒）仅供渲染可视化
+- 外购件优先使用模型库：项目/用户 STEP (`std_parts/`) → 共享 vendor STEP 缓存 → SolidWorks Toolbox STEP → `bd_warehouse` / `partcad` 参数化模型 → 可辨识半参数模板 → 简化几何兜底
+- 简化几何（圆柱、方盒）只用于临时预览或末级 fallback，不能当成真实模型库方案
 - 料号格式 `GIS-XX-NNN`（总成）/ `GIS-XX-NNN-NN`（零件）
+
+#### 外购件模型库工作流
+
+1. 先查看 `cad/<subsystem>/.cad-spec-gen/geometry_report.json`：A/B 表示已有真实或参数化模型，D/E 表示仍需补模型。
+2. 用户有 STEP 文件时，把文件复制/注册到 `parts_library.yaml`，而不是在文档里只写“使用某某模型”。通过 `/cad-spec --supplements` 的 `model_choices` 可自动完成复制、hash、`std_parts/user_provided/` 落库和映射前置。
+3. SolidWorks Toolbox 只作为本机授权环境下的可选来源；审查、候选展示、尺寸探测不得触发 COM 导出，只有用户确认或 codegen 生产生成时才允许导出。
+4. 对用户不专业的描述，先问可判断后果的问题：零件是什么、型号/标准号、是否有 STEP、是否接受占位、是否影响外观展示；不要要求用户理解 adapter 名称。
 
 ### Phase 3: 3D 参数化建模 → CadQuery .py + assembly.py
 

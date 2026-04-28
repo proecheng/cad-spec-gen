@@ -41,7 +41,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | file_struct | file, directory, where is, structure, file tree, tree, layout | → File Structure |
 | status | status, progress, which subsystems, progress report | → Subsystem Status |
 | integration | integrate, connect, other models, GLM, GPT, LLM, agent, invoke, universal, how to connect, framework | → Integrate Other LLMs/Agents |
-| parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown | → Parse Design Document BOM |
+| parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
 
@@ -162,6 +162,11 @@ Step 2: Code generation + parametric modeling
   on top of station-level radial transforms (_station_transform).
   Standard parts with unrealistic dimensions (e.g. cable length > assembly
   envelope) are auto-capped to visualization-friendly sizes.
+  New in v2.21.2: purchased parts are model-library-first. Codegen tries
+  project/user STEP, shared vendor STEP cache, SolidWorks Toolbox STEP,
+  bd_warehouse, and PartCAD before falling back to simplified CadQuery
+  geometry. It writes .cad-spec-gen/geometry_report.json with A-E quality
+  grades, so users can see exactly which parts still need better models.
   New in v2.7.1: assembly positioning fixes in _resolve_child_offsets():
   (A) orphan detection checks children positions — assemblies with positioned
       children are no longer falsely flagged as orphan (wrong stacking direction).
@@ -499,6 +504,17 @@ A: This was caused by 4 bugs in _resolve_child_offsets() fixed in v2.7.1:
    - Orphan detection falsely triggered for assemblies with positioned children
    - Auto-stack seed overlapped with explicitly-placed parts
    Fix: upgrade to v2.7.1 and re-run: cad_pipeline.py codegen --subsystem <name> --force
+
+Q: 外购件看起来还是圆柱/方盒，占位感很强
+A: 1. Open cad/<subsystem>/.cad-spec-gen/geometry_report.json and check
+      geometry_quality. D/E means simplified or missing geometry.
+   2. Add real STEP files under std_parts/ and a parts_library.yaml mapping,
+      or answer the review prompt with structured model_choices:
+      {"model_choices":[{"part_no":"...","step_file":"D:/models/part.step"}]}
+   3. Re-run cad_pipeline.py spec --subsystem <name> --supplements '<json>' --auto-fill
+      when applying user choices, then re-run codegen/build.
+   4. If SolidWorks Toolbox is available, use SW candidates only after user
+      confirmation; inspect/probe/report stages must not trigger COM export.
 ```
 
 ### 11. file_struct — File Structure

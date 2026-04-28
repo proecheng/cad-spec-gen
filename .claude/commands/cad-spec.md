@@ -54,7 +54,7 @@
 `cad_pipeline.py spec` 采用无交互 Agent 驱动模式，分两步执行：
 
 **Step 1 — 生成审查报告** (`--review-only`)：
-1. 运行 `cad_spec_gen.py --review-only`，提取数据并执行设计审查引擎（力学/装配/材质/完整性）
+1. 运行 `cad_spec_gen.py --review-only`，提取数据并执行设计审查引擎（力学/装配/材质/几何模型/完整性）
 2. 输出 `output/<subsystem>/DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
 3. 打印审查摘要（CRITICAL/WARNING/INFO/OK 计数 + 各问题条目）后**立即退出（exit 0）**
 4. Agent 读取 `DESIGN_REVIEW.json`，按下方协议逐项与用户交互
@@ -68,6 +68,7 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 | `auto_fill: \"是\"` | 从设计文档推断具体值，展示推断结果，询问：确认 / 修改 / 跳过 |
 | `auto_fill: \"否\"`，可从 BOM/连接矩阵/参数表推断 | Agent 自行推断，用非专业语言展示，询问：确认 / 修改 / 跳过 |
 | `auto_fill: \"否\"`，无足够上下文（如缺失材质） | 给出 3-5 个候选选项（根据零件名/类别推断），让用户选编号、自由输入或跳过 |
+| `category: "geometry"` 或包含 `group_action` | 先批量说明哪些外购件仍是 D/E 简化几何，再只对高影响零件询问模型来源（自动查找 / 指定 STEP / 先用占位 / 跳过） |
 | CRITICAL | 告知必须修复设计文档，说明原因，不进入 supplements |
 
 **处理原则**：
@@ -75,7 +76,27 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 "某项数据缺失"等
 - 每次只问一项，等用户回复后再进入下一项
 - 推断时优先使用设计文档中的 BOM、连接矩阵、参数表数据
+- 对模型库问题，优先引导用户选择真实 STEP、SW Toolbox、bd_warehouse 或 PartCAD；不要把模型选择只写成自由文本说明
 - 跳过的项目不写入 supplements
+
+**模型选择补充格式（v2.21.2+）**：
+
+当用户明确指定某个 STEP 文件或模型候选时，Agent 应把结构化选择放进 `supplements`，让管线写入 `model_choices.json` 并应用到 `parts_library.yaml`：
+
+```json
+{
+  "model_choices": [
+    {
+      "part_no": "GIS-EE-001-05",
+      "name_cn": "减速电机",
+      "step_file": "D:/models/maxon/ecx_22l.step",
+      "reason": "用户指定真实供应商模型"
+    }
+  ]
+}
+```
+
+管线会校验路径和扩展名，复制 STEP 到 `<project_root>/std_parts/user_provided/`，计算 SHA256，向 `parts_library.yaml` 前置 `step_pool` 映射，并在 `model_choices.json` 记录应用结果。普通文字补充仍写入 `user_supplements.json` 和 CAD_SPEC §10，但不会驱动模型库。
 
 **Phase 1 新增提取步骤**（v2.5.0+）：
 
@@ -108,6 +129,7 @@ Agent 读取 `DESIGN_REVIEW.json` 后，按以下协议逐项处理所有 WARNIN
 |---|---|
 | `P7:STEP` | 来自项目本地 STEP 文件 (`std_parts/`) |
 | `P7:BW` | 来自 `bd_warehouse` 参数化零件 |
+| `P7:sw_toolbox` | 来自 SolidWorks Toolbox 缓存 STEP |
 | `P7:PC` | 来自 `partcad` 包 |
 | `P7:STEP(override_P5)` | P7 覆盖了 P5/P6 自动推断 |
 

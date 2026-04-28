@@ -48,8 +48,16 @@ MOUNT_CENTER_R = 40.0    # mounting centre radius mm
 Rules:
 - Distinguish in-house parts from purchased parts
 - In-house parts require accurate CadQuery modelling
-- Purchased parts use simplified geometry (cylinders, boxes) for render visualisation only
+- Purchased parts use the model library first: project/user STEP (`std_parts/`) -> shared vendor STEP cache -> SolidWorks Toolbox STEP -> `bd_warehouse` / `partcad` parametric geometry -> recognizable mechanical template -> simplified fallback geometry
+- Simplified geometry (cylinders, boxes) is only for temporary preview or terminal fallback, not a real model-library solution
 - Part number format: `GIS-XX-NNN` (assembly) / `GIS-XX-NNN-NN` (part)
+
+#### Purchased Part Model Library Workflow
+
+1. Check `cad/<subsystem>/.cad-spec-gen/geometry_report.json`: A/B means real or parametric geometry is available; D/E means the part still needs a better model.
+2. When the user has a STEP file, register it in `parts_library.yaml` instead of writing "use this model" as plain prose. `/cad-spec --supplements` `model_choices` can copy, hash, store under `std_parts/user_provided/`, and prepend the mapping automatically.
+3. SolidWorks Toolbox is optional and local-license-only. Review, candidate display, and dimension probing must not trigger COM export; export is allowed only after user confirmation or during production codegen.
+4. For non-professional user descriptions, ask consequence-oriented questions: what part it is, model/standard number, whether a STEP exists, whether placeholder geometry is acceptable, and whether it affects presentation quality. Do not require the user to understand adapter names.
 
 ### Phase 3: 3D Parametric Modelling -> CadQuery .py + assembly.py
 

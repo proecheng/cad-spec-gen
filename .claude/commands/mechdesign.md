@@ -9,6 +9,7 @@
 > **手动 vs 自动**：`/mechdesign` 用于**手动**精细建模（工程师逐步完善几何细节）。
 > 如需**自动**生成脚手架代码，使用 `/cad-codegen` 或 `python cad_pipeline.py full`。
 > 推荐工作流：`/cad-spec` → `/cad-codegen` → `/mechdesign`（先自动生成骨架，再手动完善）
+> 外购件建模优先使用 `parts_library.yaml` 已注册的真实 STEP、SolidWorks Toolbox、`bd_warehouse` 或 `partcad`；手动画简化占位只作为末级兜底或临时预览。
 
 ### 子命令路由
 
@@ -49,6 +50,7 @@
 ## 关键约束
 
 - 所有参数从设计文档提取，params.py 是单一数据源
+- 外购件优先复用模型库：先查 `std_parts/` / 共享缓存 / SW Toolbox / `bd_warehouse` / `partcad`，找不到再手工建可辨识占位
 - 2D 工程图两种路径：①手工精绘（直接从 params.py）②自动投影（`auto_three_view` + `auto_annotate` 从 3D→2D）
 - 自动标注由 `auto_annotate()` 提供：外形尺寸、中心线、圆直径（几何驱动）+ 公差/GD&T/Ra（§2 spec 驱动）
 - 材质分类由 `classify_material_type()` 自动推断，驱动技术要求和默认粗糙度选取

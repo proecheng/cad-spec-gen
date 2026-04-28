@@ -1,7 +1,7 @@
 {
   "name": "cad-spec-gen",
   "version": "2.21.2",
-  "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → constraint declaration → code generation → assembly validation (GATE-3.5) → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
+  "description": "CAD pipeline skill: design doc → design review → structured spec → feature extraction → constraint declaration → code generation + parts library geometry quality → assembly validation (GATE-3.5) → 2D drawings (GB/T section views, position dims) → 3D renders → photorealistic images (4 backends: gemini/fal/comfyui/engineering)",
   "homepage": "https://github.com/proecheng/cad-spec-gen",
   "license": "MIT",
   "requires": {
@@ -13,21 +13,21 @@
       "id": "cad-help",
       "name": "CAD Pipeline Assistant",
       "trigger": "/cad-help",
-      "description": "Natural-language assistant for the CAD rendering pipeline (16 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, BOM/parts, CAD spec, codegen, design review)",
+      "description": "Natural-language assistant for the CAD rendering pipeline (16 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review)",
       "knowledge_file": "skill_cad_help.md"
     },
     {
       "id": "cad-spec",
       "name": "CAD Spec Generator",
       "trigger": "/cad-spec",
-      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.5: §6.3 per-part positioning, §6.4 envelope dimensions, §9.1 assembly exclusions. v2.7: §9.2 constraint declarations auto-derived from connection matrix (contact/stack_on/fit codes H7/m6). v2.9: §6.4 envelope attribution via stateful SectionWalker (cad_spec_section_walker.py) with 4-tier hybrid matching (Tier 0 part_no regression guard / Tier 1 structured pattern / Tier 2 CJK+ASCII subsequence / Tier 3 Jaccard). Cross-module priority P1>P2>P4>P3>P7>P5/P6 enforced with granularity tagging (station_constraint vs part_envelope) and end-to-end adapter rejection. Subsystem-configurable via SectionWalker kwargs (trigger_terms/station_patterns/axis_label_default). Walker 是唯一的 P2 提取路径（v2.10.0 移除 legacy regex fallback 和 feature flag）。Supports --review mode: mechanical(A1-A3)/assembly(B1-B12)/material(C1-C3)/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md. New --out-dir flag redirects subsystem output for tests.",
+      "description": "Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.5: §6.3 per-part positioning, §6.4 envelope dimensions, §9.1 assembly exclusions. v2.7: §9.2 constraint declarations auto-derived from connection matrix (contact/stack_on/fit codes H7/m6). v2.9: §6.4 envelope attribution via stateful SectionWalker (cad_spec_section_walker.py) with 4-tier hybrid matching (Tier 0 part_no regression guard / Tier 1 structured pattern / Tier 2 CJK+ASCII subsequence / Tier 3 Jaccard). Cross-module priority P1>P2>P4>P3>P7>P5/P6 enforced with granularity tagging (station_constraint vs part_envelope) and end-to-end adapter rejection. v2.21.2: DESIGN_REVIEW.json preserves geometry groups/candidates/A-E quality; structured model_choices supplements apply user STEP files to std_parts/user_provided and parts_library.yaml. Subsystem-configurable via SectionWalker kwargs (trigger_terms/station_patterns/axis_label_default). Walker 是唯一的 P2 提取路径（v2.10.0 移除 legacy regex fallback 和 feature flag）。Supports --review mode: mechanical(A1-A3)/assembly(B1-B12)/material(C1-C3)/geometry/completeness(D) checks → DESIGN_REVIEW.md → user iterate / auto-fill (--auto-fill) / proceed → CAD_SPEC.md. New --out-dir flag redirects subsystem output for tests.",
       "entry_point": "python cad_pipeline.py spec"
     },
     {
       "id": "cad-codegen",
       "name": "CAD Code Generator",
       "trigger": "/cad-codegen",
-      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). v2.5: consumes §6.3 part positions, §6.4 envelopes, §9.1 assembly exclusions. v2.7: consumes §9.2 constraints (contact/stack_on positioning, fit codes), gen_parts reads §6.4 as Priority 0 geometry source, gen_std_parts reads §6.4 for accurate purchased part sizing. v2.7.1: fix assembly positioning — z_is_top group sequential stacking (no overlap), bottom-at-Z=0 auto-stack formula (no gaps), orphan detection with positioned children, seed from occupied-extent boundary. GATE-3.5: assembly_validator.py post-build geometry sanity checks (5 formulas F1-F5). 4-gate pipeline: GATE-1(review)→GATE-2(TODO scan)→GATE-3(orientation)→GATE-3.5(assembly validation).",
+      "description": "Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py standard parts) from CAD_SPEC.md using 5 Jinja2 generators (gen_params/gen_build/gen_parts/gen_assembly/gen_std_parts). v2.5: consumes §6.3 part positions, §6.4 envelopes, §9.1 assembly exclusions. v2.7: consumes §9.2 constraints (contact/stack_on positioning, fit codes), gen_parts reads §6.4 as Priority 0 geometry source, gen_std_parts reads §6.4 for accurate purchased part sizing. v2.21.2: PartsResolver modes inspect/probe/export/codegen, GeometryDecision/ResolveResult A-E quality contract, geometry_report.json from codegen decisions, user STEP mappings, SW Toolbox read-only inspect/probe. v2.7.1: fix assembly positioning — z_is_top group sequential stacking (no overlap), bottom-at-Z=0 auto-stack formula (no gaps), orphan detection with positioned children, seed from occupied-extent boundary. GATE-3.5: assembly_validator.py post-build geometry sanity checks (5 formulas F1-F5). 4-gate pipeline: GATE-1(review)→GATE-2(TODO scan)→GATE-3(orientation)→GATE-3.5(assembly validation).",
       "entry_point": "python cad_pipeline.py codegen"
     },
     {
@@ -40,7 +40,7 @@
       "id": "mechdesign",
       "name": "Parametric Mechanical Design",
       "trigger": "/mechdesign",
-      "description": "Manual parametric mechanical subsystem workflow: params.py → CadQuery 3D → GB/T 2D drawings → Blender rendering → AI enhancement. 6 phases with sub-command routing. Use /cad-codegen for automated scaffold generation first.",
+      "description": "Manual parametric mechanical subsystem workflow: params.py → CadQuery 3D → GB/T 2D drawings → Blender rendering → AI enhancement. 6 phases with sub-command routing. Purchased parts reuse parts_library.yaml real STEP / SW Toolbox / bd_warehouse / PartCAD models before simplified fallback. Use /cad-codegen for automated scaffold generation first.",
       "knowledge_file": "skill_mech_design.md"
     }
   ],

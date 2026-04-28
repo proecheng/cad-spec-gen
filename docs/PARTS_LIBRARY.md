@@ -1,8 +1,8 @@
 # Parts Library & Geometry Quality System
 
 **Added in:** v2.8.0
-**Current implemented baseline:** v2.9.x parts library + SolidWorks Toolbox adapter
-**Merged execution plan:** v0.3 — 2026-04-28
+**Current implemented baseline:** v2.21.2 parts library + geometry quality reports + model choice persistence
+**Merged execution plan:** v0.4 — 2026-04-28
 **Scope:** Phase 1 spec/review + Phase 2 codegen + SolidWorks optional assets + user model selection
 
 ## 文档定位
@@ -11,15 +11,15 @@
 
 本文同时记录两类内容：
 
-- **现有契约**：当前代码已经实现并可依赖的行为，例如 `parts_library.yaml`、`PartsResolver`、`StepPoolAdapter`、`BdWarehouseAdapter`、`SwToolboxAdapter`、`PartCADAdapter`、`JinjaPrimitiveAdapter`、P7 包络回填和 coverage report。
-- **目标契约**：待实施但已经通过审查的改进方向，例如 `GeometryDecision`、`geometry_report.json`、resolver 无副作用模式、结构化模型选择、用户 STEP 持久化闭环、统一 `ProjectContext`。
+- **已实现契约**：当前代码已经实现并可依赖的行为，例如 `parts_library.yaml`、`PartsResolver`、`StepPoolAdapter`、`BdWarehouseAdapter`、`SwToolboxAdapter`、`PartCADAdapter`、`JinjaPrimitiveAdapter`、P7 包络回填、coverage report、`GeometryDecision`、`geometry_report.json`、resolver `inspect/probe/export/codegen` 模式、结构化模型选择、用户 STEP 持久化闭环。
+- **后续契约**：仍需补强但不阻塞现有管线的改进方向，例如统一 `ProjectContext`、更完整的 STEP import/bbox 校验、`MECH_TEMPLATE` 半参数模板、`sw_export_plan.json` 候选计划。
 
 执行优先级：
 
 1. **模型库增强优先**：真实 STEP / SW Toolbox STEP / bd_warehouse / PartCAD / 半参数模板优先，材质库只作为渲染增强。
 2. **用户选择必须可执行**：用户指定 STEP 后必须落到 `std_parts/` + `parts_library.yaml`，或先进入待应用记录再显式编译为 registry；不能只写自由文本补充。
-3. **报告必须来自同一次决策**：`geometry_report.json` 和未来的 `resolve_report` 必须消费 codegen 真实决策日志，不能为生成报告再次调用有副作用的 `resolve()`。
-4. **只读阶段零副作用**：审查、预览、候选收集不得触发 SolidWorks COM 导出、vendor STEP 合成或缓存写入。
+3. **报告必须来自同一次决策**：`geometry_report.json` 和 `resolve_report` 默认消费 codegen 真实决策日志，不能为生成报告再次调用有副作用的 `resolve()`；独立报告 API 只能用 `inspect` 兜底。
+4. **只读阶段零副作用**：审查、预览、候选收集、报告诊断不得触发 SolidWorks COM 导出、vendor STEP 合成或缓存写入。Phase 1 `probe_dims()` 的 legacy vendor cache warmup 是当前兼容行为，后续应收敛到显式 `export` / warmup。
 5. **路径必须统一**：项目根、子系统目录、缓存目录、报告目录由同一个 `ProjectContext` 解析，避免 `output/`、`cad/`、cwd、`artifacts/` 漂移。
 
 ## Overview
@@ -33,7 +33,7 @@ parametric or vendor-provided CAD geometry from multiple sources:
 | **Local STEP files** — vendor STEP downloads in `std_parts/` | adapter `step_pool`, `StepPoolAdapter`, config `step_pool` | implemented | Branded parts (Maxon motors, LEMO connectors, ATI sensors) |
 | **Shared-cache vendor synthesizer** — generated STEP stand-ins under user cache | adapter `step_pool` with `spec.synthesizer` | implemented | Fresh projects without hand-downloaded vendor STEP |
 | **bd_warehouse** — parametric hardware library | adapter `bd_warehouse`, `BdWarehouseAdapter` | implemented, optional dependency | Standard ISO/DIN bearings and fasteners |
-| **SolidWorks Toolbox STEP** — locally exported Toolbox geometry | adapter `sw_toolbox`, class `SwToolboxAdapter`, config `solidworks_toolbox` | implemented, needs no-side-effect mode cleanup | GB/ISO/DIN standard parts on Windows machines with SolidWorks |
+| **SolidWorks Toolbox STEP** — locally exported Toolbox geometry | adapter `sw_toolbox`, class `SwToolboxAdapter`, config `solidworks_toolbox` | implemented; `inspect/probe` cache miss does not export | GB/ISO/DIN standard parts on Windows machines with SolidWorks |
 | **PartCAD packages** — cross-project parametric package manager | adapter `partcad`, `PartCADAdapter`, config `partcad.enabled: true` | implemented, opt-in | Organization-wide reusable parts |
 | **Mechanical templates** — semi-parametric recognizable geometry | planned `MECH_TEMPLATE` source | planned | Custom or purchased parts where no vendor model exists |
 | **Jinja primitive fallback** — legacy generated geometry | adapter `jinja_primitive`, `JinjaPrimitiveAdapter` | implemented terminal fallback | Last resort visualization only |
@@ -42,7 +42,7 @@ All enhanced sources are **optional**. The terminal fallback remains
 `JinjaPrimitiveAdapter`, so the pipeline can still produce visualization
 geometry even without local STEP files, optional libraries, or SolidWorks.
 
-Status note: the table intentionally separates implemented behavior from target contract. Today, `SwToolboxAdapter` exists and can export via COM during `resolve()`; the planned work is to split no-side-effect inspection/probing from export/codegen and to attach a stable geometry quality contract to every result.
+Status note: `SwToolboxAdapter` may export via COM only in production modes (`export` / `codegen`) after routing has chosen a Toolbox part. Read-only modes (`inspect` / `probe`) skip COM export on cache miss, so review and envelope probing stay side-effect-free.
 
 ## v2.9.0: Shared-cache vendor synthesizer
 
@@ -86,9 +86,9 @@ parts_library.yaml (project-local, optional)
         │
         ▼
 PartsResolver (parts_resolver.py)
-        │   resolve(PartQuery) → ResolveResult
+        │   resolve(PartQuery, mode=inspect|probe|export|codegen) → ResolveResult
         │   probe_dims(PartQuery) → (w,d,h) | None
-        │   planned: resolve(..., mode=inspect|probe|export|codegen)
+        │   geometry_decisions() → list[dict]
         ▼
 YAML mapping dispatch (first matching mapping wins):
         ├─ step_pool        → StepPoolAdapter
@@ -381,9 +381,10 @@ mappings:
       part_category: fastener
 ```
 
-Current limitation: `SwToolboxAdapter.resolve()` may export STEP via COM on
-cache miss. The target contract below introduces explicit resolver modes so
-`inspect` and `probe` stay read-only.
+Mode behavior: `SwToolboxAdapter.resolve(..., mode="inspect"|"probe")`
+does not export STEP via COM on cache miss. Only `mode="export"` and
+`mode="codegen"` may trigger conversion after routing has selected a Toolbox
+part.
 
 ### `adapter: partcad` spec
 
@@ -432,30 +433,29 @@ tag, classified by which adapter produced them:
   returns dims (library data is more authoritative than heuristics)
 - No envelope — **filled** by P7 if any adapter hits
 
-## Target contract: geometry decisions
+## Implemented contract: geometry decisions
 
-This section is the merged execution plan for the next model-library
-improvement. It replaces the old split between this document and
-`docs/design/solidworks-integration-plan.md`.
+This section is the merged contract for model-library routing, geometry
+quality reporting, and user model selection. It replaces the old split
+between this document and `docs/design/solidworks-integration-plan.md`.
 
-### Problem to solve
+### Review findings closed in the current baseline
 
-Current code can route parts to real sources, but the decision is not yet
-auditable enough:
+The v2.21.2 baseline closes the main integration gaps found during review:
 
-| Current code point | Current behavior | Required change |
-|---|---|---|
-| `cad_spec_gen.py::_flatten_review_items()` | Flattens mechanical / assembly / material / completeness review items | Preserve `geometry` review groups, candidate lists, batch actions, and quality data |
-| `cad_pipeline.py::_save_supplements()` | Writes free text to `user_supplements.json` and appends §10 to `CAD_SPEC.md` | Model choices must update `parts_library.yaml` or explicit pending state; free text must not pretend to affect codegen |
-| `parts_resolver.py::ResolveResult` | Has `kind`, `adapter`, `step_path`, `source_tag`, `real_dims`, `metadata` | Add geometry source, quality, validation, hash, path kind, and review flags |
-| `parts_resolver.py::resolve_report()` | Re-runs `resolve()` to build a report | Report from the real codegen decision log only |
-| `codegen/gen_std_parts.py` | Generates `std_*.py` and prints coverage by adapter | Also write `geometry_report.json` from the same decisions |
-| `adapters/parts/sw_toolbox_adapter.py::resolve()` | Can trigger COM STEP export on cache miss | Split read-only inspect/probe from export/codegen |
+| Code point | Current baseline |
+|---|---|
+| `cad_spec_gen.py::_flatten_review_items()` | Preserves `geometry` review groups, `group_action`, `parts`, `candidates`, quality fields, path metadata, hashes, and review flags in `DESIGN_REVIEW.json`. |
+| `cad_pipeline.py::_save_supplements()` | Extracts structured model choices, writes `model_choices.json`, copies selected STEP files into `std_parts/user_provided/`, and prepends `parts_library.yaml` mappings. |
+| `parts_resolver.py::ResolveResult` | Carries geometry source, A-E quality, validation state, hash, path kind, warnings, and `requires_model_review`. |
+| `parts_resolver.py::resolve_report()` | Builds from decision logs by default; the standalone fallback uses read-only `inspect` mode only. |
+| `codegen/gen_std_parts.py` | Writes `cad/<subsystem>/.cad-spec-gen/geometry_report.json` from the same decisions used to emit `std_*.py`. |
+| `adapters/parts/sw_toolbox_adapter.py::resolve()` | `inspect` / `probe` cache misses return a miss with warnings and do not start COM export; `export` / `codegen` may export when explicitly selected. |
 
 ### GeometryDecision
 
-`GeometryDecision` is the planned single record for one BOM row's geometry
-choice. It is generated from the actual `ResolveResult` used by codegen.
+`GeometryDecision` is the single record for one BOM row's geometry choice.
+It is generated from the actual `ResolveResult` used by codegen.
 
 ```python
 @dataclass
@@ -506,7 +506,7 @@ requires_model_review: bool = False
 ```
 
 Backwards compatibility rule: old call sites keep reading `kind`, `adapter`,
-`step_path`, `source_tag`, and `metadata`; new reports use
+`step_path`, `source_tag`, and `metadata`; reports use
 `ResolveResult.to_geometry_decision(query)`.
 
 `GeometryCandidate` is read-only candidate data shown to users before a
@@ -554,9 +554,9 @@ Rules:
 5. `step_pool.spec.file` is relative to `step_pool.root`; after copying to `std_parts/custom/foo.step`, write `custom/foo.step`, not `std_parts/custom/foo.step`.
 6. `geometry_report.json` records what codegen actually used. It must not list candidates as if they were applied models.
 
-### ProjectContext
+### ProjectContext (planned cleanup)
 
-Path logic should be centralized before adding new files:
+Path logic should be centralized in a later cleanup pass:
 
 ```python
 @dataclass
@@ -570,35 +570,35 @@ class ProjectContext:
     artifacts_dir: Path | None
 ```
 
-`ProjectContext` replaces scattered uses of `os.getcwd()`,
+`ProjectContext` will replace scattered uses of `os.getcwd()`,
 `spec_path.parent.parent.parent`, `output/<subsystem>`, and ad hoc
 `artifacts/{run_id}` path construction.
 
 ### Resolver modes
 
-Planned mode split:
+Implemented mode split:
 
 | Mode | Allowed actions | Forbidden actions | Purpose |
 |---|---|---|---|
 | `inspect` | Match rules, list candidates, read lightweight indexes | COM export, STEP synthesis, cache writes | Show options before user interaction |
-| `probe` | Read existing STEP bbox and catalog dimensions | Generate new STEP, write files | Phase 1 P7 envelope backfill |
+| `probe` | Read existing STEP bbox and catalog dimensions through `resolve(..., mode="probe")` | Generate new STEP, write files | Read-only dimension check |
 | `export` | SolidWorks COM export, vendor synthesizer cache write | Generate `std_*.py` | Explicit model preparation / warmup |
 | `codegen` | Resolve real geometry and generate code; may export only under explicit policy | Report-time re-resolution | Phase 2 production generation |
 
-Target API:
+Current API:
 
 ```python
 class PartsResolver:
     def resolve(self, query: PartQuery, mode: ResolveMode = "codegen") -> ResolveResult: ...
-    def inspect_candidates(self, query: PartQuery) -> list[GeometryCandidate]: ...
-    def consume_decisions(self) -> list[GeometryDecision]: ...
+    def geometry_decisions(self) -> list[dict]: ...
+    # Future: def inspect_candidates(self, query: PartQuery) -> list[GeometryCandidate]: ...
 ```
 
 Report API:
 
 ```python
-def resolve_report_from_decisions(decisions: list[GeometryDecision], run_id: str) -> ResolveReport:
-    """Serialize only. Never call adapters, COM, or STEP writers."""
+def resolve_report(..., allow_inspect_fallback: bool = True) -> ResolveReport:
+    """Serialize existing decisions; inspect fallback is read-only."""
 ```
 
 ### User interaction
@@ -651,21 +651,17 @@ Initial category priority:
 | bearing / fastener / locating / seal | medium |
 | cable / wire / label | low or intentional skip |
 
-When the user provides a STEP file:
+When the user provides a STEP file, the implemented baseline does this:
 
-1. Validate existence, extension, readability, and importability.
-2. Read bbox through `cadquery.importers.importStep()` when available.
-3. Compute SHA256.
-4. Copy into `std_parts/<vendor_or_category>/<safe_name>.step`.
-5. Update `parts_library.yaml` atomically with a prepended `step_pool` mapping.
-6. Record audit information in `model_choices.json`.
+1. Validate `part_no`, path existence, and `.step` / `.stp` extension.
+2. Compute SHA256 for provenance.
+3. Copy into `std_parts/user_provided/<safe_name>.step`.
+4. Update `parts_library.yaml` atomically with a prepended `step_pool` mapping whose `spec.file` is relative to `step_pool.root`.
+5. Record choices and application results in `model_choices.json`.
 
-Current code has an early `sw_preflight.user_provided` implementation that
-copies files and appends a YAML mapping, but it still uses cwd-relative paths
-and non-atomic writes, and it can write `spec.file` with a `std_parts/`
-prefix. The target implementation should move that flow behind
-`ProjectContext` and the registry writer, which must normalize `spec.file`
-relative to `step_pool.root`.
+Still planned: import the STEP with CadQuery to verify geometry readability,
+record bbox/unit checks, and mark large §6.4 envelope mismatches as
+`requires_model_review=true`.
 
 ### SolidWorks integration
 
@@ -701,11 +697,11 @@ SolidWorks degradation:
 | COM failure or circuit breaker trip | Current part falls through to next adapter |
 | Ambiguous Toolbox configuration | Write pending state; do not export a guessed configuration |
 
-### Pipeline integration target
+### Pipeline integration baseline
 
 Phase 1 `spec/review`:
 
-- Add `geometry` review category.
+- Supports a `geometry` review category.
 - `_flatten_review_items()` preserves `group_action`, `parts`,
   `candidates`, `current_quality`, `recommended_quality`, and
   `suggested_user_action`.
@@ -741,8 +737,8 @@ Phase 2 `codegen`:
 4. Convert each real result into `GeometryDecision`.
 5. Generate `std_*.py`.
 6. Write `cad/<subsystem>/.cad-spec-gen/geometry_report.json`.
-7. Write `artifacts/{run_id}/resolve_report.json` from the same decision log
-   if compatibility requires that file.
+7. Build `resolve_report` from the same decision log; standalone report calls
+   may use read-only `inspect` fallback for compatibility.
 
 Phase 3 `build/render`:
 
@@ -751,31 +747,31 @@ Phase 3 `build/render`:
 - Build errors surface missing path / invalid model details before generic
   `FileNotFoundError`.
 
-### Implementation milestones
+### Implementation status
 
-| Stage | Goal | Main changes | Acceptance |
+| Stage | Status | Main changes | Acceptance |
 |---|---|---|---|
-| M0 | Path and schema baseline | Add `ProjectContext`; document schemas | New files land in stable project/subsystem locations |
-| M1 | Geometry quality contract | Extend `ResolveResult`; add `GeometryDecision` | Adapter hits can produce A-E quality |
-| M2 | Resolver side-effect modes | Add `inspect/probe/export/codegen` | `inspect` writes nothing and does not start COM export |
-| M3 | Report rewrite | Build reports from decision log; add `geometry_report.json` | Reports do not call `resolve()` again |
-| M4 | User STEP application | Validate, copy, hash, atomically update YAML | A user-provided STEP is actually imported on next codegen |
-| M5 | Review JSON geometry groups | Preserve candidates and group actions | Agent can ask batch model questions |
-| M6 | SW export planning | `sw_export_plan.json` candidate list; explicit export only | Review stage never triggers export |
-| M7 | Generated code and docs | Docstrings, migration notes, user docs | Users can see source/quality for every generated part |
+| M0 | planned | Add `ProjectContext`; document schemas | New files land in stable project/subsystem locations |
+| M1 | implemented | Extend `ResolveResult`; add `GeometryDecision` | Adapter hits produce A-E quality |
+| M2 | implemented | Add `inspect/probe/export/codegen` | `inspect` writes nothing and does not start COM export |
+| M3 | implemented | Build reports from decision log; add `geometry_report.json` | Codegen reports do not call production `resolve()` again |
+| M4 | implemented, import validation pending | Validate path/ext, copy, hash, atomically update YAML | A user-provided STEP is imported on next codegen |
+| M5 | implemented | Preserve candidates and group actions | Agent can ask batch model questions |
+| M6 | planned | `sw_export_plan.json` candidate list; explicit export only | Review stage never triggers export |
+| M7 | partial | Migration/user docs are maintained here; generated docstring enrichment remains future | Users can see source/quality in reports today |
 
-### Required tests
+### Test coverage
 
-| Test | Coverage |
-|---|---|
-| `test_design_review_geometry_schema.py` | `DESIGN_REVIEW.json` preserves geometry groups and candidates |
-| `test_model_choices_persistence.py` | User choices write `model_choices.json` and can be applied to `parts_library.yaml` |
-| `test_parts_library_writer_roundtrip.py` | `extends: default` survives; new mappings prepend without corrupting YAML structure |
-| `test_step_user_provided_validation.py` | STEP existence, import bbox, hash, and copy into `std_parts/` |
-| `test_resolver_modes_no_side_effects.py` | `inspect/probe` do not call SW conversion or write cache |
-| `test_geometry_report_from_decisions.py` | Report consumes decision log, not a second `resolve()` run |
-| `test_codegen_docstring_geometry_quality.py` | Generated modules include source/quality/validated metadata |
-| `test_project_context_paths.py` | `.cad-spec-gen`, `std_parts/`, and `parts_library.yaml` paths are stable |
+| Test | Status | Coverage |
+|---|---|---|
+| `test_design_review_geometry_schema.py` | implemented | `DESIGN_REVIEW.json` preserves geometry groups and candidates |
+| `test_model_choices_persistence.py` | implemented | User choices write `model_choices.json` and can be applied to `parts_library.yaml` |
+| `test_parts_resolver.py` | implemented | Resolver modes and geometry quality defaults |
+| `test_resolve_report.py` | implemented | Report consumes decision log; inspect fallback is read-only |
+| `test_parts_library_writer_roundtrip.py` | planned | `extends: default` survives; new mappings prepend without corrupting YAML structure |
+| `test_step_user_provided_validation.py` | planned | STEP import bbox, unit sanity, and copy into `std_parts/` |
+| `test_codegen_docstring_geometry_quality.py` | planned | Generated modules include source/quality/validated metadata |
+| `test_project_context_paths.py` | planned | `.cad-spec-gen`, `std_parts/`, and `parts_library.yaml` paths are stable |
 
 ### Edge cases
 

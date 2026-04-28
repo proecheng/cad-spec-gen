@@ -52,7 +52,7 @@ Run the CAD Spec Generator to extract structured parameters, tolerances, and BOM
 `cad_pipeline.py spec` uses a non-interactive agent-driven mode, executed in two steps:
 
 **Step 1 — Generate review report** (`--review-only`):
-1. Run `cad_spec_gen.py --review-only`, extract data and run the design review engine (mechanics/assembly/materials/completeness)
+1. Run `cad_spec_gen.py --review-only`, extract data and run the design review engine (mechanics/assembly/materials/geometry/completeness)
 2. Output `output/<subsystem>/DESIGN_REVIEW.md` + `DESIGN_REVIEW.json`
 3. Print review summary (CRITICAL/WARNING/INFO/OK counts + issue items) then **exit immediately (exit 0)**
 4. Agent reads `DESIGN_REVIEW.json` and interacts with user item by item per the protocol below
@@ -66,13 +66,34 @@ After reading `DESIGN_REVIEW.json`, the agent processes all WARNING/CRITICAL and
 | `auto_fill: "yes"` | Infer a specific value from the design doc, show the inferred result, ask: confirm / modify / skip |
 | `auto_fill: "no"`, inferable from BOM/connection matrix/parameter table | Agent infers independently, shows in plain language, asks: confirm / modify / skip |
 | `auto_fill: "no"`, insufficient context (e.g. missing material) | Offer 3–5 candidate options (inferred from part name/category), let user pick a number, type freely, or skip |
+| `category: "geometry"` or contains `group_action` | First summarize which purchased parts are still D/E simplified geometry, then ask only high-impact model questions (auto-search / user STEP / placeholder / skip) |
 | CRITICAL | Inform that the design document must be fixed, explain why, do not add to supplements |
 
 **Processing principles**:
 - Describe issues in plain language; do not expose raw technical IDs (M03/D6 etc.) — say "a data field is missing" instead
 - Ask only one item at a time; wait for user response before proceeding to the next
 - When inferring, prioritize BOM, connection matrix, and parameter table data from the design document
+- For model-library issues, guide the user toward real STEP, SW Toolbox, bd_warehouse, or PartCAD choices; do not record model selection as free text only
 - Skipped items are not written to supplements
+
+**Model choice supplement format** (v2.21.2+):
+
+When the user explicitly selects a STEP file or model candidate, the agent should put the structured choice into `supplements` so the pipeline writes `model_choices.json` and applies it to `parts_library.yaml`:
+
+```json
+{
+  "model_choices": [
+    {
+      "part_no": "GIS-EE-001-05",
+      "name_cn": "gear motor",
+      "step_file": "D:/models/maxon/ecx_22l.step",
+      "reason": "user selected real vendor model"
+    }
+  ]
+}
+```
+
+The pipeline validates path/extension, copies the STEP into `<project_root>/std_parts/user_provided/`, computes SHA256, prepends a `step_pool` mapping to `parts_library.yaml`, and records the application result in `model_choices.json`. Plain text supplements still go to `user_supplements.json` and CAD_SPEC §10, but they do not drive model-library routing.
 
 **Phase 1 New Extraction Steps** (v2.5.0+):
 
@@ -105,6 +126,7 @@ If `parts_library.yaml` exists at the project root, Phase 1 adds a **P7 backfill
 |---|---|
 | `P7:STEP` | from a project-local STEP file (`std_parts/`) |
 | `P7:BW` | from a `bd_warehouse` parametric part |
+| `P7:sw_toolbox` | from a SolidWorks Toolbox cached STEP |
 | `P7:PC` | from a `partcad` package |
 | `P7:STEP(override_P5)` | P7 overrode an earlier P5/P6 auto-inferred row |
 

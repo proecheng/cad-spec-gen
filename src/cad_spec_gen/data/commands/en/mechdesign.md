@@ -9,6 +9,7 @@ Read the full skill document `skill_mech_design.md` (project root), then execute
 > **Manual vs Auto**: `/mechdesign` is for **manual** fine-grained modeling (engineer refines geometry step by step).
 > For **auto** scaffold generation, use `/cad-codegen` or `python cad_pipeline.py full`.
 > Recommended workflow: `/cad-spec` → `/cad-codegen` → `/mechdesign` (auto-generate skeleton first, then manually refine)
+> Purchased parts should reuse `parts_library.yaml` real STEP, SolidWorks Toolbox, `bd_warehouse`, or `partcad` models first; hand-written simplified placeholders are only terminal fallback or temporary preview geometry.
 
 ### Subcommand Routing
 
@@ -49,6 +50,7 @@ Read the full skill document `skill_mech_design.md` (project root), then execute
 ## Key Constraints
 
 - All parameters extracted from design documents; params.py is the single source of truth
+- Purchased parts are model-library-first: check `std_parts/`, shared cache, SW Toolbox, `bd_warehouse`, and `partcad` before hand-writing recognizable fallback geometry
 - 2D engineering drawings via two paths: (1) manual fine drawing (directly from params.py) (2) auto projection (`auto_three_view` + `auto_annotate` from 3D→2D)
 - Auto-annotation provided by `auto_annotate()`: bounding dimensions, centerlines, circle diameters (geometry-driven) + tolerances/GD&T/Ra (spec-driven from section 2)
 - Material classification by `classify_material_type()` auto-infers material_type (al/steel/peek/nylon/rubber), driving technical requirements and default roughness selection
