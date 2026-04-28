@@ -11,6 +11,15 @@ Path concepts:
 
 import os
 
+SHARED_TOOL_FILES = [
+    "drawing.py",
+    "draw_three_view.py",
+    "cq_to_dxf.py",
+    "render_dxf.py",
+    "render_config.py",
+    "cad_spec_defaults.py",
+]
+
 # Root of the cad-skill installation (immutable — always __file__'s directory)
 SKILL_ROOT = os.path.dirname(os.path.abspath(__file__))
 

@@ -8,9 +8,15 @@ dist/
 build/
 tools/blender/
 .pytest_cache/
+.pytest_tmp*/
+.coverage
+htmlcov/
+.serena/
 bananapro/
 manreview/
 pip/
+/tmp/*
+!/tmp/sw_com_spike.py
 
 # SW warmup 运行日志（tools/sw_warmup.py 的 smoke 产物）
 sw-warmup*.log

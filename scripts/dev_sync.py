@@ -12,6 +12,7 @@ hatchling。用 ast.parse() 从 hatch_build.py 提取常量列表。
 from __future__ import annotations
 
 import ast
+import argparse
 import hashlib
 import shutil
 import sys
@@ -93,6 +94,13 @@ def _sync_file(src: Path, dst: Path) -> bool:
     return True
 
 
+def _needs_file_sync(src: Path, dst: Path) -> bool:
+    """返回 src 是否会更新 dst；不写文件。"""
+    if not src.exists():
+        return False
+    return not dst.exists() or _md5(src) != _md5(dst)
+
+
 def _sync_dir(src_dir: Path, dst_dir: Path) -> list[Path]:
     """递归同步目录，返回已更新文件列表。
 
@@ -130,6 +138,37 @@ def _sync_dir(src_dir: Path, dst_dir: Path) -> list[Path]:
                 updated.append(dst_file)
 
     return updated
+
+
+def _check_dir(src_dir: Path, dst_dir: Path) -> list[Path]:
+    """递归检查目录同步漂移；返回会被更新/删除的目标文件。"""
+    changed: list[Path] = []
+    if not src_dir.is_dir():
+        return changed
+
+    src_rels: set[Path] = set()
+    for src_file in sorted(src_dir.rglob("*")):
+        if not src_file.is_file():
+            continue
+        if "__pycache__" in src_file.parts or src_file.suffix in (".pyc", ".pyo"):
+            continue
+        rel = src_file.relative_to(src_dir)
+        src_rels.add(rel)
+        dst_file = dst_dir / rel
+        if _needs_file_sync(src_file, dst_file):
+            changed.append(dst_file)
+
+    if dst_dir.is_dir():
+        for dst_file in sorted(dst_dir.rglob("*")):
+            if not dst_file.is_file():
+                continue
+            if "__pycache__" in dst_file.parts or dst_file.suffix in (".pyc", ".pyo"):
+                continue
+            rel = dst_file.relative_to(dst_dir)
+            if rel not in src_rels:
+                changed.append(dst_file)
+
+    return changed
 
 
 # ─── AGENTS.md 生成（spec v4: 2026-04-19 skills-refactor）────────────────────────
@@ -269,13 +308,80 @@ def sync(root: Path | None = None) -> list[Path]:
     return updated
 
 
-def main() -> int:
-    """CLI 入口。有文件被更新返回 1（pre-commit 约定），无变更返回 0。"""
-    changed = sync()
+def check(root: Path | None = None) -> list[Path]:
+    """只检查同步漂移，不写文件。返回会被 sync() 更新的路径列表。"""
+    root = root or _REPO_ROOT
+    data_dir = root / "src" / "cad_spec_gen" / "data"
+    changed: list[Path] = []
+
+    pipeline_tools, copy_dirs, top_level_files = _parse_hatch_build_constants(root)
+    all_python_tools = pipeline_tools + _HATCH_SHARED_FALLBACK
+
+    tools_dir = data_dir / "python_tools"
+    for fname in all_python_tools:
+        dst = tools_dir / fname
+        if _needs_file_sync(root / fname, dst):
+            changed.append(dst)
+
+    for src_name, dst_name in copy_dirs.items():
+        changed.extend(_check_dir(root / src_name, data_dir / dst_name))
+
+    cmd_src = root / _COMMAND_SOURCE
+    cmd_zh = data_dir / "commands" / "zh"
+    if cmd_src.is_dir():
+        for md in sorted(cmd_src.glob("*.md")):
+            dst = cmd_zh / md.name
+            if _needs_file_sync(md, dst):
+                changed.append(dst)
+
+    for src_name, dst_rel in _KNOWLEDGE_PAIRS.items():
+        dst = data_dir / dst_rel
+        if _needs_file_sync(root / src_name, dst):
+            changed.append(dst)
+
+    dst = data_dir / "system_prompt.md"
+    if _needs_file_sync(root / "system_prompt.md", dst):
+        changed.append(dst)
+
+    for src_name, dst_rel in top_level_files.items():
+        dst = data_dir / dst_rel
+        if _needs_file_sync(root / src_name, dst):
+            changed.append(dst)
+
+    agents_path = root / "AGENTS.md"
+    new_agents = _render_agents_md(data_dir)
+    if not agents_path.exists() or agents_path.read_text(encoding="utf-8") != new_agents:
+        changed.append(agents_path)
+
+    return changed
+
+
+def main(argv: list[str] | None = None, root: Path | None = None) -> int:
+    """CLI 入口。
+
+    默认模式：有文件被更新返回 1（pre-commit 约定），无变更返回 0。
+    --check：只检查不写；有漂移返回 1，CI 可直接 fail。
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="check drift without writing")
+    args = parser.parse_args(argv)
+
+    root = root or _REPO_ROOT
+    if args.check:
+        changed = check(root)
+        if changed:
+            print(f"dev_sync: {len(changed)} file(s) out of date:")
+            for p in changed:
+                print(f"  {p.relative_to(root)}")
+            return 1
+        print("dev_sync: all mirrors up to date.")
+        return 0
+
+    changed = sync(root)
     if changed:
         print(f"dev_sync: {len(changed)} file(s) updated:")
         for p in changed:
-            print(f"  {p.relative_to(_REPO_ROOT)}")
+            print(f"  {p.relative_to(root)}")
         return 1
     print("dev_sync: all mirrors up to date.")
     return 0

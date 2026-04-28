@@ -8,7 +8,12 @@ contains everything needed by the setup wizard.
 import os
 import shutil
 from pathlib import Path
-from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+try:
+    from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+except ImportError:  # pragma: no cover - lets lightweight contract tests import this file
+    class BuildHookInterface:
+        pass
 
 
 # Files from project root → data/python_tools/
@@ -29,6 +34,8 @@ _PIPELINE_TOOLS = [
     "comfyui_enhancer.py",
     "comfyui_env_check.py",
     "fal_enhancer.py",
+    "fal_comfy_enhancer.py",
+    "fal_comfy_env_check.py",
     "engineering_enhancer.py",
     "pipeline_config.json",
 ]
@@ -58,6 +65,20 @@ COPY_DIRS = {
 TOP_LEVEL_FILES = {
     "parts_library.default.yaml": "parts_library.default.yaml",
 }
+
+# Generated mirrors are intentionally gitignored, so Hatch will not include
+# them in wheels unless the hook marks them as build artifacts.
+GENERATED_DATA_ARTIFACTS = [
+    "src/cad_spec_gen/data/python_tools/**",
+    "src/cad_spec_gen/data/codegen/**",
+    "src/cad_spec_gen/data/templates/**",
+    "src/cad_spec_gen/data/config/**",
+    "src/cad_spec_gen/data/commands/zh/**",
+    "src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md",
+    "src/cad_spec_gen/data/knowledge/skill_mech_design_zh.md",
+    "src/cad_spec_gen/data/system_prompt.md",
+    "src/cad_spec_gen/data/parts_library.default.yaml",
+]
 
 # Command files (zh from .claude/commands/, en hand-written in data/commands/en/)
 COMMAND_SOURCE = ".claude/commands"
@@ -116,3 +137,8 @@ class CustomBuildHook(BuildHookInterface):
             dest_path = data_dir / dest_rel
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, dest_path)
+
+        artifacts = build_data.setdefault("artifacts", [])
+        for pattern in GENERATED_DATA_ARTIFACTS:
+            if pattern not in artifacts:
+                artifacts.append(pattern)

@@ -4,6 +4,10 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("cadquery")
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "codegen"))
 
 import cadquery as cq

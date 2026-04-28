@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cad-spec-gen"
-version = "2.12.0"
+version = "2.21.1"
 description = "CAD pipeline skill: design doc → structured spec → feature extraction → code generation → assembly validation → 2D drawings (GB/T section views) → 3D renders → photorealistic images (4 backends v2.7)"
 readme = "README.md"
 license = "MIT"
@@ -80,6 +80,7 @@ markers = [
     "real_subprocess: 真 subprocess / 真 IO 集成测试，无需真实 SolidWorks，默认 pytest 不跑；需 -m real_subprocess",
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
     "mypy: mypy CI gate 自校验测试（subprocess 调 mypy 验证 gate 有效）",
+    "optional: optional dependency integration tests; skip or select explicitly in lean local envs",
 ]
 testpaths = ["tests"]
 # rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：

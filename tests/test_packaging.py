@@ -1,10 +1,19 @@
 """Packaging tests for Spec 1 — verify entry points and hatch config."""
+import os
+import zipfile
 from pathlib import Path
 
 import pytest
 
 
 _REPO_ROOT = Path(__file__).parent.parent
+
+
+def _skip_or_fail_packaging(message: str):
+    """Local dev may skip missing build tooling; CI must fail real packaging breaks."""
+    if os.environ.get("CI"):
+        pytest.fail(message)
+    pytest.skip(message)
 
 
 def test_pyproject_has_cad_lib_entry_point():
@@ -24,6 +33,22 @@ def test_hatch_build_ships_parts_library_default_yaml():
     # Look for any reference to parts_library.default.yaml being shipped
     assert "parts_library.default.yaml" in content, \
         "hatch_build.py does not ship parts_library.default.yaml"
+
+
+def test_hatch_build_marks_generated_data_as_wheel_artifacts():
+    """Build-time mirrors are gitignored, but must still land in wheels."""
+    import hatch_build
+
+    expected = {
+        "src/cad_spec_gen/data/python_tools/**",
+        "src/cad_spec_gen/data/codegen/**",
+        "src/cad_spec_gen/data/templates/**",
+        "src/cad_spec_gen/data/config/**",
+        "src/cad_spec_gen/data/commands/zh/**",
+        "src/cad_spec_gen/data/parts_library.default.yaml",
+    }
+
+    assert expected <= set(hatch_build.GENERATED_DATA_ARTIFACTS)
 
 
 @pytest.mark.slow
@@ -54,7 +79,9 @@ def test_wheel_install_smoke(tmp_path):
             import hatchling  # noqa: F401
             build_cmd = [sys.executable, "-m", "hatch", "build", "-t", "wheel"]
         except ImportError:
-            pytest.skip("Neither 'build' nor 'hatch' available for wheel construction")
+            _skip_or_fail_packaging(
+                "Neither 'build' nor 'hatch' available for wheel construction"
+            )
 
     result = subprocess.run(
         build_cmd,
@@ -64,14 +91,27 @@ def test_wheel_install_smoke(tmp_path):
         timeout=300,
     )
     if result.returncode != 0:
-        pytest.skip(f"wheel build failed (may be dev env issue): {result.stderr[:500]}")
+        _skip_or_fail_packaging(
+            f"wheel build failed (may be dev env issue): {result.stderr[:500]}"
+        )
 
     # Find the newly built wheel
     all_wheels = list(dist_dir.glob("cad_spec_gen-*.whl"))
     new_wheels = [w for w in all_wheels if w not in existing_wheels]
     wheel = new_wheels[-1] if new_wheels else (all_wheels[-1] if all_wheels else None)
     if wheel is None:
-        pytest.skip("No wheel produced by build")
+        _skip_or_fail_packaging("No wheel produced by build")
+
+    with zipfile.ZipFile(wheel) as wheel_zip:
+        wheel_names = set(wheel_zip.namelist())
+    for expected in [
+        "cad_spec_gen/data/templates/parts/iso_9409_flange.py",
+        "cad_spec_gen/data/python_tools/cad_pipeline.py",
+        "cad_spec_gen/data/codegen/gen_parts.py",
+        "cad_spec_gen/data/commands/zh/cad-codegen.md",
+        "cad_spec_gen/data/parts_library.default.yaml",
+    ]:
+        assert expected in wheel_names, f"{expected} missing from built wheel"
 
     # Create a fresh venv
     venv_dir = tmp_path / "testvenv"
@@ -93,7 +133,7 @@ def test_wheel_install_smoke(tmp_path):
         timeout=300,
     )
     if install_result.returncode != 0:
-        pytest.skip(f"pip install failed: {install_result.stderr[:500]}")
+        _skip_or_fail_packaging(f"pip install failed: {install_result.stderr[:500]}")
 
     # Verify cad-lib entry point exists
     assert cad_lib_exe.exists(), f"cad-lib entry point not at {cad_lib_exe}"

@@ -5,8 +5,10 @@ import ast
 from contextlib import redirect_stdout
 from pathlib import Path
 
-import cadquery as cq
 import pytest
+
+pytest.importorskip("cadquery")
+import cadquery as cq
 
 _REPO = Path(__file__).parent.parent
 _EE_001_01 = _REPO / "cad" / "end_effector" / "ee_001_01.py"

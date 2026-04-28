@@ -48,14 +48,13 @@ jobs:
         run: pip install pywin32
 
       - name: Sync data/ mirrors
-        # dev_sync.py 约定：exit 0 = 无变更 / exit 1 = 有文件被同步（非错误）/ exit >1 = 真错误。
-        # 用 `|| rc=$?` 避开 bash -e 在 rc=1 时直接终止 step；Windows runner 默认 pwsh 解析不了这段
-        # bash 语法，所以显式 shell: bash（两边都走 Git Bash / system bash）。
         shell: bash
         run: |
           rc=0
           python scripts/dev_sync.py || rc=$?
           if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+          git diff --exit-code -- AGENTS.md
+          python scripts/dev_sync.py --check
 
       - name: Run tests with coverage gate (Linux / macOS)
         # rev 5 H + plan-drift fix：worker 在 Linux 全 SKIP（requires_solidworks）
@@ -111,12 +110,13 @@ jobs:
           pip install pytest jinja2 pyyaml cadquery ezdxf
 
       - name: Sync data/ mirrors
-        # 同 test 矩阵：dev_sync.py exit 1 = 有文件被同步（非错误），只有 >1 才是真错误。
         shell: bash
         run: |
           rc=0
           python scripts/dev_sync.py || rc=$?
           if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+          git diff --exit-code -- AGENTS.md
+          python scripts/dev_sync.py --check
 
       - name: Run parts_resolver unit tests with kill switch
         env:
