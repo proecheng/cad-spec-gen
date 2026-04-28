@@ -19,6 +19,13 @@ def test_packaging_smoke_does_not_skip_build_failures_on_ci():
     assert "os.environ.get(\"CI\")" in text
 
 
+def test_ci_installs_packaging_build_tools_for_wheel_smoke():
+    text = (_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "pip install build hatchling" in text
+
+
 def test_ci_sync_materializes_then_checks_tracked_drift():
     text = (_ROOT / ".github" / "workflows" / "tests.yml").read_text(
         encoding="utf-8"
