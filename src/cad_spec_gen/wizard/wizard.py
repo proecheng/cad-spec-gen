@@ -15,7 +15,14 @@ from . import skill_register
 TOTAL_STEPS = 6
 
 
-def run_wizard(lang=None, target=None, skip_deps=False, update=False):
+def run_wizard(
+    lang=None,
+    target=None,
+    skip_deps=False,
+    update=False,
+    agent="claude",
+    codex_dir=None,
+):
     """Run the interactive setup wizard.
 
     Args:
@@ -23,6 +30,8 @@ def run_wizard(lang=None, target=None, skip_deps=False, update=False):
         target: Target directory — skip target prompt if set
         skip_deps: Skip dependency installation step
         update: Update existing installation
+        agent: "claude", "codex", or "both" — selects generated agent adapters
+        codex_dir: Codex global skills directory
     """
     version = __version__
 
@@ -152,7 +161,12 @@ def run_wizard(lang=None, target=None, skip_deps=False, update=False):
 
     ui.info(t("register_copying", lang))
     count = skill_register.register_skill(
-        target, lang=lang, version=version, update=update,
+        target,
+        lang=lang,
+        version=version,
+        update=update,
+        agent=agent,
+        codex_dir=codex_dir,
     )
     print()
 
@@ -163,14 +177,27 @@ def run_wizard(lang=None, target=None, skip_deps=False, update=False):
     ui.info(t("complete_version", lang, version=version))
     print()
     ui.info(t("complete_commands", lang))
-    if lang == "zh":
-        ui.info("  /cad-help              — 交互式帮助")
-        ui.info("  /cad-spec <file.md>    — 生成 CAD Spec")
-        ui.info("  /cad-codegen <子系统>   — 生成代码脚手架")
-    else:
-        ui.info("  /cad-help              — interactive help")
-        ui.info("  /cad-spec <file.md>    — generate CAD Spec")
-        ui.info("  /cad-codegen <subsys>  — generate code scaffolds")
+    if agent in ("claude", "both"):
+        if lang == "zh":
+            ui.info("  /cad-help              — 交互式帮助")
+            ui.info("  /cad-spec <file.md>    — 生成 CAD Spec")
+            ui.info("  /cad-codegen <子系统>   — 生成代码脚手架")
+        else:
+            ui.info("  /cad-help              — interactive help")
+            ui.info("  /cad-spec <file.md>    — generate CAD Spec")
+            ui.info("  /cad-codegen <subsys>  — generate code scaffolds")
+    if agent in ("codex", "both"):
+        effective_codex_dir = (
+            Path(codex_dir).expanduser()
+            if codex_dir is not None
+            else skill_register.default_codex_skills_dir()
+        )
+        if lang == "zh":
+            ui.info(f"  Codex skills          — {effective_codex_dir}")
+            ui.info("  新开 Codex 会话后，可直接用自然语言请求 CAD spec/codegen/render")
+        else:
+            ui.info(f"  Codex skills          — {effective_codex_dir}")
+            ui.info("  Start a new Codex session, then ask for CAD spec/codegen/render work")
     print()
     ui.info(t("complete_verify", lang))
     print(f"{ui.bold(line)}\n")

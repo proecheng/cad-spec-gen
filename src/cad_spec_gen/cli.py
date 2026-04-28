@@ -37,6 +37,17 @@ def main_setup():
         "--update", "-u", action="store_true",
         help="Update existing installation (preserves user-modified config)",
     )
+    parser.add_argument(
+        "--agent",
+        choices=["claude", "codex", "both"],
+        default="claude",
+        help="Agent adapter to register: claude commands, codex skills, or both",
+    )
+    parser.add_argument(
+        "--codex-dir",
+        default=None,
+        help="Codex skills directory (default: ~/.agents/skills)",
+    )
     args = parser.parse_args()
 
     from .wizard.wizard import run_wizard
@@ -45,6 +56,8 @@ def main_setup():
         target=args.target,
         skip_deps=args.skip_deps,
         update=args.update,
+        agent=args.agent,
+        codex_dir=args.codex_dir,
     ))
 
 

@@ -30,6 +30,7 @@ python cad_pipeline.py codegen --subsystem <名称>
 ```
 
 Claude Code 用户可直接用 `/cad-spec`、`/cad-codegen` 等 slash command。
+Codex 用户可运行 `cad-skill-setup --agent codex --target .`，将同一套命令文档生成到 `~/.agents/skills/<id>/SKILL.md`。
 
 ## 约定
 
@@ -40,6 +41,7 @@ Claude Code 用户可直接用 `/cad-spec`、`/cad-codegen` 等 slash command。
 ## 开发者
 
 - Skill 内容在 `.claude/commands/<id>.md`（中文）和 `src/cad_spec_gen/data/commands/en/<id>.md`（英文）
+- Codex SKILL.md 由 `cad-skill-setup --agent codex|both` 从 `skill.json` + `commands/<lang>/<id>.md` 生成，不手工维护
 - Metadata 在 `src/cad_spec_gen/data/skill.json`
 - 改完跑 `python scripts/dev_sync.py` 同步；pre-commit 自动守护
 
