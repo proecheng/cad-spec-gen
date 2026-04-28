@@ -103,8 +103,11 @@ def ask_step_file(title: str) -> Optional[Path]:
     finally 里 destroy 防 Tcl 资源泄漏。filetypes 同时列 .step/.stp 和
     All files，后者给用户应付非标扩展名的兜底。
     """
-    root = Tk()
-    root.withdraw()
+    try:
+        root = Tk()
+        root.withdraw()
+    except Exception:
+        return None
     try:
         path = filedialog.askopenfilename(
             title=title,

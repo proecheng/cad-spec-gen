@@ -34,6 +34,14 @@ def test_ask_step_file_returns_none_on_cancel():
         assert ask_step_file('test') is None
 
 
+def test_ask_step_file_returns_none_when_tk_unavailable(monkeypatch):
+    from sw_preflight import io
+
+    monkeypatch.setattr(io, "Tk", MagicMock(side_effect=RuntimeError("no tcl")))
+
+    assert io.ask_step_file("test") is None
+
+
 def test_three_choice_prompt(monkeypatch):
     monkeypatch.setattr('builtins.input', lambda _: '2')
     from sw_preflight.io import three_choice_prompt

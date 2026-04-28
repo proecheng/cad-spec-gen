@@ -6,6 +6,16 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.22.1] - 2026-04-28
+
+### Fixed
+- `sw_preflight.io.ask_step_file()` 在 Windows Python 3.11 runner 的 Tk/Tcl 初始化失败时返回 `None`，等价于无法打开文件选择框/用户取消，避免 CI 因 runner Tcl 缺失失败。
+
+### Validation
+- `tests/test_sw_preflight_io_dialog.py` 新增 Tk 不可用回归测试。
+
+---
+
 ## [v2.22.0] - 2026-04-28
 
 ### Added
