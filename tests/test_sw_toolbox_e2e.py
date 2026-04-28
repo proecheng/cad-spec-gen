@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
@@ -125,6 +126,16 @@ def test_e2e_seeds_default_config_decision(tmp_path):
     assert decision["config_name"] == "Default"
     assert decision["sldprt_filename"] == "deep groove ball bearings gb.sldprt"
     assert decision["bom_dim_signature"] == "GB/T 276 深沟球轴承 6205|GCr15"
+
+
+def test_e2e_refreshes_loaded_cad_project_root(tmp_path, monkeypatch):
+    import cad_paths
+    from tools.sw_toolbox_e2e import _refresh_cad_project_root
+
+    monkeypatch.setenv("CAD_PROJECT_ROOT", str(tmp_path))
+    _refresh_cad_project_root()
+
+    assert os.path.normpath(cad_paths.PROJECT_ROOT) == os.path.normpath(str(tmp_path))
 
 
 def test_sw_smoke_workflow_has_manual_full_toolbox_e2e_gate():

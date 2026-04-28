@@ -10,8 +10,10 @@ sw_config_broker -> SolidWorks COM STEP export -> generated std_*.py.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -64,6 +66,13 @@ def _write_summary(out_dir: Path, summary: dict[str, Any]) -> Path:
     tmp.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
     return path
+
+
+def _refresh_cad_project_root() -> None:
+    """Refresh cad_paths.PROJECT_ROOT after changing CAD_PROJECT_ROOT."""
+    module = sys.modules.get("cad_paths")
+    if module is not None:
+        importlib.reload(module)
 
 
 def _seed_default_config_decision(project_dir: Path, part: dict[str, str]) -> Path:
@@ -161,11 +170,12 @@ def run_sw_toolbox_e2e(args: argparse.Namespace) -> int:
     cad_dir = project_dir / "cad" / "sw_toolbox_e2e"
     spec_path = cad_dir / "CAD_SPEC.md"
     write_minimal_spec(spec_path)
-    seeded_decision_path = _seed_default_config_decision(project_dir, DEFAULT_PART)
 
     # Make broker pending paths deterministic if gen_std_parts ever needs them.
     previous_project_root = os.environ.get("CAD_PROJECT_ROOT")
     os.environ["CAD_PROJECT_ROOT"] = str(project_dir)
+    _refresh_cad_project_root()
+    seeded_decision_path = _seed_default_config_decision(project_dir, DEFAULT_PART)
 
     summary = _base_summary(out_dir, project_dir, spec_path)
     summary["seeded_decision_path"] = str(seeded_decision_path)
@@ -238,6 +248,7 @@ def run_sw_toolbox_e2e(args: argparse.Namespace) -> int:
             os.environ.pop("CAD_PROJECT_ROOT", None)
         else:
             os.environ["CAD_PROJECT_ROOT"] = previous_project_root
+        _refresh_cad_project_root()
 
 
 def main(argv: list[str] | None = None) -> int:
