@@ -307,6 +307,10 @@ terminal fallback and produces the same output as pre-v2.8.0.
 | `file: str` | required | STEP file path relative to `step_pool.root` |
 | `file_template: str` | alternative | Template with `{part_no}`, `{name}`, `{normalize(name)}` placeholders |
 
+When both `file` and `file_template` are present, `file` is authoritative.
+Use this when a user has selected an exact STEP file and you want to keep a
+template fallback in the same rule for later cleanup.
+
 Examples:
 
 ```yaml
@@ -326,6 +330,15 @@ Path resolution order:
 2. `<step_pool.cache>/<spec.file>` — shared user cache (e.g.
    `~/.cad-spec-gen/step_cache/`)
 3. Fall through to next rule on miss
+
+Path safety:
+
+- Relative `file` / `file_template` results are normalized before lookup and
+  must stay inside `step_pool.root` or `step_pool.cache`.
+- `../`, drive-relative paths such as `C:foo.step`, and absolute
+  `file_template` results are rejected as `miss` with an unsafe-path warning.
+- Absolute `file` paths are still accepted for compatibility, but project-
+  relative paths remain the portable form.
 
 ### `adapter: bd_warehouse` spec
 

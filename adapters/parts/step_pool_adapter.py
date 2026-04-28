@@ -23,9 +23,9 @@ The adapter:
 Design choices:
 - `spec.file` is a relative path. Absolute paths are supported but
   discouraged (breaks project portability).
-- `spec.file_template` (not yet implemented in Phase B) will allow
-  name-based lookup: `{normalize(name)}.step` → `maxon_ecx22l.step`.
-  Left as a TODO so users can rely on explicit `file:` for now.
+- `spec.file_template` allows name-based lookup such as
+  `maxon/{normalize(name)}.step`. Explicit `spec.file` takes priority when
+  both are present.
 - STEP path in generated code is resolved relative to the generated
   module's location, so the project can be moved on disk without
   re-running codegen.
@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -48,6 +49,14 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from adapters.parts.base import PartsAdapter
+
+
+@dataclass(frozen=True)
+class _ResolvedStepPath:
+    path: Optional[str]
+    file_spec: Optional[str] = None
+    source: str = ""
+    warning: str = ""
 
 
 class StepPoolAdapter(PartsAdapter):
@@ -85,7 +94,15 @@ class StepPoolAdapter(PartsAdapter):
     def resolve(self, query, spec: dict, mode: str = "codegen"):
         from parts_resolver import ResolveResult
 
-        resolved_path = self._resolve_spec_path(spec, query)
+        resolution = self._resolve_spec_path(spec, query)
+        if resolution.warning:
+            return ResolveResult(
+                status="miss",
+                kind="miss",
+                adapter=self.name,
+                warnings=[resolution.warning],
+            )
+        resolved_path = resolution.path
         if not resolved_path:
             return ResolveResult.miss()
         if not os.path.isfile(resolved_path):
@@ -100,7 +117,7 @@ class StepPoolAdapter(PartsAdapter):
                 )
             # File missing → if the spec nominates a skill-level synthesizer,
             # write the parametric stand-in into the shared cache and retry.
-            synthesized = self._try_synthesize(spec)
+            synthesized = self._try_synthesize(spec, resolution.file_spec)
             if synthesized and os.path.isfile(synthesized):
                 resolved_path = synthesized
             else:
@@ -131,11 +148,14 @@ class StepPoolAdapter(PartsAdapter):
 
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:
         """Return STEP bounding box without emitting code."""
-        resolved_path = self._resolve_spec_path(spec, query)
+        resolution = self._resolve_spec_path(spec, query)
+        if resolution.warning:
+            return None
+        resolved_path = resolution.path
         if not resolved_path:
             return None
         if not os.path.isfile(resolved_path):
-            synthesized = self._try_synthesize(spec)
+            synthesized = self._try_synthesize(spec, resolution.file_spec)
             if synthesized and os.path.isfile(synthesized):
                 resolved_path = synthesized
             else:
@@ -144,43 +164,87 @@ class StepPoolAdapter(PartsAdapter):
 
     # ---- Path resolution --------------------------------------------------
 
-    def _resolve_spec_path(self, spec: dict, query) -> Optional[str]:
+    def _resolve_spec_path(self, spec: dict, query) -> _ResolvedStepPath:
         """Resolve spec.file or spec.file_template to an absolute path.
 
         Search order:
           1. `spec.file` — literal relative path, resolved against step_pool.root
-          2. `spec.file_template` — template with placeholders (future work)
+          2. `spec.file_template` — template with placeholders
           3. Shared cache fallback (`step_pool.cache` or
              `adapters.parts.vendor_synthesizer.default_cache_root()` when the
              registry does not set it)
         """
-        file_spec = spec.get("file") or spec.get("file_template")
+        file_spec, source = self._file_spec_from_spec(spec, query)
         if not file_spec:
-            return None
-
-        if spec.get("file_template"):
-            file_spec = self._expand_template(spec["file_template"], query)
+            return _ResolvedStepPath(None)
 
         if os.path.isabs(file_spec):
-            return os.path.normpath(file_spec)
+            if source == "file_template":
+                return _ResolvedStepPath(
+                    None,
+                    file_spec=file_spec,
+                    source=source,
+                    warning=f"Unsafe STEP path in step_pool file_template: {file_spec}",
+                )
+            return _ResolvedStepPath(
+                os.path.normpath(file_spec),
+                file_spec=file_spec,
+                source=source,
+            )
+
+        safe_rel, warning = self._safe_relative_file_spec(file_spec, source)
+        if warning:
+            return _ResolvedStepPath(
+                None,
+                file_spec=file_spec,
+                source=source,
+                warning=warning,
+            )
 
         # Search 1: project-local step_pool.root
         root = self.config.get("root", "std_parts/")
         root = self._normalize_dir(root)
-        project_path = os.path.join(root, file_spec)
+        project_path = self._join_under(root, safe_rel or "")
+        if not project_path:
+            return _ResolvedStepPath(
+                None,
+                file_spec=file_spec,
+                source=source,
+                warning=f"Unsafe STEP path in step_pool {source}: {file_spec}",
+            )
         if os.path.isfile(project_path):
-            return os.path.normpath(project_path)
+            return _ResolvedStepPath(
+                os.path.normpath(project_path),
+                file_spec=safe_rel,
+                source=source,
+            )
 
         # Search 2: shared cache (registry override or skill-default location)
-        cache_path = self._shared_cache_path(file_spec)
+        cache_path = self._shared_cache_path(safe_rel or "")
         if cache_path and os.path.isfile(cache_path):
-            return os.path.normpath(cache_path)
+            return _ResolvedStepPath(
+                os.path.normpath(cache_path),
+                file_spec=safe_rel,
+                source=source,
+            )
 
         # Not found — return the shared-cache path when we can, since that is
         # the preferred write target for auto-synthesis. Falls back to the
         # project-relative path when no cache has been configured so the
         # "missing file" warning still points somewhere meaningful.
-        return os.path.normpath(cache_path or project_path)
+        return _ResolvedStepPath(
+            os.path.normpath(cache_path or project_path),
+            file_spec=safe_rel,
+            source=source,
+        )
+
+    def _file_spec_from_spec(self, spec: dict, query) -> tuple[Optional[str], str]:
+        """Return the effective file spec and whether it came from file/template."""
+        if spec.get("file"):
+            return str(spec["file"]), "file"
+        if spec.get("file_template"):
+            return self._expand_template(str(spec["file_template"]), query), "file_template"
+        return None, ""
 
     def _shared_cache_path(self, file_spec: str) -> Optional[str]:
         """Return the absolute cached-path for a vendor-relative file.
@@ -189,17 +253,20 @@ class StepPoolAdapter(PartsAdapter):
         to the skill-level shared cache root (`~/.cad-spec-gen/step_cache/`)
         so a blank registry still resolves vendor parts the same way.
         """
+        safe_rel, _warning = self._safe_relative_file_spec(file_spec, "file")
+        if not safe_rel:
+            return None
         cache = self.config.get("cache", "")
         if cache:
             cache = self._normalize_dir(cache)
-            return os.path.join(cache, file_spec)
+            return self._join_under(cache, safe_rel)
         try:
             from adapters.parts.vendor_synthesizer import default_cache_root
         except ImportError:
             return None
-        return os.path.join(str(default_cache_root()), file_spec)
+        return self._join_under(str(default_cache_root()), safe_rel)
 
-    def _try_synthesize(self, spec: dict) -> Optional[str]:
+    def _try_synthesize(self, spec: dict, file_spec: Optional[str] = None) -> Optional[str]:
         """Run a registered synthesizer to write a missing STEP into cache.
 
         Consulted only when `_resolve_spec_path()` pointed at a non-existent
@@ -210,8 +277,12 @@ class StepPoolAdapter(PartsAdapter):
         next adapter.
         """
         factory_id = spec.get("synthesizer")
-        file_spec = spec.get("file") or spec.get("file_template")
         if not factory_id or not file_spec:
+            return None
+        if os.path.isabs(file_spec):
+            return None
+        safe_rel, warning = self._safe_relative_file_spec(file_spec, "file")
+        if warning or not safe_rel:
             return None
 
         try:
@@ -219,8 +290,42 @@ class StepPoolAdapter(PartsAdapter):
         except ImportError:
             return None
 
-        target = synthesize_to_cache(factory_id, file_spec)
+        target = synthesize_to_cache(factory_id, safe_rel)
         return str(target) if target else None
+
+    def _safe_relative_file_spec(
+        self,
+        file_spec: str,
+        source: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Normalize a relative STEP path and reject root/cache traversal."""
+        raw = str(file_spec).strip()
+        if not raw:
+            return None, f"Unsafe STEP path in step_pool {source}: empty path"
+        raw_for_norm = raw.replace("\\", os.sep).replace("/", os.sep)
+        drive, _ = os.path.splitdrive(raw_for_norm)
+        normalized = os.path.normpath(raw_for_norm)
+        if (
+            drive
+            or os.path.isabs(normalized)
+            or normalized == os.curdir
+            or normalized == os.pardir
+            or normalized.startswith(os.pardir + os.sep)
+        ):
+            return None, f"Unsafe STEP path in step_pool {source}: {file_spec}"
+        return normalized, None
+
+    def _join_under(self, root: str, file_spec: str) -> Optional[str]:
+        """Join root + relative file_spec and keep the result under root."""
+        root_abs = os.path.abspath(root)
+        candidate = os.path.abspath(os.path.join(root_abs, file_spec))
+        try:
+            common = os.path.commonpath([root_abs, candidate])
+        except ValueError:
+            return None
+        if os.path.normcase(common) != os.path.normcase(root_abs):
+            return None
+        return candidate
 
     def _normalize_dir(self, dir_path: str) -> str:
         """Expand ~ and resolve relative paths against project_root."""
