@@ -387,6 +387,51 @@ class TestStepPoolAdapter:
         assert result.status == "hit"
         assert "ecx_22l" in result.step_path
 
+    def test_explicit_file_takes_priority_over_file_template(self, step_pool_dir):
+        """Explicit spec.file must win when both file and file_template exist."""
+        from adapters.parts.step_pool_adapter import StepPoolAdapter
+        adapter = StepPoolAdapter(
+            project_root=str(step_pool_dir.parent),
+            config={"root": "std_parts/"},
+        )
+        query = PartQuery(
+            part_no="X-001",
+            name_cn="Missing Template Name",
+            material="",
+            category="sensor",
+            make_buy="外购",
+        )
+        result = adapter.resolve(
+            query,
+            spec={
+                "file": "sensors/ati_nano17.step",
+                "file_template": "maxon/{normalize(name)}.step",
+            },
+        )
+        assert result.status == "hit"
+        assert result.step_path == "std_parts/sensors/ati_nano17.step"
+
+    def test_file_template_rejects_parent_traversal(self, step_pool_dir):
+        """Template expansion must not escape step_pool.root via ../."""
+        escape = step_pool_dir.parent / "escape.step"
+        escape.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+
+        from adapters.parts.step_pool_adapter import StepPoolAdapter
+        adapter = StepPoolAdapter(
+            project_root=str(step_pool_dir.parent),
+            config={"root": "std_parts/"},
+        )
+        query = PartQuery(
+            part_no="escape",
+            name_cn="escape",
+            material="",
+            category="motor",
+            make_buy="外购",
+        )
+        result = adapter.resolve(query, spec={"file_template": "../{part_no}.step"})
+        assert result.status == "miss"
+        assert any("unsafe" in w.lower() for w in result.warnings)
+
     def test_absolute_path_works(self, step_pool_dir):
         from adapters.parts.step_pool_adapter import StepPoolAdapter
         adapter = StepPoolAdapter(

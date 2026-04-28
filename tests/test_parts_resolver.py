@@ -331,6 +331,43 @@ class TestResolverDispatch:
         assert result.geometry_quality == "D"
         assert result.requires_model_review is True
 
+    def test_step_pool_file_template_resolves_through_resolver(self, tmp_path):
+        """Resolver should pass file_template rules into StepPoolAdapter."""
+        from adapters.parts.step_pool_adapter import StepPoolAdapter
+
+        step_dir = tmp_path / "std_parts" / "vendor"
+        step_dir.mkdir(parents=True)
+        (step_dir / "mini_motor.step").write_text(
+            "ISO-10303-21;\nEND-ISO-10303-21;\n",
+            encoding="utf-8",
+        )
+        query = PartQuery(
+            part_no="P-001",
+            name_cn="Mini Motor",
+            material="",
+            category="motor",
+            make_buy="外购",
+        )
+        resolver = PartsResolver(
+            project_root=str(tmp_path),
+            registry={
+                "mappings": [
+                    {
+                        "match": {"category": "motor"},
+                        "adapter": "step_pool",
+                        "spec": {"file_template": "vendor/{normalize(name)}.step"},
+                    },
+                ],
+            },
+            adapters=[StepPoolAdapter(project_root=str(tmp_path), config={"root": "std_parts/"})],
+        )
+        result = resolver.resolve(query)
+        assert result.status == "hit"
+        assert result.kind == "step_import"
+        assert result.adapter == "step_pool"
+        assert result.step_path == "std_parts/vendor/mini_motor.step"
+        assert result.geometry_source == "REAL_STEP"
+
 
 # ─── Probe dims tests ──────────────────────────────────────────────────
 
