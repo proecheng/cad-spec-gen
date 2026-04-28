@@ -6,6 +6,16 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.21.2] - 2026-04-28
+
+### Fixed
+- 修复 wheel 打包遗漏 build-time data mirrors 的问题，确保内置 parts templates、codegen、python_tools、中文命令和默认 parts library YAML 均进入发布包。
+
+### Added
+- 增加发布版本、后端打包、dev_sync、pipeline command module 和测试基础设施契约测试，防止发布元数据与 wheel 内容再次漂移。
+
+---
+
 ## [v2.21.1] - 2026-04-27
 
 ### Changed
