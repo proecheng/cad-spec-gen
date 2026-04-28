@@ -7,11 +7,11 @@ Material:
 
 BOM: SLP-200 左支撑条
 
-┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : TODO: e.g. bottom-left corner of mounting face
-│ Principal axis: TODO: e.g. extrude along +Z (axial), body height = PARAM_H
-│ Assembly orient: TODO: e.g. rotate X+90deg in assembly.py so axis becomes +Y (radial)
-│ Design doc ref : TODO: e.g. §4.1.2 L176 — "储罐轴线与悬臂共线（径向）"
+┌─ COORDINATE SYSTEM (generated scaffold defaults) ──────────────────┐
+│ Local origin : CAD_SPEC envelope center on XY; bottom face at Z=0
+│ Principal axis: +Z scaffold extrusion axis; body height from envelope
+│ Assembly orient: assembly.py applies §6.2/§6.3 placement transforms
+│ Design doc ref : CAD_SPEC.md §5 BOM + §6.4 envelope
 └──────────────────────────────────────────────────────────────────────────┘
 
 DO NOT extrude / rotate based on assumption. Every axis choice must cite
@@ -29,11 +29,11 @@ def make_200() -> cq.Workplane:
     Envelope: 40.0 x 40.0 x 20.0 mm
     Weight: ?g
 
-    Axis: TODO — must match COORDINATE SYSTEM block above
-    Doc:  TODO — cite design doc section + line
+    Axis: +Z scaffold default; verify against §6.3 before production use
+    Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: TODO
+    # Principal axis: +Z scaffold default
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
     # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
@@ -53,11 +53,11 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
+    # Generated scaffold default; tighten when design-doc axis data is available
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "TODO",
+        "doc_ref": "CAD_SPEC.md §5/§6.4 scaffold envelope",
     }
 
 

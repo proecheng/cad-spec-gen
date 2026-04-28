@@ -7,7 +7,7 @@ Material: 6061-T6
 
 BOM: SLP-100 上固定板
 
-┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+┌─ COORDINATE SYSTEM (generated scaffold defaults) ──────────────────┐
 │ Local origin : Center of plate XY, bottom face at Z=0
 │ Principal axis: Flat plate on XY, thickness extruded along +Z (8mm)
 │ Assembly orient: Translate to Z=+272 in assembly.py
@@ -57,7 +57,7 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # TODO: fill after geometry is implemented
+    # Generated scaffold default; tighten when design-doc axis data is available
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,

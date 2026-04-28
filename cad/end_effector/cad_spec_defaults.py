@@ -340,9 +340,8 @@ def compute_serial_offsets(placements: list, envelopes: dict,
 
             h = _get_node_height(node, envelopes)
 
-            # axial_gap from connections
-            # TODO(P3): axial_gap is not yet populated by extract_connection_matrix;
-            # this logic is ready but currently always gets gap=0.0
+            # axial_gap comes from explicit connection-matrix gap fields.
+            # Plain placement offsets like "Z=+73mm" are not treated as gaps.
             gap = 0.0
             if connections and i > 0:
                 prev_pno = merged[i - 1].get("part_no")
@@ -351,11 +350,13 @@ def compute_serial_offsets(placements: list, envelopes: dict,
                         pa, pb = conn.get("partA", ""), conn.get("partB", "")
                         # Use regex extraction to avoid substring false positives
                         # (e.g. "GIS-EE-001" matching "GIS-EE-001-01")
-                        pa_pnos = set(re.findall(r"[A-Z]+-[A-Z]+-\d+(?:-\d+)?", pa))
-                        pb_pnos = set(re.findall(r"[A-Z]+-[A-Z]+-\d+(?:-\d+)?", pb))
-                        if ((prev_pno in pa_pnos and pno in pb_pnos) or
-                            (pno in pa_pnos and prev_pno in pb_pnos)):
-                            gap = conn.get("axial_gap", 0.0)
+                        if (
+                            (_mentions_part_no(pa, prev_pno) and
+                             _mentions_part_no(pb, pno))
+                            or (_mentions_part_no(pa, pno) and
+                                _mentions_part_no(pb, prev_pno))
+                        ):
+                            gap = _coerce_axial_gap(conn.get("axial_gap", 0.0))
                             break
 
             if sign < 0:
@@ -392,6 +393,22 @@ def compute_serial_offsets(placements: list, envelopes: dict,
             }
 
     return result
+
+
+def _mentions_part_no(text: str, part_no: str) -> bool:
+    """Return True when text contains part_no as a separated identifier."""
+    if not text or not part_no:
+        return False
+    pattern = rf"(?<![A-Za-z0-9-]){re.escape(part_no)}(?![A-Za-z0-9-])"
+    return re.search(pattern, text) is not None
+
+
+def _coerce_axial_gap(value) -> float:
+    """Normalize axial gaps for placement math; negative/interference => 0."""
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _merge_sub_assemblies(chain: list, envelopes: dict) -> list:
