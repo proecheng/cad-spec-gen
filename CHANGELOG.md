@@ -6,6 +6,24 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.22.0] - 2026-04-28
+
+### Added
+- `cad-skill-setup --agent {claude,codex,both}`，默认保持 Claude Code `.claude/commands/` 兼容，新增 Codex `SKILL.md` 生成路径。
+- `cad-skill-setup --codex-dir <path>`，可覆盖默认 `~/.agents/skills` 安装目录。
+- Codex skill 生成器：从 `skill.json` + `commands/<lang>/<id>.md` 生成标准 frontmatter，仅保留 `name`/`description`，并清理 slash-command `$ARGUMENTS` 占位。
+- 回归测试覆盖纯 Codex 模式、both 模式、CLI 参数透传和 AGENTS Codex 安装提示。
+
+### Changed
+- 安装向导完成页按 `claude/codex/both` 分别提示可用入口，避免 Codex 模式继续只展示 slash command。
+- README 与 AGENTS 增加 Codex 注册说明，明确 Codex skills 由安装器生成，不手工维护。
+
+### Validation
+- 本地全量：`1506 passed, 17 skipped`
+- PR CI：Ubuntu/Windows × Python 3.10/3.11/3.12、regression、mypy-strict 全部通过。
+
+---
+
 ## [v2.21.2] - 2026-04-28
 
 ### Fixed
