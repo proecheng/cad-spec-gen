@@ -2840,6 +2840,13 @@ def cmd_sw_warmup(args):
     return run_sw_warmup(args)
 
 
+def cmd_sw_toolbox_e2e(args):
+    """真实 SW Toolbox 模型库 → STEP → codegen 消费端到端验收。"""
+    from tools.sw_toolbox_e2e import run_sw_toolbox_e2e
+
+    return run_sw_toolbox_e2e(args)
+
+
 def cmd_sw_inspect(args):
     """F-1：SW 环境/索引/材质/warmup 产物诊断。"""
     from tools.sw_inspect import run_sw_inspect
@@ -3216,6 +3223,17 @@ def main():
         help="转换单件验收（GB/bearing 第一个件），exit 0=PASS / exit 2=FAIL",
     )
 
+    # sw-toolbox-e2e：真实模型库闭环验收（手动/runner 用）
+    p_sw_toolbox_e2e = sub.add_parser(
+        "sw-toolbox-e2e",
+        help="真实 SW Toolbox 模型库 → STEP → codegen 消费端到端验收",
+    )
+    p_sw_toolbox_e2e.add_argument(
+        "--out-dir",
+        default="artifacts/sw-toolbox-e2e",
+        help="写入 mini project、geometry_report 和 sw_toolbox_e2e.json 的目录",
+    )
+
     # sw-inspect（F-1 子命令）
     p_sw_inspect = sub.add_parser(
         "sw-inspect",
@@ -3271,6 +3289,7 @@ def main():
         "status": cmd_status,
         "env-check": cmd_env_check,
         "sw-warmup": cmd_sw_warmup,
+        "sw-toolbox-e2e": cmd_sw_toolbox_e2e,
         "sw-inspect": cmd_sw_inspect,
     }
 

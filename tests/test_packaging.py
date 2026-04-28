@@ -44,6 +44,7 @@ def test_hatch_build_marks_generated_data_as_wheel_artifacts():
         "src/cad_spec_gen/data/codegen/**",
         "src/cad_spec_gen/data/templates/**",
         "src/cad_spec_gen/data/config/**",
+        "src/cad_spec_gen/data/tools/**",
         "src/cad_spec_gen/data/commands/zh/**",
         "src/cad_spec_gen/data/parts_library.default.yaml",
     }
@@ -107,6 +108,7 @@ def test_wheel_install_smoke(tmp_path):
     for expected in [
         "cad_spec_gen/data/templates/parts/iso_9409_flange.py",
         "cad_spec_gen/data/python_tools/cad_pipeline.py",
+        "cad_spec_gen/data/tools/sw_toolbox_e2e.py",
         "cad_spec_gen/data/codegen/gen_parts.py",
         "cad_spec_gen/data/commands/zh/cad-codegen.md",
         "cad_spec_gen/data/parts_library.default.yaml",

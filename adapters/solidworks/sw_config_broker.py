@@ -99,6 +99,8 @@ _SIZE_TOKEN_RE = re.compile(
     r"[Φϕφ]?\s*(?:[Mm]\d+(?:\.\d+)?(?:\s*[×xX*]\s*\d+(?:\.\d+)?)?)"
     r"|[Φϕφ]?\s*\d+(?:\.\d+)?\s*[×xX*]\s*\d+(?:\.\d+)?"
 )
+_BEARING_CONTEXT_RE = re.compile(r"(轴承|bearing|GB\s*/?\s*T\s*276|GBT\s*276)", re.IGNORECASE)
+_BEARING_MODEL_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9.])\d{4,5}(?![A-Za-z0-9.])")
 
 
 def _normalize_for_match(s: str) -> str:
@@ -112,7 +114,13 @@ def _extract_size_tokens(bom_dim_signature: str) -> list[str]:
     """从 bom_dim_signature 提取所有可能的尺寸子串（含 'M8x20', '80x2.4', 'MR105ZZ' 等）。
     返回归一化后的 token 列表。"""
     matches = _SIZE_TOKEN_RE.findall(bom_dim_signature)
-    return [_normalize_for_match(m) for m in matches if m.strip()]
+    tokens = [_normalize_for_match(m) for m in matches if m.strip()]
+    if _BEARING_CONTEXT_RE.search(bom_dim_signature):
+        tokens.extend(
+            _normalize_for_match(m.group(0))
+            for m in _BEARING_MODEL_TOKEN_RE.finditer(bom_dim_signature)
+        )
+    return list(dict.fromkeys(tokens))
 
 
 def _tok_in_cfg_with_boundary(tok: str, cfg_norm: str) -> bool:
@@ -123,6 +131,8 @@ def _tok_in_cfg_with_boundary(tok: str, cfg_norm: str) -> bool:
     """
     idx = cfg_norm.find(tok)
     while idx != -1:
+        if tok.isdigit() and cfg_norm.isdigit() and cfg_norm != tok:
+            return False
         end = idx + len(tok)
         if end >= len(cfg_norm) or not cfg_norm[end].isdigit():
             return True

@@ -263,6 +263,26 @@ class TestWorkerConfigSwitch:
         assert rc == 0
         model.ShowConfiguration2.assert_called_once_with("GB_T70.1-M6x20")
 
+    def test_target_config_uses_modeldoc2_configuration_names(self, monkeypatch):
+        """真实 SW 2024 runner 上配置枚举入口是 ModelDoc2.GetConfigurationNames。"""
+        from adapters.solidworks import sw_convert_worker
+
+        fake_app = mock.MagicMock()
+        self._patch_com(monkeypatch, dispatch_return=fake_app)
+        model = mock.MagicMock()
+        fake_app.OpenDoc6.return_value = model
+        model.Extension.SaveAs3.return_value = True
+        model.GetConfigurationNames.return_value = ["GB_T276-6205"]
+        model.ConfigurationManager = object()
+        model.GetPathName = "C:/SOLIDWORKS Data/bearing.sldprt"
+
+        rc = sw_convert_worker._convert("in.sldprt", "out.tmp.step", "GB_T276-6205")
+
+        assert rc == 0
+        model.GetConfigurationNames.assert_called_once_with()
+        model.ShowConfiguration2.assert_called_once_with("GB_T276-6205")
+        fake_app.CloseDoc.assert_called_once_with("C:/SOLIDWORKS Data/bearing.sldprt")
+
     def test_fuzzy_config_match_calls_showconfiguration(self, monkeypatch):
         from adapters.solidworks import sw_convert_worker
 

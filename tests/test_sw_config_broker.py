@@ -148,6 +148,48 @@ class TestMatchConfigByRule:
         assert result is not None
         assert result[0] == "M8x20"
 
+    def test_bearing_model_l1_exact(self):
+        """轴承语境下，4 位型号 6205 可作为受控尺寸 token 自动匹配配置。"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="深沟球轴承 6205|GCr15",
+            available=["6204", "6205", "6206"],
+        )
+        assert result == ("6205", 1.0)
+
+    def test_bearing_model_l2_with_standard_prefix(self):
+        """GB/T 276 轴承型号可命中带前后缀的 Toolbox 配置名。"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="GB/T 276 深沟球轴承 6205|GCr15",
+            available=["GB-T276-6204-C3", "GB-T276-6205-C3", "GB-T276-6206-C3"],
+        )
+        assert result is not None
+        assert result[0] == "GB-T276-6205-C3"
+        assert 0.7 <= result[1] <= 0.95
+
+    def test_bare_numeric_model_requires_bearing_context(self):
+        """非轴承语境下，孤立 4 位数字不应被当作尺寸 token。"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="联轴器 6205|45",
+            available=["6205"],
+        )
+        assert result is None
+
+    def test_bearing_model_does_not_match_longer_numeric_config(self):
+        """纯数字配置名必须精确相等，避免 6205 误命中 16205。"""
+        from adapters.solidworks.sw_config_broker import _match_config_by_rule
+
+        result = _match_config_by_rule(
+            bom_dim_signature="深沟球轴承 6205|GCr15",
+            available=["16205"],
+        )
+        assert result is None
+
 
 class TestMatchConfigByRuleL2:
     """spec §4.4 #2: L2 包含子串 + spec §10.2 假阳性防御"""

@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run real Toolbox STEP export and codegen consumption E2E
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: sw-smoke
@@ -112,6 +118,14 @@ jobs:
           fi
           python tools/assert_sw_inspect_schema.py sw-inspect-deep.json
 
+      - name: Run SW Toolbox model-library E2E
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python cad_pipeline.py sw-toolbox-e2e --out-dir artifacts/sw-toolbox-e2e
+
       - name: Write human-readable step summary (D16)
         if: always()
         shell: bash
@@ -130,4 +144,5 @@ jobs:
           path: |
             sw-smoke-junit.xml
             sw-inspect-deep.json
+            artifacts/sw-toolbox-e2e/**
           if-no-files-found: error

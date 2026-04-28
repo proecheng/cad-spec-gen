@@ -95,6 +95,55 @@ def _classify_worker_exception(e: BaseException) -> int:
     return EXIT_TRANSIENT
 
 
+def _member_value(obj, name: str):
+    """Return COM member value, accepting method or late-bound property forms."""
+    member = getattr(obj, name)
+    return member() if callable(member) else member
+
+
+def _config_names_from(obj) -> list[str] | None:
+    getter = getattr(obj, "GetConfigurationNames", None)
+    if getter is None:
+        return None
+    names = getter() if callable(getter) else getter
+    if names is None:
+        return None
+    try:
+        return [str(name) for name in names]
+    except TypeError:
+        return None
+
+
+def _get_configuration_names(model) -> list[str]:
+    """Return configuration names from the stable ModelDoc2 API.
+
+    SolidWorks exposes GetConfigurationNames on ModelDoc2. Some historical
+    mocks and COM wrappers expose the same name through ConfigurationManager,
+    so keep that as a fallback.
+    """
+    model_names = _config_names_from(model)
+    if model_names:
+        return model_names
+
+    config_mgr = getattr(model, "ConfigurationManager", None)
+    if config_mgr is not None:
+        mgr_names = _config_names_from(config_mgr)
+        if mgr_names is not None:
+            return mgr_names
+
+    if model_names is not None:
+        return model_names
+    raise AttributeError("GetConfigurationNames not available on ModelDoc2")
+
+
+def _model_path_name(model, fallback: str) -> str:
+    try:
+        path_name = _member_value(model, "GetPathName")
+    except Exception:
+        return fallback
+    return str(path_name or fallback)
+
+
 def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
     """共享 primitive：在已 boot 的 app 上 OpenDoc6 取配置名 CloseDoc。
 
@@ -113,11 +162,10 @@ def _open_doc_get_configs(app, sldprt_path: str) -> list[str]:
             model_was_null=model is None,
         )
     try:
-        config_mgr = model.ConfigurationManager
-        return list(config_mgr.GetConfigurationNames())
+        return _get_configuration_names(model)
     finally:
         try:
-            app.CloseDoc(model.GetPathName())
+            app.CloseDoc(_model_path_name(model, sldprt_path))
         except Exception as e:
             print(f"worker: CloseDoc ignored: {e!r}", file=sys.stderr)
 

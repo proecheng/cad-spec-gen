@@ -81,6 +81,80 @@ class TestWorkerListConfigs:
         captured = capsys.readouterr()
         assert json.loads(captured.out.strip()) == ["A", "B"]
 
+    def test_open_doc_get_configs_uses_modeldoc2_configuration_names(
+        self, monkeypatch, capsys,
+    ):
+        """真实 SW 2024 runner 上 GetConfigurationNames 挂在 ModelDoc2。"""
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        fake_app = mock.MagicMock()
+        _patch_com(monkeypatch, dispatch_return=fake_app)
+        model = mock.MagicMock()
+        model.GetConfigurationNames.return_value = ["6205"]
+        model.ConfigurationManager = object()
+        model.GetPathName = "C:/SOLIDWORKS Data/bearing.sldprt"
+        fake_app.OpenDoc6.return_value = model
+
+        names = wkr._open_doc_get_configs(fake_app, "bearing.sldprt")
+
+        assert names == ["6205"]
+        model.GetConfigurationNames.assert_called_once_with()
+        fake_app.CloseDoc.assert_called_once_with("C:/SOLIDWORKS Data/bearing.sldprt")
+        assert "CloseDoc ignored" not in capsys.readouterr().err
+
+    def test_get_configuration_names_falls_back_to_configuration_manager(self):
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        class ConfigMgr:
+            def GetConfigurationNames(self):
+                return ["legacy"]
+
+        class Model:
+            ConfigurationManager = ConfigMgr()
+
+        assert wkr._get_configuration_names(Model()) == ["legacy"]
+
+    def test_get_configuration_names_returns_empty_modeldoc2_list(self):
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        class Model:
+            def GetConfigurationNames(self):
+                return []
+
+        assert wkr._get_configuration_names(Model()) == []
+
+    def test_get_configuration_names_raises_when_api_absent(self):
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        class Model:
+            pass
+
+        with pytest.raises(AttributeError):
+            wkr._get_configuration_names(Model())
+
+    def test_config_names_from_rejects_none_and_non_iterable(self):
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        class NoneModel:
+            def GetConfigurationNames(self):
+                return None
+
+        class NonIterableModel:
+            def GetConfigurationNames(self):
+                return object()
+
+        assert wkr._config_names_from(NoneModel()) is None
+        assert wkr._config_names_from(NonIterableModel()) is None
+
+    def test_model_path_name_falls_back_when_getpathname_raises(self):
+        from adapters.solidworks import sw_list_configs_worker as wkr
+
+        class Model:
+            def GetPathName(self):
+                raise RuntimeError("disconnected")
+
+        assert wkr._model_path_name(Model(), "fallback.sldprt") == "fallback.sldprt"
+
 
 class TestWorkerOpenDocFailure:
     """spec §3.1.3 + §3.1.4：OpenDocFailure 子类异常按 errors 数值分类。"""

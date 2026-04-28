@@ -9,11 +9,26 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SRC = _REPO_ROOT / "src"
-if str(_SRC) in sys.path:
-    sys.path.remove(str(_SRC))
-sys.path.insert(0, str(_SRC))
-if "cad_spec_gen" in sys.modules and not hasattr(sys.modules["cad_spec_gen"], "__path__"):
-    del sys.modules["cad_spec_gen"]
+
+
+def _prefer_src_package():
+    """Ensure imports resolve to src/cad_spec_gen, not root cad_spec_gen.py."""
+    if str(_SRC) in sys.path:
+        sys.path.remove(str(_SRC))
+    sys.path.insert(0, str(_SRC))
+    if (
+        "cad_spec_gen" in sys.modules
+        and not hasattr(sys.modules["cad_spec_gen"], "__path__")
+    ):
+        del sys.modules["cad_spec_gen"]
+
+
+_prefer_src_package()
+
+
+@pytest.fixture(autouse=True)
+def _src_package_imports():
+    _prefer_src_package()
 
 
 def _frontmatter(text: str) -> str:
@@ -40,6 +55,7 @@ def test_register_skill_codex_mode_writes_global_skill_without_claude_commands(t
     assert skill_md.exists()
     assert not (target / ".claude" / "commands").exists()
     assert (target / "cad_pipeline.py").exists()
+    assert (target / "tools" / "sw_toolbox_e2e.py").exists()
     assert count > 0
 
     text = skill_md.read_text(encoding="utf-8")
