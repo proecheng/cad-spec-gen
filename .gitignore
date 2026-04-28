@@ -26,6 +26,7 @@ src/cad_spec_gen/data/python_tools/
 src/cad_spec_gen/data/codegen/
 src/cad_spec_gen/data/templates/
 src/cad_spec_gen/data/config/
+src/cad_spec_gen/data/tools/
 src/cad_spec_gen/data/commands/zh/
 src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md
 src/cad_spec_gen/data/knowledge/skill_mech_design_zh.md

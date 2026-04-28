@@ -26,7 +26,7 @@
 | ID | 优先级 | 范围 | 当前状态 | 完成口径 |
 |---|---|---|---|---|
 | TODO-B1 | P2 | `adapters/parts/step_pool_adapter.py` 的 `spec.file_template` | 暂未实现；当前用户 STEP 映射已可通过显式 `file:` 工作 | 支持 `{normalize(name)}.step` 类模板查找；路径安全校验；新增 resolver/adapter 测试；不破坏显式 `file:` 优先级 |
-| TODO-B2 | P1 | 真实 SolidWorks Toolbox/模型库端到端验收 | `sw-smoke` 已跑 `sw-inspect`，但未把 sw-warmup/Stage C/真实 STEP 转换纳入默认 smoke | self-hosted runner 可选择运行 toolbox 转换链路；输出 artifact；验证至少 1 个 Toolbox 件能从匹配、配置、导出到 codegen 消费闭环 |
+| TODO-B2 | P1 | 真实 SolidWorks Toolbox/模型库端到端验收 | 已新增 `cad_pipeline.py sw-toolbox-e2e` 与 `sw-smoke` 手动 `full=true` gate；本地契约测试通过；待 self-hosted runner 用真实 SolidWorks 执行一次产出硬件证据 | self-hosted runner 可选择运行 toolbox 转换链路；输出 artifact；验证至少 1 个 Toolbox 件能从匹配、配置、导出到 codegen 消费闭环 |
 | TODO-B3 | P2 | 生成模型质量与样例脚手架清理 | `cad/` 下 51 个 `TODO:` 多为旧生成模型的坐标系/几何占位；`axial_gap` 仍为 P3 精度债 | 重新生成或归档旧 `cad/` 样例；关键样例无裸 `TODO:`；`axial_gap` 能从连接矩阵填充并有单测覆盖 |
 
 ## 明确不再作为活跃 TODO 的内容
@@ -61,7 +61,6 @@ python -m mypy --platform=win32 adapters/solidworks/sw_config_broker.py
 
 ## 后续执行建议
 
-1. 先做 TODO-B2：这是“真正调用 SolidWorks Toolbox/模型库”的信心来源。
+1. 在 GitHub self-hosted Windows runner 手动触发 `sw-smoke`，勾选 `full=true`，收集 `artifacts/sw-toolbox-e2e/**` 作为 TODO-B2 的真实硬件证据。
 2. 再做 TODO-B1：提升用户选择 STEP 后的易用性，减少手写路径。
 3. 最后做 TODO-B3：清理旧样例和 `axial_gap` 精度债，让仓库视觉上也更像一个已收口项目。
-

@@ -58,6 +58,7 @@ COPY_DIRS = {
     "codegen": "codegen",
     "config": "config",
     "templates": "templates",
+    "tools": "tools",
 }
 
 # Spec 1 Phase 5: top-level files shipped as data payload inside the wheel.
@@ -73,6 +74,7 @@ GENERATED_DATA_ARTIFACTS = [
     "src/cad_spec_gen/data/codegen/**",
     "src/cad_spec_gen/data/templates/**",
     "src/cad_spec_gen/data/config/**",
+    "src/cad_spec_gen/data/tools/**",
     "src/cad_spec_gen/data/commands/zh/**",
     "src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md",
     "src/cad_spec_gen/data/knowledge/skill_mech_design_zh.md",
@@ -104,7 +106,12 @@ class CustomBuildHook(BuildHookInterface):
             if src.is_dir():
                 if dst.exists():
                     shutil.rmtree(dst)
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+                shutil.copytree(
+                    src,
+                    dst,
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+                )
 
         # --- commands/zh/ from adapters ---
         cmd_src = root / COMMAND_SOURCE

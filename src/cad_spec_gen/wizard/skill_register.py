@@ -48,7 +48,7 @@ except ImportError:
 PYTHON_TOOLS = _PIPELINE_TOOLS + list(_SHARED)
 
 # Directories to copy from data/{name}/ → target/{name}/
-COPY_DIRS = ["codegen", "config", "templates"]
+COPY_DIRS = ["codegen", "config", "templates", "tools"]
 
 # Slash commands (from data/commands/{lang}/)
 COMMAND_FILES = [
