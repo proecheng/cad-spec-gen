@@ -110,6 +110,23 @@ def test_run_e2e_fails_when_broker_needs_user_decision(tmp_path, monkeypatch):
     assert summary["pending_records"]["sw_toolbox_e2e"][0]["part_no"] == "SW-E2E-001"
 
 
+def test_e2e_seeds_default_config_decision(tmp_path):
+    from tools.sw_toolbox_e2e import (
+        DEFAULT_PART,
+        _seed_default_config_decision,
+    )
+
+    decision_path = _seed_default_config_decision(tmp_path / "project", DEFAULT_PART)
+
+    data = json.loads(decision_path.read_text(encoding="utf-8"))
+    decision = data["decisions_by_subsystem"]["default"]["SW-E2E-001"]
+    assert data["schema_version"] == 2
+    assert decision["decision"] == "use_config"
+    assert decision["config_name"] == "Default"
+    assert decision["sldprt_filename"] == "deep groove ball bearings gb.sldprt"
+    assert decision["bom_dim_signature"] == "GB/T 276 深沟球轴承 6205|GCr15"
+
+
 def test_sw_smoke_workflow_has_manual_full_toolbox_e2e_gate():
     workflow = Path(".github/workflows/sw-smoke.yml").read_text(encoding="utf-8")
 

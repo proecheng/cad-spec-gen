@@ -26,6 +26,7 @@ DEFAULT_PART = {
     "quantity": "1",
     "make_buy": "标准",
 }
+DEFAULT_SLDPRT_FILENAME = "deep groove ball bearings gb.sldprt"
 
 
 def write_minimal_spec(spec_path: Path, part: dict[str, str] | None = None) -> None:
@@ -61,6 +62,44 @@ def _write_summary(out_dir: Path, summary: dict[str, Any]) -> Path:
     path = out_dir / "sw_toolbox_e2e.json"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def _seed_default_config_decision(project_dir: Path, part: dict[str, str]) -> Path:
+    """Seed the noninteractive E2E with an explicit user config decision.
+
+    On the self-hosted SW 2024 runner, the GB deep-groove bearing SLDPRT exposes
+    only Default/PreviewCfg configurations through COM. The smoke test is meant
+    to verify real Toolbox STEP export and codegen consumption, so it uses the
+    same persisted decision path a user would create after choosing Default.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    part_no = part["part_no"]
+    envelope = {
+        "schema_version": 2,
+        "last_updated": now,
+        "decisions_by_subsystem": {
+            "default": {
+                part_no: {
+                    "bom_dim_signature": f"{part['name_cn']}|{part['material']}",
+                    "sldprt_filename": DEFAULT_SLDPRT_FILENAME,
+                    "decision": "use_config",
+                    "config_name": "Default",
+                    "user_note": (
+                        "Seeded for noninteractive sw-toolbox-e2e smoke; "
+                        "the runner's GB bearing SLDPRT exposes Default/PreviewCfg."
+                    ),
+                    "decided_at": now,
+                },
+            },
+        },
+        "decisions_history": [],
+    }
+    path = Path(project_dir) / ".cad-spec-gen" / "spec_decisions.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
     return path
 
@@ -122,12 +161,14 @@ def run_sw_toolbox_e2e(args: argparse.Namespace) -> int:
     cad_dir = project_dir / "cad" / "sw_toolbox_e2e"
     spec_path = cad_dir / "CAD_SPEC.md"
     write_minimal_spec(spec_path)
+    seeded_decision_path = _seed_default_config_decision(project_dir, DEFAULT_PART)
 
     # Make broker pending paths deterministic if gen_std_parts ever needs them.
     previous_project_root = os.environ.get("CAD_PROJECT_ROOT")
     os.environ["CAD_PROJECT_ROOT"] = str(project_dir)
 
     summary = _base_summary(out_dir, project_dir, spec_path)
+    summary["seeded_decision_path"] = str(seeded_decision_path)
     try:
         try:
             generated, skipped, _resolver, pending_records = (
