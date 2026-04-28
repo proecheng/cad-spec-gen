@@ -335,6 +335,10 @@ class PartsResolver:
             try:
                 result = self._call_adapter_resolve(adapter, query, spec, mode)
             except Exception as e:
+                from adapters.solidworks.sw_config_broker import NeedsUserDecision
+
+                if isinstance(e, NeedsUserDecision):
+                    raise
                 self.log(f"  [resolver] adapter '{adapter_name}' raised "
                          f"on {query.part_no}: {e} — falling through")
                 trace.append(f"{adapter_name}(error)")

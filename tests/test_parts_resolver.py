@@ -252,6 +252,37 @@ class TestResolverDispatch:
         assert result.adapter == "jinja_primitive"
         assert any("boom" in m or "kaboom" in m for m in logs)
 
+    def test_needs_user_decision_propagates_to_codegen(self, sample_query):
+        """Broker user decisions are control flow, not adapter crashes."""
+        from adapters.solidworks.sw_config_broker import NeedsUserDecision
+
+        record = {"part_no": sample_query.part_no}
+
+        class AmbiguousAdapter(PartsAdapter):
+            name = "ambiguous"
+            def is_available(self): return True, None
+            def can_resolve(self, q): return True
+            def resolve(self, q, spec):
+                raise NeedsUserDecision(
+                    part_no=q.part_no,
+                    subsystem="default",
+                    pending_record=record,
+                )
+            def probe_dims(self, q, spec): return None
+
+        resolver = PartsResolver(
+            registry={
+                "mappings": [
+                    {"match": {"any": True}, "adapter": "ambiguous", "spec": {}},
+                ],
+            },
+            adapters=[AmbiguousAdapter(), FakeAdapter(name="jinja_primitive", tag="jinja")],
+        )
+
+        with pytest.raises(NeedsUserDecision) as exc_info:
+            resolver.resolve(sample_query)
+        assert exc_info.value.pending_record is record
+
     def test_summary_counts(self, sample_query):
         a = FakeAdapter(name="a", tag="A")
         b = FakeAdapter(name="b", tag="B")
