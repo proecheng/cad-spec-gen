@@ -11,7 +11,7 @@ _DATA_DIR = _REPO_ROOT / "src" / "cad_spec_gen" / "data"
 
 
 def test_agents_md_contains_all_5_skills():
-    """生成的 AGENTS.md 含 5 skill 的 trigger + 项目概述 + 自动生成头。"""
+    """生成的 AGENTS.md 含 5 skill 的 trigger + 项目概述 + Codex 安装提示。"""
     from scripts.dev_sync import _render_agents_md
 
     content = _render_agents_md(_DATA_DIR)
@@ -23,6 +23,7 @@ def test_agents_md_contains_all_5_skills():
     # 项目概述
     assert "cad-spec-gen 代理指南" in content
     assert "6 阶段" in content
+    assert "cad-skill-setup --agent codex" in content
 
     # 自动生成头部警示（防手改）
     assert "AUTO-GENERATED" in content
