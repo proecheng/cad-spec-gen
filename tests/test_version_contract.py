@@ -11,9 +11,15 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 
 def _pyproject_version() -> str:
-    import tomllib
+    pyproject = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        version = re.search(r'(?m)^version = "([^"]+)"$', pyproject)
+        assert version, "pyproject.toml 缺少 project version"
+        return version.group(1)
 
-    data = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads(pyproject)
     return data["project"]["version"]
 
 
