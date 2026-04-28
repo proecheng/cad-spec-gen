@@ -6,6 +6,26 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.0] - 2026-04-28
+
+### Added
+- 新增 `cad_pipeline.py sw-toolbox-e2e` 与 `tools/sw_toolbox_e2e.py`，用于真实 SolidWorks Toolbox SLDPRT → STEP → codegen 消费的端到端验收。
+- `sw-smoke.yml` 增加手动 `full=true` 门禁，可在 self-hosted Windows runner 上跑完整 SW Toolbox 模型库验收。
+- wheel/skill 安装路径包含 `tools/`，确保 Codex 注册后的技能也能调用新增 E2E 工具。
+
+### Fixed
+- `sw_config_broker` 支持轴承语境下的 4/5 位型号配置 token（如 `6205`），同时避免非轴承孤立数字误匹配。
+- `PartsResolver` 不再吞掉 `NeedsUserDecision`，用户配置决策会正确传回 `gen_std_parts` 并进入 pending 记录。
+- SolidWorks config worker 兼容 `ModelDoc2.GetConfigurationNames()` 与 late-bound `GetPathName` 属性/方法差异。
+- Toolbox E2E 夹具使用显式 `Default` 配置决策，并刷新 `cad_paths.PROJECT_ROOT`，避免测试项目根漂移。
+
+### Validation
+- 本地全量：`1546 passed, 16 skipped, 2 deselected`，SW broker/list worker 覆盖率门禁 `95.56%`。
+- PR CI：Ubuntu/Windows × Python 3.10/3.11/3.12、regression、mypy-strict 全部通过。
+- self-hosted Windows `sw-smoke full=true`：run `25064438363` 通过，覆盖真实 SW smoke 与 Toolbox E2E。
+
+---
+
 ## [v2.22.1] - 2026-04-28
 
 ### Fixed
