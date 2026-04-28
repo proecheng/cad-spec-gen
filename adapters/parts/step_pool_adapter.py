@@ -82,13 +82,22 @@ class StepPoolAdapter(PartsAdapter):
         # an explicit mapping rule to be used. can_resolve() is informational.
         return True
 
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         from parts_resolver import ResolveResult
 
         resolved_path = self._resolve_spec_path(spec, query)
         if not resolved_path:
             return ResolveResult.miss()
         if not os.path.isfile(resolved_path):
+            if mode in {"inspect", "probe"}:
+                return ResolveResult(
+                    status="miss",
+                    kind="miss",
+                    adapter=self.name,
+                    warnings=[
+                        f"STEP file not found in read-only mode: {resolved_path}",
+                    ],
+                )
             # File missing → if the spec nominates a skill-level synthesizer,
             # write the parametric stand-in into the shared cache and retry.
             synthesized = self._try_synthesize(spec)

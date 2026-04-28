@@ -30,12 +30,15 @@ Examples:
 
 import argparse
 import glob
+import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 # Force UTF-8 output on Windows to avoid GBK encoding issues
 if hasattr(sys.stdout, "reconfigure"):
@@ -960,6 +963,9 @@ def _save_supplements(supplements, review_json_path):
     """Save user supplements to user_supplements.json next to DESIGN_REVIEW.json."""
     if not supplements:
         return None
+    model_choices = _extract_model_choices(supplements)
+    if model_choices:
+        _save_model_choices(model_choices, review_json_path)
     out_path = review_json_path.replace("DESIGN_REVIEW.json", "user_supplements.json")
     existing = {}
     if os.path.isfile(out_path):
@@ -970,6 +976,210 @@ def _save_supplements(supplements, review_json_path):
         json.dump(existing, f, ensure_ascii=False, indent=2)
     log.info("补充内容已保存: %s", out_path)
     return out_path
+
+
+_MODEL_CHOICE_KEYS = {
+    "model_choices",
+    "geometry_choices",
+    "parts_library_choices",
+}
+
+
+def _extract_model_choices(supplements) -> list[dict]:
+    """Extract structured model choices from Agent/user supplements."""
+    if not isinstance(supplements, dict):
+        return []
+
+    choices: list[dict] = []
+    for key in _MODEL_CHOICE_KEYS:
+        value = supplements.get(key)
+        if isinstance(value, list):
+            choices.extend(v for v in value if isinstance(v, dict))
+        elif isinstance(value, dict):
+            if any(_looks_like_step_choice(v) for v in value.values() if isinstance(v, dict)):
+                for item_id, choice in value.items():
+                    if isinstance(choice, dict):
+                        enriched = dict(choice)
+                        enriched.setdefault("id", item_id)
+                        choices.append(enriched)
+            else:
+                choices.append(value)
+
+    for item_id, value in supplements.items():
+        if item_id in _MODEL_CHOICE_KEYS or not isinstance(value, dict):
+            continue
+        if _looks_like_step_choice(value):
+            enriched = dict(value)
+            enriched.setdefault("id", item_id)
+            choices.append(enriched)
+            continue
+        user_choice = value.get("user_choice")
+        if isinstance(user_choice, dict) and _looks_like_step_choice(user_choice):
+            enriched = dict(user_choice)
+            enriched.setdefault("id", item_id)
+            enriched.setdefault("part_no", value.get("part_no"))
+            enriched.setdefault("name_cn", value.get("name_cn"))
+            choices.append(enriched)
+
+    return choices
+
+
+def _looks_like_step_choice(value: dict) -> bool:
+    return any(
+        value.get(k)
+        for k in ("step_file", "source_path", "selected_path", "path")
+    )
+
+
+def _is_model_choice_supplement(item_id: str, value) -> bool:
+    if item_id in _MODEL_CHOICE_KEYS:
+        return True
+    if not isinstance(value, dict):
+        return False
+    if _looks_like_step_choice(value):
+        return True
+    user_choice = value.get("user_choice")
+    return isinstance(user_choice, dict) and _looks_like_step_choice(user_choice)
+
+
+def _save_model_choices(model_choices: list[dict], review_json_path: str) -> str:
+    """Persist model choices and apply valid STEP selections to parts_library.yaml."""
+    out_path = review_json_path.replace("DESIGN_REVIEW.json", "model_choices.json")
+    applied = []
+    for choice in model_choices:
+        applied.append(_apply_model_choice_to_parts_library(choice))
+
+    envelope = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "choices": model_choices,
+        "applied": applied,
+    }
+    tmp_path = out_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(envelope, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, out_path)
+    log.info("模型选择已保存: %s", out_path)
+    return out_path
+
+
+def _apply_model_choice_to_parts_library(choice: dict) -> dict:
+    """Copy a selected STEP file into std_parts and prepend a resolver mapping."""
+    part_no = (choice.get("part_no") or "").strip()
+    source = (
+        choice.get("step_file")
+        or choice.get("source_path")
+        or choice.get("selected_path")
+        or choice.get("path")
+    )
+    if not part_no:
+        return {"applied": False, "reason": "missing part_no", "choice": choice}
+    if not source:
+        return {"applied": False, "reason": "missing step file path", "part_no": part_no}
+
+    source_path = os.path.abspath(os.path.expanduser(str(source)))
+    if not os.path.isfile(source_path):
+        return {
+            "applied": False,
+            "reason": f"STEP file not found: {source_path}",
+            "part_no": part_no,
+        }
+    if os.path.splitext(source_path)[1].lower() not in {".step", ".stp"}:
+        return {
+            "applied": False,
+            "reason": f"not a STEP file: {source_path}",
+            "part_no": part_no,
+        }
+
+    target_rel = os.path.join(
+        "user_provided",
+        _safe_model_filename(part_no, choice.get("name_cn", ""), source_path),
+    ).replace("\\", "/")
+    target_abs = os.path.join(PROJECT_ROOT, "std_parts", target_rel)
+    os.makedirs(os.path.dirname(target_abs), exist_ok=True)
+    shutil.copy2(source_path, target_abs)
+
+    yaml_result = _prepend_step_pool_mapping(
+        part_no=part_no,
+        name_cn=choice.get("name_cn", ""),
+        source_path=source_path,
+        target_rel=target_rel,
+    )
+    return {
+        "applied": True,
+        "part_no": part_no,
+        "step_file": target_rel,
+        "target_path": target_abs,
+        "parts_library": yaml_result,
+    }
+
+
+def _safe_model_filename(part_no: str, name_cn: str, source_path: str) -> str:
+    stem = f"{part_no}_{name_cn or os.path.splitext(os.path.basename(source_path))[0]}"
+    stem = re.sub(r"[^\w.\-]+", "_", stem, flags=re.UNICODE).strip("_")
+    stem = stem[:96] or "user_model"
+    return stem + ".step"
+
+
+def _prepend_step_pool_mapping(
+    part_no: str,
+    name_cn: str,
+    source_path: str,
+    target_rel: str,
+) -> str:
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return "PyYAML not installed; parts_library.yaml not updated"
+
+    yaml_path = os.path.join(PROJECT_ROOT, "parts_library.yaml")
+    if os.path.isfile(yaml_path):
+        with open(yaml_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = {"extends": "default", "mappings": []}
+
+    if not isinstance(cfg, dict):
+        cfg = {"extends": "default", "mappings": []}
+    mappings = cfg.get("mappings")
+    if not isinstance(mappings, list):
+        mappings = []
+
+    mappings = [
+        m for m in mappings
+        if not (
+            isinstance(m, dict)
+            and (m.get("match", {}) or {}).get("part_no") == part_no
+            and (m.get("provenance", {}) or {}).get("provided_by_user")
+        )
+    ]
+    new_mapping = {
+        "match": {"part_no": part_no},
+        "adapter": "step_pool",
+        "spec": {"file": target_rel},
+        "provenance": {
+            "provided_by_user": True,
+            "provided_at": datetime.now(timezone.utc).isoformat(),
+            "source_path": source_path,
+            "source_hash": _sha256_file(source_path),
+            "name_cn": name_cn or "",
+        },
+    }
+    cfg["mappings"] = [new_mapping] + mappings
+
+    tmp_path = yaml_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+    os.replace(tmp_path, yaml_path)
+    return yaml_path
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return f"sha256:{h.hexdigest()}"
 
 
 def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
@@ -1076,6 +1286,7 @@ def cmd_spec(args):
 
     # ── Step 2b: Determine mode ──
     review_only = getattr(args, "review_only", False)
+    parsed_supplements = None
     if review_only:
         # Agent mode: just generate review, no spec generation
         log.info("--review-only: 审查报告已生成，等待 Agent 逐项审查。")
@@ -1091,11 +1302,11 @@ def cmd_spec(args):
     elif getattr(args, "supplements", None):
         # Agent passed supplements as JSON string → write to file then proceed
         try:
-            sup_data = json.loads(args.supplements)
+            parsed_supplements = json.loads(args.supplements)
         except json.JSONDecodeError as e:
             log.error("--supplements JSON 解析失败: %s", e)
             return 1
-        _save_supplements(sup_data, review_json)
+        _save_supplements(parsed_supplements, review_json)
         log.info("--supplements 已写入 user_supplements.json，生成 CAD_SPEC.md")
         choice = "proceed"
     else:
@@ -1116,8 +1327,8 @@ def cmd_spec(args):
         return 0
 
     # Parse --supplements even when combined with --auto-fill or --proceed
-    sup_data = None
-    if getattr(args, "supplements", None):
+    sup_data = parsed_supplements
+    if getattr(args, "supplements", None) and sup_data is None:
         try:
             sup_data = json.loads(args.supplements)
         except json.JSONDecodeError as e:
@@ -1136,7 +1347,9 @@ def cmd_spec(args):
     elif sup_data is not None:
         # --supplements path: carry non-AUTO entries to §10, AUTO entries trigger --auto-fill
         supplements = {
-            k: v for k, v in sup_data.items() if v not in ("__AUTO__", "__AUTO_FILL__")
+            k: v for k, v in sup_data.items()
+            if v not in ("__AUTO__", "__AUTO_FILL__")
+            and not _is_model_choice_supplement(k, v)
         }
         guided_auto_fill = any(
             v in ("__AUTO__", "__AUTO_FILL__") for v in sup_data.values()

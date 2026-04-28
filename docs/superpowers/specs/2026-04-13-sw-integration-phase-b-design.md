@@ -1,9 +1,14 @@
 # Phase SW-B — SolidWorks Toolbox COM Adapter 设计规格
 
+> 历史文档提示（2026-04-28）：当前执行依据已合并到 `docs/PARTS_LIBRARY.md`。
+> 本文保留为 SW-B 设计记录；若本文与 `docs/PARTS_LIBRARY.md` 冲突，以
+> `docs/PARTS_LIBRARY.md` 为准。当前命名：adapter key 为 `sw_toolbox`，
+> 配置段为 `solidworks_toolbox`，类名为 `SwToolboxAdapter`。
+
 > 版本: v4.0 — 2026-04-13（对抗性审查修订版）
 > 状态: 待实施
 > 前置: Phase SW-A 已完成（`sw_detect.py` / `sw_material_bridge.py` 已合入 main）
-> 参考: `docs/design/solidworks-integration-plan.md` §4.4、§5、§8、§11
+> 参考: `docs/PARTS_LIBRARY.md`
 >
 > **v4 修订重点**（基于红队/SRE/QA/成本效益 四角色对抗性审查，18 项发现）：
 > - 安全：ReDoS 防御 / 路径遍历防御 / 索引 fingerprint 完整性
@@ -446,7 +451,7 @@ def reset_session() -> None:
 
 ```python
 class SwToolboxAdapter(PartsAdapter):
-    name = "solidworks_toolbox"
+    name = "sw_toolbox"
 
     def __init__(self, project_root: str = "", config: Optional[dict] = None):
         """config 来自 parts_library.yaml 的 solidworks_toolbox 段。"""
@@ -558,7 +563,7 @@ mappings:
   - match:
       category: fastener
       keyword_contains: ["GB/T", "国标", "GB "]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bolts and studs", "nuts", "screws",
@@ -568,7 +573,7 @@ mappings:
   - match:
       category: bearing
       keyword_contains: ["GB/T", "国标", "深沟球", "圆柱滚子", "推力"]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bearing"]
@@ -579,7 +584,7 @@ mappings:
   # ★ SW Toolbox ISO/DIN 兜底
   - match:
       category: fastener
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bolts", "nuts", "screws", "washers"]
@@ -587,7 +592,7 @@ mappings:
 
   - match:
       category: bearing
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bearings"]
@@ -992,7 +997,7 @@ SW Toolbox 命中率（满足决策 #1.2 "迁移 ≥ 8 行"）：**11/15 = 73%**
 
 ## 14. 参考
 
-- 前置设计: `docs/design/solidworks-integration-plan.md` §4.4、§5、§8、§11
+- 当前执行依据: `docs/PARTS_LIBRARY.md`
 - Phase SW-A 交付: commits `460e0a1`（sw_detect）→ `99d067e`（联动缓存清除）
 - `PartsAdapter` 接口: `adapters/parts/base.py`
 - 参考实现: `adapters/parts/step_pool_adapter.py`

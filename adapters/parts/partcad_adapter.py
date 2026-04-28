@@ -108,7 +108,7 @@ class PartCADAdapter(PartsAdapter):
         ok, _ = self.is_available()
         return ok
 
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         from parts_resolver import ResolveResult
 
         ok, _ = self.is_available()

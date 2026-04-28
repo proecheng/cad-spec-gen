@@ -483,12 +483,31 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
 
 def _flatten_review_items(review_data):
     """Extract WARNING/CRITICAL/INFO items from review_data into a flat list for JSON sidecar."""
+    structured_keys = {
+        "group_action",
+        "parts",
+        "candidates",
+        "geometry_quality",
+        "current_quality",
+        "recommended_quality",
+        "geometry_source",
+        "path_kind",
+        "validated",
+        "hash",
+        "requires_model_review",
+        "suggested_user_action",
+        "user_choice",
+        "choice_schema",
+        "selection_policy",
+        "model_choice",
+        "batch_strategy",
+    }
     items = []
-    for category in ("mechanical", "assembly", "material"):
+    for category in ("mechanical", "assembly", "material", "geometry"):
         for it in review_data.get(category, []):
             verdict = it.get("verdict", "")
             if verdict in ("WARNING", "CRITICAL", "INFO"):
-                items.append({
+                item = {
                     "id": it.get("id", ""),
                     "category": category,
                     "check": it.get("item", "") or it.get("check", ""),
@@ -496,7 +515,11 @@ def _flatten_review_items(review_data):
                     "verdict": verdict,
                     "suggestion": it.get("suggestion", ""),
                     "auto_fill": it.get("auto_fill", "否"),
-                })
+                }
+                for key in structured_keys:
+                    if key in it:
+                        item[key] = it[key]
+                items.append(item)
     for it in review_data.get("completeness", []):
         severity = it.get("severity", "")
         if severity in ("WARNING", "CRITICAL", "INFO"):
@@ -840,9 +863,9 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     # ── P7: parts_library envelope probing (for 外购 parts) ───────────────
     #
     # Ask the parts_resolver to probe dimensions for every purchased BOM row.
-    # Library-derived dimensions (bd_warehouse / STEP pool / PartCAD) are more
-    # authoritative than either the keyword-based P6 guesses or the chain-
-    # span P5 approximations, so P7 OVERRIDES those tiers. It never overrides
+    # Library-derived dimensions (STEP pool / bd_warehouse / sw_toolbox /
+    # PartCAD) are more authoritative than keyword-based P6 guesses or P5
+    # chain-span approximations, so P7 OVERRIDES those tiers. It never overrides
     # P1..P4 (author-provided design-doc values).
     #
     # If no `parts_library.yaml` is present, the resolver reduces to
@@ -913,6 +936,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
                 _adapter_abbr = {
                     "step_pool": "STEP",
                     "bd_warehouse": "BW",
+                    "sw_toolbox": "sw_toolbox",
                     "partcad": "PC",
                 }.get(result.adapter, result.adapter)
 

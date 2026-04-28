@@ -143,7 +143,7 @@ class SwToolboxAdapter(PartsAdapter):
         """总是 True（具体匹配由 resolve 决定）。"""
         return True
 
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         """主编排流程（rev 2 接入 sw_config_broker）。
 
         步骤：
@@ -269,8 +269,22 @@ class SwToolboxAdapter(PartsAdapter):
         cache_stem = f"{Path(part.filename).stem}_{safe_config}"
         step_abs = cache_root / part.standard / part.subcategory / (cache_stem + ".step")
 
-        # 9. 缓存命中 → 直接返回；未命中 → 触发 COM 转换
+        # 9. 缓存命中 → 直接返回；未命中 → codegen/export 才触发 COM 转换
         if not step_abs.exists():
+            if mode in {"inspect", "probe"}:
+                return ResolveResult(
+                    status="miss",
+                    kind="miss",
+                    adapter=self.name,
+                    metadata={
+                        "config_match": resolution.source,
+                        "config_confidence": resolution.confidence,
+                    },
+                    warnings=[
+                        "SW Toolbox STEP cache miss in read-only mode; "
+                        "COM export skipped",
+                    ],
+                )
             session = get_session()
             if not session.is_healthy():
                 return self._miss("COM session unhealthy (circuit breaker tripped)")

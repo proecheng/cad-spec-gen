@@ -7,6 +7,7 @@ import pytest
 
 from parts_resolver import (
     AdapterHit,
+    PartQuery,
     PartsResolver,
     ResolveReport,
     ResolveReportRow,
@@ -152,6 +153,65 @@ class TestResolveReportTrace:
         r = report.rows[0]
         # jinja_primitive 的 fallback 路径应留下 trace
         assert any("jinja_primitive" in t for t in r.attempted_adapters)
+
+    def test_report_can_use_existing_decisions_without_resolving_again(self):
+        class CountingAdapter:
+            name = "counting"
+
+            def __init__(self):
+                self.resolve_calls = 0
+
+            def is_available(self):
+                return True, None
+
+            def can_resolve(self, query):
+                return True
+
+            def resolve(self, query, spec, mode="codegen"):
+                self.resolve_calls += 1
+                return ResolveResult(
+                    status="hit",
+                    kind="codegen",
+                    adapter=self.name,
+                    body_code="    return cq.Workplane('XY')",
+                    source_tag="counting:test",
+                )
+
+            def probe_dims(self, query, spec):
+                return None
+
+        adapter = CountingAdapter()
+        resolver = PartsResolver(
+            registry={
+                "mappings": [
+                    {"match": {"part_no": "P-001"}, "adapter": "counting", "spec": {}}
+                ]
+            },
+            adapters=[adapter],
+        )
+        query = PartQuery(
+            part_no="P-001",
+            name_cn="测试件",
+            material="",
+            category="other",
+            make_buy="外购",
+        )
+        resolver.resolve(query)
+        assert adapter.resolve_calls == 1
+
+        report = resolver.resolve_report(
+            [{
+                "part_no": "P-001",
+                "name_cn": "测试件",
+                "material": "",
+                "category": "other",
+                "make_buy": "外购",
+            }],
+            allow_inspect_fallback=False,
+        )
+
+        assert adapter.resolve_calls == 1
+        assert report.rows[0].matched_adapter == "counting"
 
 
 class TestResolveResultSkip:

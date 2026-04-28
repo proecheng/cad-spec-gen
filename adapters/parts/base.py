@@ -11,7 +11,8 @@ Design notes:
   the resolver itself does not call it before resolve() — resolve() may
   simply return ResolveResult.miss() if nothing matches.
 - `resolve()` is the work method. It receives both the PartQuery and the
-  adapter-specific `spec` dict from the matching YAML mapping rule.
+  adapter-specific `spec` dict from the matching YAML mapping rule. `mode`
+  separates read-only inspection from codegen/export work.
 - `probe_dims()` is a fast dimension-only query used by Phase 1 envelope
   backfill. Must not build full geometry.
 """
@@ -49,7 +50,7 @@ class PartsAdapter(ABC):
         """
 
     @abstractmethod
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         """Return a ResolveResult for this query.
 
         Parameters
@@ -58,6 +59,9 @@ class PartsAdapter(ABC):
             The BOM row being resolved.
         spec : dict
             The `spec:` field of the matching YAML rule. Adapter-specific.
+        mode : str
+            "inspect" / "probe" must be read-only; "codegen" / "export" may
+            create cache files or call external CAD tools.
 
         Returns
         -------

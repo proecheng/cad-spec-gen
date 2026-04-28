@@ -1,5 +1,9 @@
 # sw-inspect 子命令 — 设计文档
 
+> 历史文档提示（2026-04-28）：当前模型库、SolidWorks 接入与几何质量执行依据已合并到
+> `docs/PARTS_LIBRARY.md`。本文保留为 sw-inspect 设计记录；若路径、命名或文档入口与
+> `docs/PARTS_LIBRARY.md` 冲突，以 `docs/PARTS_LIBRARY.md` 为准。
+
 - **日期**：2026-04-16
 - **作者**：proecheng（Claude Code 协作）
 - **状态**：design（待实施）
@@ -547,7 +551,7 @@ def test_inspect_exit_code(probe_overrides, mode, expected_exit):
 | `README.md`（如有 CAD 管道 README） | 新增 `sw-inspect` 条目，与 `sw-warmup` 并列；一句话说明 + 示例 |
 | `docs/superpowers/decisions.md` | 追加决策 #38（sw-inspect 作为正式入口；退出码体系与 spike 脚本独立）|
 | `tools/cad_pipeline_agent_guide.md` | 新增 sw-inspect 用法段（agent 文档是 LLM 触发命令的主要说明源）|
-| `docs/design/solidworks-integration-plan.md` | 存在则补"诊断入口"段指向 sw-inspect；不存在不创建 |
+| `docs/PARTS_LIBRARY.md` | 作为当前权威方案，必要时补充 `sw-inspect` 诊断入口说明 |
 
 ---
 
@@ -591,7 +595,7 @@ def test_inspect_exit_code(probe_overrides, mode, expected_exit):
 5. `tests/test_sw_probe.py` / `tests/test_sw_inspect_cli.py` / `tests/test_sw_spike_diagnose.py` / `tests/test_sw_inspect_real.py`
 6. `tests/test_pyproject_contract.py` 追加
 7. `docs/superpowers/decisions.md` 追加决策 #38
-8. `tools/cad_pipeline_agent_guide.md` / README / solidworks-integration-plan.md 文档更新
+8. `tools/cad_pipeline_agent_guide.md` / README / `docs/PARTS_LIBRARY.md` 文档更新
 
 按 TDD RED → GREEN → REFACTOR 执行，每任务 2–5 分钟粒度，含验收标准。
 

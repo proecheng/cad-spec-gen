@@ -1,5 +1,10 @@
 # SolidWorks 可选集成设计规格
 
+> 历史文档提示（2026-04-28）：当前执行依据已合并到 `docs/PARTS_LIBRARY.md`。
+> 本文保留为 SW-A/SW-B 早期设计记录；若本文与 `docs/PARTS_LIBRARY.md`
+> 冲突，以 `docs/PARTS_LIBRARY.md` 为准。当前命名：adapter key 为
+> `sw_toolbox`，配置段为 `solidworks_toolbox`，类名为 `SwToolboxAdapter`。
+
 > 日期: 2026-04-12
 > 状态: 已审核（rev3 — 命名一致性 + 通用性 + 易用性）
 
@@ -461,7 +466,7 @@ result["enhancements"] = enhancements
 
 ```python
 class SwToolboxAdapter(PartsAdapter):
-    name = "solidworks_toolbox"
+    name = "sw_toolbox"
 ```
 
 **`is_available()`**：`sw_detect.version_year >= 2024` AND `pywin32_available` AND `toolbox_dir` 存在。

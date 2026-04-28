@@ -93,7 +93,7 @@ class BdWarehouseAdapter(PartsAdapter):
             return bool(self._catalog.get("fasteners"))
         return False
 
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         from parts_resolver import ResolveResult
 
         if not self._try_load_catalog():

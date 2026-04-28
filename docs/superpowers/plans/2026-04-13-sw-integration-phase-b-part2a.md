@@ -1,5 +1,10 @@
 # Phase SW-B Part 2a 实施计划 — Session Part 2 + Adapter 接入 + env-check UX
 
+> 历史文档提示（2026-04-28）：当前执行依据已合并到 `docs/PARTS_LIBRARY.md`。
+> 本计划保留为当时的执行记录；若本文与 `docs/PARTS_LIBRARY.md` 冲突，以
+> `docs/PARTS_LIBRARY.md` 为准。当前命名：adapter key 为 `sw_toolbox`，
+> 配置段为 `solidworks_toolbox`，类名为 `SwToolboxAdapter`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal：** 让 SW Toolbox 集成端到端跑通单零件路径——BOM 行进入 parts_resolver → 命中 SwToolboxAdapter → SwComSession 启动真实 SW + 激活 Toolbox Add-In → 转换 sldprt → STEP 落缓存。
@@ -963,7 +968,7 @@ solidworks_toolbox:
   - match:
       category: fastener
       keyword_contains: ["GB/T", "国标", "GB "]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bolts and studs", "nuts", "screws",
@@ -973,7 +978,7 @@ solidworks_toolbox:
   - match:
       category: bearing
       keyword_contains: ["GB/T", "国标", "深沟球", "圆柱滚子", "推力"]
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: GB
       subcategories: ["bearing"]
@@ -987,7 +992,7 @@ solidworks_toolbox:
   # ─── SolidWorks Toolbox — ISO/DIN 兜底（v4 §6） ──────────────────────
   - match:
       category: fastener
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bolts", "nuts", "screws", "washers"]
@@ -995,7 +1000,7 @@ solidworks_toolbox:
 
   - match:
       category: bearing
-    adapter: solidworks_toolbox
+    adapter: sw_toolbox
     spec:
       standard: [ISO, DIN]
       subcategories: ["bearings"]

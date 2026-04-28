@@ -299,7 +299,7 @@ class JinjaPrimitiveAdapter(PartsAdapter):
             return False
         return query.category in _GENERATORS
 
-    def resolve(self, query, spec: dict):
+    def resolve(self, query, spec: dict, mode: str = "codegen"):
         # Import ResolveResult lazily to avoid circular import during package
         # init (parts_resolver.py → default_resolver → adapters.parts → here)
         from parts_resolver import ResolveResult

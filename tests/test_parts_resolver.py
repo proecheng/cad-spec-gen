@@ -270,6 +270,36 @@ class TestResolverDispatch:
         assert summary.get("a") == 1
         assert summary.get("jinja_primitive") == 1
 
+    def test_resolve_forwards_mode_to_mode_aware_adapter(self, sample_query):
+        class ModeAwareAdapter(FakeAdapter):
+            def __init__(self):
+                super().__init__(name="mode_aware", tag="mode")
+                self.modes = []
+
+            def resolve(self, query, spec: dict, mode="codegen"):
+                self.modes.append(mode)
+                return super().resolve(query, spec)
+
+        adapter = ModeAwareAdapter()
+        resolver = PartsResolver(
+            registry={
+                "mappings": [
+                    {"match": {"any": True}, "adapter": "mode_aware", "spec": {}}
+                ]
+            },
+            adapters=[adapter],
+        )
+        resolver.resolve(sample_query, mode="inspect")
+        assert adapter.modes == ["inspect"]
+
+    def test_resolve_result_has_geometry_quality_defaults(self, sample_query):
+        jinja = FakeAdapter(name="jinja_primitive", tag="jinja")
+        resolver = PartsResolver(registry={}, adapters=[jinja])
+        result = resolver.resolve(sample_query)
+        assert result.geometry_source == "JINJA_PRIMITIVE"
+        assert result.geometry_quality == "D"
+        assert result.requires_model_review is True
+
 
 # ─── Probe dims tests ──────────────────────────────────────────────────
 

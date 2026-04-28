@@ -374,7 +374,42 @@ def generate_std_part_files(
         for line in report.splitlines():
             print(f"[gen_std_parts] {line}")
 
+    geometry_report_path = _write_geometry_report(resolver, output_dir)
+    if geometry_report_path is not None:
+        print(f"[gen_std_parts] 几何质量报告 → {geometry_report_path}")
+
     return generated, skipped, resolver, pending_records
+
+
+def _write_geometry_report(resolver, output_dir: str) -> Path | None:
+    """Write geometry_report.json from decisions already made by resolver."""
+    if not hasattr(resolver, "geometry_decisions"):
+        return None
+    decisions = resolver.geometry_decisions()
+    if not decisions:
+        return None
+
+    quality_counts: dict[str, int] = {}
+    for decision in decisions:
+        quality = decision.get("geometry_quality") or "unknown"
+        quality_counts[quality] = quality_counts.get(quality, 0) + 1
+
+    report = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total": len(decisions),
+        "quality_counts": quality_counts,
+        "decisions": decisions,
+    }
+    out_path = Path(output_dir) / ".cad-spec-gen" / "geometry_report.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, out_path)
+    return out_path
 
 
 def _write_pending_file(
@@ -455,7 +490,11 @@ def main():
         for _row in _bom_for_rr:
             if not _row.get("category"):
                 _row["category"] = classify_part(_row["name_cn"], _row.get("material", ""))
-        _rr = resolver.resolve_report(_bom_for_rr, run_id=run_id)
+        _rr = resolver.resolve_report(
+            _bom_for_rr,
+            run_id=run_id,
+            allow_inspect_fallback=False,
+        )
         _rr_path = Path(f"./artifacts/{run_id}/resolve_report.json")
         _rr_path.parent.mkdir(parents=True, exist_ok=True)
         _rr_path.write_text(

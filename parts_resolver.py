@@ -29,6 +29,8 @@ Key contracts (DO NOT BREAK):
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import inspect
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +44,8 @@ from sw_preflight.types import PartCategory
 __all__ = [
     "PartQuery",
     "ResolveResult",
+    "ResolveMode",
+    "GeometryDecision",
     "AdapterHit",
     "ResolveReportRow",
     "ResolveReport",
@@ -69,6 +73,55 @@ class PartQuery:
 
 
 ResolveKind = Literal["codegen", "step_import", "python_import", "miss"]
+ResolveMode = Literal["inspect", "probe", "export", "codegen"]
+
+
+@dataclass
+class GeometryDecision:
+    """Stable, side-effect-free record of how one BOM row was resolved."""
+
+    part_no: str
+    name_cn: str
+    status: str
+    kind: ResolveKind
+    adapter: str
+    source_tag: str = ""
+    geometry_source: str = ""
+    geometry_quality: str = ""
+    validated: bool = False
+    hash: Optional[str] = None
+    path_kind: str = ""
+    requires_model_review: bool = False
+    step_path: Optional[str] = None
+    real_dims: Optional[tuple] = None
+    attempted_adapters: list[str] = field(default_factory=list)
+    config_match: str = "n/a"
+    category: str = ""
+    warnings: list = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "part_no": self.part_no,
+            "name_cn": self.name_cn,
+            "status": self.status,
+            "kind": self.kind,
+            "adapter": self.adapter,
+            "source_tag": self.source_tag,
+            "geometry_source": self.geometry_source,
+            "geometry_quality": self.geometry_quality,
+            "validated": self.validated,
+            "hash": self.hash,
+            "path_kind": self.path_kind,
+            "requires_model_review": self.requires_model_review,
+            "step_path": self.step_path,
+            "real_dims": self.real_dims,
+            "attempted_adapters": self.attempted_adapters,
+            "config_match": self.config_match,
+            "category": self.category,
+            "warnings": self.warnings,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
@@ -93,6 +146,12 @@ class ResolveResult:
     import_args: str = ""                   # literal args for the call
     real_dims: Optional[tuple] = None       # (w, d, h) mm from the library
     source_tag: str = ""                    # human-readable origin
+    geometry_source: str = ""               # REAL_STEP / SW_TOOLBOX_STEP / ...
+    geometry_quality: str = ""              # A-E quality grade for reporting
+    validated: bool = False                 # True when source can be verified now
+    hash: Optional[str] = None              # sha256:<prefix> for validated files
+    path_kind: str = ""                     # project_relative / absolute / ...
+    requires_model_review: bool = False     # True for simplified or missing geometry
     warnings: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)  # adapter-specific extras
     # Task 7：9 类零件分类。默认 CUSTOM（兜底），resolve() 命中后由
@@ -116,6 +175,34 @@ class ResolveResult:
             adapter="",
             category=PartCategory.CUSTOM,
             source_tag=reason,
+        )
+
+    def to_geometry_decision(
+        self,
+        query: PartQuery,
+        attempted_adapters: Optional[list[str]] = None,
+    ) -> GeometryDecision:
+        """Convert this result into the durable geometry decision schema."""
+        return GeometryDecision(
+            part_no=query.part_no,
+            name_cn=query.name_cn,
+            status=self.status,
+            kind=self.kind,
+            adapter=self.adapter,
+            source_tag=self.source_tag,
+            geometry_source=self.geometry_source,
+            geometry_quality=self.geometry_quality,
+            validated=self.validated,
+            hash=self.hash,
+            path_kind=self.path_kind,
+            requires_model_review=self.requires_model_review,
+            step_path=self.step_path,
+            real_dims=self.real_dims,
+            attempted_adapters=list(attempted_adapters or []),
+            config_match=(self.metadata or {}).get("config_match", "n/a"),
+            category=getattr(self.category, "value", str(self.category)),
+            warnings=list(self.warnings or []),
+            metadata=dict(self.metadata or {}),
         )
 
 
@@ -198,7 +285,7 @@ class PartsResolver:
         self.adapters = list(adapters or [])
         self.log = logger or (lambda msg: None)
         self._probe_cache: dict = {}
-        self._decision_log: list = []  # (part_no, adapter, source_tag)
+        self._decision_log: list = []  # GeometryDecision; legacy tuple accepted in tests
 
     # ---- adapter registration --------------------------------------------
 
@@ -211,7 +298,12 @@ class PartsResolver:
 
     # ---- core resolve loop ------------------------------------------------
 
-    def resolve(self, query: PartQuery, _trace: list[str] | None = None) -> ResolveResult:
+    def resolve(
+        self,
+        query: PartQuery,
+        _trace: list[str] | None = None,
+        mode: ResolveMode = "codegen",
+    ) -> ResolveResult:
         """Match query against registry mappings, dispatch to the winning adapter.
 
         Algorithm:
@@ -222,6 +314,7 @@ class PartsResolver:
           5. If no rule matches, fall through to the last-resort adapter
              (JinjaPrimitiveAdapter, which always answers with codegen kind)
         """
+        trace = _trace if _trace is not None else []
         for rule in self.registry.get("mappings", []):
             if not _match_rule(rule.get("match", {}), query):
                 continue
@@ -230,59 +323,62 @@ class PartsResolver:
             if adapter is None:
                 self.log(f"  [resolver] rule matches {query.part_no} but "
                          f"adapter '{adapter_name}' not available")
-                if _trace is not None:
-                    _trace.append(f"{adapter_name}(not_registered)")
+                trace.append(f"{adapter_name}(not_registered)")
                 continue
             _ok, _reason = adapter.is_available()
             if not _ok:
                 self.log(f"  [resolver] adapter '{adapter_name}' unavailable"
                          + (f": {_reason}" if _reason else ""))
-                if _trace is not None:
-                    _trace.append(f"{adapter_name}(unavailable)")
+                trace.append(f"{adapter_name}(unavailable)")
                 continue
             spec = rule.get("spec", {})
             try:
-                result = adapter.resolve(query, spec)
+                result = self._call_adapter_resolve(adapter, query, spec, mode)
             except Exception as e:
                 self.log(f"  [resolver] adapter '{adapter_name}' raised "
                          f"on {query.part_no}: {e} — falling through")
-                if _trace is not None:
-                    _trace.append(f"{adapter_name}(error)")
+                trace.append(f"{adapter_name}(error)")
                 continue
             if result.status == "hit":
+                result.adapter = result.adapter or adapter_name
                 # Task 7：按 mapping + adapter 类型推断分类
                 result.category = _infer_category(rule, adapter)
-                self._decision_log.append(
-                    (query.part_no, adapter_name, result.source_tag))
-                if _trace is not None:
-                    _trace.append(f"{adapter_name}(hit)")
+                trace.append(f"{adapter_name}(hit)")
+                self._enrich_result_geometry(result, query)
+                self._record_decision(query, result, trace)
                 return result
             if result.status == "skip":
-                if _trace is not None:
-                    _trace.append(f"{adapter_name}(skip)")
+                result.adapter = result.adapter or adapter_name
+                trace.append(f"{adapter_name}(skip)")
+                self._enrich_result_geometry(result, query)
+                self._record_decision(query, result, trace)
                 return result
-            if _trace is not None:
-                _trace.append(f"{adapter_name}(miss)")
+            trace.append(f"{adapter_name}(miss)")
 
         # Terminal fallback: jinja_primitive (guaranteed available)
         fallback = self._find_adapter("jinja_primitive")
         if fallback is not None:
-            result = fallback.resolve(query, spec={})
+            result = self._call_adapter_resolve(fallback, query, {}, mode)
             if result.status == "hit":
                 result.status = "fallback"
+                result.adapter = result.adapter or "jinja_primitive"
                 # Task 7：兜底 fallback 统一 CUSTOM（规则视角无 match/spec 线索）
                 result.category = PartCategory.CUSTOM
-                self._decision_log.append(
-                    (query.part_no, "jinja_primitive", result.source_tag))
-                if _trace is not None:
-                    _trace.append("jinja_primitive(fallback)")
+                trace.append("jinja_primitive(fallback)")
+                self._enrich_result_geometry(result, query)
+                self._record_decision(query, result, trace)
                 return result
             if result.status == "skip":
-                if _trace is not None:
-                    _trace.append("jinja_primitive(skip)")
+                result.adapter = result.adapter or "jinja_primitive"
+                trace.append("jinja_primitive(skip)")
+                self._enrich_result_geometry(result, query)
+                self._record_decision(query, result, trace)
                 return result
 
-        return ResolveResult.miss()
+        result = ResolveResult.miss()
+        self._enrich_result_geometry(result, query)
+        self._record_decision(query, result, trace)
+        return result
 
     def prewarm(self, queries: list["PartQuery"]) -> None:
         """Pre-warm hook：派发 candidates 给所有 adapter（Task 14.6 / spec §3.1）。
@@ -345,12 +441,121 @@ class PartsResolver:
         self._probe_cache[cache_key] = None
         return None
 
+    def _call_adapter_resolve(
+        self,
+        adapter,
+        query: PartQuery,
+        spec: dict,
+        mode: ResolveMode,
+    ) -> ResolveResult:
+        """Call adapter.resolve with mode when the adapter supports it."""
+        try:
+            sig = inspect.signature(adapter.resolve)
+        except (TypeError, ValueError):
+            return adapter.resolve(query, spec)
+
+        params = sig.parameters
+        accepts_mode = "mode" in params or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in params.values()
+        )
+        if accepts_mode:
+            return adapter.resolve(query, spec, mode=mode)
+        return adapter.resolve(query, spec)
+
+    def _enrich_result_geometry(
+        self,
+        result: ResolveResult,
+        query: PartQuery,
+    ) -> ResolveResult:
+        """Fill geometry quality/source defaults without changing adapter APIs."""
+        if result.geometry_source and result.geometry_quality:
+            return result
+
+        adapter = result.adapter or ""
+        if result.status in {"miss", "skip"} or result.kind == "miss":
+            result.geometry_source = result.geometry_source or "MISSING"
+            result.geometry_quality = result.geometry_quality or "E"
+            result.requires_model_review = True
+            return result
+
+        if adapter == "sw_toolbox" and result.kind == "step_import":
+            result.geometry_source = result.geometry_source or "SW_TOOLBOX_STEP"
+            result.geometry_quality = result.geometry_quality or "A"
+        elif adapter == "step_pool" and result.kind == "step_import":
+            result.geometry_source = result.geometry_source or "REAL_STEP"
+            result.geometry_quality = result.geometry_quality or "A"
+        elif adapter == "bd_warehouse":
+            result.geometry_source = result.geometry_source or "BD_WAREHOUSE"
+            result.geometry_quality = result.geometry_quality or "B"
+            result.validated = True
+        elif adapter == "partcad":
+            result.geometry_source = result.geometry_source or "PARTCAD"
+            result.geometry_quality = result.geometry_quality or "B"
+            result.validated = True
+        elif adapter == "jinja_primitive":
+            result.geometry_source = result.geometry_source or "JINJA_PRIMITIVE"
+            result.geometry_quality = result.geometry_quality or "D"
+            result.requires_model_review = True
+        else:
+            result.geometry_source = result.geometry_source or adapter.upper()
+            result.geometry_quality = result.geometry_quality or "C"
+
+        if result.step_path:
+            step_abs = self._resolve_result_path(result.step_path, query)
+            result.path_kind = result.path_kind or self._path_kind(
+                result.step_path, step_abs
+            )
+            if step_abs and os.path.isfile(step_abs):
+                result.validated = True
+                result.hash = result.hash or _file_sha256(step_abs)
+            else:
+                result.validated = False
+                if result.geometry_quality == "A":
+                    result.geometry_quality = "C"
+                result.requires_model_review = True
+
+        return result
+
+    def _resolve_result_path(self, path: str, query: PartQuery) -> Optional[str]:
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        root = query.project_root or self.project_root
+        return os.path.normpath(os.path.join(root, path))
+
+    def _path_kind(self, original: str, absolute: Optional[str]) -> str:
+        if not original:
+            return ""
+        if not os.path.isabs(original):
+            return "project_relative"
+        if absolute:
+            try:
+                Path(absolute).relative_to(Path(self.project_root).resolve())
+                return "project_absolute"
+            except ValueError:
+                pass
+        return "absolute"
+
+    def _record_decision(
+        self,
+        query: PartQuery,
+        result: ResolveResult,
+        attempted_adapters: list[str],
+    ) -> None:
+        decision = result.to_geometry_decision(query, attempted_adapters)
+        if not decision.adapter:
+            decision.adapter = "(none)"
+        self._decision_log.append(decision)
+
     # ---- introspection ----------------------------------------------------
 
     def summary(self) -> dict:
         """Return a dict of adapter → count of decisions made this session."""
         counts: dict = {}
-        for _, adapter, _ in self._decision_log:
+        for decision in self._decision_log:
+            adapter = _decision_adapter(decision)
             counts[adapter] = counts.get(adapter, 0) + 1
         return counts
 
@@ -361,9 +566,43 @@ class PartsResolver:
         adapter handled. Iteration order matches resolve() order.
         """
         result: dict = {}
-        for part_no, adapter, source_tag in self._decision_log:
+        for decision in self._decision_log:
+            part_no = _decision_part_no(decision)
+            adapter = _decision_adapter(decision)
+            source_tag = _decision_source_tag(decision)
             result.setdefault(adapter, []).append((part_no, source_tag))
         return result
+
+    def geometry_decisions(self) -> list[dict]:
+        """Return durable geometry routing decisions as JSON-ready dicts."""
+        rows: list[dict] = []
+        for decision in self._decision_log:
+            if isinstance(decision, GeometryDecision):
+                rows.append(decision.to_dict())
+                continue
+            part_no, adapter, source_tag = decision
+            rows.append({
+                "part_no": part_no,
+                "name_cn": "",
+                "status": "hit" if adapter != "(none)" else "miss",
+                "kind": "codegen",
+                "adapter": adapter,
+                "source_tag": source_tag,
+                "geometry_source": "",
+                "geometry_quality": "",
+                "validated": False,
+                "hash": None,
+                "path_kind": "",
+                "requires_model_review": adapter == "jinja_primitive",
+                "step_path": None,
+                "real_dims": None,
+                "attempted_adapters": [],
+                "config_match": "n/a",
+                "category": "",
+                "warnings": [],
+                "metadata": {},
+            })
+        return rows
 
     def coverage_report(self, max_examples_per_adapter: int = 5) -> str:
         """Render a multi-line coverage report for end-of-build display.
@@ -449,8 +688,16 @@ class PartsResolver:
         self,
         bom_rows: list[dict],
         run_id: str = "",
+        allow_inspect_fallback: bool = True,
     ) -> "ResolveReport":
-        """动态跑完真实 resolve 后输出 per-row 命中轨迹。"""
+        """Output per-row routing from recorded decisions.
+
+        Report generation should not trigger codegen/export side effects. When
+        called before any resolve() decisions exist, `allow_inspect_fallback`
+        preserves the standalone API by resolving in read-only inspect mode.
+        Codegen callers pass False so reports mirror the decisions already made
+        during generation.
+        """
         adapter_availability: dict[str, tuple[bool, str | None]] = {
             a.name: a.is_available() for a in self.adapters
         }
@@ -463,51 +710,44 @@ class PartsResolver:
                 unavailable_reason=None if ok else reason,
             )
 
+        decisions_by_part: dict[str, list] = {}
+        for decision in self._decision_log:
+            decisions_by_part.setdefault(_decision_part_no(decision), []).append(decision)
+
         for row in bom_rows:
             part_no = row.get("part_no", "")
             name_cn = row.get("name_cn", "")
-
-            query = PartQuery(
-                part_no=part_no,
-                name_cn=name_cn,
-                material=row.get("material", ""),
-                category=row.get("category", ""),
-                make_buy=row.get("make_buy", ""),
-            )
-
-            row_trace: list[str] = []
-            result = self.resolve(query, _trace=row_trace)
-
-            if result.status == "miss":
-                matched = "(none)"
-            elif result.status == "skip":
-                matched = "(skip)"
-            elif result.status == "fallback":
-                matched = "jinja_primitive"
+            decision = None
+            if decisions_by_part.get(part_no):
+                decision = decisions_by_part[part_no].pop(0)
+            elif allow_inspect_fallback:
+                query = PartQuery(
+                    part_no=part_no,
+                    name_cn=name_cn,
+                    material=row.get("material", ""),
+                    category=row.get("category", ""),
+                    make_buy=row.get("make_buy", ""),
+                    project_root=self.project_root,
+                )
+                before_len = len(self._decision_log)
+                result = self.resolve(query, mode="inspect")
+                if len(self._decision_log) > before_len:
+                    decision = self._decision_log[-1]
+                else:
+                    decision = result.to_geometry_decision(query, [])
             else:
-                matched = result.adapter
+                decision = _synthetic_report_decision(row)
+
+            report_row = _report_row_from_decision(decision, part_no, name_cn)
+            matched = report_row.matched_adapter
             if matched in report.adapter_hits:
                 report.adapter_hits[matched].count += 1
             else:
-                report.adapter_hits[matched] = AdapterHit(count=1, unavailable_reason=None)
-
-            if result.status == "hit":
-                status = "hit"
-            elif result.status == "fallback":
-                status = "fallback"
-            elif result.status == "skip":
-                status = "skip"
-            else:
-                status = "miss"
-
-            report.rows.append(ResolveReportRow(
-                bom_id=part_no,
-                name_cn=name_cn,
-                matched_adapter=matched,
-                attempted_adapters=row_trace,
-                status=status,
-                config_match=(result.metadata or {}).get("config_match", "n/a"),
-            ))
+                report.adapter_hits[matched] = AdapterHit(
+                    count=1,
+                    unavailable_reason=None,
+                )
+            report.rows.append(report_row)
 
         return report
 
@@ -587,6 +827,97 @@ def _match_rule(match: dict, query: PartQuery) -> bool:
             return False
 
     return True
+
+
+def _file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return f"sha256:{h.hexdigest()}"
+
+
+def _decision_part_no(decision) -> str:
+    if isinstance(decision, GeometryDecision):
+        return decision.part_no
+    return decision[0]
+
+
+def _decision_adapter(decision) -> str:
+    if isinstance(decision, GeometryDecision):
+        return decision.adapter or "(none)"
+    return decision[1] or "(none)"
+
+
+def _decision_source_tag(decision) -> str:
+    if isinstance(decision, GeometryDecision):
+        return decision.source_tag
+    return decision[2]
+
+
+def _report_row_from_decision(
+    decision,
+    part_no: str,
+    name_cn: str,
+) -> ResolveReportRow:
+    if isinstance(decision, GeometryDecision):
+        status = decision.status
+        if status == "miss":
+            matched = "(none)"
+        elif status == "skip":
+            matched = "(skip)"
+        elif status == "fallback":
+            matched = "jinja_primitive"
+        else:
+            matched = decision.adapter or "(none)"
+        return ResolveReportRow(
+            bom_id=part_no or decision.part_no,
+            name_cn=name_cn or decision.name_cn,
+            matched_adapter=matched,
+            attempted_adapters=list(decision.attempted_adapters or []),
+            status=status if status in {"hit", "fallback", "miss", "skip"} else "miss",
+            config_match=decision.config_match or "n/a",
+        )
+
+    legacy_part_no, adapter, _source_tag = decision
+    matched = adapter or "(none)"
+    status = "fallback" if matched == "jinja_primitive" else "hit"
+    return ResolveReportRow(
+        bom_id=part_no or legacy_part_no,
+        name_cn=name_cn,
+        matched_adapter=matched,
+        attempted_adapters=[],
+        status=status,
+        config_match="n/a",
+    )
+
+
+def _synthetic_report_decision(row: dict) -> GeometryDecision:
+    category = row.get("category", "")
+    if category in {"fastener", "cable"}:
+        return GeometryDecision(
+            part_no=row.get("part_no", ""),
+            name_cn=row.get("name_cn", ""),
+            status="skip",
+            kind="miss",
+            adapter="(skip)",
+            source_tag=f"{category} category: no geometry generated",
+            geometry_source="MISSING",
+            geometry_quality="E",
+            requires_model_review=True,
+            category=category,
+        )
+    return GeometryDecision(
+        part_no=row.get("part_no", ""),
+        name_cn=row.get("name_cn", ""),
+        status="miss",
+        kind="miss",
+        adapter="(none)",
+        geometry_source="MISSING",
+        geometry_quality="E",
+        requires_model_review=True,
+        category=category,
+    )
 
 
 # ─── Category inference (Task 7) ──────────────────────────────────────────
