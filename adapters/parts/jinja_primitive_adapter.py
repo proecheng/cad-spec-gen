@@ -794,7 +794,10 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
-    if category == "motor" and _contains_any(text, ["微型电机", "DC 3V", "Φ16"]):
+    if category == "motor" and (
+        _contains_any(text, ["微型电机"])
+        or (_contains_any(text, ["DC 3V"]) and _contains_any(text, ["Φ16", "16mm"]))
+    ):
         tpl_dims = dict(dims)
         tpl_dims.setdefault("d", 16)
         tpl_dims.setdefault("l", 30)
@@ -819,7 +822,10 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
-    if category == "spring" and _contains_any(text, ["恒力弹簧", "供带侧张力", "SUS301"]):
+    if category == "spring" and (
+        _contains_any(text, ["恒力弹簧"])
+        or (_contains_any(text, ["供带"]) and _contains_any(text, ["张力"]))
+    ):
         tpl_dims = dict(dims)
         tpl_dims.setdefault("od", tpl_dims.get("d", 10))
         tpl_dims.setdefault("id", tpl_dims["od"] * 0.5)
@@ -831,7 +837,10 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
-    if category == "sensor" and _contains_any(text, ["光电编码器", "反射式"]):
+    if category == "sensor" and (
+        _contains_any(text, ["光电编码器"])
+        or (_contains_any(text, ["反射式"]) and _contains_any(text, ["编码器"]))
+    ):
         tpl_dims = {
             "w": dims.get("w", dims.get("d", 15)),
             "d": dims.get("d", dims.get("w", 15)),

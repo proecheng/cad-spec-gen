@@ -449,3 +449,43 @@ def test_disc_spring_does_not_use_motion_specific_templates(
         "constant_force_spring",
     }
     assert result.source_tag == "jinja_primitive:spring"
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "forbidden_template", "source_tag"),
+    [
+        (
+            "motor",
+            "普通Φ16空心杯电机",
+            "Φ16mm",
+            "mini_dc_motor",
+            "jinja_primitive:motor",
+        ),
+        (
+            "spring",
+            "SUS301压缩弹簧",
+            "SUS301",
+            "constant_force_spring",
+            "jinja_primitive:spring",
+        ),
+        (
+            "sensor",
+            "反射式接近传感器",
+            "反射式",
+            "photoelectric_encoder",
+            "jinja_primitive:sensor",
+        ),
+    ],
+)
+def test_p3_motion_templates_require_specific_part_intent(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    forbidden_template: str,
+    source_tag: str,
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.metadata.get("template") != forbidden_template
+    assert result.source_tag == source_tag
