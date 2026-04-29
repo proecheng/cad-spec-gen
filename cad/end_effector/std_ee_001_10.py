@@ -15,8 +15,20 @@ import cadquery as cq
 
 def make_std_ee_001_10() -> cq.Workplane:
     """GIS-EE-001-10: ZIF连接器 — simplified connector geometry."""
-    # Simplified flat connector
-    body = cq.Workplane("XY").box(12, 8, 3, centered=(True, True, False))
+    # Semi-parametric ZIF connector: base, flip-lock actuator, contact row
+    base = cq.Workplane("XY").box(12, 8, 3, centered=(True, True, False))
+    actuator = (cq.Workplane("XY")
+                .center(0, 1.92)
+                .box(11.040000000000001, 1.76, 0.66, centered=(True, True, False))
+                .translate((0, 0, 3)))
+    body = base.union(actuator)
+    for i in range(20):
+        x = (i - (20 - 1) / 2.0) * 0.5714285714285714
+        pad = (cq.Workplane("XY")
+               .center(x, -2.88)
+               .box(0.2571428571428571, 1.44, 0.24, centered=(True, True, False))
+               .translate((0, 0, 3.03)))
+        body = body.union(pad)
     return body
 
 

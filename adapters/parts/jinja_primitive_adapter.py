@@ -21,6 +21,7 @@ regression test in A9.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -133,6 +134,297 @@ def _gen_connector(dims: dict) -> str:
     return f"""    # Simplified round connector
     body = cq.Workplane("XY").circle({d/2}).extrude({l})
     return body"""
+
+
+def _query_text(query) -> str:
+    return f"{getattr(query, 'name_cn', '')} {getattr(query, 'material', '')}"
+
+
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    lower = text.lower()
+    return any(k.lower() in lower for k in keywords)
+
+
+def _parse_pin_count(text: str, default: int = 4) -> int:
+    m = re.search(r"(\d+)\s*(?:芯|pin|pins|pos)", text, re.IGNORECASE)
+    if not m:
+        return default
+    return max(1, min(int(float(m.group(1))), 80))
+
+
+def _parse_trailing_length_mm(text: str, default: float) -> float:
+    m = re.search(r"[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if not m:
+        return default
+    return float(m.group(1))
+
+
+def _parse_size_pair_mm(text: str, default: tuple[float, float]) -> tuple[float, float]:
+    matches = re.findall(r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    if not matches:
+        return default
+    w, l = matches[-1]
+    return float(w), float(l)
+
+
+def _parse_array_grid(text: str, default: tuple[int, int] = (4, 4)) -> tuple[int, int]:
+    m = re.search(r"(\d+)\s*[×xX]\s*(\d+)\s*薄膜", text)
+    if not m:
+        return default
+    rows = max(1, min(int(m.group(1)), 12))
+    cols = max(1, min(int(m.group(2)), 12))
+    return rows, cols
+
+
+def _gen_zif_connector(dims: dict, pins: int) -> str:
+    w = dims.get("w", 12)
+    l = dims.get("l", 8)
+    h = dims.get("h", 3)
+    pitch = w / (pins + 1)
+    pad_w = max(pitch * 0.45, 0.18)
+    pad_l = max(l * 0.18, 0.8)
+    actuator_l = max(l * 0.22, 1.0)
+    actuator_h = max(h * 0.22, 0.4)
+    return f"""    # Semi-parametric ZIF connector: base, flip-lock actuator, contact row
+    base = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    actuator = (cq.Workplane("XY")
+                .center(0, {l * 0.24})
+                .box({w * 0.92}, {actuator_l}, {actuator_h}, centered=(True, True, False))
+                .translate((0, 0, {h})))
+    body = base.union(actuator)
+    for i in range({pins}):
+        x = (i - ({pins} - 1) / 2.0) * {pitch}
+        pad = (cq.Workplane("XY")
+               .center(x, {-l * 0.36})
+               .box({pad_w}, {pad_l}, {max(h * 0.08, 0.12)}, centered=(True, True, False))
+               .translate((0, 0, {h + 0.03})))
+        body = body.union(pad)
+    return body"""
+
+
+def _gen_ffc_ribbon(dims: dict, pins: int, actual_length: float) -> tuple[str, dict]:
+    w = dims.get("w", max(8.0, pins * 0.5))
+    h = dims.get("h", 1.0)
+    visual_l = min(max(actual_length, dims.get("l", 30)), 50)
+    end_l = max(4.0, min(8.0, visual_l * 0.08))
+    pitch = w / (pins + 1)
+    pad_w = max(pitch * 0.45, 0.18)
+    code = f"""    # Semi-parametric FFC ribbon: thin cable, end stiffeners, exposed contacts
+    ribbon = cq.Workplane("XY").box({w}, {visual_l}, {h}, centered=(True, True, False))
+    body = ribbon
+    for y in ({-visual_l / 2 + end_l / 2}, {visual_l / 2 - end_l / 2}):
+        stiffener = (cq.Workplane("XY")
+                     .center(0, y)
+                     .box({w + 1.6}, {end_l}, {h + 0.6}, centered=(True, True, False)))
+        body = body.union(stiffener)
+        for i in range({pins}):
+            x = (i - ({pins} - 1) / 2.0) * {pitch}
+            pad = (cq.Workplane("XY")
+                   .center(x, y)
+                   .box({pad_w}, {max(end_l * 0.72, 2.0)}, {max(h * 0.22, 0.15)}, centered=(True, True, False))
+                   .translate((0, 0, {h + 0.62})))
+            body = body.union(pad)
+    return body"""
+    return code, {"w": w, "l": visual_l, "h": h}
+
+
+def _gen_pcb_board(dims: dict) -> str:
+    w = dims.get("w", 45)
+    l = dims.get("l", 35)
+    h = dims.get("h", 1.6)
+    return f"""    # Semi-parametric PCB assembly: board, corner holes, ICs, connector pads
+    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    for x in ({-w * 0.42}, {w * 0.42}):
+        for y in ({-l * 0.38}, {l * 0.38}):
+            body = body.faces(">Z").workplane().center(x, y).hole({min(w, l) * 0.08})
+    main_ic = (cq.Workplane("XY")
+               .center({-w * 0.16}, 0)
+               .box({w * 0.26}, {l * 0.22}, {max(h * 0.65, 0.8)}, centered=(True, True, False))
+               .translate((0, 0, {h})))
+    aux_ic = (cq.Workplane("XY")
+              .center({w * 0.22}, {l * 0.12})
+              .box({w * 0.18}, {l * 0.16}, {max(h * 0.45, 0.6)}, centered=(True, True, False))
+              .translate((0, 0, {h})))
+    body = body.union(main_ic).union(aux_ic)
+    for i in range(8):
+        x = (i - 3.5) * {w * 0.07}
+        pad = (cq.Workplane("XY")
+               .center(x, {-l * 0.42})
+               .box({w * 0.035}, {l * 0.08}, {max(h * 0.12, 0.15)}, centered=(True, True, False))
+               .translate((0, 0, {h + 0.02})))
+        body = body.union(pad)
+    return body"""
+
+
+def _gen_sma_bulkhead(dims: dict) -> str:
+    d = dims.get("d", 6.5)
+    l = dims.get("l", 15)
+    nut_d = max(d * 1.65, 8.0)
+    return f"""    # Semi-parametric SMA bulkhead connector: coax barrel, hex nut, center pin
+    barrel = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    hex_nut = cq.Workplane("XY").polygon(6, {nut_d}).extrude({max(d * 0.38, 2.0)}).translate((0, 0, {l * 0.42}))
+    rear_thread = cq.Workplane("XY").circle({d * 0.38}).extrude({l * 0.28}).translate((0, 0, {l}))
+    center_pin = cq.Workplane("XY").circle({max(d * 0.08, 0.35)}).extrude({l * 0.18}).translate((0, 0, {-l * 0.18}))
+    body = barrel.union(hex_nut).union(rear_thread).union(center_pin)
+    return body"""
+
+
+def _gen_m12_connector(dims: dict, pins: int) -> str:
+    d = dims.get("d", 12)
+    l = dims.get("l", 18)
+    flange_d = max(d * 1.35, 16)
+    pin_circle = d * 0.28
+    return f"""    # Semi-parametric M12 connector: threaded shell, flange, coded pin face
+    shell = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    flange = cq.Workplane("XY").polygon(6, {flange_d}).extrude({max(d * 0.22, 2.6)}).translate((0, 0, {l * 0.34}))
+    cable_gland = cq.Workplane("XY").circle({d * 0.38}).extrude({l * 0.38}).translate((0, 0, {l}))
+    body = shell.union(flange).union(cable_gland)
+    for i in range({pins}):
+        angle = 6.283185307179586 * i / {pins}
+        x = {pin_circle} * __import__("math").cos(angle)
+        y = {pin_circle} * __import__("math").sin(angle)
+        pin = (cq.Workplane("XY")
+               .center(x, y)
+               .circle({max(d * 0.035, 0.35)})
+               .extrude({max(d * 0.08, 0.8)})
+               .translate((0, 0, {l + l * 0.38})))
+        body = body.union(pin)
+    key = (cq.Workplane("XY")
+           .center(0, {-d * 0.28})
+           .box({d * 0.16}, {d * 0.36}, {max(d * 0.08, 0.8)}, centered=(True, True, False))
+           .translate((0, 0, {l + l * 0.38})))
+    body = body.union(key)
+    return body"""
+
+
+def _gen_uhf_sensor(dims: dict) -> str:
+    d = dims.get("d", 45)
+    l = dims.get("l", 60)
+    return f"""    # Semi-parametric UHF sensor: cylindrical body, antenna face, cable exit
+    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    face = cq.Workplane("XY").circle({d * 0.43}).extrude({max(d * 0.04, 1.2)}).translate((0, 0, {l}))
+    antenna = (cq.Workplane("XY")
+               .box({d * 0.58}, {d * 0.16}, {max(d * 0.04, 1.0)}, centered=(True, True, False))
+               .translate((0, 0, {l + max(d * 0.04, 1.2)})))
+    cable = (cq.Workplane("YZ")
+             .circle({max(d * 0.045, 1.2)})
+             .extrude({d * 0.42})
+             .translate(({d / 2}, 0, {l * 0.58})))
+    body = body.union(face).union(antenna).union(cable)
+    return body"""
+
+
+def _gen_pressure_array(dims: dict, rows: int, cols: int) -> str:
+    w = dims.get("w", 20)
+    l = dims.get("l", 20)
+    h = dims.get("h", 0.6)
+    pad = min(w / (cols * 1.8), l / (rows * 1.8))
+    pitch_x = w / (cols + 1)
+    pitch_y = l / (rows + 1)
+    return f"""    # Semi-parametric pressure array: thin film carrier, {rows}x{cols} sensing pads, flex tail
+    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    for r in range({rows}):
+        for c in range({cols}):
+            x = (c - ({cols} - 1) / 2.0) * {pitch_x}
+            y = (r - ({rows} - 1) / 2.0) * {pitch_y}
+            pad = (cq.Workplane("XY")
+                   .center(x, y)
+                   .box({pad}, {pad}, {max(h * 0.35, 0.18)}, centered=(True, True, False))
+                   .translate((0, 0, {h + 0.02})))
+            body = body.union(pad)
+    tail = (cq.Workplane("XY")
+            .center(0, {-l * 0.72})
+            .box({w * 0.32}, {l * 0.42}, {h}, centered=(True, True, False)))
+    body = body.union(tail)
+    return body"""
+
+
+def _specialized_template(query, dims: dict) -> Optional[dict]:
+    """Return a semi-parametric model for high-value electrical fallback rows."""
+    text = _query_text(query)
+    category = getattr(query, "category", "")
+
+    if category == "connector" and _contains_any(text, ["ZIF", "5052"]):
+        pins = _parse_pin_count(text, default=20)
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("w", 12)
+        tpl_dims.setdefault("l", 8)
+        tpl_dims.setdefault("h", 3)
+        return {
+            "template": "zif_connector",
+            "body_code": _gen_zif_connector(tpl_dims, pins),
+            "dims": tpl_dims,
+            "metadata": {"pins": pins},
+        }
+
+    if category == "connector" and _contains_any(text, ["FFC", "15168", "柔性扁平"]):
+        pins = _parse_pin_count(text, default=20)
+        actual_length = _parse_trailing_length_mm(text, default=dims.get("l", 30))
+        body_code, tpl_dims = _gen_ffc_ribbon(dims, pins, actual_length)
+        return {
+            "template": "ffc_ribbon",
+            "body_code": body_code,
+            "dims": tpl_dims,
+            "metadata": {"pins": pins, "actual_length_mm": actual_length},
+        }
+
+    if category == "other" and _contains_any(text, ["PCB", "电路板", "信号调理"]):
+        tpl_dims = {"w": 45, "l": 35, "h": 1.6}
+        return {
+            "template": "pcb_board",
+            "body_code": _gen_pcb_board(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "connector" and _contains_any(text, ["SMA", "50Ω", "50 ohm"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 6.5)
+        tpl_dims.setdefault("l", 15)
+        return {
+            "template": "sma_bulkhead",
+            "body_code": _gen_sma_bulkhead(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if (
+        category == "other"
+        and _contains_any(text, ["M12"])
+        and _contains_any(text, ["防水", "接口", "connector"])
+    ):
+        pins = _parse_pin_count(text, default=4)
+        tpl_dims = {"d": 12, "l": 18}
+        return {
+            "template": "m12_connector",
+            "body_code": _gen_m12_connector(tpl_dims, pins),
+            "dims": tpl_dims,
+            "metadata": {"pins": pins},
+        }
+
+    if category == "sensor" and _contains_any(text, ["I300-UHF", "UHF-GT", "UHF"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 45)
+        tpl_dims.setdefault("l", 60)
+        return {
+            "template": "uhf_sensor",
+            "body_code": _gen_uhf_sensor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "other" and _contains_any(text, ["压力阵列", "薄膜"]):
+        rows, cols = _parse_array_grid(text)
+        w, l = _parse_size_pair_mm(text, default=(20, 20))
+        tpl_dims = {"w": w, "l": l, "h": 0.6}
+        return {
+            "template": "pressure_array",
+            "body_code": _gen_pressure_array(tpl_dims, rows, cols),
+            "dims": tpl_dims,
+            "metadata": {"rows": rows, "cols": cols},
+        }
+
+    return None
 
 
 def _gen_seal(dims: dict) -> str:
@@ -317,6 +609,27 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         if dims is None:
             return ResolveResult.miss()
 
+        template = _specialized_template(query, dims)
+        if template is not None:
+            tpl_dims = template["dims"]
+            metadata = {
+                "dims": tpl_dims,
+                "template": template["template"],
+            }
+            metadata.update(template.get("metadata", {}))
+            return ResolveResult(
+                status="hit",
+                kind="codegen",
+                adapter=self.name,
+                body_code=template["body_code"],
+                real_dims=self._dims_to_envelope(tpl_dims),
+                source_tag=f"jinja_template:{template['template']}",
+                geometry_source="JINJA_TEMPLATE",
+                geometry_quality="C",
+                requires_model_review=True,
+                metadata=metadata,
+            )
+
         body_code = gen_func(dims)
         return ResolveResult(
             status="hit",
@@ -340,6 +653,9 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         dims = _resolve_dims_from_spec_envelope_or_lookup(query)
         if dims is None:
             return None
+        template = _specialized_template(query, dims)
+        if template is not None:
+            return self._dims_to_envelope(template["dims"])
         return self._dims_to_envelope(dims)
 
     @staticmethod
@@ -351,8 +667,8 @@ class JinjaPrimitiveAdapter(PartsAdapter):
             h = dims.get("h", dims.get("l", dims.get("w", dims.get("t", 5))))
             return (dims["od"], dims["od"], h)
         if "w" in dims and "h" in dims and "l" in dims:
-            return (dims["w"], dims["d"] if "d" in dims else dims["w"],
-                    dims["h"] if "h" in dims else dims.get("l", 20))
+            return (dims["w"], dims["d"] if "d" in dims else dims["l"],
+                    dims["h"])
         if "w" in dims and "l" in dims:
             return (dims["w"],
                     dims.get("d", dims["w"]),
