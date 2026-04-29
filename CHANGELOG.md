@@ -6,6 +6,24 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.3] - 2026-04-29
+
+### Changed
+- 端执行器样例剩余 5 个 D 级 `JINJA_PRIMITIVE` 小件升级为 C 级半参数 `JINJA_TEMPLATE`：碟形弹簧垫圈、黏弹性阻尼垫、钨合金配重块、弹性衬垫。
+- `GIS-EE-003-05` 阻尼垫继续保留 20mm AE 串联链轴向包络，避免模型质量升级引入装配连续性漂移。
+- `end_effector` 几何质量报告从 `A=9, C=18, D=5` 提升到 `A=9, C=23, D=0`。
+
+### Fixed
+- Track-C 回归测试固定优先加载仓库 `src/` 包，避免本机已安装旧版本包污染测试结果。
+
+### Validation
+- 本地全量：`1619 passed, 16 skipped`。
+- 本地：`172 passed, 2 skipped`（Jinja 模板、parts adapters/resolver、parts library integration、assembly coherence）。
+- 本地：`cad_pipeline.py build --subsystem end_effector` 通过，`ASSEMBLY_REPORT.json` 为 `0 WARNING`，F5 `33/33`。
+- PR CI：PR #31 与 PR #32 的 Ubuntu/Windows × Python 3.10/3.11/3.12、regression、mypy-strict 全部通过。
+
+---
+
 ## [v2.23.2] - 2026-04-29
 
 ### Fixed
