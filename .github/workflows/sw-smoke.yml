@@ -57,50 +57,118 @@ jobs:
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
       - uses: actions/checkout@v6
+        id: checkout
+        continue-on-error: true
         with:
           clean: true  # 显式（D4 long-lived runner 的清场保证）
 
-      - name: 零硬编码静态校验 (AC-2.5.1)
-        shell: bash
+      - name: Fallback API checkout (git fetch outage)
+        if: steps.checkout.outcome == 'failure'
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONUTF8: "1"
         run: |
-          if git grep -nE 'Program Files|D:\\\\|"20(2[0-9]|3[0-9])"' -- sw_preflight/ ; then
-            echo "::error::sw_preflight/ 含禁用的硬编码字面值"
+          $ErrorActionPreference = 'Stop'
+          $workspace = $env:GITHUB_WORKSPACE
+          if (-not $workspace -or $workspace.Trim() -eq '') {
+            throw 'GITHUB_WORKSPACE is empty; refusing fallback checkout'
+          }
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+
+          $workspaceRoot = [System.IO.Path]::GetFullPath($workspace).TrimEnd('\', '/')
+          $archive = Join-Path $env:RUNNER_TEMP 'cad-spec-gen-source.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'cad-spec-gen-source'
+          if (Test-Path -LiteralPath $extract) {
+            Remove-Item -Recurse -Force -LiteralPath $extract
+          }
+          if (Test-Path -LiteralPath $archive) {
+            Remove-Item -Force -LiteralPath $archive
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'cad-spec-gen-sw-smoke'
+          }
+          $zipUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/zipball/$env:GITHUB_SHA"
+          Invoke-WebRequest -Uri $zipUrl -Headers $headers -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extract -Force
+
+          $source = Get-ChildItem -LiteralPath $extract -Directory -Force | Select-Object -First 1
+          if (-not $source) {
+            throw "zipball/$env:GITHUB_SHA did not contain a source directory"
+          }
+
+          Get-ChildItem -LiteralPath $workspace -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            $childPath = [System.IO.Path]::GetFullPath($_.FullName)
+            if (-not $childPath.StartsWith($workspaceRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "refusing to remove path outside workspace: $childPath"
+            }
+            Remove-Item -Recurse -Force -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $source.FullName -Force | ForEach-Object {
+            Copy-Item -Recurse -Force -LiteralPath $_.FullName -Destination $workspace
+          }
+          Write-Host "fallback checkout extracted zipball/$env:GITHUB_SHA"
+
+      - name: 零硬编码静态校验 (AC-2.5.1)
+        shell: powershell
+        run: |
+          $preflight = Join-Path $env:GITHUB_WORKSPACE 'sw_preflight'
+          if (-not (Test-Path -LiteralPath $preflight)) {
+            throw "missing sw_preflight directory: $preflight"
+          }
+          $sourceFiles = Get-ChildItem -LiteralPath $preflight -File -Recurse |
+            Where-Object {
+              $_.FullName -notmatch '[\\/]+__pycache__[\\/]' -and
+              $_.Extension -ne '.pyc'
+            }
+          $matches = $sourceFiles |
+            Select-String -Pattern 'Program Files|D:\\\\|"20(2[0-9]|3[0-9])"'
+          if ($matches) {
+            $matches | ForEach-Object {
+              Write-Host "$($_.Path):$($_.LineNumber):$($_.Line)"
+            }
+            Write-Host "::error::sw_preflight contains forbidden hardcoded literals"
             exit 1
-          fi
-          echo "✅ 零硬编码校验通过"
+          }
+          Write-Host "zero hardcode check passed"
 
       - name: Setup CAD env (composite)
         uses: ./.github/actions/setup-cad-env
 
       - name: Run SW real smoke (pytest 回归)
-        shell: bash
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
           # 用 `python -m pytest` 而非 `pytest`：前者让 sys.path[0] = cwd（项目根），
           # 后者 sys.path[0] = pytest.exe 所在 Scripts 目录，`from tools.xxx` import 会失败。
           # F-1.3 首跑踩坑（见 run 24554711697）。
-          python -m pytest tests/test_sw_inspect_real.py -v --tb=short \
-                 -m requires_solidworks \
-                 --junitxml=sw-smoke-junit.xml
+          python -m pytest tests/test_sw_inspect_real.py -v --tb=short `
+            -m requires_solidworks `
+            --junitxml=sw-smoke-junit.xml
 
       - name: Skip-guard (ET-based, D10)
-        shell: bash
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
-          python -c "
+          $script = @'
           from xml.etree import ElementTree as ET
           root = ET.parse('sw-smoke-junit.xml').getroot()
           all_tcs = list(root.iter('testcase'))
           skipped = [tc for tc in all_tcs if tc.find('skipped') is not None]
           real = len(all_tcs) - len(skipped)
           print(f'skip-guard: total={len(all_tcs)} skipped={len(skipped)} real={real}')
-          assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + test_deep_real_smoke), got {real} — marker 漂移或新测试未授 @requires_solidworks'
-          "
+          assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + test_deep_real_smoke), got {real}; marker drift or missing @requires_solidworks'
+          '@
+          python -c $script
 
       - name: Emit sw-inspect JSON artifact (独立 CLI run, D11)
-        shell: bash
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
@@ -108,19 +176,20 @@ jobs:
           #   0=ok / 1=warn / 2=static fail / 3=dispatch fail / 4=loadaddin fail
           # CI 策略：warn（rc=1）放行，让 assert_sw_inspect_schema 做结构 gate；
           # rc>=2 真失败仍阻断（保留 Phase A `|| true` 击穿修复意图）
-          set +e
-          python cad_pipeline.py sw-inspect --deep --json > sw-inspect-deep.json
-          cp_rc=$?
-          set -e
-          if [ "$cp_rc" -ge 2 ]; then
-            echo "::error title=sw_inspect_fail::sw-inspect rc=$cp_rc (severity=fail), blocking CI"
-            exit "$cp_rc"
-          fi
+          $inspectJson = & python cad_pipeline.py sw-inspect --deep --json
+          $cpRc = $LASTEXITCODE
+          $artifactPath = Join-Path (Get-Location) 'sw-inspect-deep.json'
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($artifactPath, ($inspectJson -join [System.Environment]::NewLine), $utf8NoBom)
+          if ($cpRc -ge 2) {
+            echo "::error title=sw_inspect_fail::sw-inspect rc=$cpRc (severity=fail), blocking CI"
+            exit $cpRc
+          }
           python tools/assert_sw_inspect_schema.py sw-inspect-deep.json
 
       - name: Run SW Toolbox model-library E2E
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
-        shell: bash
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
@@ -128,14 +197,18 @@ jobs:
 
       - name: Write human-readable step summary (D16)
         if: always()
-        shell: bash
+        shell: powershell
         env:
           PYTHONUTF8: "1"
         run: |
-          echo '## sw-inspect (deep) 输出' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          python cad_pipeline.py sw-inspect --deep >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '## sw-inspect (deep) output'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          $inspectText = & python cad_pipeline.py sw-inspect --deep 2>&1
+          if ($inspectText) {
+            $inspectText | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          exit 0
 
       - if: always()
         uses: actions/upload-artifact@v4
@@ -145,4 +218,4 @@ jobs:
             sw-smoke-junit.xml
             sw-inspect-deep.json
             artifacts/sw-toolbox-e2e/**
-          if-no-files-found: error
+          if-no-files-found: warn

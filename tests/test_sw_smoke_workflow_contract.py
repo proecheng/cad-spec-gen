@@ -1,0 +1,73 @@
+"""sw-smoke workflow 的 Windows runner 合同测试。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SW_SMOKE = _ROOT / ".github" / "workflows" / "sw-smoke.yml"
+_SETUP_CAD_ENV = _ROOT / ".github" / "actions" / "setup-cad-env" / "action.yml"
+
+
+def test_sw_smoke_uses_powershell_not_bash_on_solidworks_runner():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "runs-on: [self-hosted, windows, solidworks]" in text
+    assert "shell: bash" not in text
+    assert text.count("shell: powershell") >= 7
+
+
+def test_setup_cad_env_composite_uses_powershell_not_bash():
+    text = _SETUP_CAD_ENV.read_text(encoding="utf-8")
+
+    assert "using: composite" in text
+    assert "shell: bash" not in text
+    assert text.count("shell: powershell") == 3
+
+
+def test_sw_smoke_artifacts_do_not_mask_primary_failure():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "if: always()" in text
+    assert "if-no-files-found: warn" in text
+
+
+def test_sw_smoke_has_api_checkout_fallback_for_git_fetch_outages():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "id: checkout" in text
+    assert "continue-on-error: true" in text
+    assert "Fallback API checkout" in text
+    assert "zipball/$env:GITHUB_SHA" in text
+    assert "GITHUB_TOKEN: ${{ github.token }}" in text
+
+
+def test_sw_smoke_static_check_does_not_require_git_metadata():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "git grep" not in text
+    assert "Select-String" in text
+
+
+def test_sw_smoke_static_check_ignores_python_bytecode_cache():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "__pycache__" in text
+    assert ".pyc" in text
+
+
+def test_sw_smoke_powershell_literals_are_windows_powershell_safe():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "✅" not in text
+    assert "零硬编码校验通过" not in text
+    assert "含禁用的硬编码字面值" not in text
+    assert "## sw-inspect (deep) 输出" not in text
+
+
+def test_sw_inspect_json_artifact_is_written_without_bom():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "UTF8Encoding($false)" in text
+    assert "Set-Content -Path sw-inspect-deep.json -Encoding utf8" not in text

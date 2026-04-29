@@ -14,23 +14,24 @@ runs:
   using: composite
   steps:
     - name: Verify system Python 3.12
-      shell: bash
+      shell: powershell
       run: |
         python --version
         python -c "import sys; assert sys.version_info[:2] == (3, 12), f'expected Python 3.12.x, got {sys.version}'; print(f'OK: Python {sys.version.split()[0]} from {sys.executable}')"
 
     - name: Install runtime deps
-      shell: bash
+      shell: powershell
       run: |
         python -m pip install --upgrade pip
         # 对齐 tests.yml 的 unpinned 约定（spec §8 已知债务）；
         # 不走 `pip install -e .` 规避 hatch_build.py custom hook 副作用（spec §4.1 / D12）
-        pip install pywin32 pytest pytest-timeout Jinja2 psutil PyYAML
+        python -m pip install pywin32 pytest pytest-timeout Jinja2 psutil PyYAML
 
     - name: Sync data/ mirrors
       # 与 tests.yml 一致：dev_sync.py exit 0 无变更 / 1 有同步（非错误）/ >1 真错误
-      shell: bash
+      shell: powershell
       run: |
-        rc=0
-        python scripts/dev_sync.py || rc=$?
-        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+        python scripts/dev_sync.py
+        $rc = $LASTEXITCODE
+        if ($rc -gt 1) { exit $rc }
+        exit 0
