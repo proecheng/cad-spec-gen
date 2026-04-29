@@ -109,12 +109,15 @@ def extract_part_bboxes(assy) -> dict:
 # Check functions
 # ═══════════════════════════════════════════════════════════════════════════
 
-def check_f1_floating(bboxes: dict, threshold: float) -> list:
+def check_f1_floating(bboxes: dict, threshold: float,
+                      ignored_names: set = None) -> list:
     """F1: Detect floating parts via contact graph.
 
     Build undirected graph: edge exists if AABB distance <= threshold.
     Parts with degree 0 are FLOATING.
     """
+    if ignored_names:
+        bboxes = {n: b for n, b in bboxes.items() if n not in ignored_names}
     names = list(bboxes.keys())
     adjacency = {n: set() for n in names}
 
@@ -157,6 +160,48 @@ def _envelope_dims(env) -> tuple:
     if isinstance(env, dict):
         return env.get("dims") or (0.0, 0.0, 0.0)
     return tuple(env)
+
+
+def _match_name_to_part_no(name: str, part_nos) -> str:
+    """Resolve an assembly object name back to a BOM/envelope part number."""
+    clean = re.sub(r"^STD-", "", name)
+    part_nos = list(part_nos)
+    if clean in part_nos:
+        return clean
+
+    # Match by longest suffix so EE-003-04 maps to GIS-EE-003-04, while
+    # avoiding one-token suffixes that collide across stations.
+    for pno in sorted(part_nos, key=len, reverse=True):
+        segments = pno.split("-")
+        for start in range(len(segments)):
+            suffix = "-".join(segments[start:])
+            if suffix.count("-") >= 1 and suffix == clean:
+                return pno
+    return ""
+
+
+def _is_excluded_part_no(part_no: str, excluded_part_nos: set,
+                         excluded_assembly_nos: set) -> bool:
+    """Return True when part_no is excluded by leaf or assembly rule."""
+    return (
+        part_no in excluded_part_nos
+        or any(part_no == p or part_no.startswith(p + "-")
+               for p in excluded_assembly_nos)
+    )
+
+
+def _excluded_bbox_names(bboxes: dict, bom_parts: list,
+                         excluded_part_nos: set,
+                         excluded_assembly_nos: set) -> set:
+    """Map render-excluded BOM part numbers to assembly object names."""
+    all_part_nos = [p.get("part_no", "") for p in bom_parts]
+    ignored = set()
+    for name in bboxes:
+        pno = _match_name_to_part_no(name, all_part_nos)
+        if pno and _is_excluded_part_no(
+                pno, excluded_part_nos, excluded_assembly_nos):
+            ignored.add(name)
+    return ignored
 
 
 def check_f2_size_mismatch(bboxes: dict, envelopes: dict) -> list:
@@ -239,11 +284,19 @@ def check_f3_compactness(bboxes: dict, envelopes: dict,
             continue
         z_span = max(z_vals) - min(z_vals)
 
-        # Derive threshold from §6.4 envelope heights
+        # Derive threshold from §6.4 envelope heights when present. Purchased
+        # parts may lack envelope rows, so fall back to the actual bbox height
+        # for those rendered parts instead of making the station threshold
+        # artificially tight.
         heights = []
-        for pno, env in envelopes.items():
-            if pno.startswith(prefix):
-                heights.append(_envelope_dims(env)[2])
+        for name, bbox in station_bboxes.items():
+            bbox_height = bbox[5] - bbox[2]
+            pno = _match_name_to_part_no(name, envelopes.keys())
+            if pno and pno.startswith(prefix):
+                heights.append(max(_envelope_dims(envelopes[pno])[2],
+                                   bbox_height))
+            else:
+                heights.append(bbox_height)
         if not heights:
             heights = [20.0]  # fallback
 
@@ -287,24 +340,41 @@ def check_f4_centroid(bboxes: dict) -> dict:
     }
 
 
-def check_f5_completeness(bboxes: dict, bom_parts: list) -> dict:
+def check_f5_completeness(bboxes: dict, bom_parts: list,
+                          excluded_part_nos: set = None,
+                          excluded_assembly_nos: set = None) -> dict:
     """F5: Check that assembly contains expected BOM parts.
 
-    Counts non-assembly, non-fastener, non-cable parts in BOM.
+    Counts rendered BOM leaf parts after applying the same render exclusion
+    contract used by assembly generation.
     """
     from bom_parser import classify_part
-    skip_cats = {"fastener", "cable"}
+    excluded_part_nos = excluded_part_nos or set()
+    excluded_assembly_nos = excluded_assembly_nos or set()
+    skip_cats = {"fastener", "cable", "connector", "locating"}
     expected_parts = []
     for p in bom_parts:
         if p.get("is_assembly"):
             continue
+        part_no = p["part_no"]
+        if _is_excluded_part_no(part_no, excluded_part_nos,
+                                excluded_assembly_nos):
+            continue
         cat = classify_part(p.get("name_cn", ""), p.get("material", ""))
         if cat in skip_cats:
             continue
-        expected_parts.append(p["part_no"])
+        expected_parts.append(part_no)
 
     expected_count = len(expected_parts)
-    actual_count = len(bboxes)
+    actual_part_nos = set()
+    all_part_nos = [p.get("part_no", "") for p in bom_parts]
+    for name in bboxes:
+        pno = _match_name_to_part_no(name, all_part_nos)
+        if pno:
+            actual_part_nos.add(pno)
+
+    missing = [pno for pno in expected_parts if pno not in actual_part_nos]
+    actual_count = expected_count - len(missing)
     completeness = actual_count / expected_count if expected_count > 0 else 1.0
 
     return {
@@ -312,6 +382,7 @@ def check_f5_completeness(bboxes: dict, bom_parts: list) -> dict:
         "actual": actual_count,
         "completeness_pct": round(completeness * 100, 1),
         "ok": completeness >= 0.7,
+        "missing": missing,
     }
 
 
@@ -349,20 +420,31 @@ def validate_assembly(sub_dir: str, spec_path: str = None,
     envelopes = {}
     bom_parts = []
     tolerances = []
+    render_exclusions = {"parts": set(), "assemblies": set()}
     if os.path.isfile(spec_path):
-        from codegen.gen_assembly import parse_envelopes
+        from codegen.gen_assembly import parse_envelopes, parse_render_exclusions
         from codegen.gen_build import parse_bom_tree
         envelopes = parse_envelopes(spec_path)
         bom_parts = parse_bom_tree(spec_path)
+        render_exclusions = parse_render_exclusions(spec_path)
 
         # Extract tolerance values from §2 for RSS calculation
         text = Path(spec_path).read_text(encoding="utf-8")
         for m in re.finditer(r"[±]\s*(\d+(?:\.\d+)?)\s*mm", text):
             tolerances.append(float(m.group(1)))
 
+    ignored_names = _excluded_bbox_names(
+        bboxes,
+        bom_parts,
+        render_exclusions["parts"],
+        render_exclusions["assemblies"],
+    )
+    checked_bboxes = {n: b for n, b in bboxes.items() if n not in ignored_names}
+
     # Derive thresholds
     min_part_size = min(
-        (max(b[3] - b[0], b[4] - b[1], b[5] - b[2]) for b in bboxes.values()),
+        (max(b[3] - b[0], b[4] - b[1], b[5] - b[2])
+         for b in checked_bboxes.values()),
         default=20.0
     )
     disconnect_threshold = derive_disconnect_threshold(tolerances, min_part_size)
@@ -379,18 +461,24 @@ def validate_assembly(sub_dir: str, spec_path: str = None,
     report = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "subsystem": os.path.basename(sub_dir),
-        "total_parts": len(bboxes),
+        "total_parts": len(checked_bboxes),
+        "ignored_parts": sorted(ignored_names),
         "thresholds": {
             "disconnect_mm": round(disconnect_threshold, 2),
             "disconnect_method": "3σ RSS + ISO 2768-m" if tolerances else "5% min_part_size",
             "tolerance_count": len(tolerances),
         },
         "checks": {
-            "F1_floating": check_f1_floating(bboxes, disconnect_threshold),
-            "F2_size_mismatch": check_f2_size_mismatch(bboxes, envelopes),
-            "F3_compactness": check_f3_compactness(bboxes, envelopes, station_prefixes),
-            "F4_centroid": check_f4_centroid(bboxes),
-            "F5_completeness": check_f5_completeness(bboxes, bom_parts),
+            "F1_floating": check_f1_floating(checked_bboxes, disconnect_threshold),
+            "F2_size_mismatch": check_f2_size_mismatch(checked_bboxes, envelopes),
+            "F3_compactness": check_f3_compactness(checked_bboxes, envelopes, station_prefixes),
+            "F4_centroid": check_f4_centroid(checked_bboxes),
+            "F5_completeness": check_f5_completeness(
+                checked_bboxes,
+                bom_parts,
+                excluded_part_nos=render_exclusions["parts"],
+                excluded_assembly_nos=render_exclusions["assemblies"],
+            ),
         },
     }
 
