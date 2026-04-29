@@ -540,6 +540,17 @@ def _stack_sort_key(child: dict, dims_map: dict, direction: tuple) -> tuple:
     return (-int(is_custom), -int(is_body), -extent)
 
 
+def _is_render_excluded(part_no: str, excluded_part_nos: set,
+                        excluded_assembly_nos: set = None) -> bool:
+    """Return True when a BOM part is excluded from generated assembly."""
+    excluded_assembly_nos = excluded_assembly_nos or set()
+    return (
+        part_no in excluded_part_nos
+        or any(part_no == p or part_no.startswith(p + "-")
+               for p in excluded_assembly_nos)
+    )
+
+
 def _resolve_child_offsets(parts: list, layer_poses: dict,
                            spec_path: str = "") -> dict:
     """Compute per-part local offsets. §6.3 data wins over auto-stacking.
@@ -564,6 +575,9 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
     _envelopes_cache = {pno: (e["dims"] if isinstance(e, dict) else e)
                         for pno, e in _envelopes_raw.items()}
     constraints = parse_constraints(spec_path) if spec_path else []
+    render_exclusions = (parse_render_exclusions(spec_path) if spec_path
+                         else {"parts": set(), "assemblies": set()})
+    excluded_part_nos = render_exclusions["parts"]
 
     assemblies = [p for p in parts if p["is_assembly"]]
     children_of = {}
@@ -649,13 +663,10 @@ def _resolve_child_offsets(parts: list, layer_poses: dict,
         for child in children:
             cpno = child["part_no"]
 
-            # P0a: §9.2 exclude_stack
-            excluded = any(
-                c["type"] == "exclude_stack" and cpno == c["part_a"]
-                for c in constraints
-            )
-            if excluded:
-                result[cpno] = (0, 0, 0)
+            # P0a: §9.2 exclude_stack means "not rendered in local stack".
+            # Do not turn it into a zero-offset real part; that creates
+            # floating connector/cable geometry downstream.
+            if _is_render_excluded(cpno, excluded_part_nos):
                 continue
 
             # §6.3 lookup (highest priority, with outlier guard).
@@ -959,6 +970,27 @@ def _parse_excluded_assemblies(spec_path: str) -> set:
     return excluded
 
 
+def parse_render_exclusions(spec_path: str) -> dict:
+    """Parse render exclusions from CAD_SPEC.md.
+
+    Returns:
+        {"assemblies": set[str], "parts": set[str]}
+
+    §6.2 marks whole assemblies/modules that are outside the rendered
+    subsystem. §9.2 exclude_stack marks leaf connector/cable parts that should
+    not be emitted as real zero-offset geometry.
+    """
+    assemblies = _parse_excluded_assemblies(spec_path)
+    parts = set()
+    for constraint in parse_constraints(spec_path):
+        if constraint.get("type") != "exclude_stack":
+            continue
+        part_no = constraint.get("part_a", "").strip()
+        if part_no:
+            parts.add(part_no)
+    return {"assemblies": assemblies, "parts": parts}
+
+
 def _parse_part_positions(spec_path: str) -> dict:
     """Parse §6.3 part-level positioning table from CAD_SPEC.md.
 
@@ -1071,8 +1103,10 @@ def generate_assembly(spec_path: str) -> str:
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
 
-    # Parse excluded assemblies once (not per-iteration)
-    excluded_assemblies = _parse_excluded_assemblies(spec_path)
+    # Parse render exclusions once (not per-iteration)
+    render_exclusions = parse_render_exclusions(spec_path)
+    excluded_assemblies = render_exclusions["assemblies"]
+    excluded_part_nos = render_exclusions["parts"]
 
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
@@ -1106,6 +1140,11 @@ def generate_assembly(spec_path: str) -> str:
                 break
 
         for child in children:
+            if _is_render_excluded(
+                    child["part_no"], excluded_part_nos,
+                    excluded_assemblies):
+                continue
+
             # Compute child suffix for display: GIS-EE-001-01 → "01", SLP-100 → "100"
             from cad_spec_defaults import strip_part_prefix
             c_stripped = strip_part_prefix(child["part_no"])

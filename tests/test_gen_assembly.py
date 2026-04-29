@@ -565,3 +565,34 @@ def test_parse_envelopes_defaults_granularity_when_column_absent(tmp_path):
     envs = parse_envelopes(str(spec))
     assert envs["GIS-EE-001"]["dims"] == (90.0, 90.0, 25.0)
     assert envs["GIS-EE-001"]["granularity"] == "part_envelope"
+
+
+def test_parse_render_exclusions_combines_section_62_and_exclude_stack():
+    """Render exclusions include whole assemblies and exclude_stack leaves."""
+    spec = os.path.join(os.path.dirname(__file__), "..",
+                        "cad", "end_effector", "CAD_SPEC.md")
+    if not os.path.isfile(spec):
+        pytest.skip("end_effector CAD_SPEC.md not found")
+
+    from gen_assembly import parse_render_exclusions
+
+    exclusions = parse_render_exclusions(spec)
+    assert "GIS-EE-006" in exclusions["assemblies"]
+    assert "GIS-EE-002-05" in exclusions["parts"]
+    assert "GIS-EE-003-08" in exclusions["parts"]
+    assert "GIS-EE-004-13" in exclusions["parts"]
+
+
+def test_generate_assembly_omits_exclude_stack_leaf_parts():
+    """exclude_stack is a render exclusion, not a zero-offset placement."""
+    spec = os.path.join(os.path.dirname(__file__), "..",
+                        "cad", "end_effector", "CAD_SPEC.md")
+    if not os.path.isfile(spec):
+        pytest.skip("end_effector CAD_SPEC.md not found")
+
+    from gen_assembly import generate_assembly
+
+    content = generate_assembly(spec)
+    assert 'name="STD-GIS-EE-002-05"' not in content
+    assert 'name="STD-GIS-EE-003-08"' not in content
+    assert 'name="STD-GIS-EE-004-13"' not in content

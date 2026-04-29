@@ -227,11 +227,11 @@
 
 | 料号 | 零件名 | 模式 | 高度(mm) | 底面Z(mm) | 来源 | 置信度 |
 | --- | --- | --- | --- | --- | --- | --- |
-| GIS-EE-003-01 | AE传感器 | axial_stack | 26.0 | -112.0 | serial_chain | high |
 | GIS-EE-003-02 | 六轴力传感器 | axial_stack | 20.0 | -20.0 | serial_chain | high |
 | GIS-EE-003-03 | 弹簧限力机构总成 | axial_stack | 16.0 | -36.0 | serial_chain | high |
-| GIS-EE-003-04 | 柔性关节（万向节） | axial_stack | 30.0 | -66.0 | serial_chain | high |
-| GIS-EE-003-05 | 阻尼垫 | axial_stack | 20.0 | -86.0 | serial_chain | high |
+| GIS-EE-003-04 | 柔性关节（万向节） | axial_stack | 15.0 | -51.0 | serial_chain | high |
+| GIS-EE-003-05 | 阻尼垫 | axial_stack | 20.0 | -71.0 | serial_chain | high |
+| GIS-EE-003-01 | AE传感器 | axial_stack | 26.0 | -97.0 | serial_chain | high |
 
 ### 6.4 零件包络尺寸
 
@@ -254,6 +254,7 @@
 | GIS-EE-002 | 工位1涂抹模块 | box | ×× | P2:walker:tier1 | 宽×深×高，含储罐延伸 | 1.00 | station_constraint | tier1_unique_match |  |
 | GIS-EE-002-01 | 涂抹模块壳体 | cylinder | Φ50.0×60.0 | P6:guess_geometry | — | — | — | — |  |
 | GIS-EE-002-02 | 储罐 | cylinder | Φ38.0×280.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-002-04 | 刮涂头 | box | 20.0×10.0×8.0 | P4:visual | — | — | part_envelope | scraper_head | 涂抹模块底端硅橡胶刮涂头 |
 | GIS-EE-003 | 工位2 AE检测模块 | cylinder | Φ45.0× | P2:walker:tier1 | 含弹簧限力+柔性关节+AE探头串联 | 1.00 | station_constraint | tier1_unique_match |  |
 | GIS-EE-003-01 | AE传感器 | cylinder | Φ20.0×26.0 | P5:chain_span | — | — | — | — |  |
 | GIS-EE-003-02 | 六轴力传感器 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |

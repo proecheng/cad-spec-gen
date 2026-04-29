@@ -129,6 +129,84 @@ def test_end_effector_ae_custom_parts_match_reported_envelopes():
             pass
 
 
+def test_end_effector_part_positions_match_part_envelope_heights():
+    """§6.3 serial-chain heights must not drift from §6.4 part envelopes."""
+    from pathlib import Path
+
+    import pytest
+
+    spec = Path(__file__).resolve().parents[1] / "cad" / "end_effector" / "CAD_SPEC.md"
+    if not spec.is_file():
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import _parse_part_positions, parse_envelopes
+
+    positions = _parse_part_positions(str(spec))
+    envelopes = parse_envelopes(str(spec))
+    for part_no in ("GIS-EE-003-03", "GIS-EE-003-04"):
+        assert envelopes[part_no]["granularity"] == "part_envelope"
+        assert positions[part_no]["h"] == envelopes[part_no]["dims"][2]
+
+
+def test_end_effector_ae_serial_chain_is_contiguous():
+    """AE serial stack should have no implied axial gaps after envelope fixes."""
+    from pathlib import Path
+
+    import pytest
+
+    spec = Path(__file__).resolve().parents[1] / "cad" / "end_effector" / "CAD_SPEC.md"
+    if not spec.is_file():
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import _parse_part_positions, parse_envelopes
+
+    positions = _parse_part_positions(str(spec))
+    envelopes = parse_envelopes(str(spec))
+    chain = [
+        "GIS-EE-003-02",
+        "GIS-EE-003-03",
+        "GIS-EE-003-04",
+        "GIS-EE-003-05",
+        "GIS-EE-003-01",
+    ]
+    for upper, lower in zip(chain, chain[1:]):
+        upper_bottom = positions[upper]["z"]
+        lower_top = positions[lower]["z"] + envelopes[lower]["dims"][2]
+        assert abs(upper_bottom - lower_top) < 0.1, (
+            f"{upper} bottom {upper_bottom} should touch "
+            f"{lower} top {lower_top}"
+        )
+
+
+def test_end_effector_scraper_has_part_envelope_for_stack_contact():
+    """Scraper head should use its visual envelope instead of 15 mm fallback."""
+    from pathlib import Path
+
+    import pytest
+
+    spec = Path(__file__).resolve().parents[1] / "cad" / "end_effector" / "CAD_SPEC.md"
+    if not spec.is_file():
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import (
+        _extract_all_layer_poses,
+        _resolve_child_offsets,
+        parse_assembly_pose,
+        parse_envelopes,
+    )
+    from codegen.gen_build import parse_bom_tree
+
+    envelopes = parse_envelopes(str(spec))
+    assert envelopes["GIS-EE-002-04"]["granularity"] == "part_envelope"
+    assert envelopes["GIS-EE-002-04"]["dims"][2] == 8.0
+
+    parts = parse_bom_tree(str(spec))
+    pose = parse_assembly_pose(str(spec))
+    layer_poses = _extract_all_layer_poses(pose, parts)
+    offsets = _resolve_child_offsets(parts, layer_poses, str(spec))
+    assert offsets["GIS-EE-002-04"][2] == -83.0
+
+
 def test_flange_assembly_z_span():
     """法兰总成 parts should span ≤100mm, not 360mm."""
     spec = os.path.join(os.path.dirname(__file__), "..",
