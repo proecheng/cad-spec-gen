@@ -157,3 +157,27 @@ def test_ffc_template_keeps_actual_length_metadata(
     assert result.real_dims[0] == 12
     assert result.real_dims[1] == 50
     assert result.real_dims[2] == 1
+
+
+def test_non_sma_50_ohm_connector_does_not_use_sma_template(
+    adapter: JinjaPrimitiveAdapter,
+) -> None:
+    result = adapter.resolve(
+        _q("connector", name="BNC穿壁连接器", material="50Ω"),
+        {},
+    )
+
+    assert result.metadata.get("template") != "sma_bulkhead"
+    assert result.source_tag == "jinja_primitive:connector"
+
+
+def test_generic_thin_film_part_does_not_use_pressure_array_template(
+    adapter: JinjaPrimitiveAdapter,
+) -> None:
+    result = adapter.resolve(
+        _q("other", name="绝缘薄膜垫片", material="20×20mm"),
+        {},
+    )
+
+    assert result.metadata.get("template") != "pressure_array"
+    assert result.source_tag == "jinja_primitive:other"

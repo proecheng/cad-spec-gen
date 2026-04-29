@@ -377,7 +377,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
-    if category == "connector" and _contains_any(text, ["SMA", "50Ω", "50 ohm"]):
+    if category == "connector" and _contains_any(text, ["SMA"]):
         tpl_dims = dict(dims)
         tpl_dims.setdefault("d", 6.5)
         tpl_dims.setdefault("l", 15)
@@ -413,7 +413,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
-    if category == "other" and _contains_any(text, ["压力阵列", "薄膜"]):
+    if category == "other" and _contains_any(text, ["压力", "阵列"]):
         rows, cols = _parse_array_grid(text)
         w, l = _parse_size_pair_mm(text, default=(20, 20))
         tpl_dims = {"w": w, "l": l, "h": 0.6}
