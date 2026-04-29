@@ -6,6 +6,20 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.2] - 2026-04-29
+
+### Fixed
+- `CAD_SPEC.md` 渲染排除项（§6.2 `render_include=false` 与 §9.2 `exclude_stack`）统一进入 `gen_assembly.py`，避免被排除的线缆/接插件在装配中生成零偏移占位几何。
+- `assembly_validator.py` 使用同一套排除契约过滤期望/实际零件集合，F5 件数一致性不再受非渲染件影响。
+- 端执行器样例修正 AE 串联堆叠 Z 坐标与刮刀包络，消除装配报告中的 F1/F2/F3/F5 漂移。
+
+### Validation
+- 本地：`49 passed`（装配生成、GATE-3.5 验证、端执行器一致性回归）。
+- 本地：`cad_pipeline.py build --subsystem end_effector` 通过，`ASSEMBLY_REPORT.json` 为 `0 WARNING`，F5 `33/33`。
+- 本地：`scripts/dev_sync.py --check` 与 `git diff --check` 通过。
+
+---
+
 ## [v2.23.1] - 2026-04-29
 
 ### Fixed
