@@ -6,6 +6,22 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.4] - 2026-04-29
+
+### Changed
+- `sw-smoke.yml` 与 `tests.yml` 将 `actions/upload-artifact` 从 v4 升级到 v7，使用 Node 24 action runtime，消除 GitHub Actions 的 Node 20 deprecation warning。
+
+### Added
+- 测试基础设施合同新增 `upload-artifact@v7` 守护，防止 CI workflow 回退到 Node 20 action 主版本。
+
+### Validation
+- 本地：`15 passed`（CI workflow contract、sw-smoke workflow contract、version metadata contract）。
+- 本地全量：`1648 passed, 16 skipped`。
+
+PyPI upload intentionally skipped for this release.
+
+---
+
 ## [v2.23.3] - 2026-04-29
 
 ### Changed
