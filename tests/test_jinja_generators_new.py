@@ -7,9 +7,13 @@ PartQuery 是 parts_resolver.py 里的 @dataclass，字段：
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from parts_resolver import PartQuery
 from adapters.parts.jinja_primitive_adapter import JinjaPrimitiveAdapter
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _q(category: str, name: str = "test", material: str = "") -> PartQuery:
@@ -181,3 +185,135 @@ def test_generic_thin_film_part_does_not_use_pressure_array_template(
 
     assert result.metadata.get("template") != "pressure_array"
     assert result.source_tag == "jinja_primitive:other"
+
+
+# ── P2 fluid / cleaning semi-parametric templates ──────────────────────────
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "template_id", "body_marker", "dims"),
+    [
+        (
+            "tank",
+            "储罐",
+            "不锈钢Φ38×280mm",
+            "fluid_reservoir",
+            "fluid reservoir",
+            (38.0, 38.0, 280.0),
+        ),
+        (
+            "pump",
+            "齿轮泵",
+            "",
+            "gear_pump",
+            "gear pump",
+            (30, 25, 40),
+        ),
+        (
+            "other",
+            "刮涂头",
+            "硅橡胶",
+            "scraper_head",
+            "scraper head",
+            (15, 8, 6),
+        ),
+        (
+            "tank",
+            "溶剂储罐（活塞式正压密封）",
+            "Φ25×110mm，M8快拆接口",
+            "solvent_cartridge",
+            "solvent cartridge",
+            (25.0, 25.0, 110.0),
+        ),
+        (
+            "pump",
+            "微量泵（溶剂喷射）",
+            "电磁阀式",
+            "micro_dosing_pump",
+            "micro dosing pump",
+            (20, 15, 30),
+        ),
+        (
+            "other",
+            "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）",
+            "超细纤维无纺布",
+            "cleaning_tape_cassette",
+            "cleaning tape cassette",
+            (42, 28, 12),
+        ),
+    ],
+)
+def test_p2_fluid_and_cleaning_parts_use_specialized_templates(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    template_id: str,
+    body_marker: str,
+    dims: tuple[float, float, float],
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.status == "hit"
+    assert result.kind == "codegen"
+    assert result.geometry_source == "JINJA_TEMPLATE"
+    assert result.geometry_quality == "C"
+    assert result.requires_model_review is True
+    assert result.metadata["template"] == template_id
+    assert result.real_dims == dims
+    assert body_marker in result.body_code
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("tank", "储罐", "不锈钢Φ38×280mm"),
+        ("pump", "齿轮泵", ""),
+        ("other", "刮涂头", "硅橡胶"),
+        ("tank", "溶剂储罐（活塞式正压密封）", "Φ25×110mm，M8快拆接口"),
+        ("pump", "微量泵（溶剂喷射）", "电磁阀式"),
+        ("other", "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）", "超细纤维无纺布"),
+    ],
+)
+def test_p2_template_geometry_stays_within_reported_real_dims(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    import cadquery as cq
+
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+    namespace = {"cq": cq}
+    exec(f"def _make():\n{result.body_code}\n", namespace)
+    shape = namespace["_make"]()
+    bbox = shape.val().BoundingBox()
+
+    actual = (bbox.xlen, bbox.ylen, bbox.zlen)
+    assert result.real_dims is not None
+    for measured, expected in zip(actual, result.real_dims):
+        assert measured <= expected + 1e-6
+
+
+def test_non_fluid_tank_does_not_use_fluid_reservoir_template(
+    adapter: JinjaPrimitiveAdapter,
+) -> None:
+    result = adapter.resolve(
+        _q("tank", name="样品容器", material="Φ20×40mm"),
+        {},
+    )
+
+    assert result.metadata.get("template") not in {
+        "fluid_reservoir",
+        "solvent_cartridge",
+    }
+    assert result.source_tag == "jinja_primitive:tank"
+
+
+def test_end_effector_ffc_spec_envelope_matches_template_dims() -> None:
+    from codegen.gen_assembly import parse_envelopes
+
+    spec_path = _REPO_ROOT / "cad" / "end_effector" / "CAD_SPEC.md"
+    envelopes = parse_envelopes(str(spec_path))
+
+    assert envelopes["GIS-EE-001-09"]["dims"] == (12.0, 50.0, 1.0)
+    assert envelopes["GIS-EE-001-09"]["granularity"] == "part_envelope"

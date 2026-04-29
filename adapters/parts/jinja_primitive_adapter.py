@@ -339,8 +339,161 @@ def _gen_pressure_array(dims: dict, rows: int, cols: int) -> str:
     return body"""
 
 
+def _gen_fluid_reservoir(dims: dict) -> str:
+    d = dims.get("d", 38)
+    l = dims.get("l", 280)
+    cap_l = max(min(l * 0.035, 8.0), 3.0)
+    band_w = max(min(l * 0.02, 6.0), 2.0)
+    boss_d = max(d * 0.24, 5.0)
+    return f"""    # Semi-parametric fluid reservoir: cylinder, end caps, clamp bands, fill boss
+    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    for z in ({cap_l}, {l - cap_l - band_w}):
+        band = (cq.Workplane("XY")
+                .circle({d / 2})
+                .circle({max(d / 2 - 1.1, d * 0.42)})
+                .extrude({band_w})
+                .translate((0, 0, z)))
+        body = body.union(band)
+    front = cq.Workplane("XY").circle({d * 0.43}).extrude({cap_l})
+    rear = cq.Workplane("XY").circle({d * 0.43}).extrude({cap_l}).translate((0, 0, {l - cap_l}))
+    fill_boss = (cq.Workplane("XY")
+                 .center(0, {d * 0.22})
+                 .circle({boss_d / 2})
+                 .extrude({max(d * 0.12, 3.0)})
+                 .translate((0, 0, {l * 0.55})))
+    body = body.union(front).union(rear).union(fill_boss)
+    return body"""
+
+
+def _gen_solvent_cartridge(dims: dict) -> str:
+    d = dims.get("d", 25)
+    l = dims.get("l", 110)
+    cap_l = max(min(l * 0.06, 7.0), 3.0)
+    plunger_d = max(d * 0.22, 4.0)
+    port_d = max(d * 0.26, 5.0)
+    return f"""    # Semi-parametric solvent cartridge: piston tank, seal caps, M8 quick connector
+    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    seal_cap = cq.Workplane("XY").circle({d * 0.48}).extrude({cap_l})
+    body = body.union(seal_cap).union(seal_cap.translate((0, 0, {l - cap_l})))
+    plunger = (cq.Workplane("XY")
+               .circle({plunger_d / 2})
+               .extrude({max(l * 0.16, 12.0)})
+               .translate((0, 0, {l - max(l * 0.16, 12.0)})))
+    m8_port = (cq.Workplane("XY")
+               .circle({port_d / 2})
+               .extrude({max(d * 0.35, 8.0)})
+               .translate((0, 0, 0)))
+    body = body.union(plunger).union(m8_port)
+    return body"""
+
+
+def _gen_gear_pump(dims: dict) -> str:
+    w = dims.get("w", 30)
+    d = dims.get("d", 25)
+    h = dims.get("h", 40)
+    cover_h = max(h * 0.08, 2.5)
+    body_h = max(h - cover_h, h * 0.7)
+    gear_r = min(w, d) * 0.18
+    port_r = max(min(w, d) * 0.10, 2.2)
+    return f"""    # Semi-parametric gear pump: rectangular housing, twin gear cover, port stubs
+    body = cq.Workplane("XY").box({w}, {d}, {body_h}, centered=(True, True, False))
+    cover = (cq.Workplane("XY")
+             .box({w * 0.88}, {d * 0.78}, {cover_h}, centered=(True, True, False))
+             .translate((0, 0, {body_h})))
+    body = body.union(cover)
+    for x in ({-gear_r * 1.15}, {gear_r * 1.15}):
+        gear_face = (cq.Workplane("XY")
+                     .center(x, 0)
+                     .circle({gear_r})
+                     .circle({gear_r * 0.34})
+                     .extrude({cover_h * 0.65})
+                     .translate((0, 0, {h - cover_h * 0.65})))
+        body = body.union(gear_face)
+    for y in ({-d * 0.30}, {d * 0.30}):
+        port = (cq.Workplane("YZ")
+                .center(y, {h * 0.52})
+                .circle({port_r})
+                .extrude({w * 0.22})
+                .translate(({w / 2 - w * 0.22}, 0, 0)))
+        body = body.union(port)
+    return body"""
+
+
+def _gen_micro_dosing_pump(dims: dict) -> str:
+    w = dims.get("w", 20)
+    d = dims.get("d", 15)
+    h = dims.get("h", 30)
+    coil_d = min(w, d) * 0.55
+    nozzle_d = max(min(w, d) * 0.16, 2.0)
+    return f"""    # Semi-parametric micro dosing pump: solenoid block, valve coil, nozzle pair
+    body = cq.Workplane("XY").box({w}, {d}, {h}, centered=(True, True, False))
+    coil = (cq.Workplane("XZ")
+            .center(0, {h * 0.58})
+            .circle({coil_d / 2})
+            .extrude({d * 0.39}, both=True))
+    body = body.union(coil)
+    for x in ({-w * 0.24}, {w * 0.24}):
+        nozzle = (cq.Workplane("YZ")
+                  .center({-d / 2 + nozzle_d / 2}, {h * 0.18})
+                  .circle({nozzle_d / 2})
+                  .extrude({w * 0.16}, both=True)
+                  .translate((x, 0, 0)))
+        body = body.union(nozzle)
+    return body"""
+
+
+def _gen_scraper_head(dims: dict) -> str:
+    w = dims.get("w", 15)
+    d = dims.get("d", 8)
+    h = dims.get("h", 6)
+    blade_h = h * 0.55
+    return f"""    # Semi-parametric scraper head: clamp bar, compliant blade, mounting holes
+    clamp = cq.Workplane("XY").box({w}, {d}, {h * 0.45}, centered=(True, True, False))
+    blade = (cq.Workplane("XY")
+             .center(0, {-d * 0.20})
+             .box({w * 0.92}, {d * 0.42}, {blade_h}, centered=(True, True, False))
+             .translate((0, 0, {h * 0.35})))
+    body = clamp.union(blade)
+    for x in ({-w * 0.30}, {w * 0.30}):
+        body = body.faces(">Z").workplane().center(x, 0).hole({max(w * 0.10, 1.2)})
+    return body"""
+
+
+def _gen_cleaning_tape_cassette(dims: dict) -> str:
+    w = dims.get("w", 42)
+    d = dims.get("d", 28)
+    h = dims.get("h", 12)
+    base_h = h * 0.42
+    reel_h = h - base_h
+    reel_r = min(w, d) * 0.18
+    return f"""    # Semi-parametric cleaning tape cassette: cassette body, supply/take-up reels, tape path
+    body = cq.Workplane("XY").box({w}, {d}, {base_h}, centered=(True, True, False))
+    for x in ({-w * 0.23}, {w * 0.23}):
+        reel = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({reel_r})
+                .circle({reel_r * 0.38})
+                .extrude({reel_h})
+                .translate((0, 0, {base_h})))
+        hub = (cq.Workplane("XY")
+               .center(x, 0)
+               .circle({reel_r * 0.20})
+               .extrude({h})
+               .translate((0, 0, 0)))
+        body = body.union(reel).union(hub)
+    tape_span = (cq.Workplane("XY")
+                 .box({w * 0.62}, {max(d * 0.07, 1.8)}, {max(h * 0.08, 0.8)}, centered=(True, True, False))
+                 .translate((0, 0, {base_h + reel_h * 0.48})))
+    window = (cq.Workplane("XY")
+              .center(0, {-d * 0.33})
+              .box({w * 0.42}, {d * 0.16}, {h * 0.20}, centered=(True, True, False))
+              .translate((0, 0, {base_h})))
+    body = body.union(tape_span).union(window)
+    return body"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
-    """Return a semi-parametric model for high-value electrical fallback rows."""
+    """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
     category = getattr(query, "category", "")
 
@@ -422,6 +575,76 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "body_code": _gen_pressure_array(tpl_dims, rows, cols),
             "dims": tpl_dims,
             "metadata": {"rows": rows, "cols": cols},
+        }
+
+    if category == "tank" and _contains_any(text, ["溶剂", "活塞", "M8"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 25)
+        tpl_dims.setdefault("l", 110)
+        return {
+            "template": "solvent_cartridge",
+            "body_code": _gen_solvent_cartridge(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "tank" and _contains_any(text, ["储液罐", "储罐"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 38)
+        tpl_dims.setdefault("l", 280)
+        return {
+            "template": "fluid_reservoir",
+            "body_code": _gen_fluid_reservoir(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "pump" and _contains_any(text, ["微量泵", "电磁阀"]):
+        tpl_dims = {
+            "w": dims.get("w", 20),
+            "d": dims.get("d", dims.get("h", 15)),
+            "h": dims.get("h") if "d" in dims else dims.get("l", 30),
+        }
+        return {
+            "template": "micro_dosing_pump",
+            "body_code": _gen_micro_dosing_pump(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "pump" and _contains_any(text, ["齿轮泵"]):
+        tpl_dims = {
+            "w": dims.get("w", 30),
+            "d": dims.get("d", dims.get("h", 25)),
+            "h": dims.get("h") if "d" in dims else dims.get("l", 40),
+        }
+        return {
+            "template": "gear_pump",
+            "body_code": _gen_gear_pump(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "other" and _contains_any(text, ["刮涂头", "刮胶头", "涂布头"]):
+        tpl_dims = {"w": 15, "d": 8, "h": 6}
+        return {
+            "template": "scraper_head",
+            "body_code": _gen_scraper_head(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if (
+        category == "other"
+        and _contains_any(text, ["清洁带盒"])
+        and _contains_any(text, ["供带", "收带", "无纺布"])
+    ):
+        tpl_dims = {"w": 42, "d": 28, "h": 12}
+        return {
+            "template": "cleaning_tape_cassette",
+            "body_code": _gen_cleaning_tape_cassette(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
         }
 
     return None
@@ -666,6 +889,8 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         if "od" in dims:
             h = dims.get("h", dims.get("l", dims.get("w", dims.get("t", 5))))
             return (dims["od"], dims["od"], h)
+        if "w" in dims and "d" in dims and "h" in dims and "l" not in dims:
+            return (dims["w"], dims["d"], dims["h"])
         if "w" in dims and "h" in dims and "l" in dims:
             return (dims["w"], dims["d"] if "d" in dims else dims["l"],
                     dims["h"])
