@@ -6,6 +6,21 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.1] - 2026-04-29
+
+### Fixed
+- `StepPoolAdapter` 支持安全的 `file_template` 匹配，允许 `{normalize(name)}.step` 类模板查找，同时禁止相对路径 `../` 逃逸；显式 `file` 继续优先于模板。
+- 样例脚手架清理裸 `TODO:` 占位，并通过测试防止 `cad/` 样例重新引入未填占位。
+- 连接矩阵显式 `axis_gap` / `axial_gap` 会渲染到 `CAD_SPEC.md` §4，并参与串联堆叠偏移计算。
+- 连接矩阵零件号匹配改为分隔符级别识别，避免 `100` 误匹配 `1000`；负数或非法轴向间隙按 `0.0` 处理。
+
+### Validation
+- 本地：`33 passed`（连接矩阵轴向间隙、装配生成、样例 TODO 守护）。
+- 本地：`106 passed`（BOM extractor、section walker 下游/渲染/fixture 覆盖）。
+- PR CI：Ubuntu/Windows × Python 3.10/3.11/3.12、regression、mypy-strict 全部通过。
+
+---
+
 ## [v2.23.0] - 2026-04-28
 
 ### Added
