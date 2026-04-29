@@ -628,6 +628,85 @@ def _gen_photoelectric_encoder(dims: dict) -> str:
     return body"""
 
 
+def _gen_belleville_spring_washer(dims: dict) -> str:
+    od = dims.get("od", dims.get("d", 12.5))
+    id_ = min(dims.get("id", od * 0.5), od * 0.82)
+    h = dims.get("h", dims.get("t", 0.85))
+    t = min(dims.get("t", h * 0.75), h)
+    crown_h = max(h - t, 0.02)
+    ring_w = min(max((od - id_) * 0.08, 0.25), (od - id_) * 0.35)
+    return f"""    # Semi-parametric Belleville spring washer: annular disc with raised spring crown
+    base = (cq.Workplane("XY")
+            .circle({od / 2})
+            .circle({id_ / 2})
+            .extrude({t}))
+    outer_crown = (cq.Workplane("XY")
+                   .circle({od / 2})
+                   .circle({max(id_ / 2 + ring_w, od / 2 - ring_w)})
+                   .extrude({crown_h})
+                   .translate((0, 0, {t})))
+    inner_crown = (cq.Workplane("XY")
+                   .circle({min(od / 2 - ring_w, id_ / 2 + ring_w)})
+                   .circle({id_ / 2})
+                   .extrude({crown_h})
+                   .translate((0, 0, {t})))
+    body = base.union(outer_crown).union(inner_crown)
+    return body"""
+
+
+def _gen_viscoelastic_damping_pad(dims: dict) -> str:
+    d = dims.get("d", 15)
+    l = dims.get("l", 10)
+    rib_h = max(min(l * 0.08, 0.8), 0.3)
+    return f"""    # Semi-parametric viscoelastic damping pad: rubber puck with concentric damping ribs
+    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    for r in ({d * 0.20}, {d * 0.33}):
+        rib = (cq.Workplane("XY")
+               .circle(r)
+               .circle(max(r - {max(d * 0.045, 0.35)}, 0.1))
+               .extrude({rib_h})
+               .translate((0, 0, {l - rib_h})))
+        body = body.union(rib)
+    return body"""
+
+
+def _gen_tungsten_counterweight_slug(dims: dict) -> str:
+    d = dims.get("d", 14)
+    l = dims.get("l", 13)
+    chamfer = min(max(d * 0.04, 0.25), l * 0.18)
+    groove_h = max(min(l * 0.08, 0.8), 0.25)
+    groove_r = d * 0.43
+    return f"""    # Semi-parametric tungsten counterweight slug: dense chamfered tuning mass
+    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    body = body.faces(">Z").edges().chamfer({chamfer})
+    body = body.faces("<Z").edges().chamfer({chamfer})
+    top_mark = (cq.Workplane("XY")
+                .circle({groove_r})
+                .circle({groove_r * 0.82})
+                .extrude({groove_h})
+                .translate((0, 0, {l - groove_h})))
+    body = body.union(top_mark)
+    return body"""
+
+
+def _gen_elastomer_cushion_pad(dims: dict) -> str:
+    w = dims.get("w", 20)
+    d = dims.get("d", 15)
+    h = dims.get("h", 5)
+    base_h = h * 0.62
+    rib_h = h - base_h
+    rib_w = max(w * 0.16, 1.2)
+    return f"""    # Semi-parametric elastomer cushion pad: soft rectangular pad with raised ribs
+    body = cq.Workplane("XY").box({w}, {d}, {base_h}, centered=(True, True, False))
+    for x in ({-w * 0.24}, 0, {w * 0.24}):
+        rib = (cq.Workplane("XY")
+               .center(x, 0)
+               .box({rib_w}, {d * 0.82}, {rib_h}, centered=(True, True, False))
+               .translate((0, 0, {base_h})))
+        body = body.union(rib)
+    return body"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
@@ -849,6 +928,58 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         return {
             "template": "photoelectric_encoder",
             "body_code": _gen_photoelectric_encoder(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "spring" and _contains_any(text, ["碟形弹簧", "碟簧", "弹簧垫圈", "DIN 2093"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("od", tpl_dims.get("d", 12.5))
+        tpl_dims.setdefault("id", tpl_dims["od"] * 0.5)
+        tpl_dims.setdefault("h", tpl_dims.get("t", 0.85))
+        return {
+            "template": "belleville_spring_washer",
+            "body_code": _gen_belleville_spring_washer(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "other" and _contains_any(text, ["阻尼垫", "黏弹性"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 15)
+        tpl_dims.setdefault("l", 10)
+        return {
+            "template": "viscoelastic_damping_pad",
+            "body_code": _gen_viscoelastic_damping_pad(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "other" and _contains_any(text, ["配重块"]) and _contains_any(text, ["钨合金"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 14)
+        tpl_dims.setdefault("l", 13)
+        return {
+            "template": "tungsten_counterweight_slug",
+            "body_code": _gen_tungsten_counterweight_slug(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "other" and (
+        _contains_any(text, ["弹性衬垫"])
+        or (_contains_any(text, ["Shore", "硅橡胶"]) and _contains_any(text, ["20×15×5", "20x15x5"]))
+    ):
+        if "w" in dims and "h" in dims and "l" in dims and "d" not in dims:
+            tpl_dims = {"w": dims["w"], "d": dims["h"], "h": dims["l"]}
+        else:
+            tpl_dims = dict(dims)
+        tpl_dims.setdefault("w", 20)
+        tpl_dims.setdefault("d", 15)
+        tpl_dims.setdefault("h", 5)
+        return {
+            "template": "elastomer_cushion_pad",
+            "body_code": _gen_elastomer_cushion_pad(tpl_dims),
             "dims": tpl_dims,
             "metadata": {},
         }

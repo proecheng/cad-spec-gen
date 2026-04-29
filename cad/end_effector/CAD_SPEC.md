@@ -247,6 +247,7 @@
 | GIS-EE-001-01 | 法兰本体（含十字悬臂） | cylinder | Φ90.0×25.0 | P4:visual | — | — | — | — |  |
 | GIS-EE-001-02 | PEEK绝缘段 | cylinder | Φ86.0×5.0 | P4:visual | — | — | — | — |  |
 | GIS-EE-001-03 | O型圈 | cylinder | Φ80.0×2.4 | P3:BOM | — | — | — | — |  |
+| GIS-EE-001-04 | 碟形弹簧垫圈 | cylinder | Φ12.5×0.85 | P7:JINJA_TEMPLATE | — | — | part_envelope | belleville_spring_washer | DIN 2093 A6 半参数碟簧垫圈 |
 | GIS-EE-001-07 | 弹簧销组件（含弹簧） | cylinder | Φ4.0×20.0 | P3:BOM+template | — | — | part_envelope | spring_pin_assembly | 锥形头弹簧销半参数模型 |
 | GIS-EE-001-08 | ISO 9409适配板 | cylinder | Φ63.0×8.0 | P4:visual | — | — | — | — |  |
 | GIS-EE-001-09 | FFC线束总成 | box | 12.0×50.0×1.0 | P3:BOM+template | — | — | part_envelope | ffc_ribbon visual stub | 实际长度500mm，建模显示段限长50mm |
@@ -260,17 +261,17 @@
 | GIS-EE-003-02 | 六轴力传感器 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
 | GIS-EE-003-03 | 弹簧限力机构总成 | cylinder | Φ20.0×16.0 | P5:chain_span | — | — | part_envelope | spring_limit_mechanism | AE串联弹簧机构单件包络 |
 | GIS-EE-003-04 | 柔性关节（万向节） | cylinder | Φ20.0×15.0 | P4:visual | — | — | part_envelope | rubber_universal_joint | AE串联柔性关节单件包络 |
-| GIS-EE-003-05 | 阻尼垫 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
-| GIS-EE-003-07 | 配重块 | cylinder | Φ12.0×7.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-003-05 | 阻尼垫 | cylinder | Φ20.0×20.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | viscoelastic_damping_pad | 黏弹性阻尼垫半参数模型；保持 AE 串联链 20mm 轴向占位 |
+| GIS-EE-003-07 | 配重块 | cylinder | Φ12.0×7.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | tungsten_counterweight_slug | 钨合金调平配重半参数模型 |
 | GIS-EE-004 | 工位3卷带清洁模块 | box | ×× | P2:walker:tier1 | 切向宽×径向深×轴向高，双卷轴区域 | 1.00 | station_constraint | tier1_unique_match |  |
 | GIS-EE-004-01 | 清洁模块壳体（含卷轴腔+清洁窗口） | cylinder | Φ50.0×60.0 | P6:guess_geometry | — | — | — | — |  |
 | GIS-EE-004-03 | 微型电机 | cylinder | Φ16.0×30.0 | P3:BOM+template | — | — | part_envelope | mini_dc_motor | 轴伸收敛在本体包络内 |
 | GIS-EE-004-04 | 齿轮减速组（电机→收带卷轴） | box | 25.0×25.0×35.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | gear_train_reducer | 半参数齿轮箱包络 |
-| GIS-EE-004-05 | 弹性衬垫 | box | 20.0×15.0×5.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-05 | 弹性衬垫 | box | 20.0×15.0×5.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | elastomer_cushion_pad | Shore A 30 橡胶衬垫半参数模型 |
 | GIS-EE-004-06 | 恒力弹簧（供带侧张力） | cylinder | Φ10.0×0.85 | P7:JINJA_TEMPLATE | — | — | part_envelope | constant_force_spring | 平面卷簧可视化包络 |
 | GIS-EE-004-07 | 光电编码器（带面余量） | box | 15.0×15.0×12.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | photoelectric_encoder | 反射式传感器半参数包络 |
 | GIS-EE-004-08 | 溶剂储罐（活塞式正压密封） | cylinder | Φ25.0×110.0 | P3:BOM | — | — | — | — |  |
-| GIS-EE-004-10 | 配重块 | cylinder | Φ14.0×13.0 | P3:BOM | — | — | — | — |  |
+| GIS-EE-004-10 | 配重块 | cylinder | Φ14.0×13.0 | P7:JINJA_TEMPLATE | — | — | part_envelope | tungsten_counterweight_slug | 钨合金调平配重半参数模型 |
 | GIS-EE-004-11 | 微型轴承 | ring | Φ10.0×4.0 | P3:BOM | — | — | — | — |  |
 | GIS-EE-004-12 | 清洁窗口翻盖 | cylinder | Φ40.0×20.0 | P6:guess_geometry | — | — | — | — |  |
 | GIS-EE-005 | 工位4 UHF模块（方案A） | cylinder | Φ50.0× | P2:walker:tier1 | 含安装支架 | 1.00 | station_constraint | tier1_unique_match |  |
