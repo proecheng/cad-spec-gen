@@ -64,3 +64,10 @@ def test_sw_smoke_powershell_literals_are_windows_powershell_safe():
     assert "零硬编码校验通过" not in text
     assert "含禁用的硬编码字面值" not in text
     assert "## sw-inspect (deep) 输出" not in text
+
+
+def test_sw_inspect_json_artifact_is_written_without_bom():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "UTF8Encoding($false)" in text
+    assert "Set-Content -Path sw-inspect-deep.json -Encoding utf8" not in text

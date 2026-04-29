@@ -178,7 +178,9 @@ jobs:
           # rc>=2 真失败仍阻断（保留 Phase A `|| true` 击穿修复意图）
           $inspectJson = & python cad_pipeline.py sw-inspect --deep --json
           $cpRc = $LASTEXITCODE
-          $inspectJson | Set-Content -Path sw-inspect-deep.json -Encoding utf8
+          $artifactPath = Join-Path (Get-Location) 'sw-inspect-deep.json'
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($artifactPath, ($inspectJson -join [System.Environment]::NewLine), $utf8NoBom)
           if ($cpRc -ge 2) {
             echo "::error title=sw_inspect_fail::sw-inspect rc=$cpRc (severity=fail), blocking CI"
             exit $cpRc
