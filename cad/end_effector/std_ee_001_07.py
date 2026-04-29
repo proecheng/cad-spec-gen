@@ -15,10 +15,21 @@ import cadquery as cq
 
 def make_std_ee_001_07() -> cq.Workplane:
     """GIS-EE-001-07: 弹簧销组件（含弹簧） — simplified spring geometry."""
-    # Simplified disc spring: annular ring (stack approximation)
-    body = (cq.Workplane("XY")
-            .circle(5.0).circle(2.5).extrude(0.85)
-            )
+    # Semi-parametric spring pin assembly: pin barrel, tapered nose, retaining collars
+    body = cq.Workplane("XY").circle(1.76).extrude(16.85)
+    tip = (cq.Workplane("XY")
+           .circle(2.0)
+           .workplane(offset=3.2)
+           .circle(0.4)
+           .loft(combine=True)
+           .translate((0, 0, 16.8)))
+    body = body.union(tip)
+    for z in (0, 6.0, 12.4):
+        collar = (cq.Workplane("XY")
+                  .circle(2.0)
+                  .extrude(1.12)
+                  .translate((0, 0, z)))
+        body = body.union(collar)
     return body
 
 
