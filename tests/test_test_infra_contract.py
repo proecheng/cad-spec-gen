@@ -39,3 +39,12 @@ def test_local_runtime_noise_is_gitignored():
     ignore = (_ROOT / ".gitignore").read_text(encoding="utf-8")
     for pattern in (".coverage", "htmlcov/", ".serena/"):
         assert pattern in ignore
+
+
+def test_ci_upload_artifacts_use_node24_action_major():
+    workflow_paths = sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
+
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "actions/upload-artifact@v4" not in text
+        assert "actions/upload-artifact@v7" in text or "upload-artifact" not in text
