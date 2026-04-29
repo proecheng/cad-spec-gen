@@ -492,6 +492,142 @@ def _gen_cleaning_tape_cassette(dims: dict) -> str:
     return body"""
 
 
+def _gen_spring_pin_assembly(dims: dict) -> str:
+    d = dims.get("d", 4)
+    l = dims.get("l", 20)
+    tip_l = min(max(d * 0.8, 2.0), l * 0.28)
+    overlap = min(0.05, tip_l * 0.04)
+    stem_l = l - tip_l + overlap
+    stem_r = d * 0.44
+    tip_r = max(d * 0.10, 0.25)
+    collar_l = max(d * 0.28, 0.8)
+    return f"""    # Semi-parametric spring pin assembly: pin barrel, tapered nose, retaining collars
+    body = cq.Workplane("XY").circle({stem_r}).extrude({stem_l})
+    tip = (cq.Workplane("XY")
+           .circle({d / 2})
+           .workplane(offset={tip_l})
+           .circle({tip_r})
+           .loft(combine=True)
+           .translate((0, 0, {stem_l - overlap})))
+    body = body.union(tip)
+    for z in (0, {l * 0.30}, {l * 0.62}):
+        collar = (cq.Workplane("XY")
+                  .circle({d / 2})
+                  .extrude({collar_l})
+                  .translate((0, 0, z)))
+        body = body.union(collar)
+    return body"""
+
+
+def _gen_mini_dc_motor(dims: dict) -> str:
+    d = dims.get("d", 16)
+    l = dims.get("l", 30)
+    shaft_d = dims.get("shaft_d", 2)
+    shaft_l = min(dims.get("shaft_l", 8), max(l * 0.18, 3.0))
+    rear_l = max(l * 0.08, 1.8)
+    front_l = max(l * 0.09, 2.0)
+    can_l = l - rear_l - front_l
+    terminal_w = max(d * 0.10, 1.2)
+    terminal_l = max(d * 0.18, 2.0)
+    terminal_h = max(rear_l * 0.35, 0.6)
+    return f"""    # Semi-parametric mini DC motor: can, end caps, recessed shaft, rear terminals
+    can = cq.Workplane("XY").circle({d / 2}).extrude({can_l}).translate((0, 0, {rear_l}))
+    rear = cq.Workplane("XY").circle({d * 0.46}).extrude({rear_l})
+    front = cq.Workplane("XY").circle({d * 0.47}).extrude({front_l}).translate((0, 0, {rear_l + can_l}))
+    shaft = cq.Workplane("XY").circle({shaft_d / 2}).extrude({shaft_l}).translate((0, 0, {l - shaft_l}))
+    body = can.union(rear).union(front).union(shaft)
+    for y in ({-d * 0.18}, {d * 0.18}):
+        tab = (cq.Workplane("XY")
+               .center({d * 0.30}, y)
+               .box({terminal_w}, {terminal_l}, {terminal_h}, centered=(True, True, False))
+               .translate((0, 0, {rear_l * 0.20})))
+        body = body.union(tab)
+    return body"""
+
+
+def _gen_gear_train_reducer(dims: dict) -> str:
+    w = dims.get("w", dims.get("d", 25))
+    d = dims.get("d", 25)
+    h = dims.get("h", dims.get("l", 35))
+    shaft_d = dims.get("shaft_d", 6)
+    housing_h = h * 0.70
+    cover_h = max(h * 0.10, 3.0)
+    gear_r = min(w, d) * 0.16
+    boss_h = max(h * 0.08, 2.4)
+    shaft_h = max(h - housing_h - cover_h - boss_h, h * 0.08)
+    shaft_h = min(shaft_h, h * 0.14)
+    return f"""    # Semi-parametric gear train reducer: gearbox case, visible gear pair, output boss
+    body = cq.Workplane("XY").box({w * 0.86}, {d * 0.72}, {housing_h}, centered=(True, True, False))
+    cover = (cq.Workplane("XY")
+             .box({w * 0.78}, {d * 0.64}, {cover_h}, centered=(True, True, False))
+             .translate((0, 0, {housing_h})))
+    body = body.union(cover)
+    for x in ({-gear_r * 1.12}, {gear_r * 1.12}):
+        gear = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({gear_r})
+                .circle({gear_r * 0.34})
+                .extrude({cover_h * 0.65})
+                .translate((0, 0, {housing_h + cover_h * 0.35})))
+        body = body.union(gear)
+    boss_z = {h} - {shaft_h} - {boss_h}
+    boss = cq.Workplane("XY").circle({shaft_d * 0.75}).extrude({boss_h}).translate((0, 0, boss_z))
+    shaft = cq.Workplane("XY").circle({shaft_d / 2}).extrude({shaft_h}).translate((0, 0, {h - shaft_h}))
+    body = body.union(boss).union(shaft)
+    return body"""
+
+
+def _gen_constant_force_spring(dims: dict) -> str:
+    od = dims.get("od", dims.get("d", 10))
+    h = dims.get("h", dims.get("t", 0.85))
+    inner_d = min(max(dims.get("id", od * 0.5), od * 0.28), od * 0.72)
+    strip_w = max(od * 0.16, 1.0)
+    return f"""    # Semi-parametric constant force spring: flat coil, hub, restrained strip tail
+    coil = (cq.Workplane("XY")
+            .circle({od / 2})
+            .circle({inner_d / 2})
+            .extrude({h}))
+    hub = cq.Workplane("XY").circle({inner_d * 0.22}).extrude({h})
+    tail = (cq.Workplane("XY")
+            .center({od * 0.12}, {-od * 0.22})
+            .box({od * 0.54}, {strip_w}, {h}, centered=(True, True, False)))
+    body = coil.union(hub).union(tail)
+    return body"""
+
+
+def _gen_photoelectric_encoder(dims: dict) -> str:
+    w = dims.get("w", dims.get("d", 15))
+    d = dims.get("d", 15)
+    h = dims.get("h", dims.get("l", 12))
+    base_h = h * 0.52
+    face_h = h * 0.14
+    lens_h = h * 0.08
+    return f"""    # Semi-parametric photoelectric encoder: sensor body, optical window, mounting ears
+    body = cq.Workplane("XY").box({w * 0.72}, {d * 0.62}, {base_h}, centered=(True, True, False))
+    face = (cq.Workplane("XY")
+            .center(0, {d * 0.14})
+            .box({w * 0.42}, {d * 0.18}, {face_h}, centered=(True, True, False))
+            .translate((0, 0, {base_h})))
+    body = body.union(face)
+    for x in ({-w * 0.11}, {w * 0.11}):
+        lens = (cq.Workplane("XY")
+                .center(x, {d * 0.14})
+                .circle({w * 0.055})
+                .extrude({lens_h})
+                .translate((0, 0, {base_h + face_h})))
+        body = body.union(lens)
+    for x in ({-w * 0.42}, {w * 0.42}):
+        ear = (cq.Workplane("XY")
+               .center(x, 0)
+               .box({w * 0.14}, {d * 0.46}, {base_h * 0.36}, centered=(True, True, False)))
+        body = body.union(ear)
+    cable = (cq.Workplane("XY")
+             .center(0, {-d * 0.38})
+             .box({w * 0.34}, {d * 0.16}, {h * 0.28}, centered=(True, True, False)))
+    body = body.union(cable)
+    return body"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
@@ -643,6 +779,67 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         return {
             "template": "cleaning_tape_cassette",
             "body_code": _gen_cleaning_tape_cassette(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "spring" and _contains_any(text, ["弹簧销", "锥形头"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 4)
+        tpl_dims.setdefault("l", 20)
+        return {
+            "template": "spring_pin_assembly",
+            "body_code": _gen_spring_pin_assembly(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "motor" and _contains_any(text, ["微型电机", "DC 3V", "Φ16"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("d", 16)
+        tpl_dims.setdefault("l", 30)
+        return {
+            "template": "mini_dc_motor",
+            "body_code": _gen_mini_dc_motor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "reducer" and _contains_any(text, ["齿轮减速", "塑料齿轮", "收带卷轴"]):
+        tpl_dims = {
+            "w": dims.get("w", dims.get("d", 25)),
+            "d": dims.get("d", dims.get("w", 25)),
+            "h": dims.get("h", dims.get("l", 35)),
+            "shaft_d": dims.get("shaft_d", 6),
+        }
+        return {
+            "template": "gear_train_reducer",
+            "body_code": _gen_gear_train_reducer(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "spring" and _contains_any(text, ["恒力弹簧", "供带侧张力", "SUS301"]):
+        tpl_dims = dict(dims)
+        tpl_dims.setdefault("od", tpl_dims.get("d", 10))
+        tpl_dims.setdefault("id", tpl_dims["od"] * 0.5)
+        tpl_dims.setdefault("h", tpl_dims.get("t", 0.85))
+        return {
+            "template": "constant_force_spring",
+            "body_code": _gen_constant_force_spring(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "sensor" and _contains_any(text, ["光电编码器", "反射式"]):
+        tpl_dims = {
+            "w": dims.get("w", dims.get("d", 15)),
+            "d": dims.get("d", dims.get("w", 15)),
+            "h": dims.get("h", dims.get("l", 12)),
+        }
+        return {
+            "template": "photoelectric_encoder",
+            "body_code": _gen_photoelectric_encoder(tpl_dims),
             "dims": tpl_dims,
             "metadata": {},
         }

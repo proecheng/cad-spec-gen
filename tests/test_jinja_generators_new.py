@@ -317,3 +317,135 @@ def test_end_effector_ffc_spec_envelope_matches_template_dims() -> None:
 
     assert envelopes["GIS-EE-001-09"]["dims"] == (12.0, 50.0, 1.0)
     assert envelopes["GIS-EE-001-09"]["granularity"] == "part_envelope"
+
+
+def test_end_effector_p3_spec_envelopes_match_template_dims() -> None:
+    from codegen.gen_assembly import parse_envelopes
+
+    spec_path = _REPO_ROOT / "cad" / "end_effector" / "CAD_SPEC.md"
+    envelopes = parse_envelopes(str(spec_path))
+
+    expected = {
+        "GIS-EE-001-07": (4.0, 4.0, 20.0),
+        "GIS-EE-004-03": (16.0, 16.0, 30.0),
+        "GIS-EE-004-04": (25.0, 25.0, 35.0),
+        "GIS-EE-004-06": (10.0, 10.0, 0.85),
+        "GIS-EE-004-07": (15.0, 15.0, 12.0),
+    }
+
+    for part_no, dims in expected.items():
+        assert envelopes[part_no]["dims"] == dims
+        assert envelopes[part_no]["granularity"] == "part_envelope"
+
+
+# ── P3 motion / cleaning drive semi-parametric templates ──────────────────
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "template_id", "body_marker", "dims"),
+    [
+        (
+            "spring",
+            "弹簧销组件（含弹簧）",
+            "Φ4×20mm锥形头",
+            "spring_pin_assembly",
+            "spring pin assembly",
+            (4.0, 4.0, 20.0),
+        ),
+        (
+            "motor",
+            "微型电机",
+            "DC 3V Φ16mm",
+            "mini_dc_motor",
+            "mini DC motor",
+            (16, 16, 30),
+        ),
+        (
+            "reducer",
+            "齿轮减速组（电机→收带卷轴）",
+            "塑料齿轮",
+            "gear_train_reducer",
+            "gear train reducer",
+            (25, 25, 35),
+        ),
+        (
+            "spring",
+            "恒力弹簧（供带侧张力）",
+            "SUS301, 0.3N",
+            "constant_force_spring",
+            "constant force spring",
+            (10, 10, 0.85),
+        ),
+        (
+            "sensor",
+            "光电编码器（带面余量）",
+            "反射式",
+            "photoelectric_encoder",
+            "photoelectric encoder",
+            (15, 15, 12),
+        ),
+    ],
+)
+def test_p3_motion_cleaning_parts_use_specialized_templates(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    template_id: str,
+    body_marker: str,
+    dims: tuple[float, float, float],
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.status == "hit"
+    assert result.kind == "codegen"
+    assert result.geometry_source == "JINJA_TEMPLATE"
+    assert result.geometry_quality == "C"
+    assert result.requires_model_review is True
+    assert result.metadata["template"] == template_id
+    assert result.real_dims == dims
+    assert body_marker in result.body_code
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("spring", "弹簧销组件（含弹簧）", "Φ4×20mm锥形头"),
+        ("motor", "微型电机", "DC 3V Φ16mm"),
+        ("reducer", "齿轮减速组（电机→收带卷轴）", "塑料齿轮"),
+        ("spring", "恒力弹簧（供带侧张力）", "SUS301, 0.3N"),
+        ("sensor", "光电编码器（带面余量）", "反射式"),
+    ],
+)
+def test_p3_template_geometry_stays_within_reported_real_dims(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    import cadquery as cq
+
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+    namespace = {"cq": cq}
+    exec(f"def _make():\n{result.body_code}\n", namespace)
+    shape = namespace["_make"]()
+    bbox = shape.val().BoundingBox()
+
+    actual = (bbox.xlen, bbox.ylen, bbox.zlen)
+    assert result.real_dims is not None
+    for measured, expected in zip(actual, result.real_dims):
+        assert measured <= expected + 1e-6
+
+
+def test_disc_spring_does_not_use_motion_specific_templates(
+    adapter: JinjaPrimitiveAdapter,
+) -> None:
+    result = adapter.resolve(
+        _q("spring", name="碟簧垫圈", material="DIN 2093 A6"),
+        {},
+    )
+
+    assert result.metadata.get("template") not in {
+        "spring_pin_assembly",
+        "constant_force_spring",
+    }
+    assert result.source_tag == "jinja_primitive:spring"
