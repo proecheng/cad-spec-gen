@@ -87,6 +87,15 @@ def _md_table(columns: list, rows: list) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _fmt_gap(value) -> str:
+    """Format an axial gap value for CAD_SPEC tables without float noise."""
+    try:
+        gap = float(value)
+    except (TypeError, ValueError):
+        return "0"
+    return f"{gap:g}"
+
+
 def _apply_exclude_markers(data: dict):
     """Cross-reference negative constraints to mark excluded assemblies."""
     constraints = data.get("render_plan", {}).get("constraints", [])
@@ -304,8 +313,10 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     sections.append("")
     connections = data.get("connections", [])
     sections.append(_md_table(
-        ["零件A", "零件B", "连接类型", "配合代号", "预紧力矩", "装配顺序"],
-        [[c["partA"], c["partB"], c["type"], c["fit"], c["torque"], str(c["order"])]
+        ["零件A", "零件B", "连接类型", "配合代号", "预紧力矩",
+         "轴向间隙(mm)", "装配顺序"],
+        [[c["partA"], c["partB"], c["type"], c["fit"], c["torque"],
+          _fmt_gap(c.get("axial_gap", 0.0)), str(c["order"])]
          for c in connections]
     ))
 

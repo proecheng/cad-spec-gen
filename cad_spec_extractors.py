@@ -613,6 +613,7 @@ def extract_connection_matrix(lines: list, fasteners: list,
             "type": b.get("connection", ""),
             "fit": "",
             "torque": "",
+            "axial_gap": _parse_axial_gap(b.get("offset", "")),
             "order": order,
         })
 
@@ -638,18 +639,45 @@ def extract_connection_matrix(lines: list, fasteners: list,
         a_i = next((i for i, c in enumerate(cols) if "零件a" in c or "部件a" in c), 0)
         b_i = next((i for i, c in enumerate(cols) if "零件b" in c or "部件b" in c), 1)
         type_i = next((i for i, c in enumerate(cols) if "类型" in c or "连接" in c), -1)
+        gap_i = next(
+            (
+                i for i, c in enumerate(cols)
+                if "axial_gap" in c
+                or ("轴向" in c and ("间隙" in c or "距离" in c))
+                or "面间距" in c
+            ),
+            -1,
+        )
         for row in tbl["rows"]:
             pa = row[a_i].strip() if a_i < len(row) else ""
             pb = row[b_i].strip() if b_i < len(row) else ""
+            type_text = row[type_i].strip() if type_i >= 0 and type_i < len(row) else ""
+            gap_text = row[gap_i].strip() if gap_i >= 0 and gap_i < len(row) else ""
+            axial_gap = _parse_axial_gap(gap_text, force_numeric=gap_i >= 0)
+            if axial_gap == 0.0:
+                axial_gap = _parse_axial_gap(type_text)
             if (pa, pb) in existing_pairs or (pb, pa) in existing_pairs:
+                for conn in connections:
+                    if (
+                        (conn["partA"], conn["partB"]) == (pa, pb)
+                        or (conn["partA"], conn["partB"]) == (pb, pa)
+                    ):
+                        if type_text and not conn.get("type"):
+                            conn["type"] = type_text
+                        if axial_gap:
+                            conn["axial_gap"] = axial_gap
+                        break
                 continue
             existing_pairs.add((pa, pb))
             order += 1
             connections.append({
                 "partA": pa,
                 "partB": pb,
-                "type": row[type_i].strip() if type_i >= 0 and type_i < len(row) else "",
-                "fit": "", "torque": "", "order": order,
+                "type": type_text,
+                "fit": "",
+                "torque": "",
+                "axial_gap": axial_gap,
+                "order": order,
             })
 
     # Extract ISO fit codes from connection type text (e.g. "H7/k6", "H7/h6")
@@ -658,8 +686,39 @@ def extract_connection_matrix(lines: list, fasteners: list,
             fit_match = re.search(r'([A-Z]\d+/[a-z]\d+)', conn.get("type", ""))
             if fit_match:
                 conn["fit"] = fit_match.group(1)
+        conn.setdefault("axial_gap", 0.0)
 
     return connections
+
+
+def _parse_axial_gap(text: str, force_numeric: bool = False) -> float:
+    """Parse explicit axial gap text into a non-negative millimetre value.
+
+    Plain placement offsets such as ``Z=+73mm`` are intentionally ignored;
+    only text that names a gap/distance, or a dedicated axial-gap column, is
+    treated as a gap between mating faces.
+    """
+    if not text:
+        return 0.0
+    normalized = str(text).strip().replace("，", ",")
+    if force_numeric:
+        m = re.search(r"([+-]?\d+(?:\.\d+)?)", normalized)
+        return max(0.0, float(m.group(1))) if m else 0.0
+    lower = normalized.lower()
+    if ("径向" in normalized or "radial" in lower) and not (
+        "轴向" in normalized or "axial" in lower or "面间距" in normalized
+    ):
+        return 0.0
+    patterns = [
+        r"(?:轴向(?:间隙|距离)|axial\s*gap|面间距)\s*(?:=|:|：|约|≈|为)?\s*([+-]?\d+(?:\.\d+)?)\s*(?:mm)?",
+        r"([+-]?\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:轴向(?:间隙|距离)|axial\s*gap|面间距)",
+        r"(?:垫片|碟簧|隔套|隔圈|spacer|shim)\S{0,12}(?:间隙|gap)\s*(?:=|:|：|约|≈|为)?\s*([+-]?\d+(?:\.\d+)?)\s*(?:mm)?",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, normalized, re.IGNORECASE)
+        if m:
+            return max(0.0, float(m.group(1)))
+    return 0.0
 
 
 # ─── 6. 装配姿态与定位 ───────────────────────────────────────────────────

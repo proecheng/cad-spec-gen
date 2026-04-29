@@ -18,8 +18,8 @@
 | `docs/superpowers/plans` unchecked checklist | 2661 条 | 历史计划残留；不作为活跃 TODO |
 | `docs/superpowers/specs` unchecked checklist | 90 条 | 历史 spec 验收/风险记录；仅复制到活跃 Backlog 后才继续执行 |
 | `docs/superpowers/reports` unchecked checklist | 0 条 | 当前报告无未闭环 checklist |
-| `cad/` 生成样例 `TODO:` | 51 条，11 个文件 | 样例/脚手架质量债；不阻塞当前模型库审查闭环 |
-| 非 `cad/` 源码/模板 TODO | 5 个文件 | 其中多数是 Gate-2 机制或模板默认占位；真实功能债见 Backlog |
+| `cad/` 生成样例 `TODO:` | 0 条 | TODO-B3 已清理；由 `tests/test_sample_scaffolds_clean.py` 守护 |
+| 非 `cad/` 源码/模板 TODO | 保留 | Gate-2 机制、模板默认占位、设计文档模板占位按下文“不再作为活跃 TODO”处理 |
 
 ## 活跃 Backlog
 
@@ -27,7 +27,7 @@
 |---|---|---|---|---|
 | TODO-B1 | P2 | `adapters/parts/step_pool_adapter.py` 的 `spec.file_template` | 已完成：支持 `{normalize(name)}.step` 类模板查找；`file` 优先于 `file_template`；相对路径禁止 `../` 逃逸；新增 adapter/resolver 回归测试 | `tests/test_parts_adapters.py::TestStepPoolAdapter` 与 `tests/test_parts_resolver.py::TestResolverDispatch` 覆盖 |
 | TODO-B2 | P1 | 真实 SolidWorks Toolbox/模型库端到端验收 | 已完成：`cad_pipeline.py sw-toolbox-e2e` 与 `sw-smoke full=true` gate 已通过 self-hosted Windows 真实 SolidWorks 验收 | GitHub run `25064438363` 通过，已随 v2.23.0 发布 |
-| TODO-B3 | P2 | 生成模型质量与样例脚手架清理 | `cad/` 下 51 个 `TODO:` 多为旧生成模型的坐标系/几何占位；`axial_gap` 仍为 P3 精度债 | 重新生成或归档旧 `cad/` 样例；关键样例无裸 `TODO:`；`axial_gap` 能从连接矩阵填充并有单测覆盖 |
+| TODO-B3 | P2 | 生成模型质量与样例脚手架清理 | 已完成：`cad/` 旧样例裸 `TODO:` 清零；`axial_gap` 可从连接矩阵显式轴向间隙字段填充，并参与串联堆叠偏移计算 | `tests/test_connection_matrix_axial_gap.py`、`tests/test_gen_assembly.py`、`tests/test_sample_scaffolds_clean.py` 覆盖 |
 
 ## 明确不再作为活跃 TODO 的内容
 
@@ -61,5 +61,5 @@ python -m mypy --platform=win32 adapters/solidworks/sw_config_broker.py
 
 ## 后续执行建议
 
-1. TODO-B1/TODO-B2 已闭环，后续只需在 PR/Release 中保留测试证据。
-2. 最后做 TODO-B3：清理旧样例和 `axial_gap` 精度债，让仓库视觉上也更像一个已收口项目。
+1. TODO-B1/TODO-B2/TODO-B3 均已闭环，后续只需在 PR/Release 中保留测试证据。
+2. 若继续提升模型质量，下一轮应另开新 backlog，聚焦具体样例的几何重生成或真实 STEP 替换，而不是清理历史 TODO 文案。
