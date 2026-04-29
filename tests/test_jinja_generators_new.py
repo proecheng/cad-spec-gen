@@ -338,6 +338,25 @@ def test_end_effector_p3_spec_envelopes_match_template_dims() -> None:
         assert envelopes[part_no]["granularity"] == "part_envelope"
 
 
+def test_end_effector_p4_spec_envelopes_match_template_dims() -> None:
+    from codegen.gen_assembly import parse_envelopes
+
+    spec_path = _REPO_ROOT / "cad" / "end_effector" / "CAD_SPEC.md"
+    envelopes = parse_envelopes(str(spec_path))
+
+    expected = {
+        "GIS-EE-001-04": (12.5, 12.5, 0.85),
+        "GIS-EE-003-05": (20.0, 20.0, 20.0),
+        "GIS-EE-003-07": (12.0, 12.0, 7.0),
+        "GIS-EE-004-05": (20.0, 15.0, 5.0),
+        "GIS-EE-004-10": (14.0, 14.0, 13.0),
+    }
+
+    for part_no, dims in expected.items():
+        assert envelopes[part_no]["dims"] == dims
+        assert envelopes[part_no]["granularity"] == "part_envelope"
+
+
 # ── P3 motion / cleaning drive semi-parametric templates ──────────────────
 
 @pytest.mark.parametrize(
@@ -448,7 +467,7 @@ def test_disc_spring_does_not_use_motion_specific_templates(
         "spring_pin_assembly",
         "constant_force_spring",
     }
-    assert result.source_tag == "jinja_primitive:spring"
+    assert result.metadata["template"] == "belleville_spring_washer"
 
 
 @pytest.mark.parametrize(
@@ -489,3 +508,113 @@ def test_p3_motion_templates_require_specific_part_intent(
 
     assert result.metadata.get("template") != forbidden_template
     assert result.source_tag == source_tag
+
+
+# ── P4 remaining D-grade small hardware templates ─────────────────────────
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "template_id", "body_marker", "dims"),
+    [
+        (
+            "spring",
+            "碟形弹簧垫圈",
+            "DIN 2093 A6",
+            "belleville_spring_washer",
+            "Belleville spring washer",
+            (12.5, 12.5, 0.85),
+        ),
+        (
+            "other",
+            "阻尼垫",
+            "黏弹性硅橡胶",
+            "viscoelastic_damping_pad",
+            "viscoelastic damping pad",
+            (15, 15, 10),
+        ),
+        (
+            "other",
+            "配重块",
+            "钨合金Φ12×7mm/50g",
+            "tungsten_counterweight_slug",
+            "tungsten counterweight slug",
+            (12.0, 12.0, 7.0),
+        ),
+        (
+            "other",
+            "弹性衬垫",
+            "硅橡胶Shore A 30, 20×15×5mm",
+            "elastomer_cushion_pad",
+            "elastomer cushion pad",
+            (20.0, 15.0, 5.0),
+        ),
+        (
+            "other",
+            "配重块",
+            "钨合金Φ14×13mm/120g",
+            "tungsten_counterweight_slug",
+            "tungsten counterweight slug",
+            (14.0, 14.0, 13.0),
+        ),
+    ],
+)
+def test_p4_remaining_d_grade_parts_use_specialized_templates(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    template_id: str,
+    body_marker: str,
+    dims: tuple[float, float, float],
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.status == "hit"
+    assert result.kind == "codegen"
+    assert result.geometry_source == "JINJA_TEMPLATE"
+    assert result.geometry_quality == "C"
+    assert result.requires_model_review is True
+    assert result.metadata["template"] == template_id
+    assert result.real_dims == dims
+    assert body_marker in result.body_code
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("spring", "碟形弹簧垫圈", "DIN 2093 A6"),
+        ("other", "阻尼垫", "黏弹性硅橡胶"),
+        ("other", "配重块", "钨合金Φ12×7mm/50g"),
+        ("other", "弹性衬垫", "硅橡胶Shore A 30, 20×15×5mm"),
+        ("other", "配重块", "钨合金Φ14×13mm/120g"),
+    ],
+)
+def test_p4_remaining_d_grade_geometry_stays_within_reported_real_dims(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    import cadquery as cq
+
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+    namespace = {"cq": cq}
+    exec(f"def _make():\n{result.body_code}\n", namespace)
+    shape = namespace["_make"]()
+    bbox = shape.val().BoundingBox()
+
+    actual = (bbox.xlen, bbox.ylen, bbox.zlen)
+    assert result.real_dims is not None
+    for measured, expected in zip(actual, result.real_dims):
+        assert measured <= expected + 1e-6
+
+
+def test_generic_other_cylinder_does_not_use_counterweight_template(
+    adapter: JinjaPrimitiveAdapter,
+) -> None:
+    result = adapter.resolve(
+        _q("other", name="普通圆柱垫块", material="铝合金Φ12×7mm"),
+        {},
+    )
+
+    assert result.metadata.get("template") != "tungsten_counterweight_slug"
+    assert result.source_tag == "jinja_primitive:other"

@@ -15,8 +15,16 @@ import cadquery as cq
 
 def make_std_ee_004_10() -> cq.Workplane:
     """GIS-EE-004-10: 配重块 — simplified other geometry."""
-    # Generic cylindrical block
+    # Semi-parametric tungsten counterweight slug: dense chamfered tuning mass
     body = cq.Workplane("XY").circle(7.0).extrude(13.0)
+    body = body.faces(">Z").edges().chamfer(0.56)
+    body = body.faces("<Z").edges().chamfer(0.56)
+    top_mark = (cq.Workplane("XY")
+                .circle(6.02)
+                .circle(4.936399999999999)
+                .extrude(0.8)
+                .translate((0, 0, 12.2)))
+    body = body.union(top_mark)
     return body
 
 
