@@ -9,7 +9,7 @@ BOM: GIS-EE-003-03 弹簧限力机构总成
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
 │ Local origin : Center of body XY, bottom face at Z=0
-│ Principal axis: Box on XY, height along +Z (20.0mm)
+│ Principal axis: Cylinder/spring stack on XY, height along +Z (16.0mm)
 │ Assembly orient: Polar R=65.0mm θ=90.0°, axis: **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面** — per §6.2
 │ Design doc ref : §6.2 弹簧限力机构总成 (GIS-EE-003-03) — **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面**
 └──────────────────────────────────────────────────────────────────────────┘
@@ -26,21 +26,40 @@ from params import *
 def make_ee_003_03() -> cq.Workplane:
     """GIS-EE-003-03: 弹簧限力机构总成 — 见§4.1.2零件表
 
-    Envelope: 40.0 x 40.0 x 20.0 mm
+    Envelope: 20.0 x 20.0 x 16.0 mm
     Weight: ?g
 
-    Axis: Box on XY, height along +Z (20.0mm)
+    Axis: Cylinder/spring stack on XY, height along +Z (16.0mm)
     Doc:  §6.2 弹簧限力机构总成 (GIS-EE-003-03) — **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面**
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: Box on XY, height along +Z (20.0mm)
+    # Principal axis: Cylinder/spring stack on XY, height along +Z (16.0mm)
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
-    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
-    #       Refine with actual geometry citing design-doc lines.
-    body = cq.Workplane("XY").box(
-        40.0, 40.0, 20.0,
-        centered=(True, True, False))  # § refine with real geometry
+    # §7 calls out a tight helix coil spring in sleeve, OD=8mm, ~6 turns.
+    body = (cq.Workplane("XY")
+            .circle(10.0).circle(4.0)
+            .extrude(2.0))
+    top_ring = (cq.Workplane("XY")
+                .circle(10.0).circle(4.0)
+                .extrude(2.0)
+                .translate((0, 0, 14.0)))
+    body = body.union(top_ring)
+    guide = cq.Workplane("XY").circle(2.0).extrude(16.0)
+    body = body.union(guide)
+    for i in range(6):
+        z = 2.6 + i * 1.9
+        coil = (cq.Workplane("XY")
+                .circle(4.0).circle(2.7)
+                .extrude(0.75)
+                .translate((0, 0, z)))
+        body = body.union(coil)
+    for x in (-6.6, 6.6):
+        post = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle(1.0)
+                .extrude(16.0))
+        body = body.union(post)
 
     return body
 

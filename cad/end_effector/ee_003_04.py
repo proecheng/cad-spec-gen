@@ -9,7 +9,7 @@ BOM: GIS-EE-003-04 柔性关节（万向节）
 
 ┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
 │ Local origin : Center of body XY, bottom face at Z=0
-│ Principal axis: Box on XY, height along +Z (20.0mm)
+│ Principal axis: Rubber universal joint on XY, height along +Z (15.0mm)
 │ Assembly orient: Polar R=65.0mm θ=90.0°, axis: **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面** — per §6.2
 │ Design doc ref : §6.2 柔性关节（万向节） (GIS-EE-003-04) — **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面**
 └──────────────────────────────────────────────────────────────────────────┘
@@ -26,21 +26,39 @@ from params import *
 def make_ee_003_04() -> cq.Workplane:
     """GIS-EE-003-04: 柔性关节（万向节） — 硅橡胶Shore A 40
 
-    Envelope: 40.0 x 40.0 x 20.0 mm
+    Envelope: 20.0 x 20.0 x 15.0 mm
     Weight: ?g
 
-    Axis: Box on XY, height along +Z (20.0mm)
+    Axis: Rubber universal joint on XY, height along +Z (15.0mm)
     Doc:  §6.2 柔性关节（万向节） (GIS-EE-003-04) — **串联堆叠轴沿-Z（垂直向下），弹簧轴⊥法兰面**
     """
     # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: Box on XY, height along +Z (20.0mm)
+    # Principal axis: Rubber universal joint on XY, height along +Z (15.0mm)
     # If this part needs a non-Z extrusion direction, document WHY here.
     #
-    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
-    #       Refine with actual geometry citing design-doc lines.
-    body = cq.Workplane("XY").box(
-        40.0, 40.0, 20.0,
-        centered=(True, True, False))  # § refine with real geometry
+    # §7 gives black rubber universal joint, Φ20×15, at the AE stack bottom.
+    lower = cq.Workplane("XY").circle(10.0).extrude(3.0)
+    waist = (cq.Workplane("XY")
+             .circle(7.0)
+             .extrude(9.0)
+             .translate((0, 0, 3.0)))
+    upper = (cq.Workplane("XY")
+             .circle(10.0)
+             .extrude(3.0)
+             .translate((0, 0, 12.0)))
+    body = lower.union(waist).union(upper)
+    for z in (4.6, 7.5, 10.4):
+        rib = (cq.Workplane("XY")
+               .circle(8.6).circle(6.5)
+               .extrude(0.8)
+               .translate((0, 0, z)))
+        body = body.union(rib)
+    for angle in (0, 90):
+        slot = (cq.Workplane("XY")
+                .box(3.0, 16.0, 1.0, centered=(True, True, False))
+                .translate((0, 0, 7.0))
+                .rotate((0, 0, 0), (0, 0, 1), angle))
+        body = body.cut(slot)
 
     return body
 
