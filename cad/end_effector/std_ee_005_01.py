@@ -15,8 +15,17 @@ import cadquery as cq
 
 def make_std_ee_005_01() -> cq.Workplane:
     """GIS-EE-005-01: I300-UHF-GT传感器 — simplified sensor geometry."""
-    # Simplified sensor: cylinder
+    # Semi-parametric UHF sensor: cylindrical body, antenna face, cable exit
     body = cq.Workplane("XY").circle(22.5).extrude(60)
+    face = cq.Workplane("XY").circle(19.35).extrude(1.8).translate((0, 0, 60))
+    antenna = (cq.Workplane("XY")
+               .box(26.099999999999998, 7.2, 1.8, centered=(True, True, False))
+               .translate((0, 0, 61.8)))
+    cable = (cq.Workplane("YZ")
+             .circle(2.025)
+             .extrude(18.9)
+             .translate((22.5, 0, 34.8)))
+    body = body.union(face).union(antenna).union(cable)
     return body
 
 

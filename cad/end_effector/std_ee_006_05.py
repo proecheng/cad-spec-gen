@@ -15,8 +15,12 @@ import cadquery as cq
 
 def make_std_ee_006_05() -> cq.Workplane:
     """GIS-EE-006-05: SMA穿壁连接器 — simplified connector geometry."""
-    # Simplified round connector
-    body = cq.Workplane("XY").circle(3.25).extrude(15)
+    # Semi-parametric SMA bulkhead connector: coax barrel, hex nut, center pin
+    barrel = cq.Workplane("XY").circle(3.25).extrude(15)
+    hex_nut = cq.Workplane("XY").polygon(6, 10.725).extrude(2.47).translate((0, 0, 6.3))
+    rear_thread = cq.Workplane("XY").circle(2.47).extrude(4.2).translate((0, 0, 15))
+    center_pin = cq.Workplane("XY").circle(0.52).extrude(2.6999999999999997).translate((0, 0, -2.6999999999999997))
+    body = barrel.union(hex_nut).union(rear_thread).union(center_pin)
     return body
 
 

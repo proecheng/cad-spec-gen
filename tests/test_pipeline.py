@@ -138,6 +138,85 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
             "cmd_render 至少有一个 _run_subprocess 调用必须带 env= kwarg",
         )
 
+    @mock.patch("cad_pipeline._build_blender_env")
+    @mock.patch("cad_pipeline._run_subprocess")
+    @mock.patch("cad_pipeline.get_subsystem_dir")
+    @mock.patch("cad_pipeline.get_blender_path")
+    def test_cmd_render_normalizes_relative_output_dir(
+        self,
+        mock_get_blender_path,
+        mock_get_subsystem_dir,
+        mock_run_subprocess,
+        mock_build_blender_env,
+    ):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            subsystem_dir = os.path.join(td, "end_effector")
+            os.makedirs(subsystem_dir)
+            open(os.path.join(subsystem_dir, "render_3d.py"), "w").close()
+            with open(
+                os.path.join(subsystem_dir, "render_config.json"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                json.dump({"camera": {"V1": {"type": "standard"}}}, f)
+
+            cwd = os.getcwd()
+            try:
+                os.chdir(td)
+                relative_output_dir = os.path.join("artifacts", "renders")
+                expected_output_dir = os.path.abspath(relative_output_dir)
+
+                def fake_run(cmd, label, dry_run=False, timeout=600, env=None):
+                    output_idx = cmd.index("--output-dir")
+                    actual_output_dir = cmd[output_idx + 1]
+                    self.assertTrue(
+                        os.path.isabs(actual_output_dir),
+                        "Blender 子进程必须收到绝对 output-dir，避免 cwd 漂移",
+                    )
+                    self.assertEqual(
+                        os.path.normcase(actual_output_dir),
+                        os.path.normcase(expected_output_dir),
+                    )
+                    os.makedirs(actual_output_dir, exist_ok=True)
+                    with open(
+                        os.path.join(actual_output_dir, "V1_front_20260101_0000.png"),
+                        "wb",
+                    ) as png:
+                        png.write(b"png")
+                    return True, 0.1
+
+                mock_get_blender_path.return_value = os.path.join(td, "blender.exe")
+                mock_get_subsystem_dir.return_value = subsystem_dir
+                mock_build_blender_env.return_value = {}
+                mock_run_subprocess.side_effect = fake_run
+
+                rc = cad_pipeline.cmd_render(
+                    SimpleNamespace(
+                        subsystem="end_effector",
+                        view="V1",
+                        timestamp=True,
+                        output_dir=relative_output_dir,
+                        dry_run=False,
+                    )
+                )
+
+                self.assertEqual(rc, 0)
+                manifest_path = os.path.join(
+                    expected_output_dir, "render_manifest.json"
+                )
+                self.assertTrue(os.path.isfile(manifest_path))
+                with open(manifest_path, encoding="utf-8") as f:
+                    manifest = json.load(f)
+                self.assertEqual(
+                    os.path.normcase(manifest["render_dir"]),
+                    os.path.normcase(expected_output_dir),
+                )
+            finally:
+                os.chdir(cwd)
+
 
 class TestRunSubprocessEnvPassthrough(unittest.TestCase):
     """A1-0b: _run_subprocess 必须接受可选 env 参数并透传 subprocess.run。
