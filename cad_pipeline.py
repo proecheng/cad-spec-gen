@@ -1721,6 +1721,8 @@ def cmd_render(args):
 
     failures = 0
     _custom_output_dir = getattr(args, "output_dir", None)
+    if _custom_output_dir:
+        _custom_output_dir = os.path.abspath(_custom_output_dir)
     _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
     _pre_existing = (
         set(glob.glob(os.path.join(_renders_dir_pre, "V*.png")))
