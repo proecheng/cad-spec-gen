@@ -15,8 +15,19 @@ import cadquery as cq
 
 def make_std_ee_004_08() -> cq.Workplane:
     """GIS-EE-004-08: 溶剂储罐（活塞式正压密封） — simplified tank geometry."""
-    # Simplified tank: cylinder with domed ends
+    # Semi-parametric solvent cartridge: piston tank, seal caps, M8 quick connector
     body = cq.Workplane("XY").circle(12.5).extrude(110.0)
+    seal_cap = cq.Workplane("XY").circle(12.0).extrude(6.6)
+    body = body.union(seal_cap).union(seal_cap.translate((0, 0, 103.4)))
+    plunger = (cq.Workplane("XY")
+               .circle(2.75)
+               .extrude(17.6)
+               .translate((0, 0, 92.4)))
+    m8_port = (cq.Workplane("XY")
+               .circle(3.25)
+               .extrude(8.75)
+               .translate((0, 0, 0)))
+    body = body.union(plunger).union(m8_port)
     return body
 
 

@@ -15,8 +15,23 @@ import cadquery as cq
 
 def make_std_ee_002_02() -> cq.Workplane:
     """GIS-EE-002-02: 储罐 — simplified tank geometry."""
-    # Simplified tank: cylinder with domed ends
+    # Semi-parametric fluid reservoir: cylinder, end caps, clamp bands, fill boss
     body = cq.Workplane("XY").circle(19.0).extrude(280.0)
+    for z in (8.0, 266.4):
+        band = (cq.Workplane("XY")
+                .circle(19.0)
+                .circle(17.9)
+                .extrude(5.6000000000000005)
+                .translate((0, 0, z)))
+        body = body.union(band)
+    front = cq.Workplane("XY").circle(16.34).extrude(8.0)
+    rear = cq.Workplane("XY").circle(16.34).extrude(8.0).translate((0, 0, 272.0))
+    fill_boss = (cq.Workplane("XY")
+                 .center(0, 8.36)
+                 .circle(4.56)
+                 .extrude(4.56)
+                 .translate((0, 0, 154.0)))
+    body = body.union(front).union(rear).union(fill_boss)
     return body
 
 

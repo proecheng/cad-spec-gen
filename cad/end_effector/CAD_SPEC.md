@@ -249,7 +249,7 @@
 | GIS-EE-001-03 | O型圈 | cylinder | Φ80.0×2.4 | P3:BOM | — | — | — | — |  |
 | GIS-EE-001-07 | 弹簧销组件（含弹簧） | cylinder | Φ4.0×20.0 | P3:BOM | — | — | — | — |  |
 | GIS-EE-001-08 | ISO 9409适配板 | cylinder | Φ63.0×8.0 | P4:visual | — | — | — | — |  |
-| GIS-EE-001-09 | FFC线束总成 | cylinder | Φ10×50 | P3:BOM | — | — | — | — |  |
+| GIS-EE-001-09 | FFC线束总成 | box | 12.0×50.0×1.0 | P3:BOM+template | — | — | part_envelope | ffc_ribbon visual stub | 实际长度500mm，建模显示段限长50mm |
 | GIS-EE-001-12 | 定位销 | disc | Φ3.0×5 | P1:part_table | — | — | — | — |  |
 | GIS-EE-002 | 工位1涂抹模块 | box | ×× | P2:walker:tier1 | 宽×深×高，含储罐延伸 | 1.00 | station_constraint | tier1_unique_match |  |
 | GIS-EE-002-01 | 涂抹模块壳体 | cylinder | Φ50.0×60.0 | P6:guess_geometry | — | — | — | — |  |
