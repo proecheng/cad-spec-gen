@@ -55,3 +55,12 @@ def test_sw_smoke_static_check_ignores_python_bytecode_cache():
 
     assert "__pycache__" in text
     assert ".pyc" in text
+
+
+def test_sw_smoke_powershell_literals_are_windows_powershell_safe():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "✅" not in text
+    assert "零硬编码校验通过" not in text
+    assert "含禁用的硬编码字面值" not in text
+    assert "## sw-inspect (deep) 输出" not in text

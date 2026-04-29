@@ -131,10 +131,10 @@ jobs:
             $matches | ForEach-Object {
               Write-Host "$($_.Path):$($_.LineNumber):$($_.Line)"
             }
-            Write-Host "::error::sw_preflight/ 含禁用的硬编码字面值"
+            Write-Host "::error::sw_preflight contains forbidden hardcoded literals"
             exit 1
           }
-          Write-Host "✅ 零硬编码校验通过"
+          Write-Host "zero hardcode check passed"
 
       - name: Setup CAD env (composite)
         uses: ./.github/actions/setup-cad-env
@@ -163,7 +163,7 @@ jobs:
           skipped = [tc for tc in all_tcs if tc.find('skipped') is not None]
           real = len(all_tcs) - len(skipped)
           print(f'skip-guard: total={len(all_tcs)} skipped={len(skipped)} real={real}')
-          assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + test_deep_real_smoke), got {real} — marker 漂移或新测试未授 @requires_solidworks'
+          assert real == 2, f'expected exactly 2 real testcases (test_fast_real_smoke + test_deep_real_smoke), got {real}; marker drift or missing @requires_solidworks'
           '@
           python -c $script
 
@@ -199,7 +199,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '## sw-inspect (deep) 输出'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '## sw-inspect (deep) output'
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
           $inspectText = & python cad_pipeline.py sw-inspect --deep 2>&1
           if ($inspectText) {
