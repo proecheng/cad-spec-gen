@@ -57,20 +57,84 @@ jobs:
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
       - uses: actions/checkout@v6
+        id: checkout
+        continue-on-error: true
         with:
           clean: true  # 显式（D4 long-lived runner 的清场保证）
+
+      - name: Fallback API checkout (git fetch outage)
+        if: steps.checkout.outcome == 'failure'
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONUTF8: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $workspace = $env:GITHUB_WORKSPACE
+          if (-not $workspace -or $workspace.Trim() -eq '') {
+            throw 'GITHUB_WORKSPACE is empty; refusing fallback checkout'
+          }
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+
+          $workspaceRoot = [System.IO.Path]::GetFullPath($workspace).TrimEnd('\', '/')
+          $archive = Join-Path $env:RUNNER_TEMP 'cad-spec-gen-source.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'cad-spec-gen-source'
+          if (Test-Path -LiteralPath $extract) {
+            Remove-Item -Recurse -Force -LiteralPath $extract
+          }
+          if (Test-Path -LiteralPath $archive) {
+            Remove-Item -Force -LiteralPath $archive
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'cad-spec-gen-sw-smoke'
+          }
+          $zipUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/zipball/$env:GITHUB_SHA"
+          Invoke-WebRequest -Uri $zipUrl -Headers $headers -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extract -Force
+
+          $source = Get-ChildItem -LiteralPath $extract -Directory -Force | Select-Object -First 1
+          if (-not $source) {
+            throw "zipball/$env:GITHUB_SHA did not contain a source directory"
+          }
+
+          Get-ChildItem -LiteralPath $workspace -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            $childPath = [System.IO.Path]::GetFullPath($_.FullName)
+            if (-not $childPath.StartsWith($workspaceRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "refusing to remove path outside workspace: $childPath"
+            }
+            Remove-Item -Recurse -Force -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $source.FullName -Force | ForEach-Object {
+            Copy-Item -Recurse -Force -LiteralPath $_.FullName -Destination $workspace
+          }
+          Write-Host "fallback checkout extracted zipball/$env:GITHUB_SHA"
 
       - name: 零硬编码静态校验 (AC-2.5.1)
         shell: powershell
         run: |
-          git grep -nE 'Program Files|D:\\\\|"20(2[0-9]|3[0-9])"' -- sw_preflight/
-          $grepRc = $LASTEXITCODE
-          if ($grepRc -eq 0) {
-            echo "::error::sw_preflight/ 含禁用的硬编码字面值"
+          $preflight = Join-Path $env:GITHUB_WORKSPACE 'sw_preflight'
+          if (-not (Test-Path -LiteralPath $preflight)) {
+            throw "missing sw_preflight directory: $preflight"
+          }
+          $sourceFiles = Get-ChildItem -LiteralPath $preflight -File -Recurse |
+            Where-Object {
+              $_.FullName -notmatch '[\\/]+__pycache__[\\/]' -and
+              $_.Extension -ne '.pyc'
+            }
+          $matches = $sourceFiles |
+            Select-String -Pattern 'Program Files|D:\\\\|"20(2[0-9]|3[0-9])"'
+          if ($matches) {
+            $matches | ForEach-Object {
+              Write-Host "$($_.Path):$($_.LineNumber):$($_.Line)"
+            }
+            Write-Host "::error::sw_preflight/ 含禁用的硬编码字面值"
             exit 1
           }
-          if ($grepRc -ne 1) { exit $grepRc }
-          echo "✅ 零硬编码校验通过"
+          Write-Host "✅ 零硬编码校验通过"
 
       - name: Setup CAD env (composite)
         uses: ./.github/actions/setup-cad-env

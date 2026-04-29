@@ -31,3 +31,27 @@ def test_sw_smoke_artifacts_do_not_mask_primary_failure():
 
     assert "if: always()" in text
     assert "if-no-files-found: warn" in text
+
+
+def test_sw_smoke_has_api_checkout_fallback_for_git_fetch_outages():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "id: checkout" in text
+    assert "continue-on-error: true" in text
+    assert "Fallback API checkout" in text
+    assert "zipball/$env:GITHUB_SHA" in text
+    assert "GITHUB_TOKEN: ${{ github.token }}" in text
+
+
+def test_sw_smoke_static_check_does_not_require_git_metadata():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "git grep" not in text
+    assert "Select-String" in text
+
+
+def test_sw_smoke_static_check_ignores_python_bytecode_cache():
+    text = _SW_SMOKE.read_text(encoding="utf-8")
+
+    assert "__pycache__" in text
+    assert ".pyc" in text
