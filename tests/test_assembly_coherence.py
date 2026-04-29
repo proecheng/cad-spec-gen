@@ -83,6 +83,52 @@ def test_guess_geometry_box_envelope():
     assert geom["h"] == 55.0
 
 
+def test_end_effector_ae_custom_parts_match_reported_envelopes():
+    """Hand-refined AE custom parts must stay within their §6.4 envelopes."""
+    import importlib.util
+    from pathlib import Path
+
+    import pytest
+
+    spec = Path(__file__).resolve().parents[1] / "cad" / "end_effector" / "CAD_SPEC.md"
+    cad_dir = spec.parent
+    if not spec.is_file():
+        pytest.skip("No end_effector CAD_SPEC.md available")
+
+    from codegen.gen_assembly import parse_envelopes
+
+    envelopes = parse_envelopes(str(spec))
+    targets = {
+        "GIS-EE-003-03": ("ee_003_03", "make_ee_003_03"),
+        "GIS-EE-003-04": ("ee_003_04", "make_ee_003_04"),
+    }
+
+    sys.path.insert(0, str(cad_dir))
+    try:
+        for part_no, (module_name, func_name) in targets.items():
+            assert envelopes[part_no]["granularity"] == "part_envelope"
+            expected = envelopes[part_no]["dims"]
+            spec_obj = importlib.util.spec_from_file_location(
+                module_name,
+                cad_dir / f"{module_name}.py",
+            )
+            module = importlib.util.module_from_spec(spec_obj)
+            assert spec_obj.loader is not None
+            spec_obj.loader.exec_module(module)
+            shape = getattr(module, func_name)()
+            bbox = shape.val().BoundingBox()
+            actual = (bbox.xlen, bbox.ylen, bbox.zlen)
+            for measured, limit in zip(actual, expected):
+                assert measured <= limit + 1e-6, (
+                    f"{part_no}: bbox {actual} exceeds §6.4 envelope {expected}"
+                )
+    finally:
+        try:
+            sys.path.remove(str(cad_dir))
+        except ValueError:
+            pass
+
+
 def test_flange_assembly_z_span():
     """法兰总成 parts should span ≤100mm, not 360mm."""
     spec = os.path.join(os.path.dirname(__file__), "..",

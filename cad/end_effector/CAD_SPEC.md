@@ -257,8 +257,8 @@
 | GIS-EE-003 | 工位2 AE检测模块 | cylinder | Φ45.0× | P2:walker:tier1 | 含弹簧限力+柔性关节+AE探头串联 | 1.00 | station_constraint | tier1_unique_match |  |
 | GIS-EE-003-01 | AE传感器 | cylinder | Φ20.0×26.0 | P5:chain_span | — | — | — | — |  |
 | GIS-EE-003-02 | 六轴力传感器 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
-| GIS-EE-003-03 | 弹簧限力机构总成 | cylinder | Φ20.0×16.0 | P5:chain_span | — | — | — | — |  |
-| GIS-EE-003-04 | 柔性关节（万向节） | cylinder | Φ20.0×15.0 | P4:visual | — | — | — | — |  |
+| GIS-EE-003-03 | 弹簧限力机构总成 | cylinder | Φ20.0×16.0 | P5:chain_span | — | — | part_envelope | spring_limit_mechanism | AE串联弹簧机构单件包络 |
+| GIS-EE-003-04 | 柔性关节（万向节） | cylinder | Φ20.0×15.0 | P4:visual | — | — | part_envelope | rubber_universal_joint | AE串联柔性关节单件包络 |
 | GIS-EE-003-05 | 阻尼垫 | cylinder | Φ20.0×20.0 | P5:chain_span | — | — | — | — |  |
 | GIS-EE-003-07 | 配重块 | cylinder | Φ12.0×7.0 | P3:BOM | — | — | — | — |  |
 | GIS-EE-004 | 工位3卷带清洁模块 | box | ×× | P2:walker:tier1 | 切向宽×径向深×轴向高，双卷轴区域 | 1.00 | station_constraint | tier1_unique_match |  |
