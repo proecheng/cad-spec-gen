@@ -618,3 +618,187 @@ def test_generic_other_cylinder_does_not_use_counterweight_template(
 
     assert result.metadata.get("template") != "tungsten_counterweight_slug"
     assert result.source_tag == "jinja_primitive:other"
+
+
+# ── lifting_platform D-grade fallback replacements ─────────────────────────
+
+_LIFTING_PLATFORM_TEMPLATE_CASES = [
+    (
+        "bearing",
+        "LM10UU",
+        "",
+        "linear_bearing_lm10uu",
+        "LM10UU linear bearing",
+        (19, 19, 29),
+    ),
+    (
+        "bearing",
+        "KFL001",
+        "",
+        "pillow_block_bearing_kfl001",
+        "KFL001 pillow block bearing",
+        (60, 36, 16),
+    ),
+    (
+        "connector",
+        "L070 联轴器",
+        "",
+        "clamping_coupling_l070",
+        "L070 clamping coupling",
+        (25, 25, 30),
+    ),
+    (
+        "motor",
+        "NEMA23 闭环步进 ≥1.0Nm",
+        "",
+        "nema23_stepper_motor",
+        "NEMA23 stepper motor",
+        (57, 57, 80),
+    ),
+    (
+        "other",
+        "CL57T 闭环驱动器",
+        "",
+        "cl57t_stepper_driver",
+        "CL57T stepper driver",
+        (118, 75, 34),
+    ),
+    (
+        "seal",
+        "PU 缓冲垫 20×20×3",
+        "",
+        "pu_buffer_pad",
+        "PU buffer pad",
+        (20, 20, 3),
+    ),
+    (
+        "sensor",
+        "M8 电感接近开关 NPN-NO",
+        "",
+        "m8_inductive_proximity_sensor",
+        "M8 inductive proximity sensor",
+        (8, 8, 45),
+    ),
+    (
+        "other",
+        "导向轴保护帽 φ10",
+        "",
+        "guide_shaft_protective_cap",
+        "guide shaft protective cap",
+        (10, 10, 8),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "template_id", "body_marker", "dims"),
+    _LIFTING_PLATFORM_TEMPLATE_CASES,
+)
+def test_lifting_platform_d_grade_parts_use_specialized_templates(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    template_id: str,
+    body_marker: str,
+    dims: tuple[float, float, float],
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.status == "hit"
+    assert result.kind == "codegen"
+    assert result.geometry_source == "JINJA_TEMPLATE"
+    assert result.geometry_quality == "C"
+    assert result.requires_model_review is True
+    assert result.metadata["template"] == template_id
+    assert result.real_dims == dims
+    assert body_marker in result.body_code
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "_template_id", "_body_marker", "_dims"),
+    _LIFTING_PLATFORM_TEMPLATE_CASES,
+)
+def test_lifting_platform_template_geometry_stays_within_reported_real_dims(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    _template_id: str,
+    _body_marker: str,
+    _dims: tuple[float, float, float],
+) -> None:
+    import cadquery as cq
+
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+    namespace = {"cq": cq}
+    exec(f"def _make():\n{result.body_code}\n", namespace)
+    shape = namespace["_make"]()
+    bbox = shape.val().BoundingBox()
+
+    actual = (bbox.xlen, bbox.ylen, bbox.zlen)
+    assert result.real_dims is not None
+    for measured, expected in zip(actual, result.real_dims):
+        assert measured <= expected + 1e-6
+
+
+def test_lifting_platform_spec_envelopes_match_template_dims() -> None:
+    from codegen.gen_assembly import parse_envelopes
+
+    spec_path = _REPO_ROOT / "cad" / "lifting_platform" / "CAD_SPEC.md"
+    envelopes = parse_envelopes(str(spec_path))
+
+    expected = {
+        "SLP-C02": (19.0, 19.0, 29.0),
+        "SLP-C03": (60.0, 36.0, 16.0),
+        "SLP-C06": (25.0, 25.0, 30.0),
+        "SLP-C07": (57.0, 57.0, 80.0),
+        "SLP-C08": (118.0, 75.0, 34.0),
+        "SLP-F11": (20.0, 20.0, 3.0),
+        "SLP-F12": (8.0, 8.0, 45.0),
+        "SLP-F13": (10.0, 10.0, 8.0),
+    }
+
+    for part_no, dims in expected.items():
+        assert envelopes[part_no]["dims"] == dims
+        assert envelopes[part_no]["granularity"] == "part_envelope"
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "forbidden_template", "source_tag"),
+    [
+        (
+            "bearing",
+            "608ZZ 深沟球轴承",
+            "",
+            "linear_bearing_lm10uu",
+            "jinja_primitive:bearing",
+        ),
+        (
+            "connector",
+            "普通夹紧联轴器",
+            "Φ20×25mm",
+            "clamping_coupling_l070",
+            "jinja_primitive:connector",
+        ),
+        (
+            "motor",
+            "NEMA17 步进电机",
+            "",
+            "nema23_stepper_motor",
+            "jinja_primitive:motor",
+        ),
+    ],
+)
+def test_lifting_platform_templates_require_specific_part_intent(
+    adapter: JinjaPrimitiveAdapter,
+    category: str,
+    name: str,
+    material: str,
+    forbidden_template: str,
+    source_tag: str,
+) -> None:
+    result = adapter.resolve(_q(category, name=name, material=material), {})
+
+    assert result.metadata.get("template") != forbidden_template
+    assert result.source_tag == source_tag

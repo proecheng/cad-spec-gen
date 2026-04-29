@@ -167,6 +167,22 @@ def _parse_size_pair_mm(text: str, default: tuple[float, float]) -> tuple[float,
     return float(w), float(l)
 
 
+def _parse_size_triplet_mm(
+    text: str,
+    default: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    matches = re.findall(
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*[×xX]\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:mm)?",
+        text,
+    )
+    if not matches:
+        return default
+    w, d, h = matches[-1]
+    return float(w), float(d), float(h)
+
+
 def _parse_array_grid(text: str, default: tuple[int, int] = (4, 4)) -> tuple[int, int]:
     m = re.search(r"(\d+)\s*[×xX]\s*(\d+)\s*薄膜", text)
     if not m:
@@ -707,10 +723,272 @@ def _gen_elastomer_cushion_pad(dims: dict) -> str:
     return body"""
 
 
+def _gen_linear_bearing_lm10uu(dims: dict) -> str:
+    od = dims.get("od", dims.get("d", 19))
+    id_ = dims.get("id", 10)
+    l = dims.get("w", dims.get("l", 29))
+    groove_w = max(min(l * 0.08, 2.2), 1.2)
+    groove_depth = max(min((od - id_) * 0.08, 0.8), 0.35)
+    groove_inner_r = max(od / 2 - groove_depth, id_ / 2 + 0.5)
+    z1 = max(l * 0.16, groove_w)
+    z2 = min(l * 0.84 - groove_w, l - 2 * groove_w)
+    return f"""    # LM10UU linear bearing: long sleeve with bore and retaining grooves
+    body = cq.Workplane("XY").circle({od/2}).circle({id_/2}).extrude({l})
+    for z in ({z1:.3f}, {z2:.3f}):
+        groove = (cq.Workplane("XY")
+                  .circle({od/2 + 0.05:.3f})
+                  .circle({groove_inner_r:.3f})
+                  .extrude({groove_w:.3f})
+                  .translate((0, 0, z)))
+        body = body.cut(groove)
+    return body"""
+
+
+def _gen_pillow_block_bearing_kfl001(dims: dict) -> str:
+    w = dims.get("w", 60)
+    d = dims.get("d", 36)
+    h = dims.get("h", 16)
+    base_h = max(min(h * 0.36, 6.0), 4.0)
+    boss_d = min(max(d * 0.72, 24.0), d - 2.0)
+    bore_d = dims.get("bore_d", 12)
+    mount_d = dims.get("mount_d", 5.5)
+    mount_x = min(w * 0.34, w / 2 - mount_d)
+    return f"""    # KFL001 pillow block bearing: flanged base, raised bearing boss, bore
+    body = cq.Workplane("XY").box({w}, {d}, {base_h:.3f}, centered=(True, True, False))
+    boss = cq.Workplane("XY").circle({boss_d/2:.3f}).extrude({h})
+    body = body.union(boss)
+    bore = (cq.Workplane("XY")
+            .circle({bore_d/2:.3f})
+            .extrude({h + 1:.3f})
+            .translate((0, 0, -0.5)))
+    body = body.cut(bore)
+    for x in ({-mount_x:.3f}, {mount_x:.3f}):
+        hole = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({mount_d/2:.3f})
+                .extrude({base_h + 0.6:.3f})
+                .translate((0, 0, -0.3)))
+        body = body.cut(hole)
+    return body"""
+
+
+def _gen_clamping_coupling_l070(dims: dict) -> str:
+    d = dims.get("d", 25)
+    l = dims.get("l", 30)
+    bore_d = dims.get("bore_d", 6.35)
+    groove_w = max(min(l * 0.06, 1.8), 1.0)
+    groove_inner_r = max(d / 2 - 0.8, bore_d / 2 + 1.0)
+    slot_w = max(d * 0.12, 2.0)
+    return f"""    # L070 clamping coupling: split cylindrical coupler with twin clamp grooves
+    body = cq.Workplane("XY").circle({d/2}).circle({bore_d/2}).extrude({l})
+    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+        groove = (cq.Workplane("XY")
+                  .circle({d/2 + 0.05:.3f})
+                  .circle({groove_inner_r:.3f})
+                  .extrude({groove_w:.3f})
+                  .translate((0, 0, z)))
+        body = body.cut(groove)
+    split = (cq.Workplane("XY")
+             .box({slot_w:.3f}, {d + 0.2:.3f}, {l + 0.2:.3f}, centered=(True, True, False))
+             .translate(({d * 0.32:.3f}, 0, -0.1)))
+    body = body.cut(split)
+    return body"""
+
+
+def _gen_nema23_stepper_motor(dims: dict) -> str:
+    w = dims.get("w", 57)
+    d = dims.get("d", 57)
+    total_h = dims.get("h", 80)
+    body_h = dims.get("body_h", 56)
+    shaft_l = max(total_h - body_h, 0)
+    shaft_d = dims.get("shaft_d", 6.35)
+    boss_d = dims.get("boss_d", 38)
+    relief_r = max(min(w, d) * 0.055, 2.5)
+    return f"""    # NEMA23 stepper motor: square frame, front boss, output shaft
+    body = cq.Workplane("XY").box({w}, {d}, {body_h}, centered=(True, True, False))
+    for x in ({-w/2:.3f}, {w/2:.3f}):
+        for y in ({-d/2:.3f}, {d/2:.3f}):
+            relief = (cq.Workplane("XY")
+                      .center(x, y)
+                      .circle({relief_r:.3f})
+                      .extrude({body_h + 0.2:.3f})
+                      .translate((0, 0, -0.1)))
+            body = body.cut(relief)
+    boss = (cq.Workplane("XY")
+            .circle({boss_d/2:.3f})
+            .extrude({min(3.0, shaft_l):.3f})
+            .translate((0, 0, {body_h})))
+    shaft = (cq.Workplane("XY")
+             .circle({shaft_d/2:.3f})
+             .extrude({shaft_l:.3f})
+             .translate((0, 0, {body_h})))
+    body = body.union(boss).union(shaft)
+    return body"""
+
+
+def _gen_cl57t_stepper_driver(dims: dict) -> str:
+    w = dims.get("w", 118)
+    d = dims.get("d", 75)
+    h = dims.get("h", 34)
+    base_h = max(h - 4, h * 0.78)
+    fin_h = h - base_h
+    fin_w = max(w * 0.035, 2.5)
+    start_x = -w * 0.34
+    pitch = w * 0.085
+    return f"""    # CL57T stepper driver: controller case with heat-sink fins
+    body = cq.Workplane("XY").box({w}, {d}, {base_h:.3f}, centered=(True, True, False))
+    for i in range(9):
+        x = {start_x:.3f} + i * {pitch:.3f}
+        fin = (cq.Workplane("XY")
+               .center(x, 0)
+               .box({fin_w:.3f}, {d * 0.82:.3f}, {fin_h:.3f}, centered=(True, True, False))
+               .translate((0, 0, {base_h:.3f})))
+        body = body.union(fin)
+    return body"""
+
+
+def _gen_pu_buffer_pad(dims: dict) -> str:
+    w = dims.get("w", 20)
+    d = dims.get("d", 20)
+    h = dims.get("h", 3)
+    groove_w = max(min(w, d) * 0.08, 0.5)
+    return f"""    # PU buffer pad: low square elastomer bumper with cross compliance grooves
+    body = cq.Workplane("XY").box({w}, {d}, {h}, centered=(True, True, False))
+    groove_x = (cq.Workplane("XY")
+                .box({w * 0.72:.3f}, {groove_w:.3f}, {h + 0.2:.3f}, centered=(True, True, False))
+                .translate((0, 0, -0.1)))
+    groove_y = (cq.Workplane("XY")
+                .box({groove_w:.3f}, {d * 0.72:.3f}, {h + 0.2:.3f}, centered=(True, True, False))
+                .translate((0, 0, -0.1)))
+    body = body.cut(groove_x).cut(groove_y)
+    return body"""
+
+
+def _gen_m8_inductive_proximity_sensor(dims: dict) -> str:
+    d = dims.get("d", 8)
+    l = dims.get("l", 45)
+    groove_w = 0.45
+    groove_inner_r = max(d / 2 - 0.18, d * 0.42)
+    return f"""    # M8 inductive proximity sensor: threaded barrel with sensing nose
+    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    for z in ({l * 0.18:.3f}, {l * 0.28:.3f}, {l * 0.38:.3f}, {l * 0.48:.3f}, {l * 0.58:.3f}):
+        thread_groove = (cq.Workplane("XY")
+                         .circle({d/2 + 0.03:.3f})
+                         .circle({groove_inner_r:.3f})
+                         .extrude({groove_w:.3f})
+                         .translate((0, 0, z)))
+        body = body.cut(thread_groove)
+    nose = cq.Workplane("XY").circle({d * 0.36:.3f}).extrude({min(l * 0.08, 3.0):.3f})
+    body = body.union(nose)
+    return body"""
+
+
+def _gen_guide_shaft_protective_cap(dims: dict) -> str:
+    d = dims.get("d", 10)
+    l = dims.get("l", 8)
+    pocket_d = max(d * 0.68, d - 3.0)
+    return f"""    # guide shaft protective cap: closed cylindrical end cap with shaft pocket
+    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    pocket = cq.Workplane("XY").circle({pocket_d/2:.3f}).extrude({l * 0.72:.3f})
+    body = body.cut(pocket)
+    return body"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
     category = getattr(query, "category", "")
+
+    if category == "bearing" and _contains_any(text, ["LM10UU"]):
+        tpl_dims = {
+            "od": dims.get("od", dims.get("d", 19)),
+            "id": dims.get("id", 10),
+            "w": dims.get("w", dims.get("l", 29)),
+        }
+        return {
+            "template": "linear_bearing_lm10uu",
+            "body_code": _gen_linear_bearing_lm10uu(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "bearing" and _contains_any(text, ["KFL001"]):
+        tpl_dims = {"w": 60, "d": 36, "h": 16, "bore_d": 12, "mount_d": 5.5}
+        return {
+            "template": "pillow_block_bearing_kfl001",
+            "body_code": _gen_pillow_block_bearing_kfl001(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "connector" and _contains_any(text, ["L070"]):
+        tpl_dims = {"d": 25, "l": 30, "bore_d": 6.35}
+        return {
+            "template": "clamping_coupling_l070",
+            "body_code": _gen_clamping_coupling_l070(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "motor" and _contains_any(text, ["NEMA23", "NEMA 23"]):
+        tpl_dims = {
+            "w": 57,
+            "d": 57,
+            "h": 80,
+            "body_h": 56,
+            "shaft_d": 6.35,
+        }
+        return {
+            "template": "nema23_stepper_motor",
+            "body_code": _gen_nema23_stepper_motor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {"body_height_mm": 56, "shaft_length_mm": 24},
+        }
+
+    if category == "other" and _contains_any(text, ["CL57T"]):
+        tpl_dims = {"w": 118, "d": 75, "h": 34}
+        return {
+            "template": "cl57t_stepper_driver",
+            "body_code": _gen_cl57t_stepper_driver(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if category == "seal" and _contains_any(text, ["PU", "缓冲垫"]):
+        w, d, h = _parse_size_triplet_mm(text, default=(20, 20, 3))
+        tpl_dims = {"w": w, "d": d, "h": h}
+        return {
+            "template": "pu_buffer_pad",
+            "body_code": _gen_pu_buffer_pad(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if (
+        category == "sensor"
+        and _contains_any(text, ["M8"])
+        and _contains_any(text, ["接近开关", "proximity"])
+    ):
+        tpl_dims = {"d": 8, "l": 45}
+        return {
+            "template": "m8_inductive_proximity_sensor",
+            "body_code": _gen_m8_inductive_proximity_sensor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
+
+    if (
+        category == "other"
+        and _contains_any(text, ["保护帽"])
+        and _contains_any(text, ["导向轴", "φ10", "Φ10"])
+    ):
+        tpl_dims = {"d": 10, "l": 8}
+        return {
+            "template": "guide_shaft_protective_cap",
+            "body_code": _gen_guide_shaft_protective_cap(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": {},
+        }
 
     if category == "connector" and _contains_any(text, ["ZIF", "5052"]):
         pins = _parse_pin_count(text, default=20)
