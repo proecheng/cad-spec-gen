@@ -217,6 +217,23 @@
 | 22 | 电气接线（见 §17） |  | 电气端子连接（见 §17） |  |  |
 | 23 | 全行程手动 + 电动测试 |  | 验证步骤（无紧固） |  |  |
 
+### 6.4 零件包络尺寸
+
+> 说明 / Legend
+> - **来源** `P7:JINJA_TEMPLATE` = 半参数模板补全的采购件本体包络。
+> - **粒度** `part_envelope` = 单件本体尺寸，可被 `gen_std_parts.py` 消费；不得用作工位级装配包络。
+
+| 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 | 轴向标签 | 置信度 | 粒度 | 理由 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SLP-C02 | LM10UU | cylinder | Φ19.0×29.0 | P7:JINJA_TEMPLATE | 轴承轴线沿 +Z | — | part_envelope | linear_bearing_lm10uu | 与 φ19H7 压入孔一致，含 φ10 导向轴通孔 |
+| SLP-C03 | KFL001 | box | 60.0×36.0×16.0 | P7:JINJA_TEMPLATE | 轴承孔沿 +Z | — | part_envelope | pillow_block_bearing_kfl001 | 法兰底座 + 中央轴承凸台 + M5 安装孔 |
+| SLP-C06 | L070 联轴器 | cylinder | Φ25.0×30.0 | P7:JINJA_TEMPLATE | 联轴器轴线沿 +Z | — | part_envelope | clamping_coupling_l070 | 两端各约 15mm 夹紧段，含中心通孔和开槽 |
+| SLP-C07 | NEMA23 闭环步进 ≥1.0Nm | box | 57.0×57.0×80.0 | P7:JINJA_TEMPLATE | 轴端朝 +Z | — | part_envelope | nema23_stepper_motor | 56mm 机身 + 24mm 输出轴显示段 |
+| SLP-C08 | CL57T 闭环驱动器 | box | 118.0×75.0×34.0 | P7:JINJA_TEMPLATE | 接线端朝外 | — | part_envelope | cl57t_stepper_driver | 控制器盒体 + 散热片半参数模型 |
+| SLP-F11 | PU 缓冲垫 20×20×3 | box | 20.0×20.0×3.0 | P7:JINJA_TEMPLATE | 厚度沿 +Z | — | part_envelope | pu_buffer_pad | 修正旧 seal fallback 的 80×80×5 漂移 |
+| SLP-F12 | M8 电感接近开关 NPN-NO | cylinder | Φ8.0×45.0 | P7:JINJA_TEMPLATE | 检测端沿传感器轴线 | — | part_envelope | m8_inductive_proximity_sensor | M8 螺纹柱式接近开关显示段 |
+| SLP-F13 | 导向轴保护帽 φ10 | cylinder | Φ10.0×8.0 | P7:JINJA_TEMPLATE | 套入导向轴端部 | — | part_envelope | guide_shaft_protective_cap | φ10 导向轴端部保护帽 |
+
 ## 7. 视觉标识
 
 | 零件 | 材质 | 表面颜色 | 唯一标签 | 外形尺寸 | 方向约束 |
