@@ -8,6 +8,10 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ## Unreleased
 
+---
+
+## [v2.24.0] - 2026-04-30
+
 ### Added
 - 新增 `ModelProjectContext` 稳定路径契约，统一模型选择、标准件目录、报告与子系统输出位置。
 - 新增只读 `sw-export-plan` 候选计划，审查阶段只写候选清单，SolidWorks 导出仍需显式触发。
@@ -18,6 +22,15 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ### Fixed
 - 用户 STEP 导入增加 CadQuery bbox 与 hash 校验，复制到受管 `std_parts/` 后再参与下一次 codegen。
+
+### Validation
+- 本地全量：`1738 passed, 16 skipped, 4 warnings`。
+- 本地聚焦模型库/解析器/导入/计划套件：`170 passed`。
+- `scripts/dev_sync.py --check` 与 `git diff --check` 通过。
+- `end_effector` model audit：`A=32`，`missing_step_count=0`，`review_required_count=0`。
+- PR #44：mypy-strict、regression、Ubuntu/Windows Python 3.10/3.11/3.12 全部通过。
+
+PyPI upload intentionally skipped for this release.
 
 ---
 

@@ -1,3 +1,3 @@
 """cad-spec-gen: CAD pipeline skill for AI agents."""
 
-__version__ = "2.23.5"
+__version__ = "2.24.0"
