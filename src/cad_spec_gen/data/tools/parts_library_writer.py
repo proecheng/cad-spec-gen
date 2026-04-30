@@ -28,12 +28,36 @@ def prepend_user_step_mapping(
     mapping: UserStepMapping,
 ) -> Path:
     """Prepend a user STEP mapping while preserving existing YAML structure."""
+    yaml_path, cfg = _load_config_for_update(context.parts_library_path)
+
+    retained_mappings = [
+        item
+        for item in cfg["mappings"]
+        if not _is_previous_user_mapping(item, mapping.part_no)
+    ]
+    cfg["mappings"] = [_build_mapping(mapping)] + retained_mappings
+
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = yaml_path.with_suffix(yaml_path.suffix + ".tmp")
+    import yaml  # type: ignore
+
+    with tmp_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+    os.replace(tmp_path, yaml_path)
+    return yaml_path
+
+
+def validate_parts_library_for_user_step(context: ModelProjectContext) -> None:
+    """Validate parts_library.yaml can accept a user STEP mapping without writing."""
+    _load_config_for_update(context.parts_library_path)
+
+
+def _load_config_for_update(yaml_path: Path) -> tuple[Path, dict[str, Any]]:
     try:
         import yaml  # type: ignore
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("PyYAML not installed; parts_library.yaml not updated") from exc
 
-    yaml_path = context.parts_library_path
     if yaml_path.is_file():
         try:
             with yaml_path.open(encoding="utf-8") as f:
@@ -51,19 +75,7 @@ def prepend_user_step_mapping(
     if not isinstance(mappings, list):
         raise ValueError(f"{yaml_path} mappings must be a list")
 
-    retained_mappings = [
-        item
-        for item in mappings
-        if not _is_previous_user_mapping(item, mapping.part_no)
-    ]
-    cfg["mappings"] = [_build_mapping(mapping)] + retained_mappings
-
-    yaml_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = yaml_path.with_suffix(yaml_path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-    os.replace(tmp_path, yaml_path)
-    return yaml_path
+    return yaml_path, cfg
 
 
 def _is_previous_user_mapping(item: Any, part_no: str) -> bool:

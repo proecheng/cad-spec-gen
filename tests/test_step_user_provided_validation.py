@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.model_import import import_user_step_model, validate_step_file
+from tools.model_import import (
+    _record_model_import,
+    import_user_step_model,
+    validate_step_file,
+)
 
 
 def _write_box_step(path: Path, x: float = 10, y: float = 20, z: float = 30) -> None:
@@ -80,3 +84,94 @@ def test_import_user_step_model_writes_validation_bbox_to_payload_and_yaml(tmp_p
     assert provenance["validation_status"] == "geometry_validated"
     assert isinstance(provenance["bbox_mm"], list)
     assert provenance["bbox_mm"] == pytest.approx([10, 20, 30])
+
+
+@pytest.mark.parametrize(
+    "bad_yaml",
+    [
+        "mappings:\n  bad: value\n",
+        "- not\n- a\n- mapping\n",
+    ],
+)
+def test_import_user_step_model_rejects_invalid_parts_library_before_copying(
+    tmp_path,
+    bad_yaml,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_step = project_root / "models" / "valid.step"
+    _write_box_step(source_step)
+    library_path = project_root / "parts_library.yaml"
+    library_path.write_text(bad_yaml, encoding="utf-8")
+
+    result = import_user_step_model(
+        part_no="BAD-YAML",
+        name_cn="坏配置",
+        step="models/valid.step",
+        project_root=project_root,
+    )
+
+    assert result["applied"] is False
+    assert "parts_library.yaml" in result["reason"]
+    assert library_path.read_text(encoding="utf-8") == bad_yaml
+    assert not (project_root / "std_parts" / "user_provided").exists()
+
+
+def test_import_user_step_model_restores_existing_target_when_writer_fails(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_step = project_root / "models" / "valid.step"
+    _write_box_step(source_step, 12, 22, 32)
+    target = project_root / "std_parts" / "user_provided" / "ROLL-001_滚轮.step"
+    target.parent.mkdir(parents=True)
+    target.write_text("old target content", encoding="utf-8")
+
+    import tools.model_import as model_import
+
+    def fail_writer(*_args, **_kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(model_import, "prepend_user_step_mapping", fail_writer)
+
+    result = import_user_step_model(
+        part_no="ROLL-001",
+        name_cn="滚轮",
+        step="models/valid.step",
+        project_root=project_root,
+    )
+
+    assert result["applied"] is False
+    assert "boom" in result["reason"]
+    assert target.read_text(encoding="utf-8") == "old target content"
+
+
+def test_record_model_import_includes_validation(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    result = {
+        "part_no": "BOX-REC",
+        "name_cn": "记录盒",
+        "step_file": "user_provided/box.step",
+        "target_path": str(project_root / "std_parts" / "user_provided" / "box.step"),
+        "source_path": "models/box.step",
+        "source_hash": "sha256:abc",
+        "parts_library": str(project_root / "parts_library.yaml"),
+        "verification": {"matched": True},
+        "validation": {
+            "ok": True,
+            "reason": "",
+            "source_hash": "sha256:abc",
+            "bbox_mm": [10.0, 20.0, 30.0],
+            "warnings": [],
+        },
+    }
+
+    record_path = _record_model_import(result, project_root=project_root, subsystem=None)
+
+    import json
+
+    imports = json.loads(record_path.read_text(encoding="utf-8"))
+    assert imports["imports"][0]["validation"] == result["validation"]

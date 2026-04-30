@@ -23,7 +23,11 @@ from typing import Any
 
 from cad_paths import PROJECT_ROOT
 from tools.model_context import ModelProjectContext
-from tools.parts_library_writer import UserStepMapping, prepend_user_step_mapping
+from tools.parts_library_writer import (
+    UserStepMapping,
+    prepend_user_step_mapping,
+    validate_parts_library_for_user_step,
+)
 
 
 @dataclass(frozen=True)
@@ -125,49 +129,90 @@ def import_user_step_model(
         / _safe_model_filename(part_no, name_cn, source_path)
     ).as_posix()
     target_abs = root / "std_parts" / target_rel
-    target_abs.parent.mkdir(parents=True, exist_ok=True)
-    if not _same_file(source_path, target_abs):
-        shutil.copy2(source_path, target_abs)
-
     source_provenance = _portable_source_path(source_path, root)
-    yaml_path = prepend_user_step_mapping(
-        ModelProjectContext(project_root=root, subsystem=subsystem),
-        UserStepMapping(
-            part_no=part_no,
-            name_cn=name_cn,
-            file_rel=target_rel,
-            source_path=source_provenance,
-            source_hash=validation.source_hash,
-            bbox_mm=validation.bbox_mm,
-            validated=True,
-            validation_status="geometry_validated",
-        ),
-    )
+    context = ModelProjectContext(project_root=root, subsystem=subsystem)
+    try:
+        validate_parts_library_for_user_step(context)
+    except Exception as exc:
+        return {
+            "applied": False,
+            "reason": f"parts_library.yaml is not writable for user STEP import: {exc}",
+            "part_no": part_no,
+            "validation": validation.to_dict(),
+        }
 
-    result: dict[str, Any] = {
-        "applied": True,
-        "part_no": part_no,
-        "name_cn": name_cn,
-        "step_file": target_rel,
-        "target_path": str(target_abs),
-        "source_path": source_provenance,
-        "source_hash": validation.source_hash,
-        "validation": validation.to_dict(),
-        "parts_library": str(yaml_path),
-    }
-    result["verification"] = (
-        verify_model_import_consumed(
-            part_no=part_no,
-            name_cn=name_cn,
-            project_root=root,
+    mapping = UserStepMapping(
+        part_no=part_no,
+        name_cn=name_cn,
+        file_rel=target_rel,
+        source_path=source_provenance,
+        source_hash=validation.source_hash,
+        bbox_mm=validation.bbox_mm,
+        validated=True,
+        validation_status="geometry_validated",
+    )
+    tmp_path = target_abs.with_suffix(target_abs.suffix + f".{os.getpid()}.tmp")
+    backup_path = target_abs.with_suffix(target_abs.suffix + f".{os.getpid()}.bak")
+    backup_created = False
+    target_installed = False
+    needs_copy = not _same_file(source_path, target_abs)
+
+    try:
+        if needs_copy:
+            target_abs.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, tmp_path)
+            if target_abs.exists():
+                os.replace(target_abs, backup_path)
+                backup_created = True
+            os.replace(tmp_path, target_abs)
+            target_installed = True
+
+        yaml_path = prepend_user_step_mapping(context, mapping)
+
+        result: dict[str, Any] = {
+            "applied": True,
+            "part_no": part_no,
+            "name_cn": name_cn,
+            "step_file": target_rel,
+            "target_path": str(target_abs),
+            "source_path": source_provenance,
+            "source_hash": validation.source_hash,
+            "validation": validation.to_dict(),
+            "parts_library": str(yaml_path),
+        }
+        result["verification"] = (
+            verify_model_import_consumed(
+                part_no=part_no,
+                name_cn=name_cn,
+                project_root=root,
+            )
+            if verify
+            else {"matched": None, "skipped": True}
         )
-        if verify
-        else {"matched": None, "skipped": True}
-    )
-    result["record_path"] = str(
-        _record_model_import(result, project_root=root, subsystem=subsystem)
-    )
-    return result
+        result["record_path"] = str(
+            _record_model_import(result, project_root=root, subsystem=subsystem)
+        )
+        if backup_created:
+            _unlink_if_exists(backup_path)
+        return result
+    except Exception as exc:
+        if needs_copy:
+            _restore_target_after_failed_import(
+                target_abs,
+                backup_path=backup_path,
+                backup_created=backup_created,
+                target_installed=target_installed,
+            )
+        return {
+            "applied": False,
+            "reason": f"model import failed: {exc}",
+            "part_no": part_no,
+            "validation": validation.to_dict(),
+        }
+    finally:
+        _unlink_if_exists(tmp_path)
+        if backup_created:
+            _unlink_if_exists(backup_path)
 
 
 def validate_step_file(path: str | Path) -> StepValidationResult:
@@ -330,6 +375,26 @@ def _portable_source_path(source_path: Path, project_root: Path) -> str:
         return str(source_path)
 
 
+def _restore_target_after_failed_import(
+    target_abs: Path,
+    *,
+    backup_path: Path,
+    backup_created: bool,
+    target_installed: bool,
+) -> None:
+    if target_installed:
+        _unlink_if_exists(target_abs)
+    if backup_created and backup_path.exists():
+        os.replace(backup_path, target_abs)
+
+
+def _unlink_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _record_model_import(
     result: dict[str, Any],
     *,
@@ -372,6 +437,7 @@ def _record_model_import(
         "source_hash": result["source_hash"],
         "parts_library": result["parts_library"],
         "verification": result["verification"],
+        "validation": result.get("validation"),
         "imported_at": _utc_now(),
     }
     envelope = {
@@ -411,13 +477,17 @@ def _print_text(payload: dict[str, Any]) -> None:
 
 
 def run_model_import(args: argparse.Namespace) -> int:
-    result = import_user_step_model(
-        part_no=args.part_no,
-        name_cn=getattr(args, "name_cn", "") or "",
-        step=args.step,
-        subsystem=getattr(args, "subsystem", None),
-        verify=not getattr(args, "no_verify", False),
-    )
+    try:
+        result = import_user_step_model(
+            part_no=args.part_no,
+            name_cn=getattr(args, "name_cn", "") or "",
+            step=args.step,
+            subsystem=getattr(args, "subsystem", None),
+            verify=not getattr(args, "no_verify", False),
+        )
+    except Exception as exc:
+        print(f"[model-import] {exc}", file=sys.stderr)
+        return 2
     if not result.get("applied"):
         print(f"[model-import] {result.get('reason', 'import failed')}", file=sys.stderr)
         return 2
