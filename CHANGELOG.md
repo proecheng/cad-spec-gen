@@ -6,6 +6,21 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## Unreleased
+
+### Added
+- 新增 `ModelProjectContext` 稳定路径契约，统一模型选择、标准件目录、报告与子系统输出位置。
+- 新增只读 `sw-export-plan` 候选计划，审查阶段只写候选清单，SolidWorks 导出仍需显式触发。
+
+### Changed
+- `parts_library.yaml` 写入改为原子更新，保留 `extends: default` 并将新用户映射前置。
+- 生成的标准件模块 docstring 记录几何来源、质量等级、校验状态、STEP hash、路径类型与人工复核标记。
+
+### Fixed
+- 用户 STEP 导入增加 CadQuery bbox 与 hash 校验，复制到受管 `std_parts/` 后再参与下一次 codegen。
+
+---
+
 ## [v2.23.5] - 2026-04-30
 
 ### Added

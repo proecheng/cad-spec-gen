@@ -6,6 +6,12 @@ from pathlib import Path
 import pytest
 
 
+def _write_box_step(path: Path) -> None:
+    cq = pytest.importorskip("cadquery")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cq.exporters.export(cq.Workplane("XY").box(10, 20, 30), str(path))
+
+
 def test_save_supplements_applies_step_model_choice(tmp_path, monkeypatch):
     yaml = pytest.importorskip("yaml")
     import cad_pipeline
@@ -17,7 +23,7 @@ def test_save_supplements_applies_step_model_choice(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     source_step = source_dir / "motor.step"
-    source_step.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+    _write_box_step(source_step)
 
     review_dir = project_root / "output" / "demo"
     review_dir.mkdir(parents=True)
@@ -71,7 +77,7 @@ def test_model_choice_relative_step_path_resolves_from_project_root(
     source_dir = project_root / "models"
     source_dir.mkdir()
     source_step = source_dir / "motor.step"
-    source_step.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+    _write_box_step(source_step)
 
     unrelated_cwd = tmp_path / "unrelated"
     unrelated_cwd.mkdir()

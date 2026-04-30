@@ -1,7 +1,7 @@
 # Parts Library & Geometry Quality System
 
 **Added in:** v2.8.0
-**Current implemented baseline:** v2.21.2 parts library + geometry quality reports + model choice persistence
+**Current implemented baseline:** v2.24.0 parts library + geometry quality reports + model choice persistence + invocation loop
 **Merged execution plan:** v0.4 — 2026-04-28
 **Scope:** Phase 1 spec/review + Phase 2 codegen + SolidWorks optional assets + user model selection
 
@@ -11,8 +11,8 @@
 
 本文同时记录两类内容：
 
-- **已实现契约**：当前代码已经实现并可依赖的行为，例如 `parts_library.yaml`、`PartsResolver`、`StepPoolAdapter`、`BdWarehouseAdapter`、`SwToolboxAdapter`、`PartCADAdapter`、`JinjaPrimitiveAdapter`、P7 包络回填、coverage report、`GeometryDecision`、`geometry_report.json`、resolver `inspect/probe/export/codegen` 模式、结构化模型选择、用户 STEP 持久化闭环。
-- **后续契约**：仍需补强但不阻塞现有管线的改进方向，例如统一 `ProjectContext`、更完整的 STEP import/bbox 校验、`MECH_TEMPLATE` 半参数模板、`sw_export_plan.json` 候选计划。
+- **已实现契约**：当前代码已经实现并可依赖的行为，例如 `parts_library.yaml`、`PartsResolver`、`StepPoolAdapter`、`BdWarehouseAdapter`、`SwToolboxAdapter`、`PartCADAdapter`、`JinjaPrimitiveAdapter`、P7 包络回填、coverage report、`GeometryDecision`、`geometry_report.json`、resolver `inspect/probe/export/codegen` 模式、结构化模型选择、用户 STEP 持久化闭环、`ProjectContext` 稳定路径、用户 STEP bbox/hash 校验、只读 `sw_export_plan.json` 候选计划。
+- **后续契约**：仍需补强但不阻塞现有管线的改进方向，例如 `MECH_TEMPLATE` 半参数模板。
 
 执行优先级：
 
@@ -566,6 +566,8 @@ Rules:
 4. Long-lived mappings must not rely on absolute paths unless the user explicitly accepts poor portability.
 5. `step_pool.spec.file` is relative to `step_pool.root`; after copying to `std_parts/custom/foo.step`, write `custom/foo.step`, not `std_parts/custom/foo.step`.
 6. `geometry_report.json` records what codegen actually used. It must not list candidates as if they were applied models.
+7. Managed user STEP filenames include a short source hash suffix, for example `user_provided/P-001_夹具_1a2b3c4d5e6f.step`, so re-importing the same display name with different bytes creates a distinct target path instead of silently overwriting old geometry.
+8. `sw_export_plan.json` is advisory only, but each executable candidate uses `action: "reuse_cache"` or `action: "export"`. A missing Toolbox `target_config` is treated as the stable `Default` configuration and still gets a deterministic cache path; existing legacy warmup cache files without `_Default` suffix are recognized as reusable cache hits.
 
 ### ProjectContext (planned cleanup)
 
@@ -768,10 +770,10 @@ Phase 3 `build/render`:
 | M1 | implemented | Extend `ResolveResult`; add `GeometryDecision` | Adapter hits produce A-E quality |
 | M2 | implemented | Add `inspect/probe/export/codegen` | `inspect` writes nothing and does not start COM export |
 | M3 | implemented | Build reports from decision log; add `geometry_report.json` | Codegen reports do not call production `resolve()` again |
-| M4 | implemented, import validation pending | Validate path/ext, copy, hash, atomically update YAML | A user-provided STEP is imported on next codegen |
+| M4 | implemented | Validate path/ext and STEP bbox/hash, copy into managed `std_parts/`, atomically update YAML | A user-provided STEP is imported on next codegen |
 | M5 | implemented | Preserve candidates and group actions | Agent can ask batch model questions |
-| M6 | planned | `sw_export_plan.json` candidate list; explicit export only | Review stage never triggers export |
-| M7 | partial | Migration/user docs are maintained here; generated docstring enrichment remains future | Users can see source/quality in reports today |
+| M6 | implemented | Read-only `sw_export_plan.json` candidate list; SolidWorks export remains explicit only | Review stage never triggers export |
+| M7 | implemented | Generated `std_*.py` module docstrings include geometry source, quality, validated flag, STEP hash, path kind, and review flag | Users can see source/quality in reports and generated modules |
 
 ### Test coverage
 
@@ -781,10 +783,11 @@ Phase 3 `build/render`:
 | `test_model_choices_persistence.py` | implemented | User choices write `model_choices.json` and can be applied to `parts_library.yaml` |
 | `test_parts_resolver.py` | implemented | Resolver modes and geometry quality defaults |
 | `test_resolve_report.py` | implemented | Report consumes decision log; inspect fallback is read-only |
-| `test_parts_library_writer_roundtrip.py` | planned | `extends: default` survives; new mappings prepend without corrupting YAML structure |
-| `test_step_user_provided_validation.py` | planned | STEP import bbox, unit sanity, and copy into `std_parts/` |
-| `test_codegen_docstring_geometry_quality.py` | planned | Generated modules include source/quality/validated metadata |
-| `test_project_context_paths.py` | planned | `.cad-spec-gen`, `std_parts/`, and `parts_library.yaml` paths are stable |
+| `test_parts_library_writer_roundtrip.py` | implemented | `extends: default` survives; new mappings prepend without corrupting YAML structure |
+| `test_step_user_provided_validation.py` | implemented | STEP import bbox/hash validation, hash-bound managed filenames, rollback, and copy into `std_parts/` |
+| `test_codegen_docstring_geometry_quality.py` | implemented | Generated modules include source/quality/validated metadata |
+| `test_project_context_paths.py` | implemented | `.cad-spec-gen`, `std_parts/`, and `parts_library.yaml` paths are stable |
+| `test_sw_export_plan.py` | implemented | Read-only SolidWorks export candidate plan is written without triggering export |
 
 ### Edge cases
 
@@ -795,9 +798,10 @@ Phase 3 `build/render`:
 | STEP bbox differs greatly from §6.4 envelope | Mark `requires_model_review=true`; ask user to confirm units or model |
 | SolidWorks not installed | Hide SW export as an executable option; show advisory only |
 | SolidWorks configuration ambiguous | Write `sw_config_pending.json` / `sw_export_plan.json`; do not export guessed config |
-| Multiple models have same display name | Show bbox, path, and short hash; persist selected candidate |
+| Multiple models have same display name | Show bbox, path, and short hash; persist selected candidate; managed STEP paths include the short hash to avoid content drift |
 | `parts_library.yaml` missing | Create minimal `extends: default` + `mappings:` file before adding user mapping |
 | Existing hand-written mappings | Prepend user mapping; do not reorder or delete old mappings |
+| Comments in `parts_library.yaml` | Mapping data and order are preserved, but PyYAML may normalize comments/formatting; authoritative metadata must live in YAML fields, not comments |
 | Large BOM | Ask only high-impact questions; record batch policy and unresolved items in report |
 
 ### Success criteria
