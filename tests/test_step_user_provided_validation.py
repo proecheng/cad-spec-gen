@@ -9,6 +9,7 @@ import pytest
 
 from tools.model_import import (
     _record_model_import,
+    _safe_model_filename,
     import_user_step_model,
     validate_step_file,
 )
@@ -18,6 +19,21 @@ def _write_box_step(path: Path, x: float = 10, y: float = 20, z: float = 30) -> 
     cq = pytest.importorskip("cadquery")
     path.parent.mkdir(parents=True, exist_ok=True)
     cq.exporters.export(cq.Workplane("XY").box(x, y, z), str(path))
+
+
+def _managed_step_path(
+    project_root: Path,
+    part_no: str,
+    name_cn: str,
+    source_step: Path,
+) -> Path:
+    validation = validate_step_file(source_step)
+    return (
+        project_root
+        / "std_parts"
+        / "user_provided"
+        / _safe_model_filename(part_no, name_cn, source_step, validation.source_hash)
+    )
 
 
 def test_validate_step_file_returns_bbox_and_hash_for_box_step(tmp_path):
@@ -87,6 +103,57 @@ def test_import_user_step_model_writes_validation_bbox_to_payload_and_yaml(tmp_p
     assert provenance["bbox_mm"] == pytest.approx([10, 20, 30])
 
 
+def test_import_user_step_model_binds_managed_filename_to_step_hash(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_step = project_root / "models" / "valid.step"
+    _write_box_step(source_step, 10, 20, 30)
+
+    result = import_user_step_model(
+        part_no="BOX-001",
+        name_cn="盒子",
+        step="models/valid.step",
+        project_root=project_root,
+    )
+
+    short_hash = result["source_hash"].split(":", 1)[1][:12]
+    assert result["applied"] is True
+    assert result["step_file"].startswith("user_provided/BOX-001_盒子_")
+    assert result["step_file"].endswith(f"_{short_hash}.step")
+    assert Path(result["target_path"]).read_bytes() == source_step.read_bytes()
+
+
+def test_import_user_step_model_keeps_distinct_targets_for_same_name_new_hash(
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    first_step = project_root / "models" / "first.step"
+    second_step = project_root / "models" / "second.step"
+    _write_box_step(first_step, 10, 20, 30)
+    _write_box_step(second_step, 11, 21, 31)
+
+    first = import_user_step_model(
+        part_no="DUP-001",
+        name_cn="复用模型",
+        step="models/first.step",
+        project_root=project_root,
+    )
+    second = import_user_step_model(
+        part_no="DUP-001",
+        name_cn="复用模型",
+        step="models/second.step",
+        project_root=project_root,
+    )
+
+    assert first["applied"] is True
+    assert second["applied"] is True
+    assert first["source_hash"] != second["source_hash"]
+    assert first["step_file"] != second["step_file"]
+    assert Path(first["target_path"]).read_bytes() == first_step.read_bytes()
+    assert Path(second["target_path"]).read_bytes() == second_step.read_bytes()
+
+
 @pytest.mark.parametrize(
     "bad_yaml",
     [
@@ -126,7 +193,7 @@ def test_import_user_step_model_restores_existing_target_when_writer_fails(
     project_root.mkdir()
     source_step = project_root / "models" / "valid.step"
     _write_box_step(source_step, 12, 22, 32)
-    target = project_root / "std_parts" / "user_provided" / "ROLL-001_滚轮.step"
+    target = _managed_step_path(project_root, "ROLL-001", "滚轮", source_step)
     target.parent.mkdir(parents=True)
     target.write_text("old target content", encoding="utf-8")
 
@@ -195,7 +262,7 @@ def test_import_user_step_model_cleans_record_tmp_when_record_replace_fails(
         b"    file: old.step\n"
     )
     library_path.write_bytes(original_yaml)
-    target = project_root / "std_parts" / "user_provided" / "TMP-FAIL_临时失败.step"
+    target = _managed_step_path(project_root, "TMP-FAIL", "临时失败", source_step)
     target.parent.mkdir(parents=True)
     old_target = b"old target content"
     target.write_bytes(old_target)
@@ -269,9 +336,7 @@ def test_import_user_step_model_rolls_back_yaml_when_record_write_fails(
 
     assert result["applied"] is False
     assert "record boom" in result["reason"]
-    assert not (
-        project_root / "std_parts" / "user_provided" / "REC-FAIL_记录失败.step"
-    ).exists()
+    assert not _managed_step_path(project_root, "REC-FAIL", "记录失败", source_step).exists()
     if library_exists:
         assert library_path.read_bytes() == original_yaml
     else:
@@ -304,7 +369,7 @@ def test_import_user_step_model_rolls_back_when_resolver_verification_fails(
     if library_exists:
         library_path.write_bytes(original_yaml)
 
-    target = project_root / "std_parts" / "user_provided" / "VER-FAIL_验证失败.step"
+    target = _managed_step_path(project_root, "VER-FAIL", "验证失败", source_step)
     old_target = b"old target content"
     if target_exists:
         target.parent.mkdir(parents=True)
@@ -342,3 +407,29 @@ def test_import_user_step_model_rolls_back_when_resolver_verification_fails(
         assert not library_path.exists()
     assert not (project_root / "parts_library.yaml.tmp").exists()
     assert not (project_root / ".cad-spec-gen" / "model_imports.json").exists()
+
+
+def test_record_model_import_uses_context_normalized_subsystem_path(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    result = {
+        "part_no": "BOX-CTX",
+        "name_cn": "路径盒",
+        "step_file": "user_provided/box.step",
+        "target_path": str(project_root / "std_parts" / "user_provided" / "box.step"),
+        "source_path": "models/box.step",
+        "source_hash": "sha256:abc",
+        "parts_library": str(project_root / "parts_library.yaml"),
+        "verification": {"matched": True},
+        "validation": {"ok": True},
+    }
+
+    record_path = _record_model_import(
+        result,
+        project_root=project_root,
+        subsystem=" arm ",
+    )
+
+    assert record_path == (
+        project_root / "cad" / "arm" / ".cad-spec-gen" / "model_imports.json"
+    )

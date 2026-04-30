@@ -14,6 +14,9 @@ from parts_resolver import PartQuery, PartsResolver
 from tools.model_context import ModelProjectContext
 
 
+DEFAULT_TOOLBOX_CONFIG = "Default"
+
+
 def build_sw_export_plan(
     bom_rows,
     registry,
@@ -69,37 +72,22 @@ def build_sw_export_plan(
 
             part, score = match
             config_name = _part_config_name(part)
+            step_path = _step_cache_path(part, registry, adapter, config_name)
+            cache_state = "present" if step_path.exists() else "missing"
+            action = "reuse_cache" if cache_state == "present" else "export"
             candidate.update({
-                "action": "candidate",
+                "action": action,
                 "sldprt_path": str(getattr(part, "sldprt_path", "")),
                 "sldprt_filename": getattr(part, "filename", ""),
                 "standard": getattr(part, "standard", ""),
                 "subcategory": getattr(part, "subcategory", ""),
                 "match_score": score,
+                "config_match": "matched",
+                "config_name": config_name,
+                "recommended_operation": action,
+                "step_cache_path": str(step_path),
+                "cache_state": cache_state,
             })
-            if config_name:
-                step_path = _step_cache_path(part, registry, adapter, config_name)
-                cache_state = "present" if step_path.exists() else "missing"
-                candidate.update({
-                    "config_match": "matched",
-                    "config_name": config_name,
-                    "recommended_operation": (
-                        "reuse_cache" if cache_state == "present" else "export_step"
-                    ),
-                    "step_cache_path": str(step_path),
-                    "cache_state": cache_state,
-                })
-            else:
-                candidate.update({
-                    "config_match": "unknown",
-                    "config_name": "",
-                    "recommended_operation": "choose_config",
-                    "step_cache_path": "",
-                    "cache_state": "unknown",
-                })
-                candidate["warnings"].append(
-                    "Toolbox configuration not resolved in read-only plan"
-                )
             candidates.append(candidate)
 
     return {
@@ -181,7 +169,7 @@ def _part_config_name(part) -> str:
         value = getattr(part, attr, None)
         if value:
             return str(value)
-    return ""
+    return DEFAULT_TOOLBOX_CONFIG
 
 
 def _step_cache_path(part, registry: dict, adapter, config_name: str) -> Path:
@@ -191,10 +179,15 @@ def _step_cache_path(part, registry: dict, adapter, config_name: str) -> Path:
     cache_root = sw_toolbox_catalog.get_toolbox_cache_root(config)
     stem = Path(getattr(part, "filename", "")).stem
     safe_config = re.sub(r"[^\w.\-]", "_", config_name)
-    stem = f"{stem}_{safe_config}"
-    return (
+    preferred_stem = f"{stem}_{safe_config}"
+    preferred_path = (
         cache_root
         / getattr(part, "standard", "")
         / getattr(part, "subcategory", "")
-        / f"{stem}.step"
+        / f"{preferred_stem}.step"
     )
+    if config_name == DEFAULT_TOOLBOX_CONFIG:
+        legacy_path = preferred_path.with_name(f"{stem}.step")
+        if legacy_path.exists() and not preferred_path.exists():
+            return legacy_path
+    return preferred_path

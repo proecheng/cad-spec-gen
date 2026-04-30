@@ -130,7 +130,7 @@ def import_user_step_model(
 
     target_rel = (
         Path("user_provided")
-        / _safe_model_filename(part_no, name_cn, source_path)
+        / _safe_model_filename(part_no, name_cn, source_path, validation.source_hash)
     ).as_posix()
     target_abs = root / "std_parts" / target_rel
     source_provenance = _portable_source_path(source_path, root)
@@ -371,11 +371,28 @@ def verify_model_import_consumed(
     }
 
 
-def _safe_model_filename(part_no: str, name_cn: str, source_path: Path) -> str:
+def _safe_model_filename(
+    part_no: str,
+    name_cn: str,
+    source_path: Path,
+    source_hash: str,
+) -> str:
     stem = f"{part_no}_{name_cn or source_path.stem}"
     stem = re.sub(r"[^\w.\-]+", "_", stem, flags=re.UNICODE).strip("_")
+    short_hash = _short_source_hash(source_hash)
+    if short_hash:
+        stem = stem[: max(1, 96 - len(short_hash) - 1)] or "user_model"
+        return f"{stem}_{short_hash}.step"
     stem = stem[:96] or "user_model"
     return stem + ".step"
+
+
+def _short_source_hash(source_hash: str) -> str:
+    value = (source_hash or "").strip()
+    if ":" in value:
+        _algorithm, value = value.split(":", 1)
+    value = re.sub(r"[^0-9A-Fa-f]", "", value)
+    return value[:12].lower()
 
 
 def _same_file(source: Path, target: Path) -> bool:
@@ -434,16 +451,11 @@ def _record_model_import(
     project_root: Path,
     subsystem: str | None,
 ) -> Path:
-    if subsystem:
-        record_path = (
-            project_root
-            / "cad"
-            / subsystem
-            / ".cad-spec-gen"
-            / "model_imports.json"
-        )
-    else:
-        record_path = project_root / ".cad-spec-gen" / "model_imports.json"
+    context = ModelProjectContext.for_subsystem(
+        subsystem,
+        project_root=project_root,
+    )
+    record_path = context.model_imports_path
     record_path.parent.mkdir(parents=True, exist_ok=True)
 
     existing: dict[str, Any] = {}

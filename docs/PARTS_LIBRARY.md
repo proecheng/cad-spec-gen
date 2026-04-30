@@ -566,6 +566,8 @@ Rules:
 4. Long-lived mappings must not rely on absolute paths unless the user explicitly accepts poor portability.
 5. `step_pool.spec.file` is relative to `step_pool.root`; after copying to `std_parts/custom/foo.step`, write `custom/foo.step`, not `std_parts/custom/foo.step`.
 6. `geometry_report.json` records what codegen actually used. It must not list candidates as if they were applied models.
+7. Managed user STEP filenames include a short source hash suffix, for example `user_provided/P-001_夹具_1a2b3c4d5e6f.step`, so re-importing the same display name with different bytes creates a distinct target path instead of silently overwriting old geometry.
+8. `sw_export_plan.json` is advisory only, but each executable candidate uses `action: "reuse_cache"` or `action: "export"`. A missing Toolbox `target_config` is treated as the stable `Default` configuration and still gets a deterministic cache path; existing legacy warmup cache files without `_Default` suffix are recognized as reusable cache hits.
 
 ### ProjectContext (planned cleanup)
 
@@ -782,7 +784,7 @@ Phase 3 `build/render`:
 | `test_parts_resolver.py` | implemented | Resolver modes and geometry quality defaults |
 | `test_resolve_report.py` | implemented | Report consumes decision log; inspect fallback is read-only |
 | `test_parts_library_writer_roundtrip.py` | implemented | `extends: default` survives; new mappings prepend without corrupting YAML structure |
-| `test_step_user_provided_validation.py` | implemented | STEP import bbox, unit sanity, and copy into `std_parts/` |
+| `test_step_user_provided_validation.py` | implemented | STEP import bbox/hash validation, hash-bound managed filenames, rollback, and copy into `std_parts/` |
 | `test_codegen_docstring_geometry_quality.py` | implemented | Generated modules include source/quality/validated metadata |
 | `test_project_context_paths.py` | implemented | `.cad-spec-gen`, `std_parts/`, and `parts_library.yaml` paths are stable |
 | `test_sw_export_plan.py` | implemented | Read-only SolidWorks export candidate plan is written without triggering export |
@@ -796,9 +798,10 @@ Phase 3 `build/render`:
 | STEP bbox differs greatly from §6.4 envelope | Mark `requires_model_review=true`; ask user to confirm units or model |
 | SolidWorks not installed | Hide SW export as an executable option; show advisory only |
 | SolidWorks configuration ambiguous | Write `sw_config_pending.json` / `sw_export_plan.json`; do not export guessed config |
-| Multiple models have same display name | Show bbox, path, and short hash; persist selected candidate |
+| Multiple models have same display name | Show bbox, path, and short hash; persist selected candidate; managed STEP paths include the short hash to avoid content drift |
 | `parts_library.yaml` missing | Create minimal `extends: default` + `mappings:` file before adding user mapping |
 | Existing hand-written mappings | Prepend user mapping; do not reorder or delete old mappings |
+| Comments in `parts_library.yaml` | Mapping data and order are preserved, but PyYAML may normalize comments/formatting; authoritative metadata must live in YAML fields, not comments |
 | Large BOM | Ask only high-impact questions; record batch policy and unresolved items in report |
 
 ### Success criteria

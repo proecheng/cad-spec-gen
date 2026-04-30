@@ -152,16 +152,17 @@ def test_build_sw_export_plan_finds_candidate_without_resolve(tmp_path):
     assert plan["subsystem"] == "end_effector"
     assert len(plan["candidates"]) == 1
     candidate = plan["candidates"][0]
-    assert candidate["action"] == "candidate"
+    expected_step_path = cache_root / "GB" / "bearing" / "6205_Default.step"
+    assert candidate["action"] == "export"
     assert candidate["adapter"] == "sw_toolbox"
-    assert candidate["config_match"] == "unknown"
-    assert candidate["config_name"] == ""
-    assert candidate["cache_state"] == "unknown"
-    assert candidate["recommended_operation"] == "choose_config"
+    assert candidate["config_match"] == "matched"
+    assert candidate["config_name"] == "Default"
+    assert candidate["cache_state"] == "missing"
+    assert candidate["recommended_operation"] == "export"
     assert candidate["match_score"] == 0.91
     assert candidate["sldprt_path"].endswith("6205.sldprt")
-    assert candidate["step_cache_path"] == ""
-    assert "Toolbox configuration not resolved in read-only plan" in candidate["warnings"]
+    assert candidate["step_cache_path"] == str(expected_step_path)
+    assert candidate["warnings"] == []
 
 
 def test_build_sw_export_plan_with_target_config_reports_cache_path(tmp_path):
@@ -213,10 +214,51 @@ def test_build_sw_export_plan_with_target_config_reports_cache_path(tmp_path):
     )
 
     candidate = plan["candidates"][0]
-    assert candidate["action"] == "candidate"
+    assert candidate["action"] == "reuse_cache"
     assert candidate["config_match"] == "matched"
     assert candidate["config_name"] == "M6x20"
     assert candidate["step_cache_path"] == str(step_path)
+    assert candidate["cache_state"] == "present"
+    assert candidate["recommended_operation"] == "reuse_cache"
+
+
+def test_build_sw_export_plan_reuses_legacy_default_warmup_cache(tmp_path):
+    cache_root = tmp_path / "cache"
+    adapter = FakeSwAdapter(cache_root)
+    registry = {
+        "solidworks_toolbox": {"cache": str(cache_root)},
+        "mappings": [
+            {
+                "match": {"category": "bearing"},
+                "adapter": "sw_toolbox",
+                "spec": {"standard": "GB", "part_category": "bearing"},
+            }
+        ],
+    }
+    legacy_step_path = cache_root / "GB" / "bearing" / "6205.step"
+    legacy_step_path.parent.mkdir(parents=True)
+    legacy_step_path.write_text("cached", encoding="utf-8")
+    context = ModelProjectContext.for_subsystem("end_effector", project_root=tmp_path)
+
+    plan = build_sw_export_plan(
+        [
+            {
+                "part_no": "P-001",
+                "name_cn": "深沟球轴承 6205",
+                "material": "GB/T 276 6205",
+                "category": "bearing",
+                "make_buy": "标准",
+            }
+        ],
+        registry,
+        context,
+        adapter=adapter,
+    )
+
+    candidate = plan["candidates"][0]
+    assert candidate["action"] == "reuse_cache"
+    assert candidate["config_name"] == "Default"
+    assert candidate["step_cache_path"] == str(legacy_step_path)
     assert candidate["cache_state"] == "present"
     assert candidate["recommended_operation"] == "reuse_cache"
 
