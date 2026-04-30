@@ -38,7 +38,10 @@ class ModelProjectContext:
         project_root: str | Path,
     ) -> "ModelProjectContext":
         root = Path(project_root).expanduser().resolve()
-        review_dir = Path(review_json_path).expanduser().resolve().parent
+        review_path = Path(review_json_path).expanduser()
+        if not review_path.is_absolute():
+            review_path = root / review_path
+        review_dir = review_path.resolve().parent
         subsystem: str | None = None
         try:
             rel_parts = review_dir.relative_to(root).parts

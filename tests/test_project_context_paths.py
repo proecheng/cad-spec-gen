@@ -54,6 +54,28 @@ def test_review_json_under_cad_derives_same_subsystem(tmp_path):
     assert ctx.subsystem == "end_effector"
 
 
+def test_relative_review_json_is_anchored_to_project_root(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    ctx = ModelProjectContext.from_review_json(
+        "output/end_effector/DESIGN_REVIEW.json",
+        project_root=project_root,
+    )
+
+    assert ctx.subsystem == "end_effector"
+    assert (
+        ctx.model_choices_path
+        == project_root
+        / "cad"
+        / "end_effector"
+        / ".cad-spec-gen"
+        / "model_choices.json"
+    )
+
+
 def test_no_subsystem_uses_project_level_meta_dir(tmp_path):
     project_root = tmp_path / "project"
 
