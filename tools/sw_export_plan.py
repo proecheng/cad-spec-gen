@@ -68,23 +68,38 @@ def build_sw_export_plan(
                 continue
 
             part, score = match
-            step_path = _step_cache_path(part, registry, adapter)
-            cache_state = "present" if step_path.exists() else "missing"
+            config_name = _part_config_name(part)
             candidate.update({
                 "action": "candidate",
-                "config_match": "matched",
-                "config_name": "Default",
-                "recommended_operation": (
-                    "reuse_cache" if cache_state == "present" else "export_step"
-                ),
                 "sldprt_path": str(getattr(part, "sldprt_path", "")),
                 "sldprt_filename": getattr(part, "filename", ""),
                 "standard": getattr(part, "standard", ""),
                 "subcategory": getattr(part, "subcategory", ""),
                 "match_score": score,
-                "step_cache_path": str(step_path),
-                "cache_state": cache_state,
             })
+            if config_name:
+                step_path = _step_cache_path(part, registry, adapter, config_name)
+                cache_state = "present" if step_path.exists() else "missing"
+                candidate.update({
+                    "config_match": "matched",
+                    "config_name": config_name,
+                    "recommended_operation": (
+                        "reuse_cache" if cache_state == "present" else "export_step"
+                    ),
+                    "step_cache_path": str(step_path),
+                    "cache_state": cache_state,
+                })
+            else:
+                candidate.update({
+                    "config_match": "unknown",
+                    "config_name": "",
+                    "recommended_operation": "choose_config",
+                    "step_cache_path": "",
+                    "cache_state": "unknown",
+                })
+                candidate["warnings"].append(
+                    "Toolbox configuration not resolved in read-only plan"
+                )
             candidates.append(candidate)
 
     return {
@@ -161,16 +176,22 @@ def _base_candidate(
     }
 
 
-def _step_cache_path(part, registry: dict, adapter) -> Path:
+def _part_config_name(part) -> str:
+    for attr in ("target_config", "config_name", "configuration"):
+        value = getattr(part, attr, None)
+        if value:
+            return str(value)
+    return ""
+
+
+def _step_cache_path(part, registry: dict, adapter, config_name: str) -> Path:
     from adapters.solidworks import sw_toolbox_catalog
 
     config = getattr(adapter, "config", None) or registry.get("solidworks_toolbox", {})
     cache_root = sw_toolbox_catalog.get_toolbox_cache_root(config)
     stem = Path(getattr(part, "filename", "")).stem
-    target_config = getattr(part, "target_config", None)
-    if target_config:
-        safe_config = re.sub(r"[^\w.\-]", "_", target_config)
-        stem = f"{stem}_{safe_config}"
+    safe_config = re.sub(r"[^\w.\-]", "_", config_name)
+    stem = f"{stem}_{safe_config}"
     return (
         cache_root
         / getattr(part, "standard", "")

@@ -3,6 +3,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -50,6 +51,28 @@ def test_matching_rules_filters_by_adapter_name_without_invoking_adapters():
     assert len(rules) == 1
     assert rules[0]["adapter"] == "sw_toolbox"
     assert rules[0]["spec"] == {"part_category": "bearing"}
+
+
+def test_matching_rules_skips_malformed_rule_without_raising():
+    registry = {
+        "mappings": [
+            {
+                "match": {"category": "bearing", "name_contains": [1]},
+                "adapter": "sw_toolbox",
+                "spec": {"part_category": "bearing"},
+            }
+        ]
+    }
+    resolver = PartsResolver(registry=registry)
+    query = PartQuery(
+        part_no="P-001",
+        name_cn="深沟球轴承 6205",
+        material="GB/T 276 6205",
+        category="bearing",
+        make_buy="标准",
+    )
+
+    assert resolver.matching_rules(query, adapter_name="sw_toolbox") == []
 
 
 @dataclass
@@ -131,12 +154,71 @@ def test_build_sw_export_plan_finds_candidate_without_resolve(tmp_path):
     candidate = plan["candidates"][0]
     assert candidate["action"] == "candidate"
     assert candidate["adapter"] == "sw_toolbox"
-    assert candidate["config_match"] == "matched"
-    assert candidate["config_name"] == "Default"
-    assert candidate["cache_state"] in {"present", "missing"}
+    assert candidate["config_match"] == "unknown"
+    assert candidate["config_name"] == ""
+    assert candidate["cache_state"] == "unknown"
+    assert candidate["recommended_operation"] == "choose_config"
     assert candidate["match_score"] == 0.91
     assert candidate["sldprt_path"].endswith("6205.sldprt")
-    assert candidate["step_cache_path"].endswith(str(Path("GB") / "bearing" / "6205.step"))
+    assert candidate["step_cache_path"] == ""
+    assert "Toolbox configuration not resolved in read-only plan" in candidate["warnings"]
+
+
+def test_build_sw_export_plan_with_target_config_reports_cache_path(tmp_path):
+    cache_root = tmp_path / "cache"
+
+    class ConfiguredFakeSwAdapter(FakeSwAdapter):
+        def find_sldprt(self, query, spec):
+            self.find_calls += 1
+            return (
+                FakeSwPart(
+                    standard="GB",
+                    subcategory="bearing",
+                    sldprt_path=str(cache_root / "6205.sldprt"),
+                    filename="6205.sldprt",
+                    target_config="M6x20",
+                ),
+                0.91,
+            )
+
+    adapter = ConfiguredFakeSwAdapter(cache_root)
+    registry = {
+        "solidworks_toolbox": {"cache": str(cache_root)},
+        "mappings": [
+            {
+                "match": {"category": "bearing"},
+                "adapter": "sw_toolbox",
+                "spec": {"standard": "GB", "part_category": "bearing"},
+            }
+        ],
+    }
+    step_path = cache_root / "GB" / "bearing" / "6205_M6x20.step"
+    step_path.parent.mkdir(parents=True)
+    step_path.write_text("cached", encoding="utf-8")
+    context = ModelProjectContext.for_subsystem("end_effector", project_root=tmp_path)
+
+    plan = build_sw_export_plan(
+        [
+            {
+                "part_no": "P-001",
+                "name_cn": "深沟球轴承 6205",
+                "material": "GB/T 276 6205",
+                "category": "bearing",
+                "make_buy": "标准",
+            }
+        ],
+        registry,
+        context,
+        adapter=adapter,
+    )
+
+    candidate = plan["candidates"][0]
+    assert candidate["action"] == "candidate"
+    assert candidate["config_match"] == "matched"
+    assert candidate["config_name"] == "M6x20"
+    assert candidate["step_cache_path"] == str(step_path)
+    assert candidate["cache_state"] == "present"
+    assert candidate["recommended_operation"] == "reuse_cache"
 
 
 def test_build_sw_export_plan_no_candidate_has_stable_schema(tmp_path):
@@ -189,3 +271,12 @@ def test_write_sw_export_plan_writes_json_to_context_path(tmp_path):
     assert path == context.sw_export_plan_path
     assert path.exists()
     assert json.loads(path.read_text(encoding="utf-8")) == plan
+
+
+def test_cmd_sw_export_plan_missing_spec_returns_error(tmp_path, monkeypatch):
+    import cad_pipeline
+
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    args = SimpleNamespace(subsystem="__missing__", spec="", json=False)
+
+    assert cad_pipeline.cmd_sw_export_plan(args) == 1

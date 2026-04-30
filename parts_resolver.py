@@ -309,7 +309,14 @@ class PartsResolver:
                 continue
             if adapter_name is not None and rule.get("adapter", "") != adapter_name:
                 continue
-            if _match_rule(rule.get("match", {}), query):
+            try:
+                matched = _match_rule(rule.get("match", {}), query)
+            except Exception as e:
+                self.log(
+                    f"  [resolver] skipping malformed rule for {query.part_no}: {e}"
+                )
+                continue
+            if matched:
                 rules.append(rule)
         return rules
 

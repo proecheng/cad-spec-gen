@@ -2811,6 +2811,9 @@ def cmd_sw_export_plan(args):
     spec_path = args.spec or os.path.join(
         PROJECT_ROOT, "cad", args.subsystem, "CAD_SPEC.md"
     )
+    if not os.path.isfile(spec_path):
+        log.error("CAD_SPEC.md 不存在: %s", spec_path)
+        return 1
     bom_rows = parse_bom_tree(spec_path)
     registry = load_registry(project_root=PROJECT_ROOT)
     context = ModelProjectContext.for_subsystem(
