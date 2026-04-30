@@ -6,7 +6,7 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
-## [v2.24.0] - Unreleased
+## Unreleased
 
 ### Added
 - 新增 `ModelProjectContext` 稳定路径契约，统一模型选择、标准件目录、报告与子系统输出位置。
