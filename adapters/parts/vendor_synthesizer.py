@@ -33,6 +33,14 @@ Factory vocabulary:
   maxon_gp22c        Maxon GP22C 53:1 planetary gearhead (Φ22×35 mm + Φ6 shaft)
   lemo_fgg_0b_307    LEMO FGG.0B.307 7-pin push-pull plug (Φ8.6×37 mm)
   ati_nano17         ATI Nano17 6-axis force/torque sensor (Φ17×14.5 mm)
+  belleville_din2093_a6
+                      DIN 2093 A6 conical spring washer
+  spring_pin_4x20     Spring pin assembly, 4 mm × 20 mm with conical head
+  molex_15168_ffc_20p Molex 15168-style 20-pin FFC ribbon display segment
+  molex_zif_5052xx    Molex 5052xx-style ZIF connector
+  reservoir_38x280    Stainless cylindrical fluid reservoir
+  tungsten_slug_12x7  Tungsten counterweight slug, 12 mm × 7 mm
+  tungsten_slug_14x13 Tungsten counterweight slug, 14 mm × 13 mm
 
 Adding a new vendor part:
   1. Write a `make_xxx()` factory that returns a cq.Workplane with the right
@@ -228,6 +236,182 @@ def _make_ati_nano17():
     return body
 
 
+def _make_belleville_din2093_a6():
+    """DIN 2093 A6 Belleville spring washer visual stand-in."""
+    import cadquery as cq
+
+    outer_bottom_r, outer_top_r = 6.25, 5.65
+    inner_bottom_r, inner_top_r = 3.15, 3.75
+    height = 0.85
+
+    outer = (
+        cq.Workplane("XY")
+        .circle(outer_bottom_r)
+        .workplane(offset=height)
+        .circle(outer_top_r)
+        .loft(combine=True)
+    )
+    inner = (
+        cq.Workplane("XY")
+        .circle(inner_bottom_r)
+        .workplane(offset=height)
+        .circle(inner_top_r)
+        .loft(combine=True)
+    )
+    washer = outer.cut(inner)
+    try:
+        washer = washer.edges().chamfer(0.08)
+    except Exception:
+        pass
+    return washer
+
+
+def _make_spring_pin_4x20():
+    """Spring pin assembly, 4 mm body by 20 mm overall length."""
+    import cadquery as cq
+
+    shaft = cq.Workplane("XY").circle(2.0).extrude(16.0)
+    head = (
+        cq.Workplane("XY")
+        .workplane(offset=16.0)
+        .circle(2.0)
+        .workplane(offset=4.0)
+        .circle(1.25)
+        .loft(combine=True)
+    )
+    slot = (
+        cq.Workplane("XY")
+        .center(0, 0)
+        .workplane(offset=2.0)
+        .box(0.55, 4.8, 12.0, centered=(True, True, False))
+    )
+    pin = shaft.union(head).cut(slot)
+
+    # Small external spring cue: three narrow collars on the pin body.
+    for z in (4.0, 7.0, 10.0):
+        collar = cq.Workplane("XY").workplane(offset=z).circle(2.25).extrude(0.35)
+        bore = cq.Workplane("XY").workplane(offset=z - 0.05).circle(1.98).extrude(0.45)
+        pin = pin.union(collar.cut(bore))
+    try:
+        pin = pin.faces(">Z").edges(">Z").chamfer(0.18)
+    except Exception:
+        pass
+    return pin
+
+
+def _make_molex_15168_ffc_20p():
+    """Molex 15168-style 20-pin FFC ribbon display segment."""
+    import cadquery as cq
+
+    length, width, thick = 50.0, 12.0, 0.45
+    ribbon = cq.Workplane("XY").box(length, width, thick, centered=(True, True, False))
+
+    # Reinforcement tabs at both visible ends.
+    for x in (-length / 2 + 4.0, length / 2 - 4.0):
+        tab = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .box(7.0, width + 1.0, 0.35, centered=(True, True, False))
+        )
+        ribbon = ribbon.union(tab)
+
+    # Twenty contact traces near one end.
+    pitch = width / 21.0
+    for i in range(20):
+        y = -width / 2 + pitch * (i + 1)
+        trace = (
+            cq.Workplane("XY")
+            .center(length / 2 - 5.5, y)
+            .box(7.5, 0.18, 0.18, centered=(True, True, False))
+        )
+        ribbon = ribbon.union(trace)
+    return ribbon
+
+
+def _make_molex_zif_5052xx():
+    """Molex 5052xx-style low-profile ZIF connector."""
+    import cadquery as cq
+
+    base = cq.Workplane("XY").box(18.0, 5.2, 2.0, centered=(True, True, False))
+    latch = (
+        cq.Workplane("XY")
+        .center(0, 2.4)
+        .box(18.5, 1.0, 1.0, centered=(True, True, False))
+        .translate((0, 0, 1.6))
+    )
+    connector = base.union(latch)
+
+    pitch = 16.0 / 19.0
+    for i in range(20):
+        x = -8.0 + pitch * i
+        pad = (
+            cq.Workplane("XY")
+            .center(x, -2.9)
+            .box(0.28, 1.4, 0.18, centered=(True, True, False))
+            .translate((0, 0, 0.1))
+        )
+        connector = connector.union(pad)
+    try:
+        connector = connector.edges("|Z").chamfer(0.12)
+    except Exception:
+        pass
+    return connector
+
+
+def _make_reservoir_38x280():
+    """Stainless steel fluid reservoir, 38 mm diameter by 280 mm length."""
+    import cadquery as cq
+
+    body = cq.Workplane("XY").circle(19.0).extrude(280.0)
+    for z in (0.0, 280.0):
+        cap = cq.Workplane("XY").workplane(offset=z).circle(20.0).extrude(1.6)
+        body = body.union(cap)
+
+    neck = (
+        cq.Workplane("YZ")
+        .center(0, 235.0)
+        .circle(4.0)
+        .extrude(16.0)
+        .translate((19.0, 0, 0))
+    )
+    port = (
+        cq.Workplane("YZ")
+        .center(0, 235.0)
+        .circle(2.5)
+        .extrude(18.0)
+        .translate((18.2, 0, 0))
+    )
+    body = body.union(neck.cut(port))
+    try:
+        body = body.faces(">Z").edges(">Z").chamfer(0.6)
+    except Exception:
+        pass
+    return body
+
+
+def _make_tungsten_slug(diameter: float, height: float):
+    """Dense cylindrical tungsten counterweight with chamfer and center mark."""
+    import cadquery as cq
+
+    slug = cq.Workplane("XY").circle(diameter / 2).extrude(height)
+    slug = slug.faces(">Z").workplane().circle(diameter * 0.18).cutBlind(-0.35)
+    try:
+        slug = slug.edges("|Z").chamfer(0.35)
+    except Exception:
+        pass
+    return slug
+
+
+def _make_tungsten_slug_12x7():
+    """Tungsten counterweight slug, 12 mm diameter by 7 mm high."""
+    return _make_tungsten_slug(12.0, 7.0)
+
+
+def _make_tungsten_slug_14x13():
+    """Tungsten counterweight slug, 14 mm diameter by 13 mm high."""
+    return _make_tungsten_slug(14.0, 13.0)
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -235,6 +419,13 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "maxon_gp22c": _make_maxon_gp22c,
     "lemo_fgg_0b_307": _make_lemo_fgg_0b_307,
     "ati_nano17": _make_ati_nano17,
+    "belleville_din2093_a6": _make_belleville_din2093_a6,
+    "spring_pin_4x20": _make_spring_pin_4x20,
+    "molex_15168_ffc_20p": _make_molex_15168_ffc_20p,
+    "molex_zif_5052xx": _make_molex_zif_5052xx,
+    "reservoir_38x280": _make_reservoir_38x280,
+    "tungsten_slug_12x7": _make_tungsten_slug_12x7,
+    "tungsten_slug_14x13": _make_tungsten_slug_14x13,
 }
 
 
