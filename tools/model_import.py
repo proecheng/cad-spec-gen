@@ -115,7 +115,7 @@ def import_user_step_model(
         "name_cn": name_cn,
         "step_file": target_rel,
         "target_path": str(target_abs),
-        "source_path": str(source_path),
+        "source_path": _portable_source_path(source_path, root),
         "source_hash": _sha256_file(source_path),
         "parts_library": str(yaml_path),
     }
@@ -233,6 +233,15 @@ def _same_file(source: Path, target: Path) -> bool:
         return False
 
 
+def _portable_source_path(source_path: Path, project_root: Path) -> str:
+    """Return project-relative source provenance when possible."""
+    try:
+        rel = source_path.resolve().relative_to(project_root.resolve())
+        return rel.as_posix()
+    except ValueError:
+        return str(source_path)
+
+
 def _prepend_step_pool_mapping(
     *,
     part_no: str,
@@ -275,7 +284,7 @@ def _prepend_step_pool_mapping(
         "provenance": {
             "provided_by_user": True,
             "provided_at": _utc_now(),
-            "source_path": str(source_path),
+            "source_path": _portable_source_path(source_path, project_root),
             "source_hash": _sha256_file(source_path),
             "name_cn": name_cn or "",
         },

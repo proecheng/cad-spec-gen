@@ -451,14 +451,18 @@ def _write_enriched_placeholder(
     step_path = _Path(py_path).with_suffix(".step")
     cq.exporters.export(wp, str(step_path))
 
+    public_func = func_name if func_name.startswith("make_") else f"make_{func_name}"
+    alias_line = "" if public_func == func_name else f"\n\n# Backward-compatible alias for older direct callers\n{func_name} = {public_func}\n"
+
     py_content = (
         f"# ENRICHED_PLACEHOLDER — geometry approximated, not dimensionally accurate\n"
         f"# tpl_type={tpl} envelope=({env_w},{env_d},{env_h})\n"
         f"import cadquery as cq\n\n"
-        f"def {func_name}():\n"
+        f"def {public_func}():\n"
         f"    # 此件由 L3 富化 Envelope 生成，精度有限\n"
         f"    # 生成的 .py 与 .step 必须保持同目录同名\n"
         f"    return cq.importers.importStep(str(__import__('pathlib').Path(__file__).with_suffix('.step')))\n"
+        f"{alias_line}"
     )
     _Path(py_path).write_text(py_content, encoding="utf-8")
 

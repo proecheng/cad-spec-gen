@@ -1,0 +1,50 @@
+extends: default
+mappings:
+- match:
+    part_no: SLP-F12
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-F12_M8_inductive_sensor.step
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-04-30T02:30:51.687849+00:00'
+    source_path: refs/model_sources/freecad_library/Inductive-Proximity-Sensor.step
+    source_hash: sha256:c681b5ba255488eabffd3867c142c01a523a9671b965698f734ae002a160be62
+    name_cn: M8_inductive_sensor
+    display_name_cn: M8 电感接近开关 NPN-NO
+    source_library: FreeCAD-library
+    source_license: CC-BY-3.0
+    source_commit: 2e36ae32ba3b360592de93ab0630b1dfe163c3f3
+    source_url: https://github.com/FreeCAD/FreeCAD-library/blob/2e36ae32ba3b360592de93ab0630b1dfe163c3f3/Electronics%20Parts/Inductors/Inductive_sensor/Inductive-Proximity-Sensor.step
+- match:
+    part_no: SLP-C07
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C07_NEMA23_stepper.step
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-04-30T02:30:44.708119+00:00'
+    source_path: refs/model_sources/freecad_library/NEMA-23_Stepper_Motor.step
+    source_hash: sha256:3fa32e1920ef78fce6b68aabbe38ee730d425571191e27b5c0ad8ab9d2a02200
+    name_cn: NEMA23_stepper
+    display_name_cn: NEMA23 闭环步进 ≥1.0Nm
+    source_library: FreeCAD-library
+    source_license: CC-BY-3.0
+    source_commit: 2e36ae32ba3b360592de93ab0630b1dfe163c3f3
+    source_url: https://github.com/FreeCAD/FreeCAD-library/blob/2e36ae32ba3b360592de93ab0630b1dfe163c3f3/Electronics%20Parts/Motors/Stepper/NEMA/Old/NEMA-23_Stepper_Motor.step
+- match:
+    part_no: SLP-C02
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C02_LM10UU.step
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-04-30T02:30:31.639235+00:00'
+    source_path: refs/model_sources/freecad_library/LM10uu.step
+    source_hash: sha256:e37e54ea1d82012caf60b181a140e8ae30be707473f438b937729d9edd2f536d
+    name_cn: LM10UU
+    display_name_cn: LM10UU
+    source_library: FreeCAD-library
+    source_license: CC-BY-3.0
+    source_commit: 2e36ae32ba3b360592de93ab0630b1dfe163c3f3
+    source_url: https://github.com/FreeCAD/FreeCAD-library/blob/2e36ae32ba3b360592de93ab0630b1dfe163c3f3/Mechanical%20Parts/Bearings/linear_bearings/LM10uu.step

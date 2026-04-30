@@ -76,7 +76,9 @@ def test_model_import_copies_project_relative_step_updates_yaml_and_verifies(
     assert mapping["adapter"] == "step_pool"
     assert mapping["spec"] == {"file": payload["step_file"]}
     assert mapping["provenance"]["provided_by_user"] is True
+    assert mapping["provenance"]["source_path"] == "models/lm10uu.step"
     assert mapping["provenance"]["source_hash"].startswith("sha256:")
+    assert payload["source_path"] == "models/lm10uu.step"
 
     imports = json.loads(
         (
@@ -89,6 +91,7 @@ def test_model_import_copies_project_relative_step_updates_yaml_and_verifies(
     )
     assert imports["imports"][0]["part_no"] == "SLP-C02"
     assert imports["imports"][0]["step_file"] == payload["step_file"]
+    assert imports["imports"][0]["source_path"] == "models/lm10uu.step"
 
 
 def test_model_import_replaces_existing_user_mapping_for_same_part(tmp_path):

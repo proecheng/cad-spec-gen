@@ -123,6 +123,8 @@ def test_write_enriched_placeholder_creates_files(tmp_path):
     _write_enriched_placeholder(out_py, "test_fn", "flange", 90.0, 90.0, 20.0)
     content = out_py.read_text(encoding="utf-8")
     assert "ENRICHED_PLACEHOLDER" in content
+    assert "def make_test_fn" in content
+    assert "test_fn = make_test_fn" in content
     step_out = tmp_path / "test_part.step"
     assert step_out.exists()
 

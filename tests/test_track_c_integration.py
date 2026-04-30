@@ -45,6 +45,8 @@ def test_l3_enriched_placeholder_written_for_unknown_part(tmp_path):
     _write_enriched_placeholder(out_py, "ee_unknown", None, 50.0, 40.0, 30.0)
     content = out_py.read_text(encoding="utf-8")
     assert "ENRICHED_PLACEHOLDER" in content
+    assert "def make_ee_unknown" in content
+    assert "ee_unknown = make_ee_unknown" in content
     step_file = tmp_path / "ee_unknown.step"
     assert step_file.exists()
     assert step_file.stat().st_size > 500
