@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from cad_paths import PROJECT_ROOT
+from tools.model_context import ModelProjectContext
+from tools.parts_library_writer import UserStepMapping, prepend_user_step_mapping
 
 
 def _utc_now() -> str:
@@ -101,12 +103,17 @@ def import_user_step_model(
     if not _same_file(source_path, target_abs):
         shutil.copy2(source_path, target_abs)
 
-    yaml_path = _prepend_step_pool_mapping(
-        part_no=part_no,
-        name_cn=name_cn,
-        source_path=source_path,
-        target_rel=target_rel,
-        project_root=root,
+    source_hash = _sha256_file(source_path)
+    source_provenance = _portable_source_path(source_path, root)
+    yaml_path = prepend_user_step_mapping(
+        ModelProjectContext(project_root=root, subsystem=subsystem),
+        UserStepMapping(
+            part_no=part_no,
+            name_cn=name_cn,
+            file_rel=target_rel,
+            source_path=source_provenance,
+            source_hash=source_hash,
+        ),
     )
 
     result: dict[str, Any] = {
@@ -115,8 +122,8 @@ def import_user_step_model(
         "name_cn": name_cn,
         "step_file": target_rel,
         "target_path": str(target_abs),
-        "source_path": _portable_source_path(source_path, root),
-        "source_hash": _sha256_file(source_path),
+        "source_path": source_provenance,
+        "source_hash": source_hash,
         "parts_library": str(yaml_path),
     }
     result["verification"] = (
@@ -240,62 +247,6 @@ def _portable_source_path(source_path: Path, project_root: Path) -> str:
         return rel.as_posix()
     except ValueError:
         return str(source_path)
-
-
-def _prepend_step_pool_mapping(
-    *,
-    part_no: str,
-    name_cn: str,
-    source_path: Path,
-    target_rel: str,
-    project_root: Path,
-) -> Path:
-    try:
-        import yaml  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("PyYAML not installed; parts_library.yaml not updated") from exc
-
-    yaml_path = project_root / "parts_library.yaml"
-    if yaml_path.is_file():
-        with yaml_path.open(encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-    else:
-        cfg = {"extends": "default", "mappings": []}
-
-    if not isinstance(cfg, dict):
-        cfg = {"extends": "default", "mappings": []}
-    mappings = cfg.get("mappings")
-    if not isinstance(mappings, list):
-        mappings = []
-
-    mappings = [
-        m
-        for m in mappings
-        if not (
-            isinstance(m, dict)
-            and (m.get("match", {}) or {}).get("part_no") == part_no
-            and (m.get("provenance", {}) or {}).get("provided_by_user")
-        )
-    ]
-    new_mapping = {
-        "match": {"part_no": part_no},
-        "adapter": "step_pool",
-        "spec": {"file": target_rel},
-        "provenance": {
-            "provided_by_user": True,
-            "provided_at": _utc_now(),
-            "source_path": _portable_source_path(source_path, project_root),
-            "source_hash": _sha256_file(source_path),
-            "name_cn": name_cn or "",
-        },
-    }
-    cfg["mappings"] = [new_mapping] + mappings
-
-    tmp_path = yaml_path.with_suffix(yaml_path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-    os.replace(tmp_path, yaml_path)
-    return yaml_path
 
 
 def _record_model_import(
