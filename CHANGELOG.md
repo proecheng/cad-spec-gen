@@ -6,6 +6,35 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ---
 
+## [v2.23.5] - 2026-04-30
+
+### Added
+- 新增只读模型审计命令 `cad_pipeline.py model-audit` / `tools/model_audit.py`，用于汇总 A-E 几何质量、缺失 STEP 和需人工审查项。
+- 新增用户 STEP 导入闭环：`tools/model_import.py` 会把用户模型复制到 `std_parts/user_provided/`，并通过 `parts_library.yaml` 前置映射驱动下一次 codegen。
+- 引入升降平台 FreeCAD-library STEP 示例与 attribution，覆盖 LM10UU、NEMA23、M8 电感接近开关等用户模型路径。
+- 扩展末端执行器 shared-cache vendor synthesizer 与默认映射，使 32 个生成外购件都能走 STEP 导入。
+
+### Changed
+- 升降平台标准件脚手架改用用户提供/真实 STEP 导入，减少简化占位几何。
+- 末端执行器标准件脚手架升级为 shared-cache STEP 导入，避免回退到 JINJA fallback。
+- `adapters.parts.vendor_synthesizer` 暴露 `DEFAULT_STEP_FILES`，让 YAML 映射与批量 cache warmup 复用同一路径契约。
+
+### Fixed
+- 固定 model-choice 路径锚点，避免用户 STEP 路径随工作目录漂移。
+- 统一 shared-cache STEP 路径解析，保证 resolver 报告、生成代码和缓存校验使用同一语义。
+- 将 GISBOT 专用 end-effector 默认映射收窄到精确 `GIS-EE-*` 料号，避免普通项目的“齿轮泵”“阻尼垫”等泛名称误命中 demo 固定尺寸 stand-in。
+- 增加 Python 3.10 语法兼容回归，防止 CI 被新版 f-string 写法击穿。
+
+### Validation
+- 本地合并后全量：`1697 passed, 16 skipped, 4 warnings`。
+- PR #43：mypy-strict、regression、Ubuntu/Windows Python 3.10/3.11/3.12 全部通过。
+- 推送 `main` 后：tests matrix 与 `sw-smoke` 全部通过。
+- `end_effector` model audit：`A=32`，`missing_step_count=0`，`review_required_count=0`。
+
+PyPI upload intentionally skipped for this release.
+
+---
+
 ## [v2.23.4] - 2026-04-29
 
 ### Changed

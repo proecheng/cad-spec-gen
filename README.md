@@ -4,7 +4,7 @@
 
 A **cross-platform AI skill** for the complete CAD pipeline. Works with Claude Code, GPT-4, GLM-4, Qwen, LangChain, AutoGen, Dify — or any LLM with shell execution. One skill gives your AI agent the ability to: extract specs from design docs, generate GB/T-compliant 2D drawings, produce geometrically accurate 3D renders, and create photorealistic presentation images.
 
-**Latest: v2.23.4** — Patch release for CI/runtime stability. `sw-smoke` and `tests` now use the Node 24 `actions/upload-artifact@v7`, while the SolidWorks self-hosted workflow keeps its PowerShell and checkout fallback hardening from v2.23.3 follow-up work. See [`CHANGELOG.md`](CHANGELOG.md).
+**Latest: v2.23.5** — Model-library release covering user STEP imports, read-only model audit, lifting-platform real STEP mappings, and full end-effector shared-cache STEP coverage. See [`CHANGELOG.md`](CHANGELOG.md).
 
 **v2.9.1** — End-to-end regression-hardening release, shipped after a full real-document pipeline test on the GISBOT end-effector design doc. Four skill bugs fixed: (1) `check_env.py` now reads `blender_path` from `pipeline_config.json` so Level 4 RENDER is detected correctly when Blender isn't on `PATH`; (2) `assembly_validator.py` GATE-3.5 no longer crashes on `parse_envelopes()` v2.9 dict return — new `_envelope_dims()` adapter tolerates both tuple and dict shapes; (3) `cad_pipeline.py enhance --backend engineering` now accepted in argparse choices (was silently falling through to gemini); (4) **new `engineering_enhancer.py`** — fully implements the zero-AI backend long documented in `pipeline_config.json` (Blender PBR PNG → PIL sharpness/contrast/saturation → JPG). See [`RELEASE_v2.9.1.md`](RELEASE_v2.9.1.md).
 
