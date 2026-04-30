@@ -52,6 +52,27 @@ class FakeAdapter(PartsAdapter):
         return (10.0, 10.0, 10.0)
 
 
+class ReadyJinjaTemplateAdapter(FakeAdapter):
+    """Terminal jinja adapter that returns reviewed B-grade template geometry."""
+
+    def __init__(self):
+        super().__init__(name="jinja_primitive", tag="parametric_template")
+
+    def resolve(self, query, spec: dict):
+        self.resolve_calls += 1
+        return ResolveResult(
+            status="hit",
+            kind="codegen",
+            adapter=self.name,
+            body_code="    return cq.Workplane('XY').box(20, 20, 3)",
+            real_dims=(20.0, 20.0, 3.0),
+            source_tag="parametric_template:test_template",
+            geometry_source="PARAMETRIC_TEMPLATE",
+            geometry_quality="B",
+            requires_model_review=False,
+        )
+
+
 class MissAdapter(PartsAdapter):
     """Adapter that always misses."""
 
@@ -225,6 +246,23 @@ class TestResolverDispatch:
         result = resolver.resolve(sample_query)
         # miss adapter returned miss → loop continues → terminal fallback
         assert result.status == "fallback"
+
+    def test_terminal_ready_jinja_template_remains_hit(self, sample_query):
+        """Routing through the terminal jinja adapter should not force a
+        reviewed B-grade parametric template back into fallback semantics."""
+        jinja = ReadyJinjaTemplateAdapter()
+        resolver = PartsResolver(registry={}, adapters=[jinja])
+
+        result = resolver.resolve(sample_query)
+
+        assert result.status == "hit"
+        assert result.adapter == "jinja_primitive"
+        assert result.geometry_source == "PARAMETRIC_TEMPLATE"
+        assert result.geometry_quality == "B"
+        assert result.requires_model_review is False
+        assert resolver.geometry_decisions()[0]["attempted_adapters"] == [
+            "jinja_primitive(hit)"
+        ]
 
     def test_adapter_exception_falls_through(self, sample_query):
         """If an adapter raises, resolver logs and tries the next rule."""
@@ -639,13 +677,13 @@ class TestCoverageReport:
 
     def test_hint_appears_only_when_fallback_present(self):
         """Hint footer is only shown when the user can act on it
-        (i.e. when there are jinja-fallback parts to upgrade)."""
+        (i.e. when there are lower-quality or review-required parts to upgrade)."""
         # No fallback → no hint
         resolver = self._make_resolver_with_decisions([
             ("P-001", "step_pool", "STEP"),
             ("P-002", "bd_warehouse", "BW"),
         ])
-        assert "simplified geometry" not in resolver.coverage_report()
+        assert "need model review" not in resolver.coverage_report()
         assert "extends: default" not in resolver.coverage_report()
 
         # Some fallback → hint appears
@@ -653,7 +691,7 @@ class TestCoverageReport:
             ("P-003", "jinja_primitive", "jinja"),
         ])
         report2 = resolver2.coverage_report()
-        assert "simplified geometry" in report2
+        assert "need model review" in report2
         assert "extends: default" in report2
         assert "PARTS_LIBRARY.md" in report2
 
@@ -669,7 +707,55 @@ class TestCoverageReport:
                 status="hit",
                 kind="codegen",
                 adapter="jinja_primitive",
-                source_tag="jinja_template:pu_buffer_pad",
+                source_tag="parametric_template:pu_buffer_pad",
+                geometry_source="PARAMETRIC_TEMPLATE",
+                geometry_quality="B",
+                requires_model_review=False,
+            ),
+        ])
+
+        report = resolver.coverage_report()
+        assert "parametric_template" in report
+        assert "jinja_primitive" not in report
+        assert "Ready geometry: 1" in report
+        assert "Fallback: 0" in report
+        assert "need model review" not in report
+
+    def test_fallback_count_uses_review_flag_and_normalized_quality(self):
+        """Fallback accounting follows the geometry contract, not adapter
+        names, and quality grades are normalized before classification."""
+        from parts_resolver import GeometryDecision
+
+        resolver = self._make_resolver_with_decisions([
+            GeometryDecision(
+                part_no="P-001",
+                name_cn="B-but-review",
+                status="hit",
+                kind="codegen",
+                adapter="jinja_primitive",
+                source_tag="parametric_template:needs_review",
+                geometry_source="PARAMETRIC_TEMPLATE",
+                geometry_quality="B",
+                requires_model_review=True,
+            ),
+            GeometryDecision(
+                part_no="P-002",
+                name_cn="lowercase-quality",
+                status="hit",
+                kind="python_import",
+                adapter="bd_warehouse",
+                source_tag="bd:test",
+                geometry_source="BD_WAREHOUSE",
+                geometry_quality="c",
+                requires_model_review=False,
+            ),
+            GeometryDecision(
+                part_no="P-003",
+                name_cn="ready-template",
+                status="hit",
+                kind="codegen",
+                adapter="jinja_primitive",
+                source_tag="parametric_template:ready",
                 geometry_source="PARAMETRIC_TEMPLATE",
                 geometry_quality="B",
                 requires_model_review=False,
@@ -678,8 +764,8 @@ class TestCoverageReport:
 
         report = resolver.coverage_report()
         assert "Ready geometry: 1" in report
-        assert "Fallback: 0" in report
-        assert "simplified geometry" not in report
+        assert "Fallback: 2" in report
+        assert "2 parts need model review" in report
 
     def test_decisions_by_adapter_returns_part_lists(self):
         """The lower-level decisions_by_adapter() returns adapter → list."""

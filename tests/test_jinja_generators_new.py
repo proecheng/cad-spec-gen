@@ -710,8 +710,9 @@ def test_lifting_platform_curated_parts_report_b_grade_parametric_templates(
     assert result.geometry_source == "PARAMETRIC_TEMPLATE"
     assert result.geometry_quality == "B"
     assert result.requires_model_review is False
+    assert result.source_tag == f"parametric_template:{template_id}"
     assert result.metadata["template"] == template_id
-    assert result.metadata["curated_for"] == "lifting_platform"
+    assert result.metadata["template_scope"] == "reusable_part_family"
     assert result.real_dims == dims
     assert body_marker in result.body_code
 

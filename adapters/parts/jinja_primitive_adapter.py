@@ -972,11 +972,11 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
     category = getattr(query, "category", "")
-    lifting_platform_curated = {
+    reusable_parametric_template = {
         "geometry_source": "PARAMETRIC_TEMPLATE",
         "geometry_quality": "B",
         "requires_model_review": False,
-        "curated_for": "lifting_platform",
+        "template_scope": "reusable_part_family",
     }
 
     if category == "bearing" and _contains_any(text, ["LM10UU"]):
@@ -989,7 +989,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "linear_bearing_lm10uu",
             "body_code": _gen_linear_bearing_lm10uu(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "bearing" and _contains_any(text, ["KFL001"]):
@@ -998,7 +998,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "pillow_block_bearing_kfl001",
             "body_code": _gen_pillow_block_bearing_kfl001(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "connector" and _contains_any(text, ["L070"]):
@@ -1007,7 +1007,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "clamping_coupling_l070",
             "body_code": _gen_clamping_coupling_l070(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "motor" and _contains_any(text, ["NEMA23", "NEMA 23"]):
@@ -1023,7 +1023,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "body_code": _gen_nema23_stepper_motor(tpl_dims),
             "dims": tpl_dims,
             "metadata": {
-                **lifting_platform_curated,
+                **reusable_parametric_template,
                 "body_height_mm": 56,
                 "shaft_length_mm": 24,
             },
@@ -1035,7 +1035,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "cl57t_stepper_driver",
             "body_code": _gen_cl57t_stepper_driver(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "seal" and _contains_any(text, ["PU", "缓冲垫"]):
@@ -1045,7 +1045,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "pu_buffer_pad",
             "body_code": _gen_pu_buffer_pad(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if (
@@ -1058,7 +1058,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "m8_inductive_proximity_sensor",
             "body_code": _gen_m8_inductive_proximity_sensor(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if (
@@ -1071,7 +1071,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "guide_shaft_protective_cap",
             "body_code": _gen_guide_shaft_protective_cap(tpl_dims),
             "dims": tpl_dims,
-            "metadata": dict(lifting_platform_curated),
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "connector" and _contains_any(text, ["ZIF", "5052"]):
@@ -1534,21 +1534,29 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         template = _specialized_template(query, dims)
         if template is not None:
             tpl_dims = template["dims"]
+            template_metadata = dict(template.get("metadata", {}))
+            geometry_source = template_metadata.pop("geometry_source", "JINJA_TEMPLATE")
+            geometry_quality = template_metadata.pop("geometry_quality", "C")
+            requires_model_review = template_metadata.pop(
+                "requires_model_review", True
+            )
+            tag_prefix = (
+                "parametric_template"
+                if geometry_source == "PARAMETRIC_TEMPLATE"
+                else "jinja_template"
+            )
             metadata = {
                 "dims": tpl_dims,
                 "template": template["template"],
             }
-            metadata.update(template.get("metadata", {}))
-            geometry_source = metadata.get("geometry_source", "JINJA_TEMPLATE")
-            geometry_quality = metadata.get("geometry_quality", "C")
-            requires_model_review = metadata.get("requires_model_review", True)
+            metadata.update(template_metadata)
             return ResolveResult(
                 status="hit",
                 kind="codegen",
                 adapter=self.name,
                 body_code=template["body_code"],
                 real_dims=self._dims_to_envelope(tpl_dims),
-                source_tag=f"jinja_template:{template['template']}",
+                source_tag=f"{tag_prefix}:{template['template']}",
                 geometry_source=geometry_source,
                 geometry_quality=geometry_quality,
                 requires_model_review=requires_model_review,
