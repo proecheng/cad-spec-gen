@@ -132,10 +132,9 @@ class StepPoolAdapter(PartsAdapter):
         # Probe bounding box for dimension consistency
         dims = self._probe_bbox(resolved_path)
 
-        # Store the path as PROJECT-RELATIVE so the generated code is
-        # portable. The runtime resolver in the generated module rebuilds
-        # the absolute path from the module's __file__.
-        rel_path = self._to_project_relative(resolved_path)
+        # Store the path in a portable form so generated std_*.py files do not
+        # embed machine-specific absolute cache paths.
+        rel_path = self._portable_step_path(resolved_path, resolution.file_spec)
 
         return ResolveResult(
             status="hit",
@@ -350,6 +349,24 @@ class StepPoolAdapter(PartsAdapter):
         except ValueError:
             # Different drives on Windows → fall back to abs path
             return abs_path.replace("\\", "/")
+
+    def _portable_step_path(self, abs_path: str, file_spec: Optional[str]) -> str:
+        """Return a relocatable path token for generated std modules."""
+        if file_spec and not self.config.get("cache"):
+            cache_path = self._shared_cache_path(file_spec)
+            if cache_path:
+                try:
+                    common = os.path.commonpath([
+                        os.path.abspath(cache_path),
+                        os.path.abspath(abs_path),
+                    ])
+                    if os.path.normcase(common) == os.path.normcase(
+                        os.path.abspath(cache_path)
+                    ):
+                        return f"cache://{file_spec.replace('\\', '/')}"
+                except ValueError:
+                    pass
+        return self._to_project_relative(abs_path)
 
     def _expand_template(self, template: str, query) -> str:
         """Expand a file_template like 'maxon/{normalize(name)}.step'.

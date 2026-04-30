@@ -527,6 +527,12 @@ class PartsResolver:
     def _resolve_result_path(self, path: str, query: PartQuery) -> Optional[str]:
         if not path:
             return None
+        if path.startswith("cache://"):
+            try:
+                from adapters.parts.vendor_synthesizer import resolve_cache_path
+                return str(resolve_cache_path(path[len("cache://"):]))
+            except Exception:
+                return None
         if os.path.isabs(path):
             return os.path.normpath(path)
         root = query.project_root or self.project_root
@@ -535,6 +541,8 @@ class PartsResolver:
     def _path_kind(self, original: str, absolute: Optional[str]) -> str:
         if not original:
             return ""
+        if original.startswith("cache://"):
+            return "shared_cache"
         if not os.path.isabs(original):
             return "project_relative"
         if absolute:

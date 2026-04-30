@@ -406,6 +406,30 @@ class TestResolverDispatch:
         assert result.step_path == "std_parts/vendor/mini_motor.step"
         assert result.geometry_source == "REAL_STEP"
 
+    def test_cache_uri_step_path_validates_against_shared_cache(
+        self, tmp_path, monkeypatch, sample_query
+    ):
+        cache_root = tmp_path / "cache"
+        step_path = cache_root / "maxon" / "ecx_22l.step"
+        step_path.parent.mkdir(parents=True)
+        step_path.write_bytes(b"solid placeholder")
+        monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+
+        resolver = PartsResolver(registry={}, adapters=[])
+        result = ResolveResult(
+            status="hit",
+            kind="step_import",
+            adapter="step_pool",
+            step_path="cache://maxon/ecx_22l.step",
+            source_tag="STEP:cache://maxon/ecx_22l.step",
+        )
+
+        resolver._enrich_result_geometry(result, sample_query)
+
+        assert result.path_kind == "shared_cache"
+        assert result.validated is True
+        assert result.hash is not None
+
 
 # ─── Probe dims tests ──────────────────────────────────────────────────
 

@@ -16,6 +16,7 @@ from typing import Any
 from cad_paths import PROJECT_ROOT
 
 _QUALITY_ORDER = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1, "unknown": 0}
+_CACHE_URI_PREFIX = "cache://"
 
 
 def _project_root() -> Path:
@@ -44,6 +45,12 @@ def _resolve_report_path(args: argparse.Namespace) -> Path:
 
 
 def _resolve_step_path(step_path: str) -> Path:
+    if step_path.startswith(_CACHE_URI_PREFIX):
+        from adapters.parts.vendor_synthesizer import resolve_cache_path
+
+        cache_rel = step_path[len(_CACHE_URI_PREFIX) :].replace("\\", "/")
+        return resolve_cache_path(cache_rel)
+
     expanded = os.path.expandvars(os.path.expanduser(str(step_path)))
     p = Path(expanded)
     if p.is_absolute():
