@@ -171,6 +171,61 @@ mappings:
       file: "ati/nano17.step"
       synthesizer: "ati_nano17"
 
+  # DIN 2093 A6 Belleville spring washer
+  - match:
+      keyword_contains: ["DIN 2093 A6", "碟形弹簧垫圈", "Belleville"]
+    adapter: step_pool
+    spec:
+      file: "mechanical/belleville_din2093_a6.step"
+      synthesizer: "belleville_din2093_a6"
+
+  # Spring pin assembly, 4 mm × 20 mm with conical head
+  - match:
+      keyword_contains: ["弹簧销组件", "Φ4×20", "4x20mm锥形头", "spring pin 4x20"]
+    adapter: step_pool
+    spec:
+      file: "mechanical/spring_pin_4x20.step"
+      synthesizer: "spring_pin_4x20"
+
+  # Molex 15168-style FFC ribbon cable, 20-pin visual segment
+  - match:
+      keyword_contains: ["Molex 15168", "FFC线束", "FFC ribbon", "20芯×500mm"]
+    adapter: step_pool
+    spec:
+      file: "molex/15168_ffc_20p.step"
+      synthesizer: "molex_15168_ffc_20p"
+
+  # Molex 5052xx-style ZIF connector
+  - match:
+      keyword_contains: ["Molex 5052", "Molex 5052xx", "ZIF连接器", "ZIF connector"]
+    adapter: step_pool
+    spec:
+      file: "molex/zif_5052xx.step"
+      synthesizer: "molex_zif_5052xx"
+
+  # Stainless long fluid reservoir used in dosing/coating modules
+  - match:
+      keyword_contains: ["不锈钢Φ38×280", "Φ38×280mm", "38x280 reservoir"]
+    adapter: step_pool
+    spec:
+      file: "process/reservoir_38x280.step"
+      synthesizer: "reservoir_38x280"
+
+  # Tungsten counterweight slugs
+  - match:
+      keyword_contains: ["钨合金Φ12×7", "Φ12×7mm/50g", "tungsten 12x7"]
+    adapter: step_pool
+    spec:
+      file: "weights/tungsten_slug_12x7.step"
+      synthesizer: "tungsten_slug_12x7"
+
+  - match:
+      keyword_contains: ["钨合金Φ14×13", "Φ14×13mm/120g", "tungsten 14x13"]
+    adapter: step_pool
+    spec:
+      file: "weights/tungsten_slug_14x13.step"
+      synthesizer: "tungsten_slug_14x13"
+
   # ─── Specialized bearing classes (tried before generic) ─────────────
   # Rules are ordered most-specific to least-specific. The bd_warehouse
   # adapter itself picks the right class from catalogs/bd_warehouse_catalog.yaml
