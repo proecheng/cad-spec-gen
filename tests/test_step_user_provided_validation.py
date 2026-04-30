@@ -175,3 +175,52 @@ def test_record_model_import_includes_validation(tmp_path):
 
     imports = json.loads(record_path.read_text(encoding="utf-8"))
     assert imports["imports"][0]["validation"] == result["validation"]
+
+
+@pytest.mark.parametrize("library_exists", [True, False])
+def test_import_user_step_model_rolls_back_yaml_when_record_write_fails(
+    tmp_path,
+    monkeypatch,
+    library_exists,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_step = project_root / "models" / "valid.step"
+    _write_box_step(source_step, 14, 24, 34)
+    library_path = project_root / "parts_library.yaml"
+    original_yaml = (
+        b"extends: default\n"
+        b"mappings:\n"
+        b"- match:\n"
+        b"    part_no: OLD-001\n"
+        b"  adapter: step_pool\n"
+        b"  spec:\n"
+        b"    file: old.step\n"
+    )
+    if library_exists:
+        library_path.write_bytes(original_yaml)
+
+    import tools.model_import as model_import
+
+    def fail_record(*_args, **_kwargs):
+        raise OSError("record boom")
+
+    monkeypatch.setattr(model_import, "_record_model_import", fail_record)
+
+    result = import_user_step_model(
+        part_no="REC-FAIL",
+        name_cn="记录失败",
+        step="models/valid.step",
+        project_root=project_root,
+    )
+
+    assert result["applied"] is False
+    assert "record boom" in result["reason"]
+    assert not (
+        project_root / "std_parts" / "user_provided" / "REC-FAIL_记录失败.step"
+    ).exists()
+    if library_exists:
+        assert library_path.read_bytes() == original_yaml
+    else:
+        assert not library_path.exists()
+    assert not (project_root / "parts_library.yaml.tmp").exists()

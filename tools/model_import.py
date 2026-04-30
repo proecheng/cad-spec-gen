@@ -141,6 +141,9 @@ def import_user_step_model(
             "validation": validation.to_dict(),
         }
 
+    yaml_path = context.parts_library_path
+    yaml_backup = yaml_path.read_bytes() if yaml_path.exists() else None
+    yaml_tmp_path = yaml_path.with_suffix(yaml_path.suffix + ".tmp")
     mapping = UserStepMapping(
         part_no=part_no,
         name_cn=name_cn,
@@ -203,6 +206,11 @@ def import_user_step_model(
                 backup_created=backup_created,
                 target_installed=target_installed,
             )
+        _restore_parts_library_after_failed_import(
+            yaml_path,
+            backup=yaml_backup,
+            tmp_path=yaml_tmp_path,
+        )
         return {
             "applied": False,
             "reason": f"model import failed: {exc}",
@@ -386,6 +394,20 @@ def _restore_target_after_failed_import(
         _unlink_if_exists(target_abs)
     if backup_created and backup_path.exists():
         os.replace(backup_path, target_abs)
+
+
+def _restore_parts_library_after_failed_import(
+    yaml_path: Path,
+    *,
+    backup: bytes | None,
+    tmp_path: Path,
+) -> None:
+    _unlink_if_exists(tmp_path)
+    if backup is None:
+        _unlink_if_exists(yaml_path)
+        return
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_bytes(backup)
 
 
 def _unlink_if_exists(path: Path) -> None:
