@@ -28,11 +28,14 @@ def _run_model_import(project_root: Path, *args: str) -> subprocess.CompletedPro
 
 
 def _write_step(path: Path, marker: str = "STEP") -> None:
+    cq = pytest.importorskip("cadquery")
+    dimensions = {
+        "STEP": (10, 20, 30),
+        "first": (11, 21, 31),
+        "second": (12, 22, 32),
+    }.get(marker, (13, 23, 33))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        f"ISO-10303-21;\n/* {marker} */\nEND-ISO-10303-21;\n",
-        encoding="utf-8",
-    )
+    cq.exporters.export(cq.Workplane("XY").box(*dimensions), str(path))
 
 
 def test_model_import_copies_project_relative_step_updates_yaml_and_verifies(
@@ -78,7 +81,10 @@ def test_model_import_copies_project_relative_step_updates_yaml_and_verifies(
     assert mapping["provenance"]["provided_by_user"] is True
     assert mapping["provenance"]["source_path"] == "models/lm10uu.step"
     assert mapping["provenance"]["source_hash"].startswith("sha256:")
+    assert mapping["provenance"]["validation_status"] == "geometry_validated"
+    assert mapping["provenance"]["bbox_mm"] == pytest.approx([10, 20, 30])
     assert payload["source_path"] == "models/lm10uu.step"
+    assert payload["validation"]["bbox_mm"] == pytest.approx([10, 20, 30])
 
     imports = json.loads(
         (
@@ -138,7 +144,8 @@ def test_model_import_replaces_existing_user_mapping_for_same_part(tmp_path):
     assert len(user_mappings) == 1
     assert user_mappings[0]["spec"]["file"] == payload["step_file"]
     copied = project_root / "std_parts" / payload["step_file"]
-    assert "second" in copied.read_text(encoding="utf-8")
+    assert copied.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+    assert payload["validation"]["bbox_mm"] == pytest.approx([12, 22, 32])
 
 
 def test_model_import_missing_step_is_clear_and_does_not_create_yaml(tmp_path):

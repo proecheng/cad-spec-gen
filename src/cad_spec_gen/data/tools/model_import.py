@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,28 @@ from typing import Any
 from cad_paths import PROJECT_ROOT
 from tools.model_context import ModelProjectContext
 from tools.parts_library_writer import UserStepMapping, prepend_user_step_mapping
+
+
+@dataclass(frozen=True)
+class StepValidationResult:
+    ok: bool
+    reason: str = ""
+    source_hash: str = ""
+    bbox_mm: tuple[float, float, float] | None = None
+    warnings: list[str] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "reason": self.reason,
+            "source_hash": self.source_hash,
+            "bbox_mm": (
+                [float(value) for value in self.bbox_mm]
+                if self.bbox_mm is not None
+                else None
+            ),
+            "warnings": list(self.warnings or []),
+        }
 
 
 def _utc_now() -> str:
@@ -87,11 +110,14 @@ def import_user_step_model(
             "reason": f"STEP file not found: {source_path}",
             "part_no": part_no,
         }
-    if source_path.suffix.lower() not in {".step", ".stp"}:
+
+    validation = validate_step_file(source_path)
+    if not validation.ok:
         return {
             "applied": False,
-            "reason": f"not a STEP file: {source_path}",
+            "reason": f"invalid STEP: {validation.reason}",
             "part_no": part_no,
+            "validation": validation.to_dict(),
         }
 
     target_rel = (
@@ -103,7 +129,6 @@ def import_user_step_model(
     if not _same_file(source_path, target_abs):
         shutil.copy2(source_path, target_abs)
 
-    source_hash = _sha256_file(source_path)
     source_provenance = _portable_source_path(source_path, root)
     yaml_path = prepend_user_step_mapping(
         ModelProjectContext(project_root=root, subsystem=subsystem),
@@ -112,7 +137,10 @@ def import_user_step_model(
             name_cn=name_cn,
             file_rel=target_rel,
             source_path=source_provenance,
-            source_hash=source_hash,
+            source_hash=validation.source_hash,
+            bbox_mm=validation.bbox_mm,
+            validated=True,
+            validation_status="geometry_validated",
         ),
     )
 
@@ -123,7 +151,8 @@ def import_user_step_model(
         "step_file": target_rel,
         "target_path": str(target_abs),
         "source_path": source_provenance,
-        "source_hash": source_hash,
+        "source_hash": validation.source_hash,
+        "validation": validation.to_dict(),
         "parts_library": str(yaml_path),
     }
     result["verification"] = (
@@ -139,6 +168,58 @@ def import_user_step_model(
         _record_model_import(result, project_root=root, subsystem=subsystem)
     )
     return result
+
+
+def validate_step_file(path: str | Path) -> StepValidationResult:
+    """Validate a STEP file enough to safely admit it to the user model library."""
+    step_path = Path(path)
+    if step_path.suffix.lower() not in {".step", ".stp"}:
+        return StepValidationResult(False, f"not a STEP file: {step_path}")
+    try:
+        with step_path.open("r", encoding="utf-8", errors="ignore") as f:
+            header = f.read(4096)
+    except OSError as exc:
+        return StepValidationResult(False, f"STEP file not readable: {exc}")
+    if "ISO-10303-21" not in header:
+        return StepValidationResult(False, "missing ISO-10303-21 STEP header")
+
+    try:
+        source_hash = _sha256_file(step_path)
+    except OSError as exc:
+        return StepValidationResult(False, f"STEP file not readable: {exc}")
+
+    try:
+        import cadquery as cq  # type: ignore
+
+        shape = cq.importers.importStep(str(step_path))
+        bbox = shape.val().BoundingBox()
+        bbox_mm = (float(bbox.xlen), float(bbox.ylen), float(bbox.zlen))
+    except Exception as exc:
+        return StepValidationResult(
+            False,
+            f"invalid STEP geometry: {exc}",
+            source_hash=source_hash,
+        )
+
+    if any(value <= 0 for value in bbox_mm):
+        return StepValidationResult(
+            False,
+            "invalid STEP geometry: non-positive bounding box",
+            source_hash=source_hash,
+            bbox_mm=bbox_mm,
+        )
+
+    warnings: list[str] = []
+    if max(bbox_mm) > 10000:
+        warnings.append("bbox exceeds 10000 mm; units may be wrong")
+    if min(bbox_mm) < 0.01:
+        warnings.append("bbox below 0.01 mm; model may be empty or units may be wrong")
+    return StepValidationResult(
+        True,
+        source_hash=source_hash,
+        bbox_mm=bbox_mm,
+        warnings=warnings,
+    )
 
 
 def verify_model_import_consumed(
