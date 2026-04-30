@@ -38,9 +38,10 @@ def test_save_supplements_applies_step_model_choice(tmp_path, monkeypatch):
         str(review_json),
     )
 
-    model_choices = json.loads(
-        (review_dir / "model_choices.json").read_text(encoding="utf-8")
+    model_choices_path = (
+        project_root / "cad" / "demo" / ".cad-spec-gen" / "model_choices.json"
     )
+    model_choices = json.loads(model_choices_path.read_text(encoding="utf-8"))
     assert model_choices["applied"][0]["applied"] is True
 
     copied = project_root / "std_parts" / model_choices["applied"][0]["step_file"]
@@ -55,3 +56,54 @@ def test_save_supplements_applies_step_model_choice(tmp_path, monkeypatch):
     assert mapping["spec"]["file"].startswith("user_provided/")
     assert not mapping["spec"]["file"].startswith("std_parts/")
     assert mapping["provenance"]["provided_by_user"] is True
+
+
+def test_model_choice_relative_step_path_resolves_from_project_root(
+    tmp_path, monkeypatch
+):
+    yaml = pytest.importorskip("yaml")
+    import cad_pipeline
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(project_root))
+
+    source_dir = project_root / "models"
+    source_dir.mkdir()
+    source_step = source_dir / "motor.step"
+    source_step.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    review_dir = project_root / "output" / "demo"
+    review_dir.mkdir(parents=True)
+    review_json = review_dir / "DESIGN_REVIEW.json"
+    review_json.write_text("{}", encoding="utf-8")
+
+    cad_pipeline._save_supplements(
+        {
+            "model_choices": [
+                {
+                    "part_no": "P-002",
+                    "name_cn": "相对路径电机",
+                    "step_file": "models/motor.step",
+                }
+            ],
+        },
+        str(review_json),
+    )
+
+    model_choices_path = (
+        project_root / "cad" / "demo" / ".cad-spec-gen" / "model_choices.json"
+    )
+    model_choices = json.loads(model_choices_path.read_text(encoding="utf-8"))
+    assert model_choices["applied"][0]["applied"] is True
+
+    cfg = yaml.safe_load(
+        (project_root / "parts_library.yaml").read_text(encoding="utf-8")
+    )
+    mapping = cfg["mappings"][0]
+    assert mapping["match"] == {"part_no": "P-002"}
+    assert mapping["spec"]["file"].startswith("user_provided/")
