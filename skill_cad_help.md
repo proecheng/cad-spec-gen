@@ -172,6 +172,11 @@ Step 2: Code generation + parametric modeling
   Run `python cad_pipeline.py model-import --subsystem <name> --part-no <id>
   --step <path.step>` to copy a user-provided STEP into std_parts/,
   update parts_library.yaml, and verify resolver consumption.
+  Run `python cad_pipeline.py sw-export-plan --subsystem <name> [--json]`
+  before any SolidWorks Toolbox export. It writes/reads the read-only
+  .cad-spec-gen/sw_export_plan.json candidate plan with `reuse_cache` or
+  `export` actions only; actual COM export still requires explicit user
+  confirmation.
   New in v2.7.1: assembly positioning fixes in _resolve_child_offsets():
   (A) orphan detection checks children positions — assemblies with positioned
       children are no longer falsely flagged as orphan (wrong stacking direction).
@@ -522,7 +527,10 @@ A: 1. Run `python cad_pipeline.py model-audit --subsystem <name>` and check
    4. Re-run cad_pipeline.py spec --subsystem <name> --supplements '<json>' --auto-fill
       when applying user choices, then re-run codegen/build.
    5. If SolidWorks Toolbox is available, use SW candidates only after user
-      confirmation; inspect/probe/report stages must not trigger COM export.
+      confirmation. First run:
+      `python cad_pipeline.py sw-export-plan --subsystem <name> --json`
+      and show the read-only `sw_export_plan.json` candidates; inspect/probe/report
+      stages must not trigger COM export.
 ```
 
 ### 11. file_struct — File Structure

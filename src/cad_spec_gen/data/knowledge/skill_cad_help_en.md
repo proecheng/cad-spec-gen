@@ -167,6 +167,11 @@ Step 2: Code generation + parametric modeling
   bd_warehouse, and PartCAD before falling back to simplified CadQuery
   geometry. It writes .cad-spec-gen/geometry_report.json with A-E quality
   grades, so users can see exactly which parts still need better models.
+  Run `python cad_pipeline.py sw-export-plan --subsystem <name> [--json]`
+  before any SolidWorks Toolbox export. It writes/reads the read-only
+  .cad-spec-gen/sw_export_plan.json candidate plan with `reuse_cache` or
+  `export` actions only; actual COM export still requires explicit user
+  confirmation.
   New in v2.2.5: codegen supports generic part number prefixes (SLP-xxx,
   ACME-xxx, not just GIS-EE-xxx). BOM parser recognizes "图号"/"编号"
   table headers and "标准件" make_buy type. Flat BOM structures (single
@@ -499,7 +504,10 @@ A: 1. Open cad/<subsystem>/.cad-spec-gen/geometry_report.json and check
    3. Re-run cad_pipeline.py spec --subsystem <name> --supplements '<json>' --auto-fill
       when applying user choices, then re-run codegen/build.
    4. If SolidWorks Toolbox is available, use SW candidates only after user
-      confirmation; inspect/probe/report stages must not trigger COM export.
+      confirmation. First run:
+      `python cad_pipeline.py sw-export-plan --subsystem <name> --json`
+      and show the read-only `sw_export_plan.json` candidates; inspect/probe/report
+      stages must not trigger COM export.
 ```
 
 ### 11. file_struct — File Structure

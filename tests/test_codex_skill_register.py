@@ -67,6 +67,10 @@ def test_register_skill_codex_mode_writes_global_skill_without_claude_commands(t
     assert "python cad_pipeline.py codegen" in text
     assert "$ARGUMENTS" not in text
 
+    help_text = (codex_dir / "cad-help" / "SKILL.md").read_text(encoding="utf-8")
+    assert "sw-export-plan" in help_text
+    assert "sw_export_plan.json" in help_text
+
 
 def test_register_skill_both_mode_writes_claude_commands_and_codex_skills(tmp_path):
     from cad_spec_gen.wizard import skill_register
