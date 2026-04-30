@@ -1044,10 +1044,11 @@ def _is_model_choice_supplement(item_id: str, value) -> bool:
 
 def _save_model_choices(model_choices: list[dict], review_json_path: str) -> str:
     """Persist model choices and apply valid STEP selections to parts_library.yaml."""
-    out_path = review_json_path.replace("DESIGN_REVIEW.json", "model_choices.json")
+    out_path = _model_choices_path(review_json_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
     applied = []
     for choice in model_choices:
-        applied.append(_apply_model_choice_to_parts_library(choice))
+        applied.append(_apply_model_choice_to_parts_library(choice, review_json_path))
 
     envelope = {
         "schema_version": 1,
@@ -1063,7 +1064,48 @@ def _save_model_choices(model_choices: list[dict], review_json_path: str) -> str
     return out_path
 
 
-def _apply_model_choice_to_parts_library(choice: dict) -> dict:
+def _model_choices_path(review_json_path: str) -> str:
+    """Return the authoritative model_choices.json path for a review artifact."""
+    review_abs = os.path.abspath(review_json_path)
+    review_dir = os.path.dirname(review_abs)
+    project_root = os.path.abspath(PROJECT_ROOT)
+    try:
+        rel = os.path.relpath(review_dir, project_root)
+    except ValueError:
+        rel = ""
+    parts = rel.replace("\\", "/").split("/")
+    if len(parts) >= 2 and parts[0] in {"output", "cad"} and parts[1]:
+        return os.path.join(
+            project_root,
+            "cad",
+            parts[1],
+            ".cad-spec-gen",
+            "model_choices.json",
+        )
+    return os.path.join(review_dir, ".cad-spec-gen", "model_choices.json")
+
+
+def _resolve_model_choice_source(source: str, review_json_path: str) -> str:
+    """Resolve user-provided model paths with PROJECT_ROOT as the stable anchor."""
+    expanded = os.path.expandvars(os.path.expanduser(str(source)))
+    if os.path.isabs(expanded):
+        return os.path.normpath(expanded)
+
+    candidates = [
+        os.path.join(PROJECT_ROOT, expanded),
+        os.path.join(os.path.dirname(os.path.abspath(review_json_path)), expanded),
+        os.path.abspath(expanded),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return os.path.normpath(candidate)
+    return os.path.normpath(candidates[0])
+
+
+def _apply_model_choice_to_parts_library(
+    choice: dict,
+    review_json_path: str = "",
+) -> dict:
     """Copy a selected STEP file into std_parts and prepend a resolver mapping."""
     part_no = (choice.get("part_no") or "").strip()
     source = (
@@ -1077,7 +1119,7 @@ def _apply_model_choice_to_parts_library(choice: dict) -> dict:
     if not source:
         return {"applied": False, "reason": "missing step file path", "part_no": part_no}
 
-    source_path = os.path.abspath(os.path.expanduser(str(source)))
+    source_path = _resolve_model_choice_source(str(source), review_json_path)
     if not os.path.isfile(source_path):
         return {
             "applied": False,
