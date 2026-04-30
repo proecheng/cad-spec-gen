@@ -479,11 +479,15 @@ def _record_model_import(
         "imports": [record] + imports,
     }
     tmp_path = record_path.with_suffix(record_path.suffix + ".tmp")
-    tmp_path.write_text(
-        json.dumps(envelope, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    os.replace(tmp_path, record_path)
+    try:
+        tmp_path.write_text(
+            json.dumps(envelope, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(tmp_path, record_path)
+    except Exception:
+        _unlink_if_exists(tmp_path)
+        raise
     return record_path
 
 

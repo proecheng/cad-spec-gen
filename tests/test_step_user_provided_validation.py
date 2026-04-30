@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -171,10 +172,62 @@ def test_record_model_import_includes_validation(tmp_path):
 
     record_path = _record_model_import(result, project_root=project_root, subsystem=None)
 
-    import json
-
     imports = json.loads(record_path.read_text(encoding="utf-8"))
     assert imports["imports"][0]["validation"] == result["validation"]
+
+
+def test_import_user_step_model_cleans_record_tmp_when_record_replace_fails(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    source_step = project_root / "models" / "valid.step"
+    _write_box_step(source_step, 18, 28, 38)
+    library_path = project_root / "parts_library.yaml"
+    original_yaml = (
+        b"extends: default\n"
+        b"mappings:\n"
+        b"- match:\n"
+        b"    part_no: OLD-RECORD\n"
+        b"  adapter: step_pool\n"
+        b"  spec:\n"
+        b"    file: old.step\n"
+    )
+    library_path.write_bytes(original_yaml)
+    target = project_root / "std_parts" / "user_provided" / "TMP-FAIL_临时失败.step"
+    target.parent.mkdir(parents=True)
+    old_target = b"old target content"
+    target.write_bytes(old_target)
+    record_path = project_root / ".cad-spec-gen" / "model_imports.json"
+    record_path.parent.mkdir(parents=True)
+    old_record = {"schema_version": 1, "imports": [{"part_no": "OLD-RECORD"}]}
+    record_path.write_text(json.dumps(old_record), encoding="utf-8")
+
+    import tools.model_import as model_import
+
+    original_replace = model_import.os.replace
+
+    def fail_record_replace(src, dst):
+        if Path(dst).name == "model_imports.json":
+            raise OSError("replace boom")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(model_import.os, "replace", fail_record_replace)
+
+    result = import_user_step_model(
+        part_no="TMP-FAIL",
+        name_cn="临时失败",
+        step="models/valid.step",
+        project_root=project_root,
+    )
+
+    assert result["applied"] is False
+    assert "replace boom" in result["reason"]
+    assert target.read_bytes() == old_target
+    assert library_path.read_bytes() == original_yaml
+    assert json.loads(record_path.read_text(encoding="utf-8")) == old_record
+    assert not (project_root / ".cad-spec-gen" / "model_imports.json.tmp").exists()
 
 
 @pytest.mark.parametrize("library_exists", [True, False])
