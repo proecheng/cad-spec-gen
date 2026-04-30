@@ -15,6 +15,7 @@ Usage:
     python cad_pipeline.py annotate --config render_config.json --lang cn
     python cad_pipeline.py full --subsystem end_effector  # all 6 phases
     python cad_pipeline.py model-audit --subsystem end_effector
+    python cad_pipeline.py model-import --subsystem end_effector --part-no P-001 --step models/p.step
     python cad_pipeline.py status                         # show pipeline status
     python cad_pipeline.py env-check                      # environment validation
 
@@ -31,7 +32,6 @@ Examples:
 
 import argparse
 import glob
-import hashlib
 import json
 import logging
 import os
@@ -1086,28 +1086,13 @@ def _model_choices_path(review_json_path: str) -> str:
     return os.path.join(review_dir, ".cad-spec-gen", "model_choices.json")
 
 
-def _resolve_model_choice_source(source: str, review_json_path: str) -> str:
-    """Resolve user-provided model paths with PROJECT_ROOT as the stable anchor."""
-    expanded = os.path.expandvars(os.path.expanduser(str(source)))
-    if os.path.isabs(expanded):
-        return os.path.normpath(expanded)
-
-    candidates = [
-        os.path.join(PROJECT_ROOT, expanded),
-        os.path.join(os.path.dirname(os.path.abspath(review_json_path)), expanded),
-        os.path.abspath(expanded),
-    ]
-    for candidate in candidates:
-        if os.path.isfile(candidate):
-            return os.path.normpath(candidate)
-    return os.path.normpath(candidates[0])
-
-
 def _apply_model_choice_to_parts_library(
     choice: dict,
     review_json_path: str = "",
 ) -> dict:
     """Copy a selected STEP file into std_parts and prepend a resolver mapping."""
+    from tools.model_import import import_user_step_model
+
     part_no = (choice.get("part_no") or "").strip()
     source = (
         choice.get("step_file")
@@ -1120,109 +1105,30 @@ def _apply_model_choice_to_parts_library(
     if not source:
         return {"applied": False, "reason": "missing step file path", "part_no": part_no}
 
-    source_path = _resolve_model_choice_source(str(source), review_json_path)
-    if not os.path.isfile(source_path):
-        return {
-            "applied": False,
-            "reason": f"STEP file not found: {source_path}",
-            "part_no": part_no,
-        }
-    if os.path.splitext(source_path)[1].lower() not in {".step", ".stp"}:
-        return {
-            "applied": False,
-            "reason": f"not a STEP file: {source_path}",
-            "part_no": part_no,
-        }
-
-    target_rel = os.path.join(
-        "user_provided",
-        _safe_model_filename(part_no, choice.get("name_cn", ""), source_path),
-    ).replace("\\", "/")
-    target_abs = os.path.join(PROJECT_ROOT, "std_parts", target_rel)
-    os.makedirs(os.path.dirname(target_abs), exist_ok=True)
-    shutil.copy2(source_path, target_abs)
-
-    yaml_result = _prepend_step_pool_mapping(
+    return import_user_step_model(
         part_no=part_no,
         name_cn=choice.get("name_cn", ""),
-        source_path=source_path,
-        target_rel=target_rel,
+        step=str(source),
+        subsystem=_subsystem_from_review_path(review_json_path),
+        project_root=PROJECT_ROOT,
+        source_search_dirs=[os.path.dirname(os.path.abspath(review_json_path))]
+        if review_json_path
+        else None,
     )
-    return {
-        "applied": True,
-        "part_no": part_no,
-        "step_file": target_rel,
-        "target_path": target_abs,
-        "parts_library": yaml_result,
-    }
 
 
-def _safe_model_filename(part_no: str, name_cn: str, source_path: str) -> str:
-    stem = f"{part_no}_{name_cn or os.path.splitext(os.path.basename(source_path))[0]}"
-    stem = re.sub(r"[^\w.\-]+", "_", stem, flags=re.UNICODE).strip("_")
-    stem = stem[:96] or "user_model"
-    return stem + ".step"
-
-
-def _prepend_step_pool_mapping(
-    part_no: str,
-    name_cn: str,
-    source_path: str,
-    target_rel: str,
-) -> str:
+def _subsystem_from_review_path(review_json_path: str) -> str | None:
+    review_abs = os.path.abspath(review_json_path)
+    review_dir = os.path.dirname(review_abs)
+    project_root = os.path.abspath(PROJECT_ROOT)
     try:
-        import yaml  # type: ignore
-    except ImportError:
-        return "PyYAML not installed; parts_library.yaml not updated"
-
-    yaml_path = os.path.join(PROJECT_ROOT, "parts_library.yaml")
-    if os.path.isfile(yaml_path):
-        with open(yaml_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-    else:
-        cfg = {"extends": "default", "mappings": []}
-
-    if not isinstance(cfg, dict):
-        cfg = {"extends": "default", "mappings": []}
-    mappings = cfg.get("mappings")
-    if not isinstance(mappings, list):
-        mappings = []
-
-    mappings = [
-        m for m in mappings
-        if not (
-            isinstance(m, dict)
-            and (m.get("match", {}) or {}).get("part_no") == part_no
-            and (m.get("provenance", {}) or {}).get("provided_by_user")
-        )
-    ]
-    new_mapping = {
-        "match": {"part_no": part_no},
-        "adapter": "step_pool",
-        "spec": {"file": target_rel},
-        "provenance": {
-            "provided_by_user": True,
-            "provided_at": datetime.now(timezone.utc).isoformat(),
-            "source_path": source_path,
-            "source_hash": _sha256_file(source_path),
-            "name_cn": name_cn or "",
-        },
-    }
-    cfg["mappings"] = [new_mapping] + mappings
-
-    tmp_path = yaml_path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-    os.replace(tmp_path, yaml_path)
-    return yaml_path
-
-
-def _sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return f"sha256:{h.hexdigest()}"
+        rel = os.path.relpath(review_dir, project_root)
+    except ValueError:
+        return None
+    parts = rel.replace("\\", "/").split("/")
+    if len(parts) >= 2 and parts[0] in {"output", "cad"} and parts[1]:
+        return parts[1]
+    return None
 
 
 def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
@@ -2906,6 +2812,13 @@ def cmd_model_audit(args):
     return run_model_audit(args)
 
 
+def cmd_model_import(args):
+    """导入用户 STEP 并更新模型库映射。"""
+    from tools.model_import import run_model_import
+
+    return run_model_import(args)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 def cmd_init(args):
     """Scaffold a new subsystem directory with template files."""
@@ -3085,6 +2998,7 @@ def main():
   %(prog)s render --subsystem end_effector --view V1 --timestamp
   %(prog)s full --subsystem end_effector --design-doc docs/design/04-*.md
   %(prog)s model-audit --subsystem end_effector
+  %(prog)s model-import --subsystem end_effector --part-no P-001 --step models/p.step
   %(prog)s status
   %(prog)s env-check
 """,
@@ -3331,6 +3245,26 @@ def main():
         help="存在需审查模型或缺失 STEP 路径时返回 exit 1",
     )
 
+    # model-import：导入用户 STEP 到模型库
+    p_model_import = sub.add_parser(
+        "model-import",
+        help="导入用户 STEP，更新 parts_library.yaml 并验证 resolver 消费",
+    )
+    p_model_import.add_argument("--subsystem", "-s", default=None)
+    p_model_import.add_argument("--part-no", required=True, help="BOM part_no")
+    p_model_import.add_argument("--name-cn", default="", help="中文零件名")
+    p_model_import.add_argument(
+        "--step",
+        required=True,
+        help="STEP/STP 文件路径；相对路径以 CAD_PROJECT_ROOT 为锚点",
+    )
+    p_model_import.add_argument("--json", action="store_true", help="输出机读 JSON")
+    p_model_import.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="跳过导入后的 resolver 消费校验",
+    )
+
     args = parser.parse_args()
 
     # Logging
@@ -3367,6 +3301,7 @@ def main():
         "sw-toolbox-e2e": cmd_sw_toolbox_e2e,
         "sw-inspect": cmd_sw_inspect,
         "model-audit": cmd_model_audit,
+        "model-import": cmd_model_import,
     }
 
     return dispatch[args.command](args)

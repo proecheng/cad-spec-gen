@@ -169,6 +169,9 @@ Step 2: Code generation + parametric modeling
   grades, so users can see exactly which parts still need better models.
   Run `python cad_pipeline.py model-audit --subsystem <name>` for a
   read-only summary of review-required parts and missing STEP paths.
+  Run `python cad_pipeline.py model-import --subsystem <name> --part-no <id>
+  --step <path.step>` to copy a user-provided STEP into std_parts/,
+  update parts_library.yaml, and verify resolver consumption.
   New in v2.7.1: assembly positioning fixes in _resolve_child_offsets():
   (A) orphan detection checks children positions — assemblies with positioned
       children are no longer falsely flagged as orphan (wrong stacking direction).
@@ -510,12 +513,15 @@ A: This was caused by 4 bugs in _resolve_child_offsets() fixed in v2.7.1:
 Q: 外购件看起来还是圆柱/方盒，占位感很强
 A: 1. Run `python cad_pipeline.py model-audit --subsystem <name>` and check
       review_required / geometry_quality. D/E means simplified or missing geometry.
-   2. Add real STEP files under std_parts/ and a parts_library.yaml mapping,
-      or answer the review prompt with structured model_choices:
+   2. If the user has a trusted STEP file, run:
+      `python cad_pipeline.py model-import --subsystem <name> --part-no <id> --step <path.step>`
+      This copies to std_parts/user_provided/, prepends parts_library.yaml,
+      and verifies resolver routing before the next codegen.
+   3. In review-driven flows, answer the review prompt with structured model_choices:
       {"model_choices":[{"part_no":"...","step_file":"D:/models/part.step"}]}
-   3. Re-run cad_pipeline.py spec --subsystem <name> --supplements '<json>' --auto-fill
+   4. Re-run cad_pipeline.py spec --subsystem <name> --supplements '<json>' --auto-fill
       when applying user choices, then re-run codegen/build.
-   4. If SolidWorks Toolbox is available, use SW candidates only after user
+   5. If SolidWorks Toolbox is available, use SW candidates only after user
       confirmation; inspect/probe/report stages must not trigger COM export.
 ```
 
