@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from cad_paths import PROJECT_ROOT
+from tools.model_context import ModelProjectContext
 
 _QUALITY_ORDER = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1, "unknown": 0}
 _CACHE_URI_PREFIX = "cache://"
@@ -24,24 +25,23 @@ def _project_root() -> Path:
 
 
 def _resolve_report_path(args: argparse.Namespace) -> Path:
+    project_root = getattr(args, "project_root", None) or PROJECT_ROOT
     report = getattr(args, "report", None)
     if report:
         expanded = os.path.expandvars(os.path.expanduser(str(report)))
         p = Path(expanded)
         if p.is_absolute():
             return p
-        return _project_root() / p
+        return Path(project_root).expanduser().resolve() / p
 
     subsystem = getattr(args, "subsystem", None)
     if not subsystem:
         raise ValueError("--subsystem or --report is required")
-    return (
-        _project_root()
-        / "cad"
-        / str(subsystem)
-        / ".cad-spec-gen"
-        / "geometry_report.json"
+    ctx = ModelProjectContext.for_subsystem(
+        subsystem,
+        project_root=project_root,
     )
+    return ctx.geometry_report_path
 
 
 def _resolve_step_path(step_path: str) -> Path:

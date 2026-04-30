@@ -56,6 +56,7 @@ from cad_paths import (
     get_output_dir,
     get_gemini_script,
 )
+from tools.model_context import ModelProjectContext
 
 # A1-3：SW 检测函数。非 Windows / pywin32 缺失均被 sw_detect 内部短路成
 # SwInfo(installed=False)，本导入对跨平台无害。top-level 是必需——
@@ -1067,23 +1068,11 @@ def _save_model_choices(model_choices: list[dict], review_json_path: str) -> str
 
 def _model_choices_path(review_json_path: str) -> str:
     """Return the authoritative model_choices.json path for a review artifact."""
-    review_abs = os.path.abspath(review_json_path)
-    review_dir = os.path.dirname(review_abs)
-    project_root = os.path.abspath(PROJECT_ROOT)
-    try:
-        rel = os.path.relpath(review_dir, project_root)
-    except ValueError:
-        rel = ""
-    parts = rel.replace("\\", "/").split("/")
-    if len(parts) >= 2 and parts[0] in {"output", "cad"} and parts[1]:
-        return os.path.join(
-            project_root,
-            "cad",
-            parts[1],
-            ".cad-spec-gen",
-            "model_choices.json",
-        )
-    return os.path.join(review_dir, ".cad-spec-gen", "model_choices.json")
+    ctx = ModelProjectContext.from_review_json(
+        review_json_path,
+        project_root=PROJECT_ROOT,
+    )
+    return str(ctx.model_choices_path)
 
 
 def _apply_model_choice_to_parts_library(
@@ -1118,17 +1107,11 @@ def _apply_model_choice_to_parts_library(
 
 
 def _subsystem_from_review_path(review_json_path: str) -> str | None:
-    review_abs = os.path.abspath(review_json_path)
-    review_dir = os.path.dirname(review_abs)
-    project_root = os.path.abspath(PROJECT_ROOT)
-    try:
-        rel = os.path.relpath(review_dir, project_root)
-    except ValueError:
-        return None
-    parts = rel.replace("\\", "/").split("/")
-    if len(parts) >= 2 and parts[0] in {"output", "cad"} and parts[1]:
-        return parts[1]
-    return None
+    ctx = ModelProjectContext.from_review_json(
+        review_json_path,
+        project_root=PROJECT_ROOT,
+    )
+    return ctx.subsystem
 
 
 def _prompt_review_choice(critical, warning, auto_fill, auto_fill_items=None):
