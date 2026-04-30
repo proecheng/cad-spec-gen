@@ -30,6 +30,10 @@ from tools.parts_library_writer import (
 )
 
 
+class _ModelImportRollback(Exception):
+    """Internal signal for expected import failures that must roll back."""
+
+
 @dataclass(frozen=True)
 class StepValidationResult:
     ok: bool
@@ -192,6 +196,10 @@ def import_user_step_model(
             if verify
             else {"matched": None, "skipped": True}
         )
+        if verify and (result["verification"] or {}).get("matched") is False:
+            warnings = result["verification"].get("warnings") or []
+            detail = warnings[0] if warnings else "resolver did not match imported STEP"
+            raise _ModelImportRollback(f"resolver verification failed: {detail}")
         result["record_path"] = str(
             _record_model_import(result, project_root=root, subsystem=subsystem)
         )
@@ -211,9 +219,12 @@ def import_user_step_model(
             backup=yaml_backup,
             tmp_path=yaml_tmp_path,
         )
+        reason = str(exc) if isinstance(exc, _ModelImportRollback) else (
+            f"model import failed: {exc}"
+        )
         return {
             "applied": False,
-            "reason": f"model import failed: {exc}",
+            "reason": reason,
             "part_no": part_no,
             "validation": validation.to_dict(),
         }
