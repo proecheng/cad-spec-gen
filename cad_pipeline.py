@@ -14,6 +14,7 @@ Usage:
     python cad_pipeline.py enhance --dir cad/output/renders
     python cad_pipeline.py annotate --config render_config.json --lang cn
     python cad_pipeline.py full --subsystem end_effector  # all 6 phases
+    python cad_pipeline.py model-audit --subsystem end_effector
     python cad_pipeline.py status                         # show pipeline status
     python cad_pipeline.py env-check                      # environment validation
 
@@ -2898,6 +2899,13 @@ def cmd_sw_inspect(args):
     return run_sw_inspect(args)
 
 
+def cmd_model_audit(args):
+    """只读审计模型库几何质量报告。"""
+    from tools.model_audit import run_model_audit
+
+    return run_model_audit(args)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 def cmd_init(args):
     """Scaffold a new subsystem directory with template files."""
@@ -3076,6 +3084,7 @@ def main():
   %(prog)s build --subsystem end_effector
   %(prog)s render --subsystem end_effector --view V1 --timestamp
   %(prog)s full --subsystem end_effector --design-doc docs/design/04-*.md
+  %(prog)s model-audit --subsystem end_effector
   %(prog)s status
   %(prog)s env-check
 """,
@@ -3300,6 +3309,28 @@ def main():
         help="展示指定 resolve_report.json 的路由诊断摘要",
     )
 
+    # model-audit：只读模型库质量审计
+    p_model_audit = sub.add_parser(
+        "model-audit",
+        help="只读审计 geometry_report.json 中的模型库几何质量",
+    )
+    p_model_audit.add_argument("--subsystem", "-s", default=None)
+    p_model_audit.add_argument(
+        "--report",
+        default=None,
+        help="显式指定 geometry_report.json；相对路径以 CAD_PROJECT_ROOT 为锚点",
+    )
+    p_model_audit.add_argument(
+        "--json",
+        action="store_true",
+        help="输出机读 JSON",
+    )
+    p_model_audit.add_argument(
+        "--strict",
+        action="store_true",
+        help="存在需审查模型或缺失 STEP 路径时返回 exit 1",
+    )
+
     args = parser.parse_args()
 
     # Logging
@@ -3335,6 +3366,7 @@ def main():
         "sw-warmup": cmd_sw_warmup,
         "sw-toolbox-e2e": cmd_sw_toolbox_e2e,
         "sw-inspect": cmd_sw_inspect,
+        "model-audit": cmd_model_audit,
     }
 
     return dispatch[args.command](args)

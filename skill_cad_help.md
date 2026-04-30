@@ -167,6 +167,8 @@ Step 2: Code generation + parametric modeling
   bd_warehouse, and PartCAD before falling back to simplified CadQuery
   geometry. It writes .cad-spec-gen/geometry_report.json with A-E quality
   grades, so users can see exactly which parts still need better models.
+  Run `python cad_pipeline.py model-audit --subsystem <name>` for a
+  read-only summary of review-required parts and missing STEP paths.
   New in v2.7.1: assembly positioning fixes in _resolve_child_offsets():
   (A) orphan detection checks children positions — assemblies with positioned
       children are no longer falsely flagged as orphan (wrong stacking direction).
@@ -506,8 +508,8 @@ A: This was caused by 4 bugs in _resolve_child_offsets() fixed in v2.7.1:
    Fix: upgrade to v2.7.1 and re-run: cad_pipeline.py codegen --subsystem <name> --force
 
 Q: 外购件看起来还是圆柱/方盒，占位感很强
-A: 1. Open cad/<subsystem>/.cad-spec-gen/geometry_report.json and check
-      geometry_quality. D/E means simplified or missing geometry.
+A: 1. Run `python cad_pipeline.py model-audit --subsystem <name>` and check
+      review_required / geometry_quality. D/E means simplified or missing geometry.
    2. Add real STEP files under std_parts/ and a parts_library.yaml mapping,
       or answer the review prompt with structured model_choices:
       {"model_choices":[{"part_no":"...","step_file":"D:/models/part.step"}]}
