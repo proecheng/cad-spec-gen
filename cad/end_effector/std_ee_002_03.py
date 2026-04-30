@@ -34,7 +34,7 @@ def make_std_ee_002_03() -> cq.Workplane:
                 .center(y, 20.8)
                 .circle(2.5)
                 .extrude(6.6)
-                .translate((8.399999999999999, 0, 0)))
+                .translate((8.4, 0, 0)))
         body = body.union(port)
     return body
 

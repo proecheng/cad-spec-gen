@@ -408,6 +408,30 @@ class TestMultiAdapterEmission:
         assert "真实 STEP 导入件" in src
         assert "simplified representation" not in src
 
+    def test_emit_step_import_module_for_shared_cache_uri(self):
+        from codegen.gen_std_parts import _emit_module_source
+
+        result = ResolveResult(
+            status="hit",
+            kind="step_import",
+            adapter="step_pool",
+            step_path="cache://maxon/ecx_22l.step",
+            real_dims=(22.0, 22.0, 82.0),
+            source_tag="STEP:cache://maxon/ecx_22l.step",
+        )
+        src = _emit_module_source(
+            self._bom_part("GIS-EE-001-05", "Maxon ECX 22L"),
+            "std_ee_001_05",
+            "motor",
+            result,
+        )
+
+        ast.parse(src)
+        assert "CAD_SPEC_GEN_STEP_CACHE" in src
+        assert "cache://maxon/ecx_22l.step" in src
+        assert "C:/Users/" not in src
+        assert "Path.home()" in src
+
     def test_emit_python_import_module_bd_warehouse(self):
         from codegen.gen_std_parts import _emit_module_source
 
@@ -488,6 +512,51 @@ class TestMultiAdapterEmission:
         assert "Dimensions: {'d': 22, 'l': 20}" in src
         assert "def make_std_ee_009_01" in src
         assert "import cadquery as cq" in src
+
+    def test_emit_module_uses_dash_for_blank_material(self):
+        """Blank material fields should not create trailing whitespace in
+        generated module headers."""
+        from codegen.gen_std_parts import _emit_module_source
+
+        part = self._bom_part("GIS-EE-009-02", "空材料测试")
+        part["material"] = ""
+        result = ResolveResult(
+            status="fallback",
+            kind="codegen",
+            adapter="jinja_primitive",
+            body_code='    return cq.Workplane("XY").box(1, 1, 1)',
+            source_tag="jinja:test",
+            metadata={"dims": {"w": 1, "d": 1, "h": 1}},
+        )
+
+        src = _emit_module_source(part, "std_ee_009_02", "other", result)
+
+        assert "Material: —\n" in src
+        assert "Material: \n" not in src
+
+    def test_emit_module_normalizes_body_code_line_endings(self):
+        """Adapter body_code may come from mixed-line-ending source files; the
+        generated module should not preserve raw CR characters."""
+        from codegen.gen_std_parts import _emit_module_source
+
+        result = ResolveResult(
+            status="fallback",
+            kind="codegen",
+            adapter="jinja_primitive",
+            body_code='    body = cq.Workplane("XY")\r\n    return body',
+            source_tag="jinja:test",
+            metadata={"dims": {}},
+        )
+
+        src = _emit_module_source(
+            self._bom_part("GIS-EE-009-03", "换行测试"),
+            "std_ee_009_03",
+            "other",
+            result,
+        )
+
+        assert "\r" not in src
+        ast.parse(src)
 
     def test_emit_codegen_module_parametric_template_header(self):
         """Curated B-grade templates are still emitted as codegen bodies, but
@@ -620,6 +689,7 @@ class TestEndToEndPipeline:
 
         # Each generated file must compile as valid Python
         for f in generated:
+            assert b"\r" not in Path(f).read_bytes()
             content = Path(f).read_text(encoding="utf-8")
             ast.parse(content)
             assert "import cadquery as cq" in content

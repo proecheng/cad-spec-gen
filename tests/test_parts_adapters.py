@@ -468,6 +468,41 @@ class TestStepPoolAdapter:
         assert not os.path.isabs(result.step_path)
         assert result.step_path == "std_parts/maxon/ecx_22l.step"
 
+    def test_shared_cache_path_in_result_uses_cache_uri(
+        self, tmp_path, monkeypatch
+    ):
+        """Shared-cache hits must not bake a user-specific absolute path into
+        generated std_*.py files."""
+        from adapters.parts.step_pool_adapter import StepPoolAdapter
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        cache_root = tmp_path / "cache"
+        step_path = cache_root / "maxon" / "ecx_22l.step"
+        step_path.parent.mkdir(parents=True)
+        import cadquery as cq
+        cq.exporters.export(
+            cq.Workplane("XY").box(20, 15, 12, centered=(True, True, False)),
+            str(step_path),
+        )
+        monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+
+        adapter = StepPoolAdapter(
+            project_root=str(project_root),
+            config={"root": "std_parts/"},
+        )
+        query = PartQuery(
+            part_no="X", name_cn="", material="",
+            category="motor", make_buy="外购",
+        )
+
+        result = adapter.resolve(query, spec={"file": "maxon/ecx_22l.step"})
+
+        assert result.status == "hit"
+        assert result.step_path == "cache://maxon/ecx_22l.step"
+        assert result.source_tag == "STEP:cache://maxon/ecx_22l.step"
+        assert str(cache_root) not in result.step_path
+
 
 class TestPartCADAdapter:
     """Tests for adapters/parts/partcad_adapter.py.
