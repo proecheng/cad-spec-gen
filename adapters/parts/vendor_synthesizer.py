@@ -41,6 +41,31 @@ Factory vocabulary:
   reservoir_38x280    Stainless cylindrical fluid reservoir
   tungsten_slug_12x7  Tungsten counterweight slug, 12 mm × 7 mm
   tungsten_slug_14x13 Tungsten counterweight slug, 14 mm × 13 mm
+  gear_pump_30x25x40  Compact gear pump visual stand-in
+  scraper_head_20x10x8
+                      Silicone scraper head with clamp and blade
+  damping_pad_20x20   Viscoelastic damping puck, Φ20 × 20 mm
+  pressure_array_4x4_20mm
+                      Thin-film 4×4 pressure sensing array
+  cleaning_tape_cassette_42x28x12
+                      Twin-reel cleaning tape cassette
+  dc_motor_16x30      Micro DC motor, Φ16 × 30 mm
+  gear_train_reducer_25x25x35
+                      Plastic gear train reducer visual stand-in
+  cushion_pad_20x15x5 Elastomer cushion pad
+  constant_force_spring_10mm
+                      Flat constant-force spring visual stand-in
+  photoelectric_encoder_15x15x12
+                      Reflective photoelectric encoder
+  solvent_cartridge_25x110
+                      Piston solvent cartridge with M8 port
+  micro_dosing_pump_20x15x30
+                      Solenoid micro dosing pump
+  i300_uhf_gt         I300-UHF-GT cylindrical UHF sensor
+  signal_conditioning_pcb_45x35
+                      4-layer signal-conditioning PCB assembly
+  sma_bulkhead_50ohm  SMA bulkhead connector
+  m12_4pin_bulkhead   M12 4-pin waterproof bulkhead connector
 
 Adding a new vendor part:
   1. Write a `make_xxx()` factory that returns a cq.Workplane with the right
@@ -412,6 +437,370 @@ def _make_tungsten_slug_14x13():
     return _make_tungsten_slug(14.0, 13.0)
 
 
+def _make_gear_pump_30x25x40():
+    """Compact gear pump envelope, 30 × 25 × 40 mm."""
+    import cadquery as cq
+
+    body = cq.Workplane("XY").box(30.0, 25.0, 36.8, centered=(True, True, False))
+    cover = (
+        cq.Workplane("XY")
+        .box(26.4, 19.5, 3.2, centered=(True, True, False))
+        .translate((0, 0, 36.8))
+    )
+    pump = body.union(cover)
+
+    for x in (-5.2, 5.2):
+        gear_face = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(4.5)
+            .circle(1.5)
+            .extrude(2.1)
+            .translate((0, 0, 37.9))
+        )
+        pump = pump.union(gear_face)
+
+    for y in (-7.5, 7.5):
+        port = (
+            cq.Workplane("YZ")
+            .center(y, 20.8)
+            .circle(2.5)
+            .extrude(6.6)
+            .translate((8.4, 0, 0))
+        )
+        pump = pump.union(port)
+    return pump
+
+
+def _make_scraper_head_20x10x8():
+    """Silicone scraper head with clamp bar and compliant blade."""
+    import cadquery as cq
+
+    clamp = cq.Workplane("XY").box(20.0, 10.0, 3.0, centered=(True, True, False))
+    blade = (
+        cq.Workplane("XY")
+        .center(0, -2.0)
+        .box(18.0, 4.2, 5.0, centered=(True, True, False))
+        .translate((0, 0, 3.0))
+    )
+    head = clamp.union(blade)
+    for x in (-6.0, 6.0):
+        head = head.faces(">Z").workplane().center(x, 0).hole(1.7)
+    try:
+        head = head.edges("|Z").chamfer(0.25)
+    except Exception:
+        pass
+    return head
+
+
+def _make_damping_pad_20x20():
+    """Viscoelastic rubber damping puck, Φ20 × 20 mm."""
+    import cadquery as cq
+
+    pad = cq.Workplane("XY").circle(10.0).extrude(20.0)
+    for r in (4.0, 6.6, 8.4):
+        rib = (
+            cq.Workplane("XY")
+            .circle(r)
+            .circle(max(r - 0.8, 0.1))
+            .extrude(0.75)
+            .translate((0, 0, 19.25))
+        )
+        pad = pad.union(rib)
+    try:
+        pad = pad.edges("|Z").chamfer(0.25)
+    except Exception:
+        pass
+    return pad
+
+
+def _make_pressure_array_4x4_20mm():
+    """Thin-film 4×4 pressure sensing array, 20 × 20 mm."""
+    import cadquery as cq
+
+    array = cq.Workplane("XY").box(20.0, 20.0, 0.6, centered=(True, True, False))
+    for row in range(4):
+        for col in range(4):
+            x = (col - 1.5) * 4.0
+            y = (row - 1.5) * 4.0
+            pad = (
+                cq.Workplane("XY")
+                .center(x, y)
+                .box(2.8, 2.8, 0.22, centered=(True, True, False))
+                .translate((0, 0, 0.6))
+            )
+            array = array.union(pad)
+    tail = (
+        cq.Workplane("XY")
+        .center(0, -14.4)
+        .box(6.4, 8.4, 0.6, centered=(True, True, False))
+    )
+    return array.union(tail)
+
+
+def _make_cleaning_tape_cassette_42x28x12():
+    """Twin-reel cleaning tape cassette, 42 × 28 × 12 mm."""
+    import cadquery as cq
+
+    cassette = cq.Workplane("XY").box(42.0, 28.0, 5.0, centered=(True, True, False))
+    for x in (-9.7, 9.7):
+        reel = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(5.0)
+            .circle(1.9)
+            .extrude(7.0)
+            .translate((0, 0, 5.0))
+        )
+        hub = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(1.0)
+            .extrude(12.0)
+        )
+        cassette = cassette.union(reel).union(hub)
+
+    tape_span = (
+        cq.Workplane("XY")
+        .box(26.0, 2.0, 1.0, centered=(True, True, False))
+        .translate((0, 0, 8.4))
+    )
+    window = (
+        cq.Workplane("XY")
+        .center(0, -9.2)
+        .box(17.6, 4.5, 2.4, centered=(True, True, False))
+        .translate((0, 0, 5.0))
+    )
+    return cassette.union(tape_span).union(window)
+
+
+def _make_dc_motor_16x30():
+    """Micro DC motor, Φ16 × 30 mm including front shaft cue."""
+    import cadquery as cq
+
+    can = cq.Workplane("XY").circle(8.0).extrude(24.9).translate((0, 0, 2.4))
+    rear = cq.Workplane("XY").circle(7.35).extrude(2.4)
+    front = cq.Workplane("XY").circle(7.5).extrude(2.7).translate((0, 0, 27.3))
+    shaft = cq.Workplane("XY").circle(1.0).extrude(5.4).translate((0, 0, 24.6))
+    motor = can.union(rear).union(front).union(shaft)
+    for y in (-2.9, 2.9):
+        tab = (
+            cq.Workplane("XY")
+            .center(4.8, y)
+            .box(1.6, 2.9, 0.85, centered=(True, True, False))
+            .translate((0, 0, 0.5))
+        )
+        motor = motor.union(tab)
+    return motor
+
+
+def _make_gear_train_reducer_25x25x35():
+    """Plastic gear train reducer, 25 × 25 × 35 mm."""
+    import cadquery as cq
+
+    reducer = cq.Workplane("XY").box(21.5, 18.0, 24.5, centered=(True, True, False))
+    cover = (
+        cq.Workplane("XY")
+        .box(19.5, 16.0, 3.5, centered=(True, True, False))
+        .translate((0, 0, 24.5))
+    )
+    reducer = reducer.union(cover)
+    for x in (-4.5, 4.5):
+        gear = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(4.0)
+            .circle(1.4)
+            .extrude(2.3)
+            .translate((0, 0, 25.7))
+        )
+        reducer = reducer.union(gear)
+    boss = cq.Workplane("XY").circle(4.5).extrude(2.8).translate((0, 0, 28.0))
+    shaft = cq.Workplane("XY").circle(3.0).extrude(4.2).translate((0, 0, 30.8))
+    return reducer.union(boss).union(shaft)
+
+
+def _make_cushion_pad_20x15x5():
+    """Elastomer cushion pad with raised compliance ribs."""
+    import cadquery as cq
+
+    pad = cq.Workplane("XY").box(20.0, 15.0, 3.1, centered=(True, True, False))
+    for x in (-4.8, 0.0, 4.8):
+        rib = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .box(3.2, 12.3, 1.9, centered=(True, True, False))
+            .translate((0, 0, 3.1))
+        )
+        pad = pad.union(rib)
+    try:
+        pad = pad.edges("|Z").chamfer(0.2)
+    except Exception:
+        pass
+    return pad
+
+
+def _make_constant_force_spring_10mm():
+    """Flat constant-force spring visual stand-in, Φ10 mm."""
+    import cadquery as cq
+
+    coil = cq.Workplane("XY").circle(5.0).circle(2.5).extrude(0.85)
+    hub = cq.Workplane("XY").circle(1.1).extrude(0.85)
+    tail = (
+        cq.Workplane("XY")
+        .center(1.2, -2.2)
+        .box(5.4, 1.6, 0.85, centered=(True, True, False))
+    )
+    return coil.union(hub).union(tail)
+
+
+def _make_photoelectric_encoder_15x15x12():
+    """Reflective photoelectric encoder with lens pair and mounting ears."""
+    import cadquery as cq
+
+    encoder = cq.Workplane("XY").box(10.8, 9.3, 6.2, centered=(True, True, False))
+    face = (
+        cq.Workplane("XY")
+        .center(0, 2.1)
+        .box(6.3, 2.7, 1.7, centered=(True, True, False))
+        .translate((0, 0, 6.2))
+    )
+    encoder = encoder.union(face)
+    for x in (-1.65, 1.65):
+        lens = (
+            cq.Workplane("XY")
+            .center(x, 2.1)
+            .circle(0.82)
+            .extrude(0.95)
+            .translate((0, 0, 7.9))
+        )
+        encoder = encoder.union(lens)
+    for x in (-6.3, 6.3):
+        ear = cq.Workplane("XY").center(x, 0).box(2.1, 6.9, 2.25, centered=(True, True, False))
+        encoder = encoder.union(ear)
+    cable = cq.Workplane("XY").center(0, -5.7).box(5.1, 2.4, 3.4, centered=(True, True, False))
+    return encoder.union(cable)
+
+
+def _make_solvent_cartridge_25x110():
+    """Piston solvent cartridge, Φ25 × 110 mm with M8 quick port."""
+    import cadquery as cq
+
+    cartridge = cq.Workplane("XY").circle(12.5).extrude(110.0)
+    seal_cap = cq.Workplane("XY").circle(12.0).extrude(6.6)
+    cartridge = cartridge.union(seal_cap).union(seal_cap.translate((0, 0, 103.4)))
+    plunger = cq.Workplane("XY").circle(2.75).extrude(17.6).translate((0, 0, 92.4))
+    m8_port = cq.Workplane("XY").circle(3.25).extrude(8.75)
+    return cartridge.union(plunger).union(m8_port)
+
+
+def _make_micro_dosing_pump_20x15x30():
+    """Solenoid micro dosing pump, 20 × 15 × 30 mm."""
+    import cadquery as cq
+
+    pump = cq.Workplane("XY").box(20.0, 15.0, 30.0, centered=(True, True, False))
+    coil = cq.Workplane("XZ").center(0, 17.4).circle(4.1).extrude(5.85, both=True)
+    pump = pump.union(coil)
+    for x in (-4.8, 4.8):
+        nozzle = (
+            cq.Workplane("YZ")
+            .center(-6.3, 5.4)
+            .circle(1.2)
+            .extrude(3.2, both=True)
+            .translate((x, 0, 0))
+        )
+        pump = pump.union(nozzle)
+    return pump
+
+
+def _make_i300_uhf_gt():
+    """I300-UHF-GT cylindrical UHF sensor, Φ45 × 60 mm."""
+    import cadquery as cq
+
+    sensor = cq.Workplane("XY").circle(22.5).extrude(60.0)
+    face = cq.Workplane("XY").circle(19.35).extrude(1.8).translate((0, 0, 60.0))
+    antenna = (
+        cq.Workplane("XY")
+        .box(26.1, 7.2, 1.8, centered=(True, True, False))
+        .translate((0, 0, 61.8))
+    )
+    cable = cq.Workplane("YZ").circle(2.0).extrude(18.9).translate((22.5, 0, 34.8))
+    return sensor.union(face).union(antenna).union(cable)
+
+
+def _make_signal_conditioning_pcb_45x35():
+    """4-layer mixed-signal PCB assembly, 45 × 35 mm."""
+    import cadquery as cq
+
+    pcb = cq.Workplane("XY").box(45.0, 35.0, 1.6, centered=(True, True, False))
+    for x in (-18.9, 18.9):
+        for y in (-13.3, 13.3):
+            pcb = pcb.faces(">Z").workplane().center(x, y).hole(2.8)
+    main_ic = (
+        cq.Workplane("XY")
+        .center(-7.2, 0)
+        .box(11.7, 7.7, 1.05, centered=(True, True, False))
+        .translate((0, 0, 1.6))
+    )
+    aux_ic = (
+        cq.Workplane("XY")
+        .center(9.9, 4.2)
+        .box(8.1, 5.6, 0.72, centered=(True, True, False))
+        .translate((0, 0, 1.6))
+    )
+    pcb = pcb.union(main_ic).union(aux_ic)
+    for i in range(8):
+        x = (i - 3.5) * 3.15
+        pad = (
+            cq.Workplane("XY")
+            .center(x, -14.7)
+            .box(1.6, 2.8, 0.2, centered=(True, True, False))
+            .translate((0, 0, 1.62))
+        )
+        pcb = pcb.union(pad)
+    return pcb
+
+
+def _make_sma_bulkhead_50ohm():
+    """SMA 50 Ω bulkhead connector visual stand-in."""
+    import cadquery as cq
+
+    barrel = cq.Workplane("XY").circle(3.25).extrude(15.0)
+    hex_nut = cq.Workplane("XY").polygon(6, 10.7).extrude(2.5).translate((0, 0, 6.3))
+    rear_thread = cq.Workplane("XY").circle(2.5).extrude(4.2).translate((0, 0, 15.0))
+    center_pin = cq.Workplane("XY").circle(0.52).extrude(2.7).translate((0, 0, -2.7))
+    return barrel.union(hex_nut).union(rear_thread).union(center_pin)
+
+
+def _make_m12_4pin_bulkhead():
+    """M12 4-pin waterproof diagnostic connector."""
+    import cadquery as cq
+
+    shell = cq.Workplane("XY").circle(6.0).extrude(18.0)
+    flange = cq.Workplane("XY").polygon(6, 16.2).extrude(2.6).translate((0, 0, 6.1))
+    gland = cq.Workplane("XY").circle(4.55).extrude(6.8).translate((0, 0, 18.0))
+    connector = shell.union(flange).union(gland)
+    for i in range(4):
+        angle = 2 * math.pi * i / 4
+        x = 3.36 * math.cos(angle)
+        y = 3.36 * math.sin(angle)
+        pin = (
+            cq.Workplane("XY")
+            .center(x, y)
+            .circle(0.42)
+            .extrude(0.95)
+            .translate((0, 0, 24.8))
+        )
+        connector = connector.union(pin)
+    key = (
+        cq.Workplane("XY")
+        .center(0, -3.36)
+        .box(1.9, 4.3, 0.95, centered=(True, True, False))
+        .translate((0, 0, 24.8))
+    )
+    return connector.union(key)
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -426,6 +815,22 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "reservoir_38x280": _make_reservoir_38x280,
     "tungsten_slug_12x7": _make_tungsten_slug_12x7,
     "tungsten_slug_14x13": _make_tungsten_slug_14x13,
+    "gear_pump_30x25x40": _make_gear_pump_30x25x40,
+    "scraper_head_20x10x8": _make_scraper_head_20x10x8,
+    "damping_pad_20x20": _make_damping_pad_20x20,
+    "pressure_array_4x4_20mm": _make_pressure_array_4x4_20mm,
+    "cleaning_tape_cassette_42x28x12": _make_cleaning_tape_cassette_42x28x12,
+    "dc_motor_16x30": _make_dc_motor_16x30,
+    "gear_train_reducer_25x25x35": _make_gear_train_reducer_25x25x35,
+    "cushion_pad_20x15x5": _make_cushion_pad_20x15x5,
+    "constant_force_spring_10mm": _make_constant_force_spring_10mm,
+    "photoelectric_encoder_15x15x12": _make_photoelectric_encoder_15x15x12,
+    "solvent_cartridge_25x110": _make_solvent_cartridge_25x110,
+    "micro_dosing_pump_20x15x30": _make_micro_dosing_pump_20x15x30,
+    "i300_uhf_gt": _make_i300_uhf_gt,
+    "signal_conditioning_pcb_45x35": _make_signal_conditioning_pcb_45x35,
+    "sma_bulkhead_50ohm": _make_sma_bulkhead_50ohm,
+    "m12_4pin_bulkhead": _make_m12_4pin_bulkhead,
 }
 
 
@@ -511,6 +916,29 @@ def synthesize_all_to_cache(overwrite: bool = False) -> dict[str, Path]:
         "maxon_gp22c": "maxon/gp22c.step",
         "lemo_fgg_0b_307": "lemo/fgg_0b_307.step",
         "ati_nano17": "ati/nano17.step",
+        "belleville_din2093_a6": "mechanical/belleville_din2093_a6.step",
+        "spring_pin_4x20": "mechanical/spring_pin_4x20.step",
+        "molex_15168_ffc_20p": "molex/15168_ffc_20p.step",
+        "molex_zif_5052xx": "molex/zif_5052xx.step",
+        "reservoir_38x280": "process/reservoir_38x280.step",
+        "tungsten_slug_12x7": "weights/tungsten_slug_12x7.step",
+        "tungsten_slug_14x13": "weights/tungsten_slug_14x13.step",
+        "gear_pump_30x25x40": "process/gear_pump_30x25x40.step",
+        "scraper_head_20x10x8": "process/scraper_head_20x10x8.step",
+        "damping_pad_20x20": "elastomer/damping_pad_20x20.step",
+        "pressure_array_4x4_20mm": "sensors/pressure_array_4x4_20mm.step",
+        "cleaning_tape_cassette_42x28x12": "process/cleaning_tape_cassette_42x28x12.step",
+        "dc_motor_16x30": "motors/dc_motor_16x30.step",
+        "gear_train_reducer_25x25x35": "transmission/gear_train_reducer_25x25x35.step",
+        "cushion_pad_20x15x5": "elastomer/cushion_pad_20x15x5.step",
+        "constant_force_spring_10mm": "mechanical/constant_force_spring_10mm.step",
+        "photoelectric_encoder_15x15x12": "sensors/photoelectric_encoder_15x15x12.step",
+        "solvent_cartridge_25x110": "process/solvent_cartridge_25x110.step",
+        "micro_dosing_pump_20x15x30": "process/micro_dosing_pump_20x15x30.step",
+        "i300_uhf_gt": "sensors/i300_uhf_gt.step",
+        "signal_conditioning_pcb_45x35": "electronics/signal_conditioning_pcb_45x35.step",
+        "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
+        "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
     }
     results: dict[str, Path] = {}
     for fid, rel in default_paths.items():
