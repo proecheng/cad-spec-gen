@@ -71,7 +71,12 @@ def build_sw_export_plan(
             step_path = _step_cache_path(part, registry, adapter)
             cache_state = "present" if step_path.exists() else "missing"
             candidate.update({
-                "action": "reuse_cache" if cache_state == "present" else "export",
+                "action": "candidate",
+                "config_match": "matched",
+                "config_name": "Default",
+                "recommended_operation": (
+                    "reuse_cache" if cache_state == "present" else "export_step"
+                ),
                 "sldprt_path": str(getattr(part, "sldprt_path", "")),
                 "sldprt_filename": getattr(part, "filename", ""),
                 "standard": getattr(part, "standard", ""),
@@ -139,6 +144,9 @@ def _base_candidate(
         "category": query.category,
         "make_buy": query.make_buy,
         "action": action,
+        "adapter": "sw_toolbox",
+        "config_match": "n/a",
+        "config_name": "",
         "rule_adapter": (rule or {}).get("adapter", ""),
         "rule_match": dict((rule or {}).get("match", {}) or {}),
         "rule_spec": dict((rule or {}).get("spec", {}) or {}),

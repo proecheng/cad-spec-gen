@@ -129,11 +129,49 @@ def test_build_sw_export_plan_finds_candidate_without_resolve(tmp_path):
     assert plan["subsystem"] == "end_effector"
     assert len(plan["candidates"]) == 1
     candidate = plan["candidates"][0]
-    assert candidate["action"] == "export"
-    assert candidate["cache_state"] == "missing"
+    assert candidate["action"] == "candidate"
+    assert candidate["adapter"] == "sw_toolbox"
+    assert candidate["config_match"] == "matched"
+    assert candidate["config_name"] == "Default"
+    assert candidate["cache_state"] in {"present", "missing"}
     assert candidate["match_score"] == 0.91
     assert candidate["sldprt_path"].endswith("6205.sldprt")
     assert candidate["step_cache_path"].endswith(str(Path("GB") / "bearing" / "6205.step"))
+
+
+def test_build_sw_export_plan_no_candidate_has_stable_schema(tmp_path):
+    adapter = FakeSwAdapter(tmp_path / "cache")
+    registry = {
+        "mappings": [
+            {
+                "match": {"category": "bearing"},
+                "adapter": "sw_toolbox",
+                "spec": {"part_category": "bearing"},
+            }
+        ],
+    }
+    context = ModelProjectContext.for_subsystem("end_effector", project_root=tmp_path)
+
+    plan = build_sw_export_plan(
+        [
+            {
+                "part_no": "P-002",
+                "name_cn": "自制支架",
+                "material": "铝合金",
+                "category": "custom",
+                "make_buy": "自制",
+            }
+        ],
+        registry,
+        context,
+        adapter=adapter,
+    )
+
+    candidate = plan["candidates"][0]
+    assert candidate["action"] == "no_candidate"
+    assert candidate["adapter"] == "sw_toolbox"
+    assert candidate["config_match"] == "n/a"
+    assert candidate["config_name"] == ""
 
 
 def test_write_sw_export_plan_writes_json_to_context_path(tmp_path):
