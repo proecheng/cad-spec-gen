@@ -363,7 +363,8 @@ class StepPoolAdapter(PartsAdapter):
                     if os.path.normcase(common) == os.path.normcase(
                         os.path.abspath(cache_path)
                     ):
-                        return f"cache://{file_spec.replace('\\', '/')}"
+                        portable_spec = file_spec.replace("\\", "/")
+                        return f"cache://{portable_spec}"
                 except ValueError:
                     pass
         return self._to_project_relative(abs_path)
