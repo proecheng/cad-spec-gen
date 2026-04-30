@@ -296,6 +296,23 @@ class PartsResolver:
     def available_adapter_names(self) -> list[str]:
         return [a.name for a in self.adapters if a.is_available()[0]]
 
+    def matching_rules(
+        self,
+        query: PartQuery,
+        *,
+        adapter_name: str | None = None,
+    ) -> list[dict]:
+        """Return registry rules matching a query without touching adapters."""
+        rules = []
+        for rule in self.registry.get("mappings", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            if adapter_name is not None and rule.get("adapter", "") != adapter_name:
+                continue
+            if _match_rule(rule.get("match", {}), query):
+                rules.append(rule)
+        return rules
+
     # ---- core resolve loop ------------------------------------------------
 
     def resolve(

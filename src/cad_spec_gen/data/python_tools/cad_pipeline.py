@@ -2802,6 +2802,31 @@ def cmd_model_import(args):
     return run_model_import(args)
 
 
+def cmd_sw_export_plan(args):
+    """生成只读 SolidWorks Toolbox 导出候选计划。"""
+    from codegen.gen_build import parse_bom_tree
+    from parts_resolver import load_registry
+    from tools.sw_export_plan import build_sw_export_plan, write_sw_export_plan
+
+    spec_path = args.spec or os.path.join(
+        PROJECT_ROOT, "cad", args.subsystem, "CAD_SPEC.md"
+    )
+    bom_rows = parse_bom_tree(spec_path)
+    registry = load_registry(project_root=PROJECT_ROOT)
+    context = ModelProjectContext.for_subsystem(
+        args.subsystem,
+        project_root=PROJECT_ROOT,
+    )
+    plan = build_sw_export_plan(bom_rows, registry, context)
+    output_path = write_sw_export_plan(plan, context)
+    if args.json:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+    else:
+        print(f"sw_export_plan: {output_path}")
+        print(f"candidates: {len(plan.get('candidates', []))}")
+    return 0
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 def cmd_init(args):
     """Scaffold a new subsystem directory with template files."""
@@ -3248,6 +3273,19 @@ def main():
         help="跳过导入后的 resolver 消费校验",
     )
 
+    # sw-export-plan：只读生成 SW Toolbox 导出候选计划
+    p_sw_export_plan = sub.add_parser(
+        "sw-export-plan",
+        help="只读生成 SolidWorks Toolbox STEP 导出候选计划",
+    )
+    p_sw_export_plan.add_argument("--subsystem", "-s", required=True)
+    p_sw_export_plan.add_argument(
+        "--spec",
+        default="",
+        help="CAD_SPEC.md 路径；默认 cad/<subsystem>/CAD_SPEC.md",
+    )
+    p_sw_export_plan.add_argument("--json", action="store_true", help="输出机读 JSON")
+
     args = parser.parse_args()
 
     # Logging
@@ -3285,6 +3323,7 @@ def main():
         "sw-inspect": cmd_sw_inspect,
         "model-audit": cmd_model_audit,
         "model-import": cmd_model_import,
+        "sw-export-plan": cmd_sw_export_plan,
     }
 
     return dispatch[args.command](args)
