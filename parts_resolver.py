@@ -618,7 +618,7 @@ class PartsResolver:
               bd_warehouse     1  GIS-EE-002-11
               jinja_primitive 31  GIS-EE-001-03, GIS-EE-001-04 ... (and 27 more)
               ─────────────────────────────────────
-              Total: 34 parts | Library hits: 3 (8.8%) | Fallback: 31 (91.2%)
+              Total: 34 parts | Ready geometry: 3 (8.8%) | Fallback: 31 (91.2%)
 
               31 parts use simplified geometry. To upgrade them: add a STEP
               file under std_parts/, write a parts_library.yaml rule, or set
@@ -633,9 +633,14 @@ class PartsResolver:
         if not decisions:
             return ""
 
-        total = sum(len(v) for v in decisions.values())
-        fallback_count = len(decisions.get("jinja_primitive", []))
-        library_count = total - fallback_count
+        rows = self.geometry_decisions()
+        total = len(rows)
+        fallback_count = sum(
+            1 for row in rows
+            if row.get("requires_model_review")
+            or (row.get("geometry_quality") or "") in {"C", "D", "E"}
+        )
+        ready_count = total - fallback_count
 
         # Order adapters: library backends first, jinja_primitive last
         ordered = sorted(
@@ -660,13 +665,13 @@ class PartsResolver:
         # Aggregate row
         lines.append("  " + "─" * (name_width + 50))
         if total > 0:
-            lib_pct = 100.0 * library_count / total
+            ready_pct = 100.0 * ready_count / total
             fb_pct = 100.0 * fallback_count / total
         else:
-            lib_pct = fb_pct = 0.0
+            ready_pct = fb_pct = 0.0
         lines.append(
-            f"  Total: {total} parts | Library hits: {library_count} "
-            f"({lib_pct:.1f}%) | Fallback: {fallback_count} ({fb_pct:.1f}%)"
+            f"  Total: {total} parts | Ready geometry: {ready_count} "
+            f"({ready_pct:.1f}%) | Fallback: {fallback_count} ({fb_pct:.1f}%)"
         )
 
         # Hint footer (only when fallback is non-trivial)

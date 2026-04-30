@@ -87,6 +87,14 @@ def _envelope_to_granularity(env) -> str:
     return "part_envelope"
 
 
+def _is_parametric_template_result(result) -> bool:
+    return (
+        result.kind == "codegen"
+        and result.geometry_source == "PARAMETRIC_TEMPLATE"
+        and result.geometry_quality in {"A", "B"}
+    )
+
+
 def _emit_module_source(part, mod_name: str, category: str, result) -> str:
     """Build the full Python module text for a std_*.py file.
 
@@ -99,7 +107,8 @@ def _emit_module_source(part, mod_name: str, category: str, result) -> str:
     header format. This preserves byte equality with the legacy
     gen_std_parts.py output for projects without a parts_library.yaml.
     """
-    if result.adapter == "jinja_primitive":
+    parametric_template = _is_parametric_template_result(result)
+    if result.adapter == "jinja_primitive" and not parametric_template:
         # Legacy header format — DO NOT CHANGE (byte-identical gate)
         dims = result.metadata.get("dims", {})
         header = f'''"""
@@ -129,6 +138,12 @@ import cadquery as cq
                 "NOTE: Generated from an external parts library via parts_resolver.\n"
                 "      Verify dimensional fit before manufacturing."
             )
+        elif parametric_template:
+            title = "参数化模板几何"
+            note = (
+                "NOTE: Generated from a curated parametric template selected by parts_resolver.\n"
+                "      This is not a vendor STEP model; verify dimensional fit before manufacturing."
+            )
         else:
             title = "parts_resolver 几何"
             note = (
@@ -153,10 +168,15 @@ import cadquery as cq
 
     if result.kind == "codegen":
         body = result.body_code
+        geom_desc = (
+            "parametric template geometry"
+            if parametric_template
+            else f"simplified {category} geometry"
+        )
         func_block = f'''
 
 def {func_name}() -> cq.Workplane:
-    """{part["part_no"]}: {part["name_cn"]} — simplified {category} geometry."""
+    """{part["part_no"]}: {part["name_cn"]} — {geom_desc}."""
 {body}
 '''
 

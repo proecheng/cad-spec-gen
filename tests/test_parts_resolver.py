@@ -612,7 +612,7 @@ class TestCoverageReport:
         assert "P-002" in report
         # Aggregate row
         assert "Total: 4 parts" in report
-        assert "Library hits: 2" in report
+        assert "Ready geometry: 2" in report
         assert "Fallback: 2" in report
 
     def test_jinja_primitive_listed_last(self):
@@ -656,6 +656,30 @@ class TestCoverageReport:
         assert "simplified geometry" in report2
         assert "extends: default" in report2
         assert "PARTS_LIBRARY.md" in report2
+
+    def test_b_grade_parametric_templates_do_not_count_as_fallback(self):
+        """A curated B-grade parametric template is codegen-backed but should
+        not be reported as simplified fallback needing model review."""
+        from parts_resolver import GeometryDecision
+
+        resolver = self._make_resolver_with_decisions([
+            GeometryDecision(
+                part_no="SLP-F11",
+                name_cn="PU 缓冲垫",
+                status="hit",
+                kind="codegen",
+                adapter="jinja_primitive",
+                source_tag="jinja_template:pu_buffer_pad",
+                geometry_source="PARAMETRIC_TEMPLATE",
+                geometry_quality="B",
+                requires_model_review=False,
+            ),
+        ])
+
+        report = resolver.coverage_report()
+        assert "Ready geometry: 1" in report
+        assert "Fallback: 0" in report
+        assert "simplified geometry" not in report
 
     def test_decisions_by_adapter_returns_part_lists(self):
         """The lower-level decisions_by_adapter() returns adapter → list."""
