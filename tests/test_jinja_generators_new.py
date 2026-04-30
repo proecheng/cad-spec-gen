@@ -620,7 +620,7 @@ def test_generic_other_cylinder_does_not_use_counterweight_template(
     assert result.source_tag == "jinja_primitive:other"
 
 
-# ── lifting_platform D-grade fallback replacements ─────────────────────────
+# ── lifting_platform B-grade curated parametric replacements ───────────────
 
 _LIFTING_PLATFORM_TEMPLATE_CASES = [
     (
@@ -694,7 +694,7 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
     ("category", "name", "material", "template_id", "body_marker", "dims"),
     _LIFTING_PLATFORM_TEMPLATE_CASES,
 )
-def test_lifting_platform_d_grade_parts_use_specialized_templates(
+def test_lifting_platform_curated_parts_report_b_grade_parametric_templates(
     adapter: JinjaPrimitiveAdapter,
     category: str,
     name: str,
@@ -707,10 +707,12 @@ def test_lifting_platform_d_grade_parts_use_specialized_templates(
 
     assert result.status == "hit"
     assert result.kind == "codegen"
-    assert result.geometry_source == "JINJA_TEMPLATE"
-    assert result.geometry_quality == "C"
-    assert result.requires_model_review is True
+    assert result.geometry_source == "PARAMETRIC_TEMPLATE"
+    assert result.geometry_quality == "B"
+    assert result.requires_model_review is False
+    assert result.source_tag == f"parametric_template:{template_id}"
     assert result.metadata["template"] == template_id
+    assert result.metadata["template_scope"] == "reusable_part_family"
     assert result.real_dims == dims
     assert body_marker in result.body_code
 

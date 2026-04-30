@@ -364,12 +364,15 @@ class PartsResolver:
         if fallback is not None:
             result = self._call_adapter_resolve(fallback, query, {}, mode)
             if result.status == "hit":
-                result.status = "fallback"
                 result.adapter = result.adapter or "jinja_primitive"
                 # Task 7：兜底 fallback 统一 CUSTOM（规则视角无 match/spec 线索）
                 result.category = PartCategory.CUSTOM
-                trace.append("jinja_primitive(fallback)")
                 self._enrich_result_geometry(result, query)
+                if _result_requires_fallback_review(result):
+                    result.status = "fallback"
+                    trace.append("jinja_primitive(fallback)")
+                else:
+                    trace.append("jinja_primitive(hit)")
                 self._record_decision(query, result, trace)
                 return result
             if result.status == "skip":
@@ -566,8 +569,9 @@ class PartsResolver:
     def decisions_by_adapter(self) -> dict:
         """Return adapter → list of (part_no, source_tag) tuples.
 
-        Used by the coverage report to print which specific parts each
-        adapter handled. Iteration order matches resolve() order.
+        This is the low-level execution view: it keeps the adapter that
+        actually produced each result. The coverage report may group rows by a
+        higher-level geometry source such as parametric_template.
         """
         result: dict = {}
         for decision in self._decision_log:
@@ -616,12 +620,13 @@ class PartsResolver:
             resolver coverage:
               step_pool        2  GIS-EE-001-05, GIS-EE-001-06
               bd_warehouse     1  GIS-EE-002-11
-              jinja_primitive 31  GIS-EE-001-03, GIS-EE-001-04 ... (and 27 more)
+              parametric_template 5 GIS-EE-001-03, GIS-EE-001-04
+              jinja_primitive 26  GIS-EE-001-08, GIS-EE-001-09 ... (and 22 more)
               ─────────────────────────────────────
-              Total: 34 parts | Library hits: 3 (8.8%) | Fallback: 31 (91.2%)
+              Total: 34 parts | Ready geometry: 8 (23.5%) | Fallback: 26 (76.5%)
 
-              31 parts use simplified geometry. To upgrade them: add a STEP
-              file under std_parts/, write a parts_library.yaml rule, or set
+              26 parts need model review or geometry upgrade. To upgrade them:
+              add a STEP file under std_parts/, write a parts_library.yaml rule, or set
               `extends: default` to inherit category-driven routing.
               See docs/PARTS_LIBRARY.md for the mapping vocabulary.
 
@@ -629,18 +634,26 @@ class PartsResolver:
         renders correctly on every CI runner including Windows GBK consoles.
         Returns an empty string if no decisions have been recorded yet.
         """
-        decisions = self.decisions_by_adapter()
-        if not decisions:
+        rows = self.geometry_decisions()
+        if not rows:
             return ""
 
-        total = sum(len(v) for v in decisions.values())
-        fallback_count = len(decisions.get("jinja_primitive", []))
-        library_count = total - fallback_count
+        total = len(rows)
+        fallback_count = sum(1 for row in rows if _row_requires_fallback_review(row))
+        ready_count = total - fallback_count
 
-        # Order adapters: library backends first, jinja_primitive last
+        decisions: dict[str, list[tuple[str, str]]] = {}
+        for row in rows:
+            adapter = _coverage_bucket(row)
+            decisions.setdefault(adapter, []).append((
+                row.get("part_no", ""),
+                row.get("source_tag", ""),
+            ))
+
+        # Order coverage buckets: library backends first, raw jinja last.
         ordered = sorted(
             decisions.keys(),
-            key=lambda a: (a == "jinja_primitive", a),
+            key=_coverage_sort_key,
         )
 
         lines = ["resolver coverage:"]
@@ -660,24 +673,27 @@ class PartsResolver:
         # Aggregate row
         lines.append("  " + "─" * (name_width + 50))
         if total > 0:
-            lib_pct = 100.0 * library_count / total
+            ready_pct = 100.0 * ready_count / total
             fb_pct = 100.0 * fallback_count / total
         else:
-            lib_pct = fb_pct = 0.0
+            ready_pct = fb_pct = 0.0
         lines.append(
-            f"  Total: {total} parts | Library hits: {library_count} "
-            f"({lib_pct:.1f}%) | Fallback: {fallback_count} ({fb_pct:.1f}%)"
+            f"  Total: {total} parts | Ready geometry: {ready_count} "
+            f"({ready_pct:.1f}%) | Fallback: {fallback_count} ({fb_pct:.1f}%)"
         )
 
         # Hint footer (only when fallback is non-trivial)
         if fallback_count > 0:
             lines.append("")
             lines.append(
-                f"  {fallback_count} parts use simplified geometry. To upgrade "
-                f"them: add a STEP file"
+                f"  {fallback_count} parts need model review or geometry "
+                f"upgrade. To upgrade"
             )
             lines.append(
-                "  under std_parts/, write a parts_library.yaml rule, or set"
+                "  them: add a STEP file under std_parts/, write a"
+            )
+            lines.append(
+                "  parts_library.yaml rule, or set"
             )
             lines.append(
                 "  `extends: default` to inherit category-driven routing."
@@ -839,6 +855,43 @@ def _file_sha256(path: str) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return f"sha256:{h.hexdigest()}"
+
+
+def _quality_grade(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _result_requires_fallback_review(result: ResolveResult) -> bool:
+    return bool(result.requires_model_review) or (
+        _quality_grade(result.geometry_quality) in {"C", "D", "E"}
+    )
+
+
+def _row_requires_fallback_review(row: dict) -> bool:
+    return bool(row.get("requires_model_review")) or (
+        _quality_grade(row.get("geometry_quality")) in {"C", "D", "E"}
+    )
+
+
+def _coverage_bucket(row: dict) -> str:
+    geometry_source = str(row.get("geometry_source") or "").strip().upper()
+    if geometry_source == "PARAMETRIC_TEMPLATE":
+        return "parametric_template"
+    return row.get("adapter") or "(none)"
+
+
+def _coverage_sort_key(bucket: str) -> tuple[int, str]:
+    order = {
+        "sw_toolbox": 0,
+        "step_pool": 1,
+        "bd_warehouse": 2,
+        "partcad": 3,
+        "parametric_template": 4,
+        "jinja_primitive": 9,
+        "(skip)": 10,
+        "(none)": 11,
+    }
+    return (order.get(bucket, 5), bucket)
 
 
 def _decision_part_no(decision) -> str:

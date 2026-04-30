@@ -753,22 +753,43 @@ def _gen_pillow_block_bearing_kfl001(dims: dict) -> str:
     bore_d = dims.get("bore_d", 12)
     mount_d = dims.get("mount_d", 5.5)
     mount_x = min(w * 0.34, w / 2 - mount_d)
+    boss_h = max(h - base_h, h * 0.52)
+    shoulder_d = min(boss_d + 5.0, d - 1.0)
+    recess_d = mount_d * 1.85
     return f"""    # KFL001 pillow block bearing: flanged base, raised bearing boss, bore
     body = cq.Workplane("XY").box({w}, {d}, {base_h:.3f}, centered=(True, True, False))
-    boss = cq.Workplane("XY").circle({boss_d/2:.3f}).extrude({h})
-    body = body.union(boss)
+    body = body.edges("|Z").fillet({min(d * 0.08, 2.2):.3f})
+    shoulder = (cq.Workplane("XY")
+                .circle({shoulder_d/2:.3f})
+                .extrude({base_h * 0.42:.3f})
+                .translate((0, 0, {base_h:.3f})))
+    boss = (cq.Workplane("XY")
+            .circle({boss_d/2:.3f})
+            .extrude({boss_h:.3f})
+            .translate((0, 0, {base_h:.3f})))
+    bearing_ring = (cq.Workplane("XY")
+                    .circle({boss_d/2:.3f})
+                    .circle({max(bore_d/2 + 2.0, boss_d/2 - 4.0):.3f})
+                    .extrude({min(2.0, boss_h * 0.22):.3f})
+                    .translate((0, 0, {h - min(2.0, boss_h * 0.22):.3f})))
+    body = body.union(shoulder).union(boss).union(bearing_ring)
     bore = (cq.Workplane("XY")
             .circle({bore_d/2:.3f})
             .extrude({h + 1:.3f})
             .translate((0, 0, -0.5)))
     body = body.cut(bore)
     for x in ({-mount_x:.3f}, {mount_x:.3f}):
+        recess = (cq.Workplane("XY")
+                  .center(x, 0)
+                  .circle({recess_d/2:.3f})
+                  .extrude({base_h * 0.38:.3f})
+                  .translate((0, 0, {base_h * 0.66:.3f})))
         hole = (cq.Workplane("XY")
                 .center(x, 0)
                 .circle({mount_d/2:.3f})
                 .extrude({base_h + 0.6:.3f})
                 .translate((0, 0, -0.3)))
-        body = body.cut(hole)
+        body = body.cut(recess).cut(hole)
     return body"""
 
 
@@ -779,6 +800,7 @@ def _gen_clamping_coupling_l070(dims: dict) -> str:
     groove_w = max(min(l * 0.06, 1.8), 1.0)
     groove_inner_r = max(d / 2 - 0.8, bore_d / 2 + 1.0)
     slot_w = max(d * 0.12, 2.0)
+    screw_d = max(bore_d * 0.55, 3.0)
     return f"""    # L070 clamping coupling: split cylindrical coupler with twin clamp grooves
     body = cq.Workplane("XY").circle({d/2}).circle({bore_d/2}).extrude({l})
     for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
@@ -792,6 +814,19 @@ def _gen_clamping_coupling_l070(dims: dict) -> str:
              .box({slot_w:.3f}, {d + 0.2:.3f}, {l + 0.2:.3f}, centered=(True, True, False))
              .translate(({d * 0.32:.3f}, 0, -0.1)))
     body = body.cut(split)
+    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+        screw_socket = (cq.Workplane("YZ")
+                        .center(0, z)
+                        .circle({screw_d/2:.3f})
+                        .extrude({d + 0.4:.3f})
+                        .translate(({-(d / 2 + 0.2):.3f}, 0, 0)))
+        body = body.cut(screw_socket)
+        clamp_band = (cq.Workplane("XY")
+                      .circle({d/2:.3f})
+                      .circle({max(d/2 - 1.15, bore_d/2 + 1.5):.3f})
+                      .extrude({groove_w * 0.65:.3f})
+                      .translate((0, 0, z + {groove_w:.3f})))
+        body = body.union(clamp_band)
     return body"""
 
 
@@ -830,13 +865,14 @@ def _gen_cl57t_stepper_driver(dims: dict) -> str:
     w = dims.get("w", 118)
     d = dims.get("d", 75)
     h = dims.get("h", 34)
-    base_h = max(h - 4, h * 0.78)
+    base_h = max(h - 6, h * 0.76)
     fin_h = h - base_h
     fin_w = max(w * 0.035, 2.5)
     start_x = -w * 0.34
     pitch = w * 0.085
     return f"""    # CL57T stepper driver: controller case with heat-sink fins
     body = cq.Workplane("XY").box({w}, {d}, {base_h:.3f}, centered=(True, True, False))
+    body = body.edges("|Z").fillet({min(w, d) * 0.025:.3f})
     for i in range(9):
         x = {start_x:.3f} + i * {pitch:.3f}
         fin = (cq.Workplane("XY")
@@ -844,6 +880,22 @@ def _gen_cl57t_stepper_driver(dims: dict) -> str:
                .box({fin_w:.3f}, {d * 0.82:.3f}, {fin_h:.3f}, centered=(True, True, False))
                .translate((0, 0, {base_h:.3f})))
         body = body.union(fin)
+    terminal = (cq.Workplane("XY")
+                .center({w * 0.31:.3f}, {-d * 0.34:.3f})
+                .box({w * 0.28:.3f}, {d * 0.12:.3f}, {min(4.0, h - base_h):.3f}, centered=(True, True, False))
+                .translate((0, 0, {base_h:.3f})))
+    dip = (cq.Workplane("XY")
+           .center({-w * 0.33:.3f}, {-d * 0.34:.3f})
+           .box({w * 0.16:.3f}, {d * 0.10:.3f}, {min(3.2, h - base_h):.3f}, centered=(True, True, False))
+           .translate((0, 0, {base_h:.3f})))
+    label_plate = (cq.Workplane("XY")
+                   .center({-w * 0.20:.3f}, {d * 0.24:.3f})
+                   .box({w * 0.42:.3f}, {d * 0.28:.3f}, {max(fin_h * 0.18, 0.5):.3f}, centered=(True, True, False))
+                   .translate((0, 0, {base_h + max(fin_h * 0.08, 0.2):.3f})))
+    body = body.union(terminal).union(dip).union(label_plate)
+    for x in ({-w * 0.42:.3f}, {w * 0.42:.3f}):
+        for y in ({-d * 0.36:.3f}, {d * 0.36:.3f}):
+            body = body.faces(">Z").workplane().center(x, y).hole({min(w, d) * 0.035:.3f})
     return body"""
 
 
@@ -854,6 +906,7 @@ def _gen_pu_buffer_pad(dims: dict) -> str:
     groove_w = max(min(w, d) * 0.08, 0.5)
     return f"""    # PU buffer pad: low square elastomer bumper with cross compliance grooves
     body = cq.Workplane("XY").box({w}, {d}, {h}, centered=(True, True, False))
+    body = body.edges("|Z").fillet({min(w, d, h) * 0.18:.3f})
     groove_x = (cq.Workplane("XY")
                 .box({w * 0.72:.3f}, {groove_w:.3f}, {h + 0.2:.3f}, centered=(True, True, False))
                 .translate((0, 0, -0.1)))
@@ -861,6 +914,14 @@ def _gen_pu_buffer_pad(dims: dict) -> str:
                 .box({groove_w:.3f}, {d * 0.72:.3f}, {h + 0.2:.3f}, centered=(True, True, False))
                 .translate((0, 0, -0.1)))
     body = body.cut(groove_x).cut(groove_y)
+    for x in ({-w * 0.34:.3f}, {w * 0.34:.3f}):
+        for y in ({-d * 0.34:.3f}, {d * 0.34:.3f}):
+            dot = (cq.Workplane("XY")
+                   .center(x, y)
+                   .circle({min(w, d) * 0.055:.3f})
+                   .extrude({h * 0.18:.3f})
+                   .translate((0, 0, {h * 0.82:.3f})))
+            body = body.union(dot)
     return body"""
 
 
@@ -887,10 +948,23 @@ def _gen_guide_shaft_protective_cap(dims: dict) -> str:
     d = dims.get("d", 10)
     l = dims.get("l", 8)
     pocket_d = max(d * 0.68, d - 3.0)
+    wall = max((d - pocket_d) / 2, 1.0)
     return f"""    # guide shaft protective cap: closed cylindrical end cap with shaft pocket
     body = cq.Workplane("XY").circle({d/2}).extrude({l})
     pocket = cq.Workplane("XY").circle({pocket_d/2:.3f}).extrude({l * 0.72:.3f})
     body = body.cut(pocket)
+    lip = (cq.Workplane("XY")
+           .circle({d/2:.3f})
+           .circle({max(d/2 - wall * 0.55, pocket_d/2):.3f})
+           .extrude({l * 0.18:.3f}))
+    body = body.union(lip)
+    for z in ({l * 0.30:.3f}, {l * 0.52:.3f}):
+        grip = (cq.Workplane("XY")
+                .circle({d/2 + 0.02:.3f})
+                .circle({max(d/2 - 0.45, pocket_d/2 + 0.2):.3f})
+                .extrude({l * 0.08:.3f})
+                .translate((0, 0, z)))
+        body = body.cut(grip)
     return body"""
 
 
@@ -898,6 +972,12 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
     category = getattr(query, "category", "")
+    reusable_parametric_template = {
+        "geometry_source": "PARAMETRIC_TEMPLATE",
+        "geometry_quality": "B",
+        "requires_model_review": False,
+        "template_scope": "reusable_part_family",
+    }
 
     if category == "bearing" and _contains_any(text, ["LM10UU"]):
         tpl_dims = {
@@ -909,7 +989,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "linear_bearing_lm10uu",
             "body_code": _gen_linear_bearing_lm10uu(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "bearing" and _contains_any(text, ["KFL001"]):
@@ -918,7 +998,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "pillow_block_bearing_kfl001",
             "body_code": _gen_pillow_block_bearing_kfl001(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "connector" and _contains_any(text, ["L070"]):
@@ -927,7 +1007,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "clamping_coupling_l070",
             "body_code": _gen_clamping_coupling_l070(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "motor" and _contains_any(text, ["NEMA23", "NEMA 23"]):
@@ -942,7 +1022,11 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "nema23_stepper_motor",
             "body_code": _gen_nema23_stepper_motor(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {"body_height_mm": 56, "shaft_length_mm": 24},
+            "metadata": {
+                **reusable_parametric_template,
+                "body_height_mm": 56,
+                "shaft_length_mm": 24,
+            },
         }
 
     if category == "other" and _contains_any(text, ["CL57T"]):
@@ -951,7 +1035,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "cl57t_stepper_driver",
             "body_code": _gen_cl57t_stepper_driver(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "seal" and _contains_any(text, ["PU", "缓冲垫"]):
@@ -961,7 +1045,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "pu_buffer_pad",
             "body_code": _gen_pu_buffer_pad(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if (
@@ -974,7 +1058,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "m8_inductive_proximity_sensor",
             "body_code": _gen_m8_inductive_proximity_sensor(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if (
@@ -987,7 +1071,7 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "template": "guide_shaft_protective_cap",
             "body_code": _gen_guide_shaft_protective_cap(tpl_dims),
             "dims": tpl_dims,
-            "metadata": {},
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "connector" and _contains_any(text, ["ZIF", "5052"]):
@@ -1450,21 +1534,32 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         template = _specialized_template(query, dims)
         if template is not None:
             tpl_dims = template["dims"]
+            template_metadata = dict(template.get("metadata", {}))
+            geometry_source = template_metadata.pop("geometry_source", "JINJA_TEMPLATE")
+            geometry_quality = template_metadata.pop("geometry_quality", "C")
+            requires_model_review = template_metadata.pop(
+                "requires_model_review", True
+            )
+            tag_prefix = (
+                "parametric_template"
+                if geometry_source == "PARAMETRIC_TEMPLATE"
+                else "jinja_template"
+            )
             metadata = {
                 "dims": tpl_dims,
                 "template": template["template"],
             }
-            metadata.update(template.get("metadata", {}))
+            metadata.update(template_metadata)
             return ResolveResult(
                 status="hit",
                 kind="codegen",
                 adapter=self.name,
                 body_code=template["body_code"],
                 real_dims=self._dims_to_envelope(tpl_dims),
-                source_tag=f"jinja_template:{template['template']}",
-                geometry_source="JINJA_TEMPLATE",
-                geometry_quality="C",
-                requires_model_review=True,
+                source_tag=f"{tag_prefix}:{template['template']}",
+                geometry_source=geometry_source,
+                geometry_quality=geometry_quality,
+                requires_model_review=requires_model_review,
                 metadata=metadata,
             )
 
