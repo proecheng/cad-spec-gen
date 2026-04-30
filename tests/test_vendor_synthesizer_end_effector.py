@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
+from adapters.parts import vendor_synthesizer
 from parts_resolver import PartQuery, default_resolver
 
 
@@ -262,3 +264,92 @@ def test_default_library_routes_end_effector_specialty_parts_to_cache_step(
     assert result.validated is True
     assert result.requires_model_review is False
     assert (cache_root / step_uri.removeprefix("cache://")).is_file()
+
+
+@pytest.mark.parametrize(
+    ("query", "gis_step_uri"),
+    [
+        (
+            PartQuery(
+                part_no="OTHER-PUMP-001",
+                name_cn="齿轮泵",
+                material="",
+                category="pump",
+                make_buy="外购",
+            ),
+            "cache://process/gear_pump_30x25x40.step",
+        ),
+        (
+            PartQuery(
+                part_no="OTHER-PAD-001",
+                name_cn="阻尼垫",
+                material="硅橡胶",
+                category="other",
+                make_buy="外购",
+            ),
+            "cache://elastomer/damping_pad_20x20.step",
+        ),
+        (
+            PartQuery(
+                part_no="OTHER-REDUCER-001",
+                name_cn="小型减速器",
+                material="塑料齿轮",
+                category="reducer",
+                make_buy="外购",
+            ),
+            "cache://transmission/gear_train_reducer_25x25x35.step",
+        ),
+        (
+            PartQuery(
+                part_no="OTHER-SENSOR-001",
+                name_cn="光电编码器",
+                material="5V",
+                category="sensor",
+                make_buy="外购",
+            ),
+            "cache://sensors/photoelectric_encoder_15x15x12.step",
+        ),
+        (
+            PartQuery(
+                part_no="OTHER-CONN-001",
+                name_cn="SMA穿壁连接器",
+                material="75Ω",
+                category="connector",
+                make_buy="外购",
+            ),
+            "cache://connectors/sma_bulkhead_50ohm.step",
+        ),
+    ],
+)
+def test_default_library_does_not_route_generic_parts_to_gisbot_stand_ins(
+    tmp_path, monkeypatch, query, gis_step_uri
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=str(tmp_path))
+
+    result = resolver.resolve(query)
+
+    assert not (
+        result.adapter == "step_pool" and result.step_path == gis_step_uri
+    )
+
+
+def test_default_library_synthesizer_mappings_match_vendor_registry():
+    default_paths = vendor_synthesizer.DEFAULT_STEP_FILES
+    registry = yaml.safe_load(
+        Path("parts_library.default.yaml").read_text(encoding="utf-8")
+    )
+
+    mapped_paths = {
+        rule["spec"]["synthesizer"]: rule["spec"]["file"]
+        for rule in registry["mappings"]
+        if rule.get("adapter") == "step_pool"
+        and (rule.get("spec") or {}).get("synthesizer")
+    }
+
+    assert set(mapped_paths) <= set(vendor_synthesizer.SYNTHESIZERS)
+    assert mapped_paths == {
+        factory_id: default_paths[factory_id]
+        for factory_id in mapped_paths
+    }

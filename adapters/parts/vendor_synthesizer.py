@@ -71,7 +71,7 @@ Adding a new vendor part:
   1. Write a `make_xxx()` factory that returns a cq.Workplane with the right
      envelope (datasheet dimensions). Small artistic touches (chamfers, cable
      tabs) help renders read correctly but are not required.
-  2. Register it in the `SYNTHESIZERS` dict below.
+  2. Register it in the `SYNTHESIZERS` and `DEFAULT_STEP_FILES` dicts below.
   3. Add the matching rule to `parts_library.default.yaml` with:
          adapter: step_pool
          spec: {file: "<vendor>/<model>.step", synthesizer: "<factory_id>"}
@@ -86,6 +86,7 @@ from typing import Callable, Optional
 
 __all__ = [
     "SYNTHESIZERS",
+    "DEFAULT_STEP_FILES",
     "CACHE_ROOT_ENV",
     "default_cache_root",
     "resolve_cache_path",
@@ -833,6 +834,46 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "m12_4pin_bulkhead": _make_m12_4pin_bulkhead,
 }
 
+# Default cache layout — mirrors parts_library.default.yaml so tests and
+# batch warmup can assert the two files stay in lockstep.
+DEFAULT_STEP_FILES: dict[str, str] = {
+    "maxon_ecx_22l": "maxon/ecx_22l.step",
+    "maxon_gp22c": "maxon/gp22c.step",
+    "lemo_fgg_0b_307": "lemo/fgg_0b_307.step",
+    "ati_nano17": "ati/nano17.step",
+    "belleville_din2093_a6": "mechanical/belleville_din2093_a6.step",
+    "spring_pin_4x20": "mechanical/spring_pin_4x20.step",
+    "molex_15168_ffc_20p": "molex/15168_ffc_20p.step",
+    "molex_zif_5052xx": "molex/zif_5052xx.step",
+    "reservoir_38x280": "process/reservoir_38x280.step",
+    "tungsten_slug_12x7": "weights/tungsten_slug_12x7.step",
+    "tungsten_slug_14x13": "weights/tungsten_slug_14x13.step",
+    "gear_pump_30x25x40": "process/gear_pump_30x25x40.step",
+    "scraper_head_20x10x8": "process/scraper_head_20x10x8.step",
+    "damping_pad_20x20": "elastomer/damping_pad_20x20.step",
+    "pressure_array_4x4_20mm": "sensors/pressure_array_4x4_20mm.step",
+    "cleaning_tape_cassette_42x28x12": (
+        "process/cleaning_tape_cassette_42x28x12.step"
+    ),
+    "dc_motor_16x30": "motors/dc_motor_16x30.step",
+    "gear_train_reducer_25x25x35": (
+        "transmission/gear_train_reducer_25x25x35.step"
+    ),
+    "cushion_pad_20x15x5": "elastomer/cushion_pad_20x15x5.step",
+    "constant_force_spring_10mm": "mechanical/constant_force_spring_10mm.step",
+    "photoelectric_encoder_15x15x12": (
+        "sensors/photoelectric_encoder_15x15x12.step"
+    ),
+    "solvent_cartridge_25x110": "process/solvent_cartridge_25x110.step",
+    "micro_dosing_pump_20x15x30": "process/micro_dosing_pump_20x15x30.step",
+    "i300_uhf_gt": "sensors/i300_uhf_gt.step",
+    "signal_conditioning_pcb_45x35": (
+        "electronics/signal_conditioning_pcb_45x35.step"
+    ),
+    "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
+    "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
+}
+
 
 def list_factory_ids() -> list[str]:
     """Return the sorted list of registered factory IDs."""
@@ -909,39 +950,8 @@ def synthesize_all_to_cache(overwrite: bool = False) -> dict[str, Path]:
     Intended as a bootstrap / warmup helper for CLI use. Returns a dict
     mapping factory_id → cached path for every successful synthesis.
     """
-    # Default cache layout — mirrors the mappings shipped in
-    # parts_library.default.yaml so the two files stay in lockstep.
-    default_paths = {
-        "maxon_ecx_22l": "maxon/ecx_22l.step",
-        "maxon_gp22c": "maxon/gp22c.step",
-        "lemo_fgg_0b_307": "lemo/fgg_0b_307.step",
-        "ati_nano17": "ati/nano17.step",
-        "belleville_din2093_a6": "mechanical/belleville_din2093_a6.step",
-        "spring_pin_4x20": "mechanical/spring_pin_4x20.step",
-        "molex_15168_ffc_20p": "molex/15168_ffc_20p.step",
-        "molex_zif_5052xx": "molex/zif_5052xx.step",
-        "reservoir_38x280": "process/reservoir_38x280.step",
-        "tungsten_slug_12x7": "weights/tungsten_slug_12x7.step",
-        "tungsten_slug_14x13": "weights/tungsten_slug_14x13.step",
-        "gear_pump_30x25x40": "process/gear_pump_30x25x40.step",
-        "scraper_head_20x10x8": "process/scraper_head_20x10x8.step",
-        "damping_pad_20x20": "elastomer/damping_pad_20x20.step",
-        "pressure_array_4x4_20mm": "sensors/pressure_array_4x4_20mm.step",
-        "cleaning_tape_cassette_42x28x12": "process/cleaning_tape_cassette_42x28x12.step",
-        "dc_motor_16x30": "motors/dc_motor_16x30.step",
-        "gear_train_reducer_25x25x35": "transmission/gear_train_reducer_25x25x35.step",
-        "cushion_pad_20x15x5": "elastomer/cushion_pad_20x15x5.step",
-        "constant_force_spring_10mm": "mechanical/constant_force_spring_10mm.step",
-        "photoelectric_encoder_15x15x12": "sensors/photoelectric_encoder_15x15x12.step",
-        "solvent_cartridge_25x110": "process/solvent_cartridge_25x110.step",
-        "micro_dosing_pump_20x15x30": "process/micro_dosing_pump_20x15x30.step",
-        "i300_uhf_gt": "sensors/i300_uhf_gt.step",
-        "signal_conditioning_pcb_45x35": "electronics/signal_conditioning_pcb_45x35.step",
-        "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
-        "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
-    }
     results: dict[str, Path] = {}
-    for fid, rel in default_paths.items():
+    for fid, rel in DEFAULT_STEP_FILES.items():
         path = synthesize_to_cache(fid, rel, overwrite=overwrite)
         if path is not None:
             results[fid] = path

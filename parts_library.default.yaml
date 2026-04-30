@@ -227,115 +227,117 @@ mappings:
       synthesizer: "tungsten_slug_14x13"
 
   # Remaining GISBOT end-effector specialty parts, modeled as shared-cache
-  # vendor stand-ins so generated assemblies import STEP instead of reverting
-  # to JINJA templates.
+  # stand-ins so generated assemblies import STEP instead of reverting to
+  # JINJA templates. These are intentionally keyed by exact demo BOM
+  # part_no values: names like "齿轮泵" / "阻尼垫" are too generic for the
+  # skill-wide default library and must not capture unrelated projects.
   - match:
-      keyword_contains: ["齿轮泵", "gear pump"]
+      part_no: "GIS-EE-002-03"
     adapter: step_pool
     spec:
       file: "process/gear_pump_30x25x40.step"
       synthesizer: "gear_pump_30x25x40"
 
   - match:
-      keyword_contains: ["刮涂头", "scraper head"]
+      part_no: "GIS-EE-002-04"
     adapter: step_pool
     spec:
       file: "process/scraper_head_20x10x8.step"
       synthesizer: "scraper_head_20x10x8"
 
   - match:
-      keyword_contains: ["阻尼垫", "damping pad"]
+      part_no: "GIS-EE-003-05"
     adapter: step_pool
     spec:
       file: "elastomer/damping_pad_20x20.step"
       synthesizer: "damping_pad_20x20"
 
   - match:
-      keyword_contains: ["压力阵列", "4×4薄膜", "pressure array"]
+      part_no: "GIS-EE-003-06"
     adapter: step_pool
     spec:
       file: "sensors/pressure_array_4x4_20mm.step"
       synthesizer: "pressure_array_4x4_20mm"
 
   - match:
-      keyword_contains: ["清洁带盒", "cleaning tape cassette"]
+      part_no: "GIS-EE-004-02"
     adapter: step_pool
     spec:
       file: "process/cleaning_tape_cassette_42x28x12.step"
       synthesizer: "cleaning_tape_cassette_42x28x12"
 
   - match:
-      keyword_contains: ["DC 3V Φ16", "dc motor 16"]
+      part_no: "GIS-EE-004-03"
     adapter: step_pool
     spec:
       file: "motors/dc_motor_16x30.step"
       synthesizer: "dc_motor_16x30"
 
   - match:
-      keyword_contains: ["齿轮减速组", "塑料齿轮", "gear train reducer"]
+      part_no: "GIS-EE-004-04"
     adapter: step_pool
     spec:
       file: "transmission/gear_train_reducer_25x25x35.step"
       synthesizer: "gear_train_reducer_25x25x35"
 
   - match:
-      keyword_contains: ["弹性衬垫", "Shore A 30", "20×15×5mm", "cushion pad"]
+      part_no: "GIS-EE-004-05"
     adapter: step_pool
     spec:
       file: "elastomer/cushion_pad_20x15x5.step"
       synthesizer: "cushion_pad_20x15x5"
 
   - match:
-      keyword_contains: ["恒力弹簧", "SUS301, 0.3N", "constant force spring"]
+      part_no: "GIS-EE-004-06"
     adapter: step_pool
     spec:
       file: "mechanical/constant_force_spring_10mm.step"
       synthesizer: "constant_force_spring_10mm"
 
   - match:
-      keyword_contains: ["光电编码器", "photoelectric encoder"]
+      part_no: "GIS-EE-004-07"
     adapter: step_pool
     spec:
       file: "sensors/photoelectric_encoder_15x15x12.step"
       synthesizer: "photoelectric_encoder_15x15x12"
 
   - match:
-      keyword_contains: ["溶剂储罐", "Φ25×110mm", "M8快拆接口", "solvent cartridge"]
+      part_no: "GIS-EE-004-08"
     adapter: step_pool
     spec:
       file: "process/solvent_cartridge_25x110.step"
       synthesizer: "solvent_cartridge_25x110"
 
   - match:
-      keyword_contains: ["微量泵", "micro dosing pump"]
+      part_no: "GIS-EE-004-09"
     adapter: step_pool
     spec:
       file: "process/micro_dosing_pump_20x15x30.step"
       synthesizer: "micro_dosing_pump_20x15x30"
 
   - match:
-      keyword_contains: ["I300-UHF-GT", "I300-UHF"]
+      part_no: "GIS-EE-005-01"
     adapter: step_pool
     spec:
       file: "sensors/i300_uhf_gt.step"
       synthesizer: "i300_uhf_gt"
 
   - match:
-      keyword_contains: ["信号调理PCB", "定制4层混合信号", "signal conditioning PCB"]
+      part_no: "GIS-EE-006-02"
     adapter: step_pool
     spec:
       file: "electronics/signal_conditioning_pcb_45x35.step"
       synthesizer: "signal_conditioning_pcb_45x35"
 
   - match:
-      keyword_contains: ["SMA穿壁连接器", "SMA bulkhead"]
+      part_no: "GIS-EE-006-05"
     adapter: step_pool
     spec:
       file: "connectors/sma_bulkhead_50ohm.step"
       synthesizer: "sma_bulkhead_50ohm"
 
   - match:
-      keyword_contains: ["M12防水诊断接口", "M12 connector"]
+      part_no: "GIS-EE-006-06"
     adapter: step_pool
     spec:
       file: "connectors/m12_4pin_bulkhead.step"
