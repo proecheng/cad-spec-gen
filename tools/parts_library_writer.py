@@ -19,6 +19,8 @@ class UserStepMapping:
     source_path: str
     source_hash: str
     bbox_mm: tuple[float, float, float] | None = None
+    validated: bool = True
+    validation_status: str = "resolver_verified"
 
 
 def prepend_user_step_mapping(
@@ -32,18 +34,22 @@ def prepend_user_step_mapping(
         raise RuntimeError("PyYAML not installed; parts_library.yaml not updated") from exc
 
     yaml_path = context.parts_library_path
-    cfg: dict[str, Any]
     if yaml_path.is_file():
-        with yaml_path.open(encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-        cfg = loaded if isinstance(loaded, dict) else {}
+        try:
+            with yaml_path.open(encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML in {yaml_path}") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{yaml_path} top-level YAML must be a mapping")
+        cfg = loaded
     else:
-        cfg = {}
+        cfg: dict[str, Any] = {"extends": "default", "mappings": []}
 
     cfg.setdefault("extends", "default")
-    mappings = cfg.get("mappings")
+    mappings = cfg.get("mappings", [])
     if not isinstance(mappings, list):
-        mappings = []
+        raise ValueError(f"{yaml_path} mappings must be a list")
 
     retained_mappings = [
         item
@@ -80,7 +86,8 @@ def _build_mapping(mapping: UserStepMapping) -> dict[str, Any]:
         "source_path": mapping.source_path,
         "source_hash": mapping.source_hash,
         "name_cn": mapping.name_cn,
-        "validated": True,
+        "validated": mapping.validated,
+        "validation_status": mapping.validation_status,
     }
     if mapping.bbox_mm is not None:
         provenance["bbox_mm"] = [float(value) for value in mapping.bbox_mm]

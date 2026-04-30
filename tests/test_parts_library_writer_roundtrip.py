@@ -10,6 +10,18 @@ from tools.model_context import ModelProjectContext
 from tools.parts_library_writer import UserStepMapping, prepend_user_step_mapping
 
 
+def _mapping(**overrides) -> UserStepMapping:
+    values = {
+        "part_no": "P-ERR",
+        "name_cn": "异常件",
+        "file_rel": "user_provided/error.step",
+        "source_path": "models/error.step",
+        "source_hash": "sha256:error",
+    }
+    values.update(overrides)
+    return UserStepMapping(**values)
+
+
 def _load_yaml(path: Path) -> dict:
     yaml = pytest.importorskip("yaml")
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -76,6 +88,7 @@ def test_prepend_user_step_mapping_preserves_top_level_config_and_mapping_order(
     assert first["provenance"]["source_hash"] == "sha256:abc"
     assert first["provenance"]["name_cn"] == "测试件"
     assert first["provenance"]["validated"] is True
+    assert first["provenance"]["validation_status"] == "resolver_verified"
     assert isinstance(first["provenance"]["bbox_mm"], list)
     assert first["provenance"]["bbox_mm"] == [1.0, 2.5, 3.25]
 
@@ -137,3 +150,71 @@ def test_prepend_user_step_mapping_replaces_only_previous_user_mapping(tmp_path)
     ]
     assert cfg["mappings"][0]["provenance"]["provided_by_user"] is True
     assert cfg["mappings"][0]["provenance"]["validated"] is True
+
+
+@pytest.mark.parametrize("content", ["- not\n- a\n- dict\n", "plain scalar\n"])
+def test_prepend_user_step_mapping_rejects_non_dict_top_level_without_writing(
+    tmp_path,
+    content,
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    library_path = project_root / "parts_library.yaml"
+    library_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises((RuntimeError, ValueError)):
+        prepend_user_step_mapping(
+            ModelProjectContext(project_root=project_root),
+            _mapping(),
+        )
+
+    assert library_path.read_text(encoding="utf-8") == content
+
+
+def test_prepend_user_step_mapping_rejects_non_list_mappings_without_writing(
+    tmp_path,
+):
+    content = "extends: default\nmappings:\n  bad: value\n"
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    library_path = project_root / "parts_library.yaml"
+    library_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises((RuntimeError, ValueError)):
+        prepend_user_step_mapping(
+            ModelProjectContext(project_root=project_root),
+            _mapping(),
+        )
+
+    assert library_path.read_text(encoding="utf-8") == content
+
+
+def test_prepend_user_step_mapping_rejects_invalid_yaml_without_writing(tmp_path):
+    content = "extends: default\nmappings: [\n"
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    library_path = project_root / "parts_library.yaml"
+    library_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises((RuntimeError, ValueError)):
+        prepend_user_step_mapping(
+            ModelProjectContext(project_root=project_root),
+            _mapping(),
+        )
+
+    assert library_path.read_text(encoding="utf-8") == content
+
+
+def test_prepend_user_step_mapping_writes_custom_validation_status(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    prepend_user_step_mapping(
+        ModelProjectContext(project_root=project_root),
+        _mapping(validated=False, validation_status="pending_geometry"),
+    )
+
+    cfg = _load_yaml(project_root / "parts_library.yaml")
+    provenance = cfg["mappings"][0]["provenance"]
+    assert provenance["validated"] is False
+    assert provenance["validation_status"] == "pending_geometry"
