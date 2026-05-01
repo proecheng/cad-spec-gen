@@ -1,6 +1,34 @@
 extends: default
 mappings:
 - match:
+    part_no: SLP-C03
+  adapter: step_pool
+  spec:
+    file: mechanical/kfl001_flange_bearing.step
+    synthesizer: kfl001_flange_bearing
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: KFL001
+    display_name_cn: KFL001 菱形座轴承
+    source_library: Motedis product dimensions
+    source_url: https://www.motedis.com/en/Flange-Bearing-12mm-die-cast-KFL001
+    source_license: dimensional_reference_generated_geometry
+- match:
+    part_no: SLP-C06
+  adapter: step_pool
+  spec:
+    file: transmission/l070_clamping_coupling.step
+    synthesizer: l070_clamping_coupling
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: L070_clamping_coupling
+    display_name_cn: L070 联轴器
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §6.4
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-F12
   adapter: step_pool
   spec:

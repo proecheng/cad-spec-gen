@@ -353,3 +353,59 @@ def test_default_library_synthesizer_mappings_match_vendor_registry():
         factory_id: default_paths[factory_id]
         for factory_id in mapped_paths
     }
+
+
+def test_project_library_routes_lifting_platform_kfl001_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C03",
+            name_cn="KFL001",
+            material="",
+            category="custom",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.step_path == "cache://mechanical/kfl001_flange_bearing.step"
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (cache_root / "mechanical" / "kfl001_flange_bearing.step").is_file()
+
+
+def test_project_library_routes_lifting_platform_l070_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C06",
+            name_cn="L070 联轴器",
+            material="",
+            category="transmission",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.step_path == "cache://transmission/l070_clamping_coupling.step"
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (cache_root / "transmission" / "l070_clamping_coupling.step").is_file()
