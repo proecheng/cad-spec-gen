@@ -1230,6 +1230,57 @@ def _make_cl57t_stepper_driver():
     return body
 
 
+def _make_pu_buffer_pad_20x20x3():
+    """PU buffer pad, 20 x 20 x 3 mm.
+
+    Project CAD_SPEC dimensions:
+      - Square pad envelope: 20 x 20 mm
+      - Overall thickness: 3 mm
+      - Visual details: shallow compliance grooves and raised bump pads
+    """
+    import cadquery as cq
+
+    width, depth, total_h = 20.0, 20.0, 3.0
+    base_h = 2.46
+    dot_h = total_h - base_h + 0.08
+
+    pad = cq.Workplane("XY").box(width, depth, base_h, centered=(True, True, False))
+    try:
+        pad = pad.edges("|Z").fillet(0.45)
+    except Exception:
+        pass
+
+    groove_z = base_h - 0.62
+    groove_x = (
+        cq.Workplane("XY")
+        .box(14.4, 1.6, 0.72, centered=(True, True, False))
+        .translate((0, 0, groove_z))
+    )
+    groove_y = (
+        cq.Workplane("XY")
+        .box(1.6, 14.4, 0.72, centered=(True, True, False))
+        .translate((0, 0, groove_z))
+    )
+    pad = pad.cut(groove_x).cut(groove_y)
+
+    for x in (-6.8, 6.8):
+        for y in (-6.8, 6.8):
+            bump = (
+                cq.Workplane("XY")
+                .center(x, y)
+                .circle(1.1)
+                .extrude(dot_h)
+                .translate((0, 0, base_h - 0.08))
+            )
+            pad = pad.union(bump)
+
+    try:
+        pad = pad.faces(">Z").edges().chamfer(0.08)
+    except Exception:
+        pass
+    return pad
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -1266,6 +1317,7 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "gt2_310_6mm_timing_belt": _make_gt2_310_6mm_timing_belt,
     "l070_clamping_coupling": _make_l070_clamping_coupling,
     "cl57t_stepper_driver": _make_cl57t_stepper_driver,
+    "pu_buffer_pad_20x20x3": _make_pu_buffer_pad_20x20x3,
 }
 
 # Default cache layout — mirrors parts_library.default.yaml so tests and
@@ -1312,6 +1364,7 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     "gt2_310_6mm_timing_belt": "transmission/gt2_310_6mm_timing_belt.step",
     "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
     "cl57t_stepper_driver": "electronics/cl57t_stepper_driver.step",
+    "pu_buffer_pad_20x20x3": "elastomer/pu_buffer_pad_20x20x3.step",
 }
 
 
