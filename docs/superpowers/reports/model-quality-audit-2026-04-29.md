@@ -1,5 +1,11 @@
 # Model Quality Audit — 2026-04-29
 
+> Superseded status note (2026-05-01): this report remains the historical
+> `v2.23.3` baseline. Current `model-audit` evidence is recorded in
+> `docs/superpowers/reports/model-quality-refresh-2026-05-01.md`: `end_effector`
+> is now `A=32`, and `lifting_platform` is now `A=3, B=5` with no D/E or
+> missing STEP items.
+
 ## 结论
 
 本轮在 `v2.23.3` 发布后的 `main` 基线上执行跨子系统模型质量盘点。仓库共有 19 个 `cad/*/CAD_SPEC.md`，其中只有 2 个子系统当前具备可审计的外购/标准件几何行：
