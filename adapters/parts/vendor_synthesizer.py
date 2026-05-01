@@ -1155,6 +1155,81 @@ def _make_l070_clamping_coupling():
     return body
 
 
+def _make_cl57t_stepper_driver():
+    """CL57T closed-loop stepper driver controller.
+
+    Project CAD_SPEC dimensions:
+      - Case envelope: 118 x 75 x 28 mm
+      - Overall visual height with heat-sink fins: 34 mm
+      - Four mounting holes near the case corners
+    """
+    import cadquery as cq
+
+    body_w, body_d, body_h = 118.0, 75.0, 28.0
+    total_h = 34.0
+    fin_h = total_h - body_h
+
+    body = cq.Workplane("XY").box(
+        body_w,
+        body_d,
+        body_h,
+        centered=(True, True, False),
+    )
+    try:
+        body = body.edges("|Z").fillet(1.875)
+    except Exception:
+        pass
+
+    # Heat-sink ribs and connector blocks keep the controller readable in
+    # assembly renders while preserving the CAD_SPEC envelope.
+    for i in range(9):
+        x = -40.120 + i * 10.030
+        fin = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .box(4.130, 61.500, fin_h, centered=(True, True, False))
+            .translate((0, 0, body_h))
+        )
+        body = body.union(fin)
+
+    terminal = (
+        cq.Workplane("XY")
+        .center(36.580, -25.500)
+        .box(33.040, 9.000, 4.000, centered=(True, True, False))
+        .translate((0, 0, body_h))
+    )
+    dip_switch = (
+        cq.Workplane("XY")
+        .center(-38.940, -25.500)
+        .box(18.880, 7.500, 3.200, centered=(True, True, False))
+        .translate((0, 0, body_h))
+    )
+    label_plate = (
+        cq.Workplane("XY")
+        .center(-23.600, 18.000)
+        .box(49.560, 21.000, 1.080, centered=(True, True, False))
+        .translate((0, 0, body_h + 0.480))
+    )
+    body = body.union(terminal).union(dip_switch).union(label_plate)
+
+    for x in (-49.560, 49.560):
+        for y in (-27.000, 27.000):
+            cutter = (
+                cq.Workplane("XY")
+                .center(x, y)
+                .circle(2.625)
+                .extrude(body_h + 2.0)
+                .translate((0, 0, -1.0))
+            )
+            body = body.cut(cutter)
+
+    try:
+        body = body.faces(">Z").edges().chamfer(0.12)
+    except Exception:
+        pass
+    return body
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -1190,6 +1265,7 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "gt2_20t_timing_pulley": _make_gt2_20t_timing_pulley,
     "gt2_310_6mm_timing_belt": _make_gt2_310_6mm_timing_belt,
     "l070_clamping_coupling": _make_l070_clamping_coupling,
+    "cl57t_stepper_driver": _make_cl57t_stepper_driver,
 }
 
 # Default cache layout — mirrors parts_library.default.yaml so tests and
@@ -1235,6 +1311,7 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     "gt2_20t_timing_pulley": "transmission/gt2_20t_timing_pulley.step",
     "gt2_310_6mm_timing_belt": "transmission/gt2_310_6mm_timing_belt.step",
     "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
+    "cl57t_stepper_driver": "electronics/cl57t_stepper_driver.step",
 }
 
 
