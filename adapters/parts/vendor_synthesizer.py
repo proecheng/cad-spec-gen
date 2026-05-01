@@ -1281,6 +1281,52 @@ def _make_pu_buffer_pad_20x20x3():
     return pad
 
 
+def _make_guide_shaft_protective_cap_10mm():
+    """Guide shaft protective cap for a 10 mm shaft end.
+
+    Project CAD_SPEC dimensions:
+      - Outer diameter: 10 mm
+      - Overall height: 8 mm
+      - Blind internal pocket for the guide shaft end
+    """
+    import cadquery as cq
+
+    od, height = 10.0, 8.0
+    pocket_d = 7.0
+    pocket_depth = 5.76
+
+    cap = cq.Workplane("XY").circle(od / 2.0).extrude(height)
+    pocket = (
+        cq.Workplane("XY")
+        .circle(pocket_d / 2.0)
+        .extrude(pocket_depth + 0.2)
+        .translate((0, 0, -0.1))
+    )
+    cap = cap.cut(pocket)
+
+    # Bottom lip and shallow grip grooves make the end cap recognizable in
+    # assembly renders while preserving the 10 x 8 mm envelope.
+    lip = cq.Workplane("XY").circle(5.0).circle(4.175).extrude(1.44)
+    cap = cap.union(lip)
+
+    for z in (2.4, 4.16):
+        groove = (
+            cq.Workplane("XY")
+            .circle(5.05)
+            .circle(4.55)
+            .extrude(0.64)
+            .translate((0, 0, z))
+        )
+        cap = cap.cut(groove)
+
+    try:
+        cap = cap.faces(">Z").edges().chamfer(0.18)
+        cap = cap.faces("<Z").edges().chamfer(0.12)
+    except Exception:
+        pass
+    return cap
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -1318,6 +1364,7 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "l070_clamping_coupling": _make_l070_clamping_coupling,
     "cl57t_stepper_driver": _make_cl57t_stepper_driver,
     "pu_buffer_pad_20x20x3": _make_pu_buffer_pad_20x20x3,
+    "guide_shaft_protective_cap_10mm": _make_guide_shaft_protective_cap_10mm,
 }
 
 # Default cache layout — mirrors parts_library.default.yaml so tests and
@@ -1365,6 +1412,9 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
     "cl57t_stepper_driver": "electronics/cl57t_stepper_driver.step",
     "pu_buffer_pad_20x20x3": "elastomer/pu_buffer_pad_20x20x3.step",
+    "guide_shaft_protective_cap_10mm": (
+        "mechanical/guide_shaft_protective_cap_10mm.step"
+    ),
 }
 
 
