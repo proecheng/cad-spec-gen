@@ -1,6 +1,20 @@
 extends: default
 mappings:
 - match:
+    part_no: SLP-C01
+  adapter: step_pool
+  spec:
+    file: transmission/t16_lead_screw_nut.step
+    synthesizer: t16_lead_screw_nut
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: T16_lead_screw_nut
+    display_name_cn: T16 螺母 C7
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §5 BOM / parametric_template:t16_lead_screw_nut
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-C03
   adapter: step_pool
   spec:

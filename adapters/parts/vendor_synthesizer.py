@@ -68,6 +68,7 @@ Factory vocabulary:
   m12_4pin_bulkhead   M12 4-pin waterproof bulkhead connector
   kfl001_flange_bearing
                       KFL001 12 mm two-bolt flange bearing unit
+  t16_lead_screw_nut  T16 C7 flanged lead screw nut
   gt2_20t_timing_pulley
                       GT2 20-tooth timing pulley, 16 mm OD x 8 mm wide
   gt2_310_6mm_timing_belt
@@ -906,6 +907,78 @@ def _make_kfl001_flange_bearing():
     return body
 
 
+def _make_t16_lead_screw_nut():
+    """T16 C7 flanged lead screw nut for the lifting platform drive.
+
+    Project CAD_SPEC/template dimensions:
+      - Overall flange envelope: 28 x 28 x 16 mm
+      - Main barrel diameter: 22 mm
+      - Lead screw clearance bore: 16 mm
+      - Four small flange mounting holes on a 20.16 mm bolt circle
+    """
+    import cadquery as cq
+
+    flange_d = 28.0
+    barrel_d = 22.0
+    bore_d = 16.0
+    height = 16.0
+    flange_h = 5.12
+    bolt_circle_r = 10.08
+
+    flange = cq.Workplane("XY").circle(flange_d / 2.0).extrude(flange_h)
+    barrel = cq.Workplane("XY").circle(barrel_d / 2.0).extrude(height)
+    body = flange.union(barrel)
+
+    bore = (
+        cq.Workplane("XY")
+        .circle(bore_d / 2.0)
+        .extrude(height + 0.4)
+        .translate((0, 0, -0.2))
+    )
+    body = body.cut(bore)
+
+    for angle in (45, 135, 225, 315):
+        rad = math.radians(angle)
+        x = bolt_circle_r * math.cos(rad)
+        y = bolt_circle_r * math.sin(rad)
+        hole = (
+            cq.Workplane("XY")
+            .center(x, y)
+            .circle(2.2)
+            .extrude(flange_h + 0.4)
+            .translate((0, 0, -0.2))
+        )
+        counterbore = (
+            cq.Workplane("XY")
+            .center(x, y)
+            .circle(3.15)
+            .extrude(1.2)
+            .translate((0, 0, flange_h - 1.15))
+        )
+        body = body.cut(hole).cut(counterbore)
+
+    # Thread cue: shallow diagonal grooves inside the visible barrel. This keeps
+    # the stand-in recognizable without attempting a manufacturing thread.
+    for angle in range(0, 360, 60):
+        groove = (
+            cq.Workplane("YZ")
+            .center(0, height * 0.58)
+            .box(0.8, barrel_d + 0.8, 1.0, centered=(True, True, True))
+            .translate((barrel_d / 2.0 - 0.25, 0, 0))
+            .rotate((0, 0, 0), (0, 0, 1), angle)
+            .rotate((0, 0, height * 0.58), (1, 0, height * 0.58 + 1), 18)
+        )
+        body = body.cut(groove)
+
+    try:
+        body = body.faces(">Z").edges(">Z").chamfer(0.28)
+        body = body.faces("<Z").edges("<Z").chamfer(0.18)
+        body = body.edges("|Z").chamfer(0.16)
+    except Exception:
+        pass
+    return body
+
+
 def _make_gt2_20t_timing_pulley():
     """GT2 20-tooth timing pulley for the lifting platform drivetrain.
 
@@ -1113,6 +1186,7 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "sma_bulkhead_50ohm": _make_sma_bulkhead_50ohm,
     "m12_4pin_bulkhead": _make_m12_4pin_bulkhead,
     "kfl001_flange_bearing": _make_kfl001_flange_bearing,
+    "t16_lead_screw_nut": _make_t16_lead_screw_nut,
     "gt2_20t_timing_pulley": _make_gt2_20t_timing_pulley,
     "gt2_310_6mm_timing_belt": _make_gt2_310_6mm_timing_belt,
     "l070_clamping_coupling": _make_l070_clamping_coupling,
@@ -1157,6 +1231,7 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
     "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
     "kfl001_flange_bearing": "mechanical/kfl001_flange_bearing.step",
+    "t16_lead_screw_nut": "transmission/t16_lead_screw_nut.step",
     "gt2_20t_timing_pulley": "transmission/gt2_20t_timing_pulley.step",
     "gt2_310_6mm_timing_belt": "transmission/gt2_310_6mm_timing_belt.step",
     "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
