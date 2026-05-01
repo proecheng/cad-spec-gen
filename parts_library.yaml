@@ -71,6 +71,20 @@ mappings:
     source_section: §6.4
     source_license: project_spec_generated_geometry
 - match:
+    part_no: SLP-C08
+  adapter: step_pool
+  spec:
+    file: electronics/cl57t_stepper_driver.step
+    synthesizer: cl57t_stepper_driver
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: CL57T_stepper_driver
+    display_name_cn: CL57T 闭环驱动器
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §6.4
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-F12
   adapter: step_pool
   spec:
