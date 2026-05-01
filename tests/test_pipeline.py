@@ -16,6 +16,77 @@ import cad_pipeline
 from cad_paths import get_blender_path, get_subsystem_dir
 
 
+def test_cmd_spec_proceed_infers_subsystem_from_design_doc(tmp_path, monkeypatch):
+    """spec --design-doc 19-*.md --proceed should not require --subsystem."""
+    import json
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    design_doc = tmp_path / "19-demo.md"
+    design_doc.write_text("# demo\n", encoding="utf-8")
+    config_path = tmp_path / "gisbot.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "output_dir": "./output",
+                "subsystems": {
+                    "19": {
+                        "name": "丝杠式升降平台",
+                        "prefix": "SLP",
+                        "cad_dir": "lifting_platform",
+                        "aliases": ["升降平台"],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    spec_gen = tmp_path / "cad_spec_gen.py"
+    spec_gen.write_text("# fake spec generator\n", encoding="utf-8")
+
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(project_root))
+    monkeypatch.setattr(cad_pipeline, "CAD_DIR", str(project_root / "cad"))
+    monkeypatch.setattr(cad_pipeline, "CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(cad_pipeline, "SKILL_ROOT", str(tmp_path))
+    monkeypatch.setattr(cad_pipeline, "get_subsystem_dir", lambda _name: None)
+
+    calls = []
+
+    def fake_run(_cmd, label, **_kwargs):
+        calls.append(label)
+        out_dir = project_root / "output" / "lifting_platform"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "DESIGN_REVIEW.json").write_text(
+            json.dumps({"critical": 0, "warning": 0, "auto_fill": 0, "items": []}),
+            encoding="utf-8",
+        )
+        (out_dir / "DESIGN_REVIEW.md").write_text("# review\n", encoding="utf-8")
+        if label.startswith("spec-gen"):
+            (out_dir / "CAD_SPEC.md").write_text("# spec\n", encoding="utf-8")
+        return True, 0.1
+
+    monkeypatch.setattr(cad_pipeline, "_run_subprocess", fake_run)
+
+    args = SimpleNamespace(
+        subsystem=None,
+        design_doc=str(design_doc),
+        force=True,
+        force_spec=False,
+        dry_run=False,
+        review_only=False,
+        auto_fill=False,
+        proceed=True,
+        supplements=None,
+        out_dir=None,
+    )
+
+    assert cad_pipeline.cmd_spec(args) == 0
+    assert args.subsystem == "lifting_platform"
+    assert len(calls) == 2
+    assert (project_root / "cad" / "lifting_platform" / "CAD_SPEC.md").is_file()
+
+
 class TestFindBlender(unittest.TestCase):
     def test_returns_string_or_none(self):
         result = get_blender_path()
@@ -218,6 +289,216 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                 os.chdir(cwd)
 
 
+class TestRenderConfigFromBom(unittest.TestCase):
+    def _write_slp_spec(self, root):
+        spec = os.path.join(root, "CAD_SPEC.md")
+        with open(spec, "w", encoding="utf-8") as f:
+            f.write(
+                "# CAD Spec — 丝杠式升降平台 (SLP)\n\n"
+                "## 5. BOM树\n\n"
+                "| 料号 | 名称 | 材质/型号 | 数量 | 自制/外购 | 单价 |\n"
+                "| --- | --- | --- | --- | --- | --- |\n"
+                "| **UNKNOWN** | **未分组** | — | 1 | 总成 | — |\n"
+                "| SLP-100 | 上固定板 | 6061铝 | 1 | 自制 | — |\n"
+            )
+        return spec
+
+    def test_gen_render_config_creates_missing_config_from_spec_identity(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sub_dir = os.path.join(td, "lifting_platform")
+            os.makedirs(sub_dir)
+            spec = self._write_slp_spec(sub_dir)
+
+            cad_pipeline._gen_render_config_from_bom(sub_dir, spec)
+
+            rc_path = os.path.join(sub_dir, "render_config.json")
+            self.assertTrue(os.path.isfile(rc_path))
+            with open(rc_path, encoding="utf-8") as f:
+                rc = json.load(f)
+            self.assertEqual(rc["subsystem"]["name"], "lifting_platform")
+            self.assertEqual(rc["subsystem"]["name_cn"], "丝杠式升降平台")
+            self.assertEqual(rc["subsystem"]["part_prefix"], "SLP")
+            self.assertEqual(rc["subsystem"]["glb_file"], "SLP-000_assembly.glb")
+            rendered = json.dumps(rc, ensure_ascii=False)
+            self.assertNotIn("GIS-EE", rendered)
+            self.assertNotIn("末端执行机构", rendered)
+
+    def test_gen_render_config_syncs_ordinary_bom_parts(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sub_dir = os.path.join(td, "lifting_platform")
+            os.makedirs(sub_dir)
+            spec = self._write_slp_spec(sub_dir)
+
+            cad_pipeline._gen_render_config_from_bom(sub_dir, spec)
+
+            rc_path = os.path.join(sub_dir, "render_config.json")
+            with open(rc_path, encoding="utf-8") as f:
+                rc = json.load(f)
+
+            components = {
+                key: value
+                for key, value in rc["components"].items()
+                if isinstance(value, dict)
+            }
+            by_bom = {
+                value.get("bom_id"): value
+                for value in components.values()
+                if value.get("bom_id")
+            }
+            self.assertIn("SLP-100", by_bom)
+            self.assertNotIn("UNKNOWN", by_bom)
+
+            comp = by_bom["SLP-100"]
+            self.assertEqual(comp["name_cn"], "上固定板")
+            self.assertIn("material", comp)
+            self.assertIn(comp["material"], rc["materials"])
+            self.assertEqual(
+                rc["materials"][comp["material"]]["preset"],
+                "brushed_aluminum",
+            )
+
+    def test_gen_render_config_uses_visual_and_surface_material_sources(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sub_dir = os.path.join(td, "lifting_platform")
+            os.makedirs(sub_dir)
+            spec = os.path.join(sub_dir, "CAD_SPEC.md")
+            with open(spec, "w", encoding="utf-8") as f:
+                f.write(
+                    "# CAD Spec — 丝杠式升降平台 (SLP)\n\n"
+                    "## 2. 公差与表面处理\n\n"
+                    "### 2.3 表面处理\n\n"
+                    "| 零件 | Ra(µm) | 处理方式 | material_type |\n"
+                    "| --- | --- | --- | --- |\n"
+                    "| 丝杠 SLP-P01 | Ra3.2 | 防锈处理 | 45# 钢 |\n\n"
+                    "## 5. BOM树\n\n"
+                    "| 料号 | 名称 | 材质/型号 | 数量 | 自制/外购 | 单价 |\n"
+                    "| --- | --- | --- | --- | --- | --- |\n"
+                    "| **UNKNOWN** | **未分组** | — | 1 | 总成 | — |\n"
+                    "| SLP-100 | 上固定板 |  | 1 | 自制 | — |\n"
+                    "| SLP-200 | 左支撑条 | SUS304 | 1 | 自制 | — |\n"
+                    "| SLP-P01 | 丝杠 L350 |  | 2 | 自制 | — |\n"
+                    "| SLP-F11 | PU 缓冲垫 20×20×3 |  | 4 | 外购 | — |\n\n"
+                    "## 7. 视觉标识\n\n"
+                    "| 零件 | 材质 | 表面颜色 | 唯一标签 | 外形尺寸 | 方向约束 |\n"
+                    "| --- | --- | --- | --- | --- | --- |\n"
+                    "| 上固定板 SLP-100 | 6061-T6 铝 | 黑色阳极氧化 | SLP-100 | 200×160×8 mm | +Z |\n"
+                    "| 左支撑条 SLP-200 | 6061-T6 铝 | 黑色阳极氧化 | SLP-200 | 40×260×15 mm | +X |\n"
+                    "| PU 缓冲垫 SLP-F11 | PU | 黑色 | SLP-F11 | 20×20×3 mm | — |\n"
+                )
+
+            cad_pipeline._gen_render_config_from_bom(sub_dir, spec)
+
+            with open(os.path.join(sub_dir, "render_config.json"), encoding="utf-8") as f:
+                rc = json.load(f)
+
+            by_bom = {
+                comp["bom_id"]: comp
+                for comp in rc["components"].values()
+                if isinstance(comp, dict) and comp.get("bom_id")
+            }
+
+            def preset_for(part_no):
+                comp = by_bom[part_no]
+                return rc["materials"][comp["material"]]["preset"]
+
+            self.assertEqual(preset_for("SLP-100"), "black_anodized")
+            self.assertEqual(preset_for("SLP-200"), "stainless_304")
+            self.assertEqual(preset_for("SLP-P01"), "dark_steel")
+            self.assertEqual(preset_for("SLP-F11"), "black_rubber")
+
+    def test_gen_render_config_repairs_stale_reference_identity(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sub_dir = os.path.join(td, "lifting_platform")
+            os.makedirs(sub_dir)
+            spec = self._write_slp_spec(sub_dir)
+            rc_path = os.path.join(sub_dir, "render_config.json")
+            with open(rc_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "version": 1,
+                        "subsystem": {
+                            "name": "end_effector",
+                            "name_cn": "末端执行机构",
+                            "part_prefix": "GIS-EE",
+                            "glb_file": "EE-000_assembly.glb",
+                        },
+                        "coordinate_system": "GIS shell coordinate notes",
+                        "components": {
+                            "ee_001": {
+                                "name_cn": "末端执行机构法兰",
+                                "bom_id": "GIS-EE-001",
+                                "material": "ee_001",
+                            }
+                        },
+                        "camera": {"V1": {"type": "standard"}},
+                    },
+                    f,
+                )
+
+            cad_pipeline._gen_render_config_from_bom(sub_dir, spec)
+
+            with open(rc_path, encoding="utf-8") as f:
+                rc = json.load(f)
+            self.assertEqual(rc["subsystem"]["name"], "lifting_platform")
+            self.assertEqual(rc["subsystem"]["name_cn"], "丝杠式升降平台")
+            self.assertEqual(rc["subsystem"]["part_prefix"], "SLP")
+            self.assertEqual(rc["subsystem"]["glb_file"], "SLP-000_assembly.glb")
+            rendered = json.dumps(rc, ensure_ascii=False)
+            self.assertNotIn("GIS-EE", rendered)
+            self.assertNotIn("末端执行机构", rendered)
+
+    def test_gen_render_config_rebuilds_when_component_bom_prefix_drifts(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sub_dir = os.path.join(td, "lifting_platform")
+            os.makedirs(sub_dir)
+            spec = self._write_slp_spec(sub_dir)
+            rc_path = os.path.join(sub_dir, "render_config.json")
+            with open(rc_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "version": 1,
+                        "subsystem": {
+                            "name": "lifting_platform",
+                            "name_cn": "丝杠式升降平台",
+                            "part_prefix": "SLP",
+                            "glb_file": "SLP-000_assembly.glb",
+                        },
+                        "components": {
+                            "ee_001": {
+                                "name_cn": "末端执行机构法兰",
+                                "bom_id": "GIS-EE-001",
+                                "material": "ee_001",
+                            }
+                        },
+                        "camera": {"V1": {"type": "standard"}},
+                    },
+                    f,
+                )
+
+            cad_pipeline._gen_render_config_from_bom(sub_dir, spec)
+
+            with open(rc_path, encoding="utf-8") as f:
+                rc = json.load(f)
+            rendered = json.dumps(rc, ensure_ascii=False)
+            self.assertNotIn("GIS-EE", rendered)
+            self.assertNotIn("末端执行机构", rendered)
+
+
 class TestRunSubprocessEnvPassthrough(unittest.TestCase):
     """A1-0b: _run_subprocess 必须接受可选 env 参数并透传 subprocess.run。
 
@@ -248,6 +529,104 @@ class TestRunSubprocessEnvPassthrough(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(mock_run.call_args.kwargs.get("env"), fake_env)
+
+
+class TestRenderGlbMaterialCoverage(unittest.TestCase):
+    def _write_glb_with_nodes(self, path, node_names):
+        import json
+        import struct
+
+        gltf = {
+            "asset": {"version": "2.0"},
+            "nodes": [
+                {"name": name, "mesh": idx}
+                for idx, name in enumerate(node_names)
+            ],
+            "meshes": [{"primitives": []} for _ in node_names],
+        }
+        json_chunk = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+        json_chunk += b" " * ((4 - len(json_chunk) % 4) % 4)
+        total_len = 12 + 8 + len(json_chunk)
+        with open(path, "wb") as f:
+            f.write(struct.pack("<4sII", b"glTF", 2, total_len))
+            f.write(struct.pack("<II", len(json_chunk), 0x4E4F534A))
+            f.write(json_chunk)
+
+    def test_validate_render_glb_material_coverage_warns_for_unmatched_mesh(self):
+        import json
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            rc_path = os.path.join(td, "render_config.json")
+            glb_path = os.path.join(td, "assembly.glb")
+            with open(rc_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "version": 1,
+                        "materials": {
+                            "part_100": {"preset": "black_anodized"},
+                        },
+                        "components": {
+                            "part_100": {
+                                "name_cn": "上固定板",
+                                "bom_id": "SLP-100",
+                                "material": "part_100",
+                            },
+                        },
+                    },
+                    f,
+                )
+            self._write_glb_with_nodes(glb_path, ["100", "UNMATCHED"])
+
+            warnings = cad_pipeline._validate_render_glb_material_coverage(
+                rc_path,
+                glb_path,
+            )
+
+            rendered = "\n".join(warnings)
+            self.assertIn("UNMATCHED", rendered)
+            self.assertIn("default gray", rendered)
+            self.assertNotIn("'100'", rendered)
+
+    def test_validate_render_config_accepts_generic_bom_ids(self):
+        import json
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            rc_path = os.path.join(td, "render_config.json")
+            with open(rc_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "version": 1,
+                        "materials": {
+                            "part_100": {"preset": "black_anodized"},
+                            "part_p01": {"preset": "dark_steel"},
+                            "part_c02": {"preset": "stainless_304"},
+                        },
+                        "components": {
+                            "part_100": {
+                                "bom_id": "SLP-100",
+                                "material": "part_100",
+                            },
+                            "part_p01": {
+                                "bom_id": "SLP-P01",
+                                "material": "part_p01",
+                            },
+                            "part_c02": {
+                                "bom_id": "GIS-EE-001",
+                                "material": "part_c02",
+                            },
+                        },
+                        "labels": {},
+                    },
+                    f,
+                )
+
+            warnings = cad_pipeline._validate_render_config(rc_path)
+
+            self.assertEqual([], warnings)
 
 
 if __name__ == "__main__":

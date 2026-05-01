@@ -82,7 +82,10 @@ def test_prepend_user_step_mapping_preserves_top_level_config_and_mapping_order(
     first = cfg["mappings"][0]
     assert first["match"] == {"part_no": "P-001"}
     assert first["adapter"] == "step_pool"
-    assert first["spec"] == {"file": "user_provided/p001.step"}
+    assert first["spec"] == {
+        "file": "user_provided/p001.step",
+        "normalize_origin": "center_xy_bottom_z",
+    }
     assert first["provenance"]["provided_by_user"] is True
     assert first["provenance"]["source_path"] == "models/p001.step"
     assert first["provenance"]["source_hash"] == "sha256:abc"

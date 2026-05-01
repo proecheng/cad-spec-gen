@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cad = ["cadquery>=2.0", "ezdxf>=0.18"]
+cad = ["cadquery>=2.0", "ezdxf>=0.18", "trimesh>=4.0"]
 render = ["matplotlib>=3.5", "Pillow>=9.0"]
 # Parts library system (v2.8.0+): YAML registry for std-parts resolution.
 # The base feature only needs PyYAML. bd_warehouse / partcad are separate
@@ -44,6 +44,7 @@ solidworks = ['pywin32>=306; sys_platform == "win32"']
 all = [
     "cadquery>=2.0",
     "ezdxf>=0.18",
+    "trimesh>=4.0",
     "matplotlib>=3.5",
     "Pillow>=9.0",
     "PyYAML>=6.0",

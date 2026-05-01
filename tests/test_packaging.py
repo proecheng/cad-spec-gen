@@ -28,6 +28,13 @@ def test_pyproject_has_pytest_env_pinned():
     assert "PYTHONHASHSEED=0" in content, "PYTHONHASHSEED not pinned"
 
 
+def test_pyproject_cad_extras_include_trimesh_for_glb_consolidation():
+    content = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"trimesh>=4.0"' in content, (
+        "GLB consolidation needs trimesh in cad/all optional dependencies"
+    )
+
+
 def test_hatch_build_ships_parts_library_default_yaml():
     content = (_REPO_ROOT / "hatch_build.py").read_text(encoding="utf-8")
     # Look for any reference to parts_library.default.yaml being shipped

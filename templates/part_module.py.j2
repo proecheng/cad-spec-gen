@@ -135,7 +135,7 @@ def make_{{ func_name }}() -> cq.Workplane:
     body = _base.union(_wall)
 {% elif step_path %}
     import os as _os
-    _step = _os.normpath(_os.path.join(_os.path.dirname(__file__), {{ step_path | tojson }}))
+    _step = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), {{ step_path | tojson }}))
     body = cq.importers.importStep(_step)
 {% elif template_code %}
 {{ template_code }}

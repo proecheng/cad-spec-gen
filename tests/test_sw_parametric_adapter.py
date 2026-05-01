@@ -32,6 +32,54 @@ class TestSwParametricAdapterAvailability:
         result = adapter.build_part("flange", {"od": 90, "id": 22, "thickness": 30, "bolt_pcd": 70, "bolt_count": 6, "boss_h": 0}, tmp_path, "TEST-001")
         assert result is None
 
+    def test_build_part_rejects_step_files_without_importable_geometry(
+        self, monkeypatch, tmp_path
+    ):
+        adapter = SwParametricAdapter()
+        monkeypatch.setattr(adapter, "is_available", lambda: (True, None))
+
+        step_path = tmp_path / "TEST-001.step"
+        step_path.write_text("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n", encoding="utf-8")
+
+        build_calls = []
+
+        def fake_build(params, out_step):
+            build_calls.append(out_step)
+            out_step.write_text(step_path.read_text(encoding="utf-8"), encoding="utf-8")
+            return out_step
+
+        monkeypatch.setattr(adapter, "_build_flange", fake_build)
+        monkeypatch.setattr(
+            adapter,
+            "_validate_step_geometry",
+            lambda path: False,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            adapter,
+            "_build_cadquery_fallback",
+            lambda tpl_type, params, out_step: None,
+            raising=False,
+        )
+
+        result = adapter.build_part(
+            "flange",
+            {
+                "od": 90,
+                "id": 22,
+                "thickness": 30,
+                "bolt_pcd": 70,
+                "bolt_count": 6,
+                "boss_h": 0,
+            },
+            tmp_path,
+            "TEST-001",
+        )
+
+        assert result is None
+        assert build_calls == [step_path]
+        assert not step_path.exists()
+
 
 @pytest.mark.requires_solidworks
 class TestSwParametricAdapterBuildFlange:
@@ -127,6 +175,55 @@ class TestExtractParamsCover:
         meta = {"dim_tolerances": [{"name": "COVER_BOLT_N", "nominal": "6"}]}
         result = _extract_params("cover", meta, (60.0, 60.0, 8.0))
         assert result["n_hole"] == 6
+
+
+class TestBuildPlateContract:
+    def test_plate_step_contract_rejects_top_plane_axis_permutation(
+        self, tmp_path
+    ):
+        pytest.importorskip("cadquery")
+        import cadquery as cq
+
+        adapter = SwParametricAdapter()
+        wrong_step = tmp_path / "wrong_plate.step"
+        cq.exporters.export(
+            cq.Workplane("XY").box(
+                80.0, 5.0, 60.0, centered=(True, True, False)),
+            str(wrong_step),
+        )
+
+        assert adapter._validate_step_contract(
+            "plate",
+            {"width": 80.0, "depth": 60.0, "thickness": 5.0},
+            wrong_step,
+        ) is False
+
+    def test_build_plate_uses_front_plane_for_xy_sketch_and_z_thickness(
+        self, monkeypatch, tmp_path
+    ):
+        adapter = SwParametricAdapter()
+        mock_swapp = MagicMock()
+        mock_model = MagicMock()
+        mock_model.Extension.SelectByID2.return_value = True
+
+        monkeypatch.setattr(adapter, "_get_swapp", lambda: mock_swapp)
+        monkeypatch.setattr(adapter, "_new_part_doc", lambda _swapp: mock_model)
+        monkeypatch.setattr(adapter, "_export_step", lambda _model, _path: True)
+        monkeypatch.setattr(adapter, "_close_doc", lambda _swapp, _model: None)
+
+        step = adapter._build_plate(
+            {"width": 80.0, "depth": 60.0, "thickness": 5.0, "n_hole": 4},
+            tmp_path / "plate.step",
+        )
+
+        assert step == tmp_path / "plate.step"
+        plane_names = [
+            call.args[0]
+            for call in mock_model.Extension.SelectByID2.call_args_list
+            if len(call.args) > 1 and call.args[1] == "PLANE"
+        ]
+        assert plane_names
+        assert set(plane_names) == {"前视基准面"}
 
 
 @pytest.mark.requires_solidworks

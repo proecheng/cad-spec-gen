@@ -6,5 +6,6 @@
 # Optional (install as needed for specific pipeline stages):
 #   cadquery>=2.0        # 3D parametric modeling (STEP/GLB export)
 #   ezdxf>=0.18          # 2D engineering drawings (DXF export)
+#   trimesh>=4.0         # GLB consolidation / per-part bbox post-process
 #   matplotlib>=3.5      # DXF-to-PNG rendering, font discovery
 #   Pillow>=9.0          # Component label annotation (annotate_render.py)

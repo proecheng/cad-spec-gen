@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -968,6 +969,68 @@ def _gen_guide_shaft_protective_cap(dims: dict) -> str:
     return body"""
 
 
+def _gen_t16_lead_screw_nut(dims: dict) -> str:
+    w = dims.get("w", 28)
+    d = dims.get("d", 28)
+    h = dims.get("h", 16)
+    body_d = dims.get("body_d", 22)
+    bore_d = dims.get("bore_d", 16)
+    flange_h = max(h * 0.32, 4.0)
+    bolt_circle = min(w, d) * 0.36
+    return f"""    # T16 lead screw nut: flanged bronze nut with central bore
+    flange = cq.Workplane("XY").circle({w/2}).extrude({flange_h})
+    barrel = cq.Workplane("XY").circle({body_d/2}).extrude({h})
+    body = flange.union(barrel)
+    bore = cq.Workplane("XY").circle({bore_d/2}).extrude({h + 0.2}).translate((0, 0, -0.1))
+    body = body.cut(bore)
+    math = __import__("math")
+    for angle in (45, 135, 225, 315):
+        rad = math.radians(angle)
+        x = {bolt_circle} * math.cos(rad)
+        y = {bolt_circle} * math.sin(rad)
+        hole = cq.Workplane("XY").center(x, y).circle(2.2).extrude({flange_h + 0.2}).translate((0, 0, -0.1))
+        body = body.cut(hole)
+    return body"""
+
+
+def _gen_gt2_timing_pulley_20t(dims: dict) -> str:
+    od = dims.get("od", 16)
+    w = dims.get("w", 8)
+    bore_d = dims.get("id", 6.35)
+    hub_d = min(max(bore_d * 1.45, od * 0.48), od * 0.82)
+    tooth_depth = max(od * 0.045, 0.45)
+    tooth_w = max(od * 0.11, 1.5)
+    base_od = max(od - 2 * tooth_depth, bore_d + 2.0)
+    tooth_radius = math.sqrt(max((od / 2) ** 2 - (tooth_w / 2) ** 2, 0.0)) - tooth_depth / 2
+    return f"""    # GT2 20T timing pulley: toothed pulley with bore and center hub
+    body = cq.Workplane("XY").circle({base_od/2}).circle({bore_d/2}).extrude({w})
+    hub = cq.Workplane("XY").circle({hub_d/2}).circle({bore_d/2}).extrude({w})
+    body = body.union(hub)
+    for i in range(20):
+        angle = i * 18.0
+        tooth = (cq.Workplane("XY")
+                 .box({tooth_depth}, {tooth_w}, {w}, centered=(True, True, False))
+                 .translate(({tooth_radius}, 0, 0))
+                 .rotate((0, 0, 0), (0, 0, 1), angle))
+        body = body.union(tooth)
+    return body"""
+
+
+def _gen_gt2_timing_belt_loop(dims: dict) -> str:
+    w = dims.get("w", 170)
+    d = dims.get("d", 80)
+    h = dims.get("h", 6)
+    belt_t = dims.get("belt_t", 4)
+    inner_w = max(w - 2 * belt_t, 1.0)
+    inner_d = max(d - 2 * belt_t, 1.0)
+    return f"""    # GT2 timing belt loop: continuous closed belt around two screw pulleys
+    body = (cq.Workplane("XY")
+            .ellipse({w/2}, {d/2})
+            .ellipse({inner_w/2}, {inner_d/2})
+            .extrude({h}))
+    return body"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
@@ -1001,7 +1064,44 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
-    if category == "connector" and _contains_any(text, ["L070"]):
+    if category == "transmission" and _contains_any(
+        text, ["T16", "丝杠螺母", "丝杆螺母", "铜螺母", "lead screw nut"]
+    ):
+        tpl_dims = {"w": 28, "d": 28, "h": 16, "body_d": 22, "bore_d": 16}
+        return {
+            "template": "t16_lead_screw_nut",
+            "body_code": _gen_t16_lead_screw_nut(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if (
+        category == "transmission"
+        and _contains_any(text, ["GT2"])
+        and _contains_any(text, ["带轮", "pulley", "20T"])
+    ):
+        tpl_dims = {"od": 16, "w": 8, "id": 6.35}
+        return {
+            "template": "gt2_timing_pulley_20t",
+            "body_code": _gen_gt2_timing_pulley_20t(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if (
+        category == "transmission"
+        and _contains_any(text, ["GT2", "同步带", "timing belt"])
+        and not _contains_any(text, ["带轮", "pulley"])
+    ):
+        tpl_dims = {"w": 170, "d": 80, "h": 6, "belt_t": 4}
+        return {
+            "template": "gt2_timing_belt_loop",
+            "body_code": _gen_gt2_timing_belt_loop(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category in ("connector", "transmission") and _contains_any(text, ["L070"]):
         tpl_dims = {"d": 25, "l": 30, "bore_d": 6.35}
         return {
             "template": "clamping_coupling_l070",

@@ -77,7 +77,10 @@ def test_model_import_copies_project_relative_step_updates_yaml_and_verifies(
     mapping = cfg["mappings"][0]
     assert mapping["match"] == {"part_no": "SLP-C02"}
     assert mapping["adapter"] == "step_pool"
-    assert mapping["spec"] == {"file": payload["step_file"]}
+    assert mapping["spec"] == {
+        "file": payload["step_file"],
+        "normalize_origin": "center_xy_bottom_z",
+    }
     assert mapping["provenance"]["provided_by_user"] is True
     assert mapping["provenance"]["source_path"] == "models/lm10uu.step"
     assert mapping["provenance"]["source_hash"].startswith("sha256:")

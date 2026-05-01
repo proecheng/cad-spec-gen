@@ -205,6 +205,56 @@ def _resolve_design_doc(subsystem_name, config=None, doc_dir=None):
     return None
 
 
+def _canonical_subsystem_name(subsystem_name, config=None):
+    """Return the canonical cad_dir for a subsystem name or alias."""
+    if not subsystem_name:
+        return None
+    if config is None:
+        config = _load_config()
+    for _chapter, info in config.get("subsystems", {}).items():
+        aliases = [
+            info.get("cad_dir", ""),
+            info.get("name", ""),
+            *info.get("aliases", []),
+        ]
+        if subsystem_name in aliases:
+            return info.get("cad_dir", subsystem_name)
+    return subsystem_name
+
+
+def _infer_subsystem_from_design_doc(design_doc, config=None):
+    """Infer canonical subsystem cad_dir from an NN-*.md design document name."""
+    if not design_doc:
+        return None
+    if config is None:
+        config = _load_config()
+    stem = os.path.splitext(os.path.basename(str(design_doc)))[0]
+    m = re.match(r"(\d{2})-", stem)
+    if not m:
+        return None
+    info = config.get("subsystems", {}).get(m.group(1), {})
+    return info.get("cad_dir") or None
+
+
+def _ensure_spec_subsystem(args, design_doc, config=None):
+    """Populate args.subsystem for spec mode from explicit alias or design doc."""
+    if config is None:
+        config = _load_config()
+    current = getattr(args, "subsystem", None)
+    resolved = (
+        _canonical_subsystem_name(current, config)
+        if current
+        else _infer_subsystem_from_design_doc(design_doc, config)
+    )
+    if resolved and resolved != current:
+        setattr(args, "subsystem", resolved)
+        if current:
+            log.info("Canonical subsystem: %s → %s", current, resolved)
+        else:
+            log.info("Auto-detected subsystem from design doc: %s", resolved)
+    return resolved
+
+
 def _build_blender_env():
     """A1-3 + A1 重构 Track A §3.3：构造 Blender subprocess 的环境变量。
 
@@ -349,17 +399,28 @@ def _run_subprocess(cmd, label, dry_run=False, timeout=600, warn_exit_codes=None
 def _resolve_review_json(args):
     """Locate DESIGN_REVIEW.json for a subsystem (output_dir/cad_subdir/)."""
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = json.load(f)
-        output_dir = cfg.get("output_dir", "./output")
+        cfg = _load_config()
+        output_dir = os.path.join(PROJECT_ROOT, "output")
         sub_cfg = cfg.get("subsystems", {})
         cad_subdir = None
-        sub_name = getattr(args, "subsystem", None)
+        sub_name = _canonical_subsystem_name(
+            getattr(args, "subsystem", None),
+            cfg,
+        )
+        if not sub_name:
+            sub_name = _infer_subsystem_from_design_doc(
+                getattr(args, "design_doc", None),
+                cfg,
+            )
         if not sub_name:
             log.warning("No --subsystem specified; cannot locate DESIGN_REVIEW.json")
             return None
         for _ch, info in sub_cfg.items():
-            aliases = [info.get("name", "")] + info.get("aliases", [])
+            aliases = [
+                info.get("cad_dir", ""),
+                info.get("name", ""),
+                *info.get("aliases", []),
+            ]
             if sub_name in aliases or sub_name == info.get("cad_dir"):
                 cad_subdir = info.get("cad_dir", sub_name)
                 break
@@ -367,7 +428,9 @@ def _resolve_review_json(args):
             cad_subdir = sub_name
         return os.path.join(output_dir, cad_subdir, "DESIGN_REVIEW.json")
     except (OSError, json.JSONDecodeError):
-        sub_name = getattr(args, "subsystem", None)
+        sub_name = getattr(args, "subsystem", None) or _infer_subsystem_from_design_doc(
+            getattr(args, "design_doc", None),
+        )
         if not sub_name:
             return None
         return os.path.join(DEFAULT_OUTPUT, sub_name, "DESIGN_REVIEW.json")
@@ -375,6 +438,8 @@ def _resolve_review_json(args):
 
 def _show_review_summary(review_json_path):
     """Print review summary and return (critical, warning, auto_fill, auto_fill_items) counts."""
+    if not review_json_path:
+        return 0, 0, 0, []
     if not os.path.isfile(review_json_path):
         return 0, 0, 0, []
     with open(review_json_path, encoding="utf-8") as f:
@@ -567,6 +632,7 @@ _MAT_PRESET = {
 }
 
 _preset_keywords_merged = None
+_PART_NO_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b")
 
 
 def get_material_preset_keywords():
@@ -598,52 +664,465 @@ def _reset_preset_keywords_cache():
     _preset_keywords_merged = None
 
 
+def _infer_render_part_prefix(parts: list[dict]) -> str:
+    """Infer a stable BOM prefix from part numbers when the title lacks one."""
+    token_lists = []
+    for part in parts:
+        pno = str(part.get("part_no") or "")
+        if pno == "UNKNOWN" or "-" not in pno:
+            continue
+        token_lists.append(pno.split("-"))
+    if not token_lists:
+        return ""
+
+    common = []
+    for idx in range(min(len(tokens) for tokens in token_lists)):
+        token = token_lists[0][idx]
+        if any(tokens[idx] != token for tokens in token_lists[1:]):
+            break
+        if re.fullmatch(r"\d+|[A-Z]?\d+[A-Z]?", token):
+            break
+        common.append(token)
+    return "-".join(common)
+
+
+def _render_identity_from_spec(sub_dir: str, spec_path: str, parts: list[dict]) -> dict:
+    """Derive render_config subsystem identity from CAD_SPEC.md, not references."""
+    sub_name = os.path.basename(os.path.normpath(sub_dir))
+    name_cn = sub_name
+    part_prefix = ""
+
+    try:
+        text = open(spec_path, encoding="utf-8", errors="replace").read(1000)
+    except OSError:
+        text = ""
+
+    m = re.search(
+        r"^#\s*CAD Spec\s*[—-]\s*(.+?)(?:\s*\(([A-Za-z0-9_-]+)\))?\s*$",
+        text,
+        flags=re.MULTILINE,
+    )
+    if m:
+        name_cn = m.group(1).strip() or name_cn
+        part_prefix = (m.group(2) or "").strip()
+
+    if not part_prefix:
+        part_prefix = _infer_render_part_prefix(parts) or sub_name.upper()
+
+    prefix_short = part_prefix.split("-")[-1] if "-" in part_prefix else part_prefix
+    return {
+        "name": sub_name,
+        "name_cn": name_cn,
+        "part_prefix": part_prefix,
+        "glb_file": f"{prefix_short}-000_assembly.glb",
+    }
+
+
+def _default_render_config(identity: dict) -> dict:
+    """Create a generic render_config.json for spec→codegen projects."""
+    return {
+        "version": 1,
+        "subsystem": {
+            **identity,
+            "bounding_radius_mm": 300,
+        },
+        "frame_fill": 0.75,
+        "coordinate_system": "Z-axis vertical. Generated from CAD_SPEC.md.",
+        "materials": {
+            "body": {
+                "preset": "brushed_aluminum",
+                "label": "Main body",
+                "name_cn": "主体",
+                "name_en": "Main Body",
+            },
+            "fastener": {
+                "preset": "stainless_304",
+                "label": "Fasteners",
+                "name_cn": "紧固件",
+                "name_en": "Fasteners",
+            },
+        },
+        "camera": {
+            "V1": {
+                "name": "V1_front_iso",
+                "type": "standard",
+                "azimuth_deg": 35,
+                "elevation_deg": 25,
+                "distance_factor": 2.5,
+                "description": "Front-left isometric",
+            },
+            "V2": {
+                "name": "V2_rear_oblique",
+                "type": "standard",
+                "azimuth_deg": 215,
+                "elevation_deg": 20,
+                "distance_factor": 2.8,
+                "description": "Rear-right oblique",
+            },
+            "V3": {
+                "name": "V3_side_elevation",
+                "type": "standard",
+                "azimuth_deg": 90,
+                "elevation_deg": 0,
+                "distance_factor": 2.5,
+                "description": "Side elevation",
+            },
+            "V4": {
+                "name": "V4_exploded",
+                "type": "exploded",
+                "azimuth_deg": 35,
+                "elevation_deg": 35,
+                "distance_factor": 3.5,
+                "description": "Exploded view",
+            },
+            "V5": {
+                "name": "V5_ortho_front",
+                "type": "ortho",
+                "azimuth_deg": 0,
+                "elevation_deg": 0,
+                "description": "Front orthographic",
+            },
+        },
+        "components": {
+            "body": {"name_cn": "主体", "name_en": "Main Body", "material": "body"}
+        },
+        "labels": {},
+    }
+
+
+def _sync_render_identity(rc: dict, identity: dict) -> bool:
+    subsystem_block = rc.setdefault("subsystem", {})
+    changed = False
+    for key, value in identity.items():
+        if value and subsystem_block.get(key) != value:
+            subsystem_block[key] = value
+            changed = True
+    subsystem_block.setdefault("bounding_radius_mm", 300)
+    return changed
+
+
+def _render_component_key(kind: str, part_no: str) -> str:
+    """Return a stable render_config component key for a BOM item."""
+    suffix = str(part_no or "").rsplit("-", 1)[-1].lower()
+    suffix = re.sub(r"[^a-z0-9]+", "_", suffix).strip("_")
+    if not suffix:
+        suffix = re.sub(r"[^a-z0-9]+", "_", str(part_no).lower()).strip("_")
+    return f"{kind}_{suffix or 'unknown'}"
+
+
+def _clean_render_material_text(value: object) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[*`]+", "", text)
+    text = text.replace("<br>", " ").replace("<br/>", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return "" if text in {"", "-", "—", "–", "n/a", "N/A"} else text
+
+
+def _infer_render_material_preset(material_text: str, default: str = "brushed_aluminum") -> str:
+    """Infer a render material preset from a material/model text cell."""
+    text = _clean_render_material_text(material_text)
+    if not text:
+        return default
+    text_lower = text.lower()
+
+    # Surface/color cues are more specific than base material words.
+    if "黑" in text and ("阳极" in text or "铝" in text):
+        return "black_anodized"
+    if "蓝" in text and "阳极" in text:
+        return "anodized_blue"
+    if "绿" in text and "阳极" in text:
+        return "anodized_green"
+    if "红" in text and "阳极" in text:
+        return "anodized_red"
+    if "紫" in text and "阳极" in text:
+        return "anodized_purple"
+    if "45#" in text or "45号" in text or "碳钢" in text:
+        return "dark_steel"
+    if "gcr15" in text_lower or "轴承钢" in text or "镀铬" in text:
+        return "stainless_304"
+    if "pu" in text_lower or "聚氨酯" in text or "缓冲垫" in text:
+        return "black_rubber"
+    if "黑" in text and any(k in text_lower for k in ("橡胶", "塑料", "尼龙", "pla")):
+        return "black_rubber"
+
+    for keyword, preset in get_material_preset_keywords().items():
+        keyword_text = str(keyword)
+        if keyword_text in text or keyword_text.lower() in text_lower:
+            return preset
+    return default
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    return [
+        _clean_render_material_text(cell)
+        for cell in line.strip().strip("|").split("|")
+    ]
+
+
+def _iter_markdown_table_dicts(section_text: str):
+    lines = section_text.splitlines()
+    idx = 0
+    while idx < len(lines):
+        if not lines[idx].lstrip().startswith("|"):
+            idx += 1
+            continue
+
+        table_lines = []
+        while idx < len(lines) and lines[idx].lstrip().startswith("|"):
+            table_lines.append(lines[idx])
+            idx += 1
+
+        if len(table_lines) < 2:
+            continue
+        headers = _split_markdown_table_row(table_lines[0])
+        for row_line in table_lines[2:]:
+            cells = _split_markdown_table_row(row_line)
+            if not any(cells):
+                continue
+            if len(cells) < len(headers):
+                cells.extend([""] * (len(headers) - len(cells)))
+            yield dict(zip(headers, cells))
+
+
+def _extract_markdown_section(text: str, heading_pattern: str) -> str:
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        match = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if not match or not re.search(heading_pattern, match.group(2)):
+            continue
+        level = len(match.group(1))
+        body = []
+        for next_line in lines[idx + 1:]:
+            next_match = re.match(r"^(#{1,6})\s+", next_line)
+            if next_match and len(next_match.group(1)) <= level:
+                break
+            body.append(next_line)
+        return "\n".join(body)
+    return ""
+
+
+def _extract_part_no_from_text(*values: object) -> str:
+    for value in values:
+        for match in _PART_NO_RE.findall(str(value or "")):
+            if match != "UNKNOWN":
+                return match
+    return ""
+
+
+def _collect_render_material_sources(spec_text: str) -> dict[str, dict[str, str]]:
+    """Collect part material hints from CAD_SPEC §7 and §2.3 tables."""
+    sources: dict[str, dict[str, str]] = {}
+
+    visual_section = _extract_markdown_section(spec_text, r"7\.\s*视觉标识|视觉标识")
+    for row in _iter_markdown_table_dicts(visual_section):
+        part_no = _extract_part_no_from_text(
+            row.get("唯一标签"),
+            row.get("零件"),
+            *row.values(),
+        )
+        if not part_no:
+            continue
+        mat_text = " ".join(
+            value for value in (
+                row.get("材质", ""),
+                row.get("表面颜色", ""),
+                row.get("颜色", ""),
+            )
+            if value
+        ).strip()
+        if mat_text:
+            sources.setdefault(part_no, {})["section7"] = mat_text
+
+    surface_section = _extract_markdown_section(spec_text, r"2\.3\s*表面处理|表面处理")
+    for row in _iter_markdown_table_dicts(surface_section):
+        part_no = _extract_part_no_from_text(row.get("零件"), *row.values())
+        if not part_no:
+            continue
+        mat_text = " ".join(
+            value for value in (
+                row.get("material_type", ""),
+                row.get("材质", ""),
+                row.get("处理方式", ""),
+            )
+            if value
+        ).strip()
+        if mat_text:
+            sources.setdefault(part_no, {})["section23"] = mat_text
+
+    return sources
+
+
+def _select_render_material_text(
+    part: dict,
+    material_sources: dict[str, dict[str, str]],
+) -> tuple[str, str]:
+    """Return (source, text) using BOM > §7 > §2.3 > name fallback."""
+    bom_text = _clean_render_material_text(part.get("material", ""))
+    if bom_text:
+        return "bom", bom_text
+    part_no = part.get("part_no", "")
+    sources = material_sources.get(part_no, {})
+    if sources.get("section7"):
+        return "section7", sources["section7"]
+    if sources.get("section23"):
+        return "section23", sources["section23"]
+    fallback = " ".join(
+        value for value in (
+            part.get("name_cn", ""),
+            part.get("make_buy", ""),
+        )
+        if value
+    ).strip()
+    return "fallback", fallback
+
+
+def _ensure_render_component(
+    components: dict,
+    materials: dict,
+    *,
+    comp_key: str,
+    part_no: str,
+    name_cn: str,
+    preset: str,
+    material_source: str = "",
+    material_text: str = "",
+) -> bool:
+    """Upsert a render_config component and its material without overwriting user choices."""
+    changed = False
+    existing_key = None
+    for key, value in components.items():
+        if isinstance(value, dict) and value.get("bom_id") == part_no:
+            existing_key = key
+            break
+
+    if existing_key is None:
+        base_key = comp_key
+        candidate = base_key
+        idx = 2
+        while (
+            candidate in components
+            and isinstance(components.get(candidate), dict)
+            and components[candidate].get("bom_id") != part_no
+        ):
+            candidate = f"{base_key}_{idx}"
+            idx += 1
+        existing_key = candidate
+        components[existing_key] = {}
+        changed = True
+
+    comp = components[existing_key]
+    for key, value in {
+        "name_cn": name_cn,
+        "name_en": comp.get("name_en", ""),
+        "bom_id": part_no,
+    }.items():
+        if comp.get(key) != value:
+            comp[key] = value
+            changed = True
+
+    mat_key = comp.get("material") or existing_key
+    if comp.get("material") != mat_key:
+        comp["material"] = mat_key
+        changed = True
+
+    if mat_key not in materials:
+        materials[mat_key] = {
+            "preset": preset,
+            "label": name_cn,
+            "name_cn": name_cn,
+            "name_en": "",
+            "material_source": material_source,
+            "material_text": material_text,
+        }
+        changed = True
+    else:
+        mat = materials[mat_key]
+        auto_generated_default = (
+            mat.get("material_source")
+            or (
+                mat.get("preset") == "brushed_aluminum"
+                and not any(k in mat for k in ("overrides", "color", "metallic", "roughness"))
+                and mat.get("label", name_cn) == name_cn
+            )
+        )
+        if auto_generated_default:
+            for key, value in {
+                "preset": preset,
+                "label": mat.get("label") or name_cn,
+                "name_cn": mat.get("name_cn") or name_cn,
+                "name_en": mat.get("name_en", ""),
+                "material_source": material_source,
+                "material_text": material_text,
+            }.items():
+                if value and mat.get(key) != value:
+                    mat[key] = value
+                    changed = True
+    return changed
+
+
+def _render_config_identity_stale(rc: dict, identity: dict) -> bool:
+    subsystem_block = rc.get("subsystem", {})
+    for key in ("name", "part_prefix", "glb_file"):
+        current = subsystem_block.get(key)
+        if current and identity.get(key) and current != identity[key]:
+            return True
+    prefix = str(identity.get("part_prefix") or "")
+    if prefix:
+        components = rc.get("components", {})
+        for comp in components.values():
+            if not isinstance(comp, dict):
+                continue
+            bom_id = str(comp.get("bom_id") or "")
+            if bom_id and bom_id != "UNKNOWN" and not bom_id.startswith(prefix):
+                return True
+    return False
+
+
 def _gen_render_config_from_bom(sub_dir, spec_path):
     """Auto-generate render_config.json materials+components from BOM.
 
-    Uses comp_key as canonical key for BOTH sections, ensuring naming
-    consistency. Only fills absent entries (setdefault) — never overwrites.
+    Uses CAD_SPEC identity as the source of truth for subsystem/glb fields,
+    then fills missing BOM-derived material/component entries.
     """
     rc_path = os.path.join(sub_dir, "render_config.json")
-    if not os.path.isfile(rc_path) or not os.path.isfile(spec_path):
+    if not os.path.isfile(spec_path):
         return
 
     from codegen.gen_build import parse_bom_tree
 
-    with open(rc_path, encoding="utf-8") as f:
-        rc = json.load(f)
-
     parts = parse_bom_tree(spec_path)
-    assemblies = [p for p in parts if p["is_assembly"]]
-    if not assemblies:
-        return
+    try:
+        spec_text = open(spec_path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        spec_text = ""
+    material_sources = _collect_render_material_sources(spec_text)
+    identity = _render_identity_from_spec(sub_dir, spec_path, parts)
+    if os.path.isfile(rc_path):
+        with open(rc_path, encoding="utf-8") as f:
+            rc = json.load(f)
+        if _render_config_identity_stale(rc, identity):
+            rc = _default_render_config(identity)
+            changed = True
+        else:
+            changed = _sync_render_identity(rc, identity)
+    else:
+        rc = _default_render_config(identity)
+        changed = True
+
+    assemblies = [
+        p for p in parts
+        if p["is_assembly"] and p.get("part_no") != "UNKNOWN"
+    ]
 
     components = rc.setdefault("components", {})
     materials = rc.setdefault("materials", {})
-    changed = False
-
-    # Sync glb_file to the name gen_assembly actually exports
-    # (assembly_part_no = f"{prefix_short}-000" in templates/assembly.py.j2).
-    # Init-time placeholder "end_effector_assembly.glb" does not match — if the
-    # discrepancy is not repaired here, render_3d.py hits FileNotFoundError and
-    # Blender's Python harness *swallows* the exception (exit 0), so the pipeline
-    # thinks render succeeded while producing zero PNGs.
-    subsystem_block = rc.setdefault("subsystem", {})
-    prefix = subsystem_block.get("part_prefix", "")
-    if prefix:
-        prefix_short = prefix.split("-")[-1] if "-" in prefix else prefix
-        expected_glb = f"{prefix_short}-000_assembly.glb"
-        if subsystem_block.get("glb_file") != expected_glb:
-            subsystem_block["glb_file"] = expected_glb
-            changed = True
 
     for assy in assemblies:
         pno = assy["part_no"]
         name_cn = assy["name_cn"]
 
         # Derive comp_key: use part_no suffix for guaranteed uniqueness
-        suffix = pno.rsplit("-", 1)[-1]
-        comp_key = f"assy_{suffix}"
+        comp_key = _render_component_key("assy", pno)
 
         # Check if any existing component already has this bom_id
         existing = None
@@ -670,14 +1149,11 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                     ]
                     preset = "brushed_aluminum"
                     for child in children:
-                        mat_text = child.get("material", "")
-                        for keyword, p_name in get_material_preset_keywords().items():
-                            if keyword in mat_text:
-                                preset = p_name
-                                break
-                        else:
-                            continue
-                        break
+                        _, child_text = _select_render_material_text(child, material_sources)
+                        candidate = _infer_render_material_preset(child_text)
+                        if candidate != "brushed_aluminum":
+                            preset = candidate
+                            break
                     materials[mat_key] = {"preset": preset, "label": name_cn}
                     changed = True
             comp["material"] = mat_key
@@ -700,14 +1176,11 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
         ]
         preset = "brushed_aluminum"
         for child in children:
-            mat_text = child.get("material", "")
-            for keyword, p_name in get_material_preset_keywords().items():
-                if keyword in mat_text:
-                    preset = p_name
-                    break
-            else:
-                continue
-            break
+            _, child_text = _select_render_material_text(child, material_sources)
+            candidate = _infer_render_material_preset(child_text)
+            if candidate != "brushed_aluminum":
+                preset = candidate
+                break
 
         if comp_key not in materials:
             materials[comp_key] = {
@@ -715,6 +1188,25 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                 "label": name_cn,
             }
         changed = True
+
+    ordinary_parts = [
+        p for p in parts
+        if not p["is_assembly"] and p.get("part_no") != "UNKNOWN"
+    ]
+    for part in ordinary_parts:
+        pno = part["part_no"]
+        material_source, material_text = _select_render_material_text(part, material_sources)
+        preset = _infer_render_material_preset(material_text)
+        changed = _ensure_render_component(
+            components,
+            materials,
+            comp_key=_render_component_key("part", pno),
+            part_no=pno,
+            name_cn=part.get("name_cn", ""),
+            preset=preset,
+            material_source=material_source,
+            material_text=material_text,
+        ) or changed
 
     # Fill components referenced by labels but missing from components section
     # (e.g. "adapter" is a part-level item used in labels but not an assembly)
@@ -763,22 +1255,27 @@ def _gen_render_config_from_bom(sub_dir, spec_path):
                     }
                     # Ensure materials entry exists
                     if comp_ref not in materials and mat_key is None:
-                        mat_text = matched_part.get("material", "")
-                        preset = "brushed_aluminum"
-                        for keyword, p_name in get_material_preset_keywords().items():
-                            if keyword in mat_text:
-                                preset = p_name
-                                break
+                        material_source, mat_text = _select_render_material_text(
+                            matched_part,
+                            material_sources,
+                        )
+                        preset = _infer_render_material_preset(mat_text)
                         materials[comp_ref] = {
                             "preset": preset,
                             "label": matched_part["name_cn"],
+                            "material_source": material_source,
+                            "material_text": mat_text,
                         }
                     changed = True
 
     if changed:
         with open(rc_path, "w", encoding="utf-8") as f:
             json.dump(rc, f, indent=2, ensure_ascii=False)
-        log.info("  BOM→render_config: %d components synced", len(assemblies))
+        synced = sum(
+            1 for comp in components.values()
+            if isinstance(comp, dict) and comp.get("bom_id")
+        )
+        log.info("  BOM→render_config: %d components synced", synced)
 
 
 def _validate_render_config(rc_path):
@@ -808,7 +1305,7 @@ def _validate_render_config(rc_path):
             )
         # Check bom_id format
         bom_id = comp.get("bom_id", "")
-        if bom_id and not _re.match(r"^[A-Z]+-[A-Z]+-\d+", bom_id):
+        if bom_id and not _re.match(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", bom_id):
             warnings.append(
                 f"component '{comp_key}': bom_id '{bom_id}' has unexpected format"
             )
@@ -823,6 +1320,108 @@ def _validate_render_config(rc_path):
                 warnings.append(f"labels.{view_key}: component '{comp_ref}' not found")
 
     return warnings
+
+
+def _read_glb_json_chunk(glb_path: str) -> dict:
+    """Read the JSON chunk from a binary GLB file."""
+    import struct
+
+    with open(glb_path, "rb") as f:
+        data = f.read()
+    if len(data) < 20:
+        raise ValueError("GLB too small")
+    magic, _version, _length = struct.unpack_from("<4sII", data, 0)
+    if magic != b"glTF":
+        raise ValueError("not a GLB file")
+
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+        offset += 8
+        chunk = data[offset: offset + chunk_len]
+        offset += chunk_len
+        if chunk_type == 0x4E4F534A:
+            return json.loads(chunk.decode("utf-8"))
+    raise ValueError("GLB JSON chunk missing")
+
+
+def _render_bom_match_key(bom_id: str) -> str:
+    """Match render_3d.resolve_bom_materials() BOM normalization."""
+    return re.sub(r"^[A-Z]+-", "", str(bom_id or "")).lower()
+
+
+def _simulate_render_material_assignment(rc: dict, mesh_node_names: list[str]) -> list[dict]:
+    """Simulate render_3d.assign_materials() without importing Blender."""
+    materials = rc.get("materials", {})
+    components = rc.get("components", {})
+    bom_materials = {}
+    for comp_key, comp in components.items():
+        if isinstance(comp, str) or str(comp_key).startswith("_"):
+            continue
+        bom_id = comp.get("bom_id", "")
+        mat_key = comp.get("material", comp_key)
+        if bom_id and mat_key in materials:
+            bom_materials[_render_bom_match_key(bom_id)] = mat_key
+
+    assignments = []
+    for node_name in mesh_node_names:
+        name_lower = str(node_name or "").lower()
+        material = None
+        reason = "default_gray"
+
+        for bom_key, mat_key in sorted(bom_materials.items(), key=lambda item: -len(item[0])):
+            if bom_key and bom_key in name_lower:
+                material = mat_key
+                reason = "bom_id"
+                break
+
+        if material is None:
+            for pattern in materials:
+                if pattern and pattern in name_lower:
+                    material = pattern
+                    reason = "material_pattern"
+                    break
+
+        assignments.append({
+            "node": node_name,
+            "material": material or "PBR_default",
+            "reason": reason,
+        })
+    return assignments
+
+
+def _validate_render_glb_material_coverage(rc_path: str, glb_path: str) -> list[str]:
+    """Validate that GLB mesh nodes can resolve to render_config materials."""
+    if not os.path.isfile(rc_path) or not os.path.isfile(glb_path):
+        return []
+
+    try:
+        with open(rc_path, encoding="utf-8") as f:
+            rc = json.load(f)
+        glb = _read_glb_json_chunk(glb_path)
+    except Exception as exc:
+        return [f"GLB material coverage skipped: {type(exc).__name__}: {exc}"]
+
+    mesh_nodes = [
+        node.get("name", "")
+        for node in glb.get("nodes", [])
+        if "mesh" in node
+    ]
+    if not mesh_nodes:
+        return ["GLB material coverage skipped: no mesh nodes found"]
+
+    assignments = _simulate_render_material_assignment(rc, mesh_nodes)
+    unmatched = [a["node"] for a in assignments if a["reason"] == "default_gray"]
+    if not unmatched:
+        return []
+
+    preview = ", ".join(str(name) for name in unmatched[:12])
+    suffix = "" if len(unmatched) <= 12 else f", ... (+{len(unmatched) - 12} more)"
+    return [
+        "GLB material coverage: "
+        f"{len(unmatched)}/{len(mesh_nodes)} mesh node(s) would use default gray: "
+        f"{preview}{suffix}"
+    ]
 
 
 def _interactive_fill_warnings(review_json_path):
@@ -1174,6 +1773,7 @@ def cmd_spec(args):
             design_doc or "??-*.md",
         )
         return 1
+    _ensure_spec_subsystem(args, design_doc)
 
     spec_gen = os.path.join(SKILL_ROOT, "cad_spec_gen.py")
     if not os.path.isfile(spec_gen):
@@ -1645,6 +2245,15 @@ def cmd_render(args):
     if os.path.isfile(rc_path):
         warnings = _validate_render_config(rc_path)
         for w in warnings:
+            log.warning("  render_config: %s", w)
+        try:
+            with open(rc_path, encoding="utf-8") as f:
+                _rc_for_glb = json.load(f)
+            _configured_glb = _rc_for_glb.get("subsystem", {}).get("glb_file", "")
+        except Exception:
+            _configured_glb = ""
+        _glb_for_coverage = os.path.join(DEFAULT_OUTPUT, _configured_glb) if _configured_glb else ""
+        for w in _validate_render_glb_material_coverage(rc_path, _glb_for_coverage):
             log.warning("  render_config: %s", w)
 
     if not os.path.isfile(render_script):

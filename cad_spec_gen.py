@@ -158,6 +158,41 @@ def _format_envelope(env: dict) -> str:
     return str(env)
 
 
+def _envelope_height(env: dict) -> float:
+    if not env:
+        return 0.0
+    try:
+        return float(env.get("h") or env.get("l") or env.get("d") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _build_part_instances(placements: list, part_envelopes: dict) -> list:
+    """Flatten layout_xy placements into §6.3 instance rows."""
+    rows = []
+    seen = set()
+    for placement in placements:
+        if placement.get("mode") != "layout_xy":
+            continue
+        for inst in placement.get("instances", []):
+            pno = inst.get("part_no", "")
+            instance_id = inst.get("instance_id", "")
+            if not pno or not instance_id:
+                continue
+            key = (instance_id, pno)
+            if key in seen:
+                continue
+            seen.add(key)
+            row = dict(inst)
+            row.setdefault("mode", "layout_xy")
+            row.setdefault("source", placement.get("source", "column_xy"))
+            row.setdefault("confidence", placement.get("confidence", "high"))
+            if row.get("h") in (None, "", 0):
+                row["h"] = _envelope_height(part_envelopes.get(pno, {}))
+            rows.append(row)
+    return rows
+
+
 def _build_markdown(data: dict) -> list:
     """Build §6.4 and related sections from a data dict.
 
@@ -378,31 +413,83 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
 
     # §6.3 零件级定位
     part_offsets = assembly.get("part_offsets", {})
-    if part_offsets:
+    part_instances = assembly.get("part_instances", [])
+    if part_offsets or part_instances:
         sections.append("### 6.3 零件级定位")
         sections.append("")
         # Group by assembly prefix (GIS-EE-001 → GIS-EE-001)
         assy_groups = {}
+        instanced_pnos = set()
+        for inst in part_instances:
+            pno = inst.get("part_no", "")
+            if not pno:
+                continue
+            instanced_pnos.add(pno)
+            prefix = inst.get("assembly") or "-".join(pno.split("-")[:3])
+            assy_groups.setdefault(prefix, []).append(("instance", pno, inst))
         for pno, off in part_offsets.items():
+            if pno in instanced_pnos:
+                continue
             prefix = "-".join(pno.split("-")[:3])  # GIS-EE-001-01 → GIS-EE-001
-            assy_groups.setdefault(prefix, []).append((pno, off))
+            assy_groups.setdefault(prefix, []).append(("legacy", pno, off))
 
         for prefix, items_list in sorted(assy_groups.items()):
             bom_obj = data.get("bom")
             assy_name = _lookup_part_name(prefix, bom_obj) if bom_obj else prefix
             sections.append(f"#### {prefix} {assy_name}")
             sections.append("")
-            sections.append(_md_table(
-                ["料号", "零件名", "模式", "高度(mm)", "底面Z(mm)", "来源", "置信度"],
-                [[pno,
-                  _lookup_part_name(pno, bom_obj),
-                  off.get("mode", "axial_stack"),
-                  str(off.get("h", "")),
-                  str(off.get("z", "")),
-                  off.get("source", ""),
-                  off.get("confidence", "")]
-                 for pno, off in sorted(items_list)]
-            ))
+            has_instances = any(kind == "instance" for kind, _, _ in items_list)
+            if has_instances:
+                rows = []
+                for kind, pno, payload in sorted(
+                        items_list,
+                        key=lambda it: (
+                            str(it[1]),
+                            str(it[2].get("instance_id", "")),
+                        )):
+                    if kind == "instance":
+                        rows.append([
+                            payload.get("instance_id", ""),
+                            pno,
+                            _lookup_part_name(pno, bom_obj),
+                            payload.get("mode", "layout_xy"),
+                            str(payload.get("x", "")),
+                            str(payload.get("y", "")),
+                            str(payload.get("z", "")),
+                            str(payload.get("h", "")),
+                            payload.get("source", ""),
+                            payload.get("confidence", ""),
+                        ])
+                    else:
+                        rows.append([
+                            "",
+                            pno,
+                            _lookup_part_name(pno, bom_obj),
+                            payload.get("mode", "axial_stack"),
+                            "",
+                            "",
+                            str(payload.get("z", "")),
+                            str(payload.get("h", "")),
+                            payload.get("source", ""),
+                            payload.get("confidence", ""),
+                        ])
+                sections.append(_md_table(
+                    ["实例", "料号", "零件名", "模式", "X(mm)", "Y(mm)",
+                     "底面Z(mm)", "高度(mm)", "来源", "置信度"],
+                    rows,
+                ))
+            else:
+                sections.append(_md_table(
+                    ["料号", "零件名", "模式", "高度(mm)", "底面Z(mm)", "来源", "置信度"],
+                    [[pno,
+                      _lookup_part_name(pno, bom_obj),
+                      off.get("mode", "axial_stack"),
+                      str(off.get("h", "")),
+                      str(off.get("z", "")),
+                      off.get("source", ""),
+                      off.get("confidence", "")]
+                     for _, pno, off in sorted(items_list)]
+                ))
 
     # §6.4 零件包络尺寸 — delegate to shared helper (single source of truth)
     sections.extend(_build_markdown(data))
@@ -926,16 +1013,26 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
                 )
 
                 # Use full resolve() so we know WHICH adapter produced the
-                # dims (library vs jinja fallback). P7 only writes the
-                # envelope when the result came from a non-fallback adapter
-                # (step_pool / bd_warehouse / partcad); jinja_primitive
-                # results are effectively equivalent to P6 guesses and would
-                # just recompute the same values, so skip them.
+                # dims. P7 writes envelopes for library backends plus curated
+                # parametric templates. Raw jinja_primitive fallback remains
+                # equivalent to a P6 guess and is intentionally skipped.
                 result = _p7_resolver.resolve(query)
                 if result.status in {"miss", "skip"} or result.kind == "miss":
                     continue
-                if result.adapter == "jinja_primitive":
-                    continue  # Not a library win — skip to keep §6.4 stable
+                geometry_source = str(
+                    getattr(result, "geometry_source", "") or ""
+                ).upper()
+                geometry_quality = str(
+                    getattr(result, "geometry_quality", "") or ""
+                ).upper()
+                is_curated_template = (
+                    result.adapter == "jinja_primitive"
+                    and geometry_source == "PARAMETRIC_TEMPLATE"
+                    and geometry_quality in {"A", "B"}
+                    and not bool(getattr(result, "requires_model_review", False))
+                )
+                if result.adapter == "jinja_primitive" and not is_curated_template:
+                    continue  # Raw fallback — skip to keep §6.4 stable
                 if result.real_dims is None:
                     continue
                 w, d, h = result.real_dims
@@ -944,12 +1041,15 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
 
                 existing = part_envelopes.get(pno)
                 # Abbreviate the adapter name for the source tag
-                _adapter_abbr = {
-                    "step_pool": "STEP",
-                    "bd_warehouse": "BW",
-                    "sw_toolbox": "sw_toolbox",
-                    "partcad": "PC",
-                }.get(result.adapter, result.adapter)
+                if is_curated_template:
+                    _adapter_abbr = "TEMPLATE"
+                else:
+                    _adapter_abbr = {
+                        "step_pool": "STEP",
+                        "bd_warehouse": "BW",
+                        "sw_toolbox": "sw_toolbox",
+                        "partcad": "PC",
+                    }.get(result.adapter, result.adapter)
 
                 if existing:
                     source = existing.get("source", "")
@@ -962,7 +1062,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
                     _p7_overridden += 1
                     part_envelopes[pno] = {
                         "type": "cylinder" if abs(w - d) < 0.1 else "box",
-                        "d": w,
+                        "d": d,
                         "w": w,
                         "h": h,
                         "source": (f"P7:{_adapter_abbr}"
@@ -972,7 +1072,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
                     _p7_filled += 1
                     part_envelopes[pno] = {
                         "type": "cylinder" if abs(w - d) < 0.1 else "box",
-                        "d": w,
+                        "d": d,
                         "w": w,
                         "h": h,
                         "source": f"P7:{_adapter_abbr}",
@@ -984,8 +1084,12 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
         print(f"  §6.4 P7 parts_library: filled {_p7_filled}, "
               f"overrode {_p7_overridden}")
 
+    part_instances = _build_part_instances(placements, part_envelopes)
+    print(f"  §6.3 Instances: {len(part_instances)} XY/layout rows")
+
     data["placements"] = placements
     data["assembly"]["part_offsets"] = part_offsets
+    data["assembly"]["part_instances"] = part_instances
 
     # Assembly constraints (auto-derived from §3/§6/§7)
     assembly_constraints = extract_assembly_constraints(
