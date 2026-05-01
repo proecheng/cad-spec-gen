@@ -15,6 +15,34 @@ mappings:
     source_url: https://www.motedis.com/en/Flange-Bearing-12mm-die-cast-KFL001
     source_license: dimensional_reference_generated_geometry
 - match:
+    part_no: SLP-C04
+  adapter: step_pool
+  spec:
+    file: transmission/gt2_20t_timing_pulley.step
+    synthesizer: gt2_20t_timing_pulley
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: GT2_20T_timing_pulley
+    display_name_cn: GT2 20T 开式带轮 φ12
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §5 BOM / parametric_template:gt2_timing_pulley_20t
+    source_license: project_spec_generated_geometry
+- match:
+    part_no: SLP-C05
+  adapter: step_pool
+  spec:
+    file: transmission/gt2_310_6mm_timing_belt.step
+    synthesizer: gt2_310_6mm_timing_belt
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: GT2_310_6mm_timing_belt
+    display_name_cn: GT2-310-6mm 带
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §5 BOM / parametric_template:gt2_timing_belt_loop
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-C06
   adapter: step_pool
   spec:

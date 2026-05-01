@@ -383,6 +383,62 @@ def test_project_library_routes_lifting_platform_kfl001_to_cache_step(
     assert (cache_root / "mechanical" / "kfl001_flange_bearing.step").is_file()
 
 
+def test_project_library_routes_lifting_platform_gt2_pulley_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C04",
+            name_cn="GT2 20T 开式带轮 φ12",
+            material="",
+            category="transmission",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.step_path == "cache://transmission/gt2_20t_timing_pulley.step"
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (cache_root / "transmission" / "gt2_20t_timing_pulley.step").is_file()
+
+
+def test_project_library_routes_lifting_platform_gt2_belt_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C05",
+            name_cn="GT2-310-6mm 带",
+            material="",
+            category="transmission",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.step_path == "cache://transmission/gt2_310_6mm_timing_belt.step"
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (cache_root / "transmission" / "gt2_310_6mm_timing_belt.step").is_file()
+
+
 def test_project_library_routes_lifting_platform_l070_to_cache_step(
     tmp_path, monkeypatch
 ):

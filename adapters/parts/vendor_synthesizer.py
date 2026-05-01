@@ -68,6 +68,10 @@ Factory vocabulary:
   m12_4pin_bulkhead   M12 4-pin waterproof bulkhead connector
   kfl001_flange_bearing
                       KFL001 12 mm two-bolt flange bearing unit
+  gt2_20t_timing_pulley
+                      GT2 20-tooth timing pulley, 16 mm OD x 8 mm wide
+  gt2_310_6mm_timing_belt
+                      GT2 310 mm closed timing belt visual loop, 6 mm wide
   l070_clamping_coupling
                       L070 split clamping coupling, Φ25 × 30 mm
 
@@ -902,6 +906,124 @@ def _make_kfl001_flange_bearing():
     return body
 
 
+def _make_gt2_20t_timing_pulley():
+    """GT2 20-tooth timing pulley for the lifting platform drivetrain.
+
+    Project display dimensions follow the existing parametric template:
+      - Overall visual envelope: 16 x 16 x 8 mm
+      - Tooth count: 20
+      - GT2 20T pitch diameter is about 12.7 mm
+      - Bore display diameter: 6.35 mm
+    """
+    import cadquery as cq
+
+    od, width = 16.0, 8.0
+    bore_d = 6.35
+    base_r = 7.18
+    tooth_depth = 0.82
+    tooth_w = 1.15
+    tooth_h = 5.4
+    tooth_z = (width - tooth_h) / 2.0
+
+    body = cq.Workplane("XY").circle(base_r).circle(bore_d / 2.0).extrude(width)
+
+    # Thin flanges at both sides keep the rendered silhouette recognizable as a
+    # timing pulley while preserving the 16 mm maximum envelope.
+    bottom_flange = cq.Workplane("XY").circle(od / 2.0).circle(bore_d / 2.0).extrude(0.7)
+    top_flange = (
+        cq.Workplane("XY")
+        .circle(od / 2.0)
+        .circle(bore_d / 2.0)
+        .extrude(0.7)
+        .translate((0, 0, width - 0.7))
+    )
+    hub = (
+        cq.Workplane("XY")
+        .circle(5.4)
+        .circle(bore_d / 2.0)
+        .extrude(width)
+    )
+    body = body.union(bottom_flange).union(top_flange).union(hub)
+
+    tooth_center_r = base_r + tooth_depth / 2.0 - 0.05
+    for i in range(20):
+        angle = i * 18.0
+        tooth = (
+            cq.Workplane("XY")
+            .box(tooth_depth, tooth_w, tooth_h, centered=(True, True, False))
+            .translate((tooth_center_r, 0, tooth_z))
+            .rotate((0, 0, 0), (0, 0, 1), angle)
+        )
+        body = body.union(tooth)
+
+    # Side grub screw cue; this is intentionally shallow visual geometry, not a
+    # manufacturing-ready thread model.
+    screw = (
+        cq.Workplane("YZ")
+        .center(0, width / 2.0)
+        .circle(1.25)
+        .extrude(od + 1.0, both=True)
+        .translate((0, 0, 0))
+    )
+    body = body.cut(screw)
+
+    try:
+        body = body.faces(">Z").edges(">Z").chamfer(0.18)
+        body = body.faces("<Z").edges("<Z").chamfer(0.18)
+    except Exception:
+        pass
+    return body
+
+
+def _make_gt2_310_6mm_timing_belt():
+    """GT2-310-6 mm closed belt loop for drivetrain visualization.
+
+    The CAD_SPEC-derived visual envelope is 170 x 80 x 6 mm. The actual belt
+    pitch length is 310 mm; this stand-in represents the installed loop around
+    the two pulley centers rather than a free circular belt.
+    """
+    import cadquery as cq
+
+    outer_w, outer_d, height = 170.0, 80.0, 6.0
+    belt_t = 4.0
+    inner_w = outer_w - 2.0 * belt_t
+    inner_d = outer_d - 2.0 * belt_t
+
+    body = (
+        cq.Workplane("XY")
+        .ellipse(outer_w / 2.0, outer_d / 2.0)
+        .ellipse(inner_w / 2.0, inner_d / 2.0)
+        .extrude(height)
+    )
+
+    # Small inner tooth cues along the straight runs. They sit inside the belt
+    # envelope so the reported bbox stays aligned with the project spec.
+    for y in (inner_d / 2.0 + 0.55, -(inner_d / 2.0 + 0.55)):
+        for i in range(25):
+            x = -72.0 + i * 6.0
+            tooth = (
+                cq.Workplane("XY")
+                .center(x, y)
+                .box(2.1, 1.15, 0.75, centered=(True, True, False))
+                .translate((0, 0, height - 0.75))
+            )
+            body = body.union(tooth)
+
+    seam = (
+        cq.Workplane("XY")
+        .center(0, outer_d / 2.0 - 1.6)
+        .box(9.0, 1.2, 0.35, centered=(True, True, False))
+        .translate((0, 0, height - 0.35))
+    )
+    body = body.union(seam)
+
+    try:
+        body = body.edges("|Z").chamfer(0.12)
+    except Exception:
+        pass
+    return body
+
+
 def _make_l070_clamping_coupling():
     """L070 split clamping coupling, 25 mm diameter by 30 mm long.
 
@@ -991,6 +1113,8 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "sma_bulkhead_50ohm": _make_sma_bulkhead_50ohm,
     "m12_4pin_bulkhead": _make_m12_4pin_bulkhead,
     "kfl001_flange_bearing": _make_kfl001_flange_bearing,
+    "gt2_20t_timing_pulley": _make_gt2_20t_timing_pulley,
+    "gt2_310_6mm_timing_belt": _make_gt2_310_6mm_timing_belt,
     "l070_clamping_coupling": _make_l070_clamping_coupling,
 }
 
@@ -1033,6 +1157,8 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
     "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
     "kfl001_flange_bearing": "mechanical/kfl001_flange_bearing.step",
+    "gt2_20t_timing_pulley": "transmission/gt2_20t_timing_pulley.step",
+    "gt2_310_6mm_timing_belt": "transmission/gt2_310_6mm_timing_belt.step",
     "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
 }
 
