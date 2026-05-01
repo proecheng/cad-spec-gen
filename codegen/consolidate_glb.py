@@ -99,6 +99,31 @@ def group_meshes_by_prefix(geometry: dict) -> dict:
     return groups
 
 
+def _geometry_node_transforms(scene) -> dict:
+    """Return the first scene-graph transform for each geometry name.
+
+    CadQuery's GLTF exporter stores the CAD→glTF axis contract on scene nodes,
+    not on the raw mesh vertices.  The consolidator must preserve that node
+    transform when it replaces many face nodes with one part node; otherwise
+    Blender imports the consolidated file lying on its side.
+    """
+    transforms = {}
+    try:
+        node_names = list(scene.graph.nodes_geometry)
+    except Exception:
+        return transforms
+
+    for node_name in node_names:
+        try:
+            transform, geom_name = scene.graph.get(node_name)
+        except Exception:
+            continue
+        if geom_name is None or geom_name in transforms:
+            continue
+        transforms[geom_name] = transform
+    return transforms
+
+
 def consolidate_glb_file(
     glb_path: str,
     output_path: Optional[str] = None,
@@ -130,6 +155,7 @@ def consolidate_glb_file(
 
     import trimesh
     import trimesh.util as tutil
+    import numpy as np
 
     try:
         scene = trimesh.load(glb_path, force="scene")
@@ -143,6 +169,8 @@ def consolidate_glb_file(
 
     original_count = len(scene.geometry)
     groups = group_meshes_by_prefix(scene.geometry)
+    geometry_transforms = _geometry_node_transforms(scene)
+    identity = np.eye(4)
 
     if len(groups) == original_count:
         logger(f"[consolidate_glb] {glb_path}: already consolidated "
@@ -152,21 +180,37 @@ def consolidate_glb_file(
     # Build a fresh scene where each prefix becomes one Trimesh
     new_scene = trimesh.Scene()
     for prefix, items in sorted(groups.items()):
-        meshes = [m for _, m in items]
-        if len(meshes) == 1:
-            merged = meshes[0]
-        else:
-            try:
-                merged = tutil.concatenate(meshes)
-            except Exception as e:
-                logger(f"[consolidate_glb] concat failed for {prefix}: {e} "
-                       f"— keeping per-face split for this part")
-                # Re-add original sub-meshes under their original names
-                # so we don't lose data on the failure path
-                for sub_name, sub_mesh in items:
-                    new_scene.add_geometry(sub_mesh, geom_name=sub_name)
-                continue
-        new_scene.add_geometry(merged, geom_name=prefix)
+        ref_transform = geometry_transforms.get(items[0][0], identity)
+        try:
+            inv_ref = np.linalg.inv(ref_transform)
+        except Exception:
+            inv_ref = identity
+            ref_transform = identity
+
+        meshes = []
+        for name, mesh in items:
+            mesh_copy = mesh.copy()
+            transform = geometry_transforms.get(name, identity)
+            rel_transform = inv_ref @ transform
+            if not np.allclose(rel_transform, identity):
+                mesh_copy.apply_transform(rel_transform)
+            meshes.append(mesh_copy)
+
+        try:
+            merged = meshes[0] if len(meshes) == 1 else tutil.concatenate(meshes)
+        except Exception as e:
+            logger(f"[consolidate_glb] concat failed for {prefix}: {e} "
+                   f"— keeping per-face split for this part")
+            # Re-add original sub-meshes under their original names
+            # so we don't lose data on the failure path.
+            for sub_name, sub_mesh in items:
+                new_scene.add_geometry(
+                    sub_mesh,
+                    geom_name=sub_name,
+                    transform=geometry_transforms.get(sub_name, identity),
+                )
+            continue
+        new_scene.add_geometry(merged, geom_name=prefix, transform=ref_transform)
 
     target = output_path or glb_path
     try:
