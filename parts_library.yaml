@@ -85,6 +85,20 @@ mappings:
     source_section: §6.4
     source_license: project_spec_generated_geometry
 - match:
+    part_no: SLP-F11
+  adapter: step_pool
+  spec:
+    file: elastomer/pu_buffer_pad_20x20x3.step
+    synthesizer: pu_buffer_pad_20x20x3
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: PU_buffer_pad_20x20x3
+    display_name_cn: PU 缓冲垫 20×20×3
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §6.4
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-F12
   adapter: step_pool
   spec:
