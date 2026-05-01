@@ -8,6 +8,10 @@ For releases prior to v2.8.0, see the per-version `RELEASE_v*.md` files at the r
 
 ## Unreleased
 
+### Documentation
+- 新增模型质量收官报告，确认当前两个可审计机械子系统均已全 A：`end_effector A=32`、`lifting_platform A=11`，且 missing STEP / review_required 均为 0。
+- 明确其余 17 个 `CAD_SPEC.md` 当前没有可进入 resolver 的外购/标准件几何行，不计入本轮模型质量债。
+
 ---
 
 ## [v2.24.0] - 2026-04-30
