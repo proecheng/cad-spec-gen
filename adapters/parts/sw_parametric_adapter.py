@@ -9,6 +9,7 @@ SW API 尺寸单位为米（m），内部统一 /1000 换算。
 from __future__ import annotations
 
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -81,19 +82,218 @@ class SwParametricAdapter:
         step_path = Path(output_dir) / f"{part_no}.step"
 
         # 缓存检查在 is_available() 之后：SW 不可用时不信任旧缓存，强制回退 CadQuery 路径。
-        # 缓存：同一文件已存在则跳过（避免重复 NewDocument）
+        # 缓存必须可被 CadQuery 导入为实体；仅“文件存在”不足以证明导出成功。
         if step_path.exists():
-            return step_path
+            if (self._validate_step_geometry(step_path)
+                    and self._validate_step_contract(tpl_type, params, step_path)):
+                return step_path
+            log.warning("SW STEP 缓存不满足几何契约，删除并重建: %s", step_path)
+            self._unlink_step(step_path)
 
         try:
             build_fn = getattr(self, f"_build_{tpl_type}", None)
             if build_fn is None:
                 log.debug("_build_%s 尚未实现，回退 CadQuery", tpl_type)
                 return None
-            return build_fn(params, step_path)
+            built = build_fn(params, step_path)
+            if built is None:
+                return None
+            built_path = Path(built)
+            if self._validate_step_geometry(built_path):
+                return built_path
+            log.warning("SW 导出 STEP 无可导入几何，回退 CadQuery: %s", built_path)
+            self._unlink_step(built_path)
+            return self._build_cadquery_fallback(tpl_type, params, step_path)
         except Exception as exc:
             log.warning("SW 建模失败 [%s/%s]: %s", tpl_type, part_no, exc, exc_info=True)
             return None
+
+    def _validate_step_geometry(self, step_path: Path) -> bool:
+        """Return True only when STEP imports to at least one shape object."""
+        try:
+            if not step_path.exists() or step_path.stat().st_size <= 0:
+                return False
+            import cadquery as cq
+
+            wp = cq.importers.importStep(str(step_path))
+            objects = list(getattr(wp, "objects", []) or [])
+            if not objects and hasattr(wp, "vals"):
+                objects = list(wp.vals() or [])
+
+            for obj in objects:
+                if not hasattr(obj, "BoundingBox"):
+                    continue
+                try:
+                    obj.BoundingBox()
+                    return True
+                except Exception:
+                    continue
+            return False
+        except Exception as exc:
+            log.warning("STEP 几何校验失败 [%s]: %s", step_path, exc)
+            return False
+
+    def _validate_step_contract(
+        self, tpl_type: str, params: dict, step_path: Path
+    ) -> bool:
+        """Validate template-specific STEP axis/dimension contract.
+
+        A STEP can be importable while still violating the downstream CAD
+        convention. For plates, assembly.py assumes X=width, Y=depth, and
+        Z=thickness with bottom face at Z=0. Old Top-Plane exports produced
+        X=width, Y=thickness, Z=depth; reject those caches so force/codegen can
+        rebuild them with the corrected Front-Plane implementation.
+        """
+        if tpl_type != "plate":
+            return True
+        try:
+            import cadquery as cq
+
+            wp = cq.importers.importStep(str(step_path))
+            bbox = wp.val().BoundingBox()
+            actual = (
+                float(bbox.xlen),
+                float(bbox.ylen),
+                float(bbox.zlen),
+            )
+            expected = (
+                float(params.get("width") or 0),
+                float(params.get("depth") or 0),
+                float(params.get("thickness") or 0),
+            )
+            if any(v <= 0 for v in expected):
+                return True
+            tol = 0.5  # mm; enough for STEP/export numeric noise
+            return all(abs(a - e) <= tol for a, e in zip(actual, expected))
+        except Exception as exc:
+            log.warning("STEP 契约校验失败 [%s]: %s", step_path, exc)
+            return False
+
+    def _unlink_step(self, step_path: Path) -> None:
+        try:
+            step_path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("无法删除无效 STEP [%s]: %s", step_path, exc)
+
+    def _build_cadquery_fallback(
+        self, tpl_type: str, params: dict, step_path: Path
+    ) -> Path | None:
+        """Export a CadQuery fallback when SW returns an empty STEP."""
+        try:
+            import cadquery as cq
+
+            body = self._make_cadquery_fallback_body(tpl_type, params)
+            if body is None:
+                return None
+            step_path.parent.mkdir(parents=True, exist_ok=True)
+            cq.exporters.export(body, str(step_path))
+            if self._validate_step_geometry(step_path):
+                return step_path
+            self._unlink_step(step_path)
+            return None
+        except Exception as exc:
+            log.warning("CadQuery 回退建模失败 [%s/%s]: %s", tpl_type, step_path, exc)
+            self._unlink_step(step_path)
+            return None
+
+    def _make_cadquery_fallback_body(self, tpl_type: str, params: dict):
+        """Return a minimal valid body matching the SW template contract."""
+        if tpl_type == "flange":
+            return self._make_fallback_flange(params)
+        if tpl_type == "spring_mechanism":
+            return self._make_fallback_spring_mechanism(params)
+        return None
+
+    def _make_fallback_flange(self, params: dict):
+        import cadquery as cq
+
+        od = float(params.get("od") or 0)
+        thickness = float(params.get("thickness") or 0)
+        if od <= 0 or thickness <= 0:
+            return None
+        id_ = float(params.get("id") or 0) or od * 0.25
+        if id_ >= od:
+            return None
+        pcd = float(params.get("bolt_pcd") or 0) or od * 0.75
+        bolt_n = max(0, int(params.get("bolt_count") or 6))
+        boss_h = max(0.0, float(params.get("boss_h") or 0))
+        bolt_d = max(od * 0.07, 5.0)
+
+        body = cq.Workplane("XY").circle(od / 2).extrude(thickness)
+        body = body.faces(">Z").workplane().circle(id_ / 2).cutThruAll()
+        if bolt_n > 0 and pcd > 0:
+            points = [
+                (
+                    pcd / 2 * math.cos(2 * math.pi * i / bolt_n),
+                    pcd / 2 * math.sin(2 * math.pi * i / bolt_n),
+                )
+                for i in range(bolt_n)
+            ]
+            body = (
+                body.faces(">Z")
+                .workplane()
+                .pushPoints(points)
+                .circle(bolt_d / 2)
+                .cutThruAll()
+            )
+        if boss_h > 0:
+            boss_od = min(id_ * 1.5, od * 0.5) if id_ > 0 else od * 0.4
+            boss = (
+                cq.Workplane("XY")
+                .circle(boss_od / 2)
+                .circle(id_ / 2)
+                .extrude(boss_h)
+                .translate((0, 0, thickness))
+            )
+            body = body.union(boss)
+        return body
+
+    def _make_fallback_spring_mechanism(self, params: dict):
+        import cadquery as cq
+
+        od = float(params.get("od") or 0)
+        free_length = float(params.get("free_length") or 0)
+        if od <= 0 or free_length <= 0:
+            return None
+        id_ = float(params.get("id") or 0) or od * 0.5
+        if id_ >= od:
+            return None
+        wire_d = float(params.get("wire_d") or 0) or od * 0.08
+        coil_n = max(1, int(params.get("coil_n") or 6))
+        flange_od = od * 1.25
+        flange_h = wire_d * 2
+
+        body = cq.Workplane("XY").circle(od / 2).circle(id_ / 2).extrude(free_length)
+        bottom = (
+            cq.Workplane("XY")
+            .circle(flange_od / 2)
+            .circle(id_ / 2)
+            .extrude(flange_h)
+            .translate((0, 0, -flange_h))
+        )
+        top = (
+            cq.Workplane("XY")
+            .circle(flange_od / 2)
+            .circle(id_ / 2)
+            .extrude(flange_h)
+            .translate((0, 0, free_length))
+        )
+        body = body.union(bottom).union(top)
+
+        seg_od = od + wire_d * 0.8
+        seg_h = min(free_length / coil_n * 0.4, wire_d * 3)
+        pitch = free_length / coil_n
+        for i in range(coil_n):
+            z = i * pitch + (pitch - seg_h) / 2
+            ring = (
+                cq.Workplane("XY")
+                .circle(seg_od / 2)
+                .circle(od / 2 * 0.98)
+                .extrude(seg_h)
+                .translate((0, 0, z))
+            )
+            body = body.union(ring)
+        return body
 
     # ── 各模板 SW 建模方法（Task 16-18 实现） ──────────────────────────────
 
@@ -498,9 +698,11 @@ class SwParametricAdapter:
             ftMgr = model.FeatureManager
             skMgr = model.SketchManager
 
-            # 平板 Box
+            # 平板 Box：前视基准面 = XY 平面，厚度沿 +Z 挤出。
+            # 这与 CadQuery 生成件和 assembly.py 的约定一致：
+            # local origin 位于 XY 中心，底面 Z=0。
             model.Extension.SelectByID2(
-                "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                "前视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
             skMgr.InsertSketch(True)
             skMgr.CreateCenterRectangle(0, 0, 0, w / 2, d / 2, 0)
             skMgr.InsertSketch(True)
@@ -523,7 +725,7 @@ class SwParametricAdapter:
                         for i in range(n_hole)
                     ]
                 model.Extension.SelectByID2(
-                    "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
+                    "前视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
                 skMgr.InsertSketch(True)
                 for cx, cz in positions:
                     skMgr.CreateCircleByRadius(cx, cz, 0, hole_d / 2)

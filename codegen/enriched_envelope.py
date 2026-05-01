@@ -45,7 +45,8 @@ def _make_enriched_envelope(
         try:
             return _enrich_default(cq, w, d, h)
         except Exception:
-            return cq.Workplane("XY").box(w, d, h)
+            return cq.Workplane("XY").box(
+                w, d, h, centered=(True, True, False))
 
 
 def _enrich_flange(cq, od: float, h: float):
@@ -76,10 +77,11 @@ def _enrich_flange(cq, od: float, h: float):
 def _enrich_housing(cq, w: float, d: float, h: float):
     wall = min(w, d) * 0.12
     body = (
-        cq.Workplane("XY").box(w, d, h)
+        cq.Workplane("XY").box(w, d, h, centered=(True, True, False))
         .cut(cq.Workplane("XY")
-             .box(w - wall * 2, d - wall * 2, h - wall)
-             .translate((0, 0, wall / 2)))
+             .box(w - wall * 2, d - wall * 2, h - wall,
+                  centered=(True, True, False))
+             .translate((0, 0, wall)))
     )
     slot_w = round(w * _ENRICH_HOUSING_SLOT_W, 2)
     slot_h = round(h * _ENRICH_HOUSING_SLOT_H, 2)
@@ -96,7 +98,7 @@ def _enrich_housing(cq, w: float, d: float, h: float):
 
 
 def _enrich_plate_like(cq, w: float, d: float, h: float):
-    body = cq.Workplane("XY").box(w, d, h)
+    body = cq.Workplane("XY").box(w, d, h, centered=(True, True, False))
     hole_r = min(w, d) * 0.04
     for sx in (-1, 1):
         for sy in (-1, 1):
@@ -115,13 +117,13 @@ def _enrich_plate_like(cq, w: float, d: float, h: float):
 
 
 def _enrich_default(cq, w: float, d: float, h: float):
-    body = cq.Workplane("XY").box(w, d, h)
+    body = cq.Workplane("XY").box(w, d, h, centered=(True, True, False))
     cbore_r = min(_ENRICH_DEFAULT_CBORE_D / 2, min(w, d) * 0.15)
     cbore_r = max(cbore_r, 0.5)  # OCCT 最小精度保护
     cbore_h = min(_ENRICH_DEFAULT_CBORE_H, h * 0.4)
     body = body.cut(
         cq.Workplane("XY")
-        .transformed(offset=cq.Vector(0, 0, h / 2 - cbore_h))
+        .transformed(offset=cq.Vector(0, 0, h - cbore_h))
         .circle(cbore_r).extrude(cbore_h + 1)
     )
     try:

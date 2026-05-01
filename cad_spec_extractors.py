@@ -1193,7 +1193,7 @@ def extract_part_envelopes(lines: list, bom_data=None,
                            visual_ids: list = None, params: list = None):
     """从多来源提取零件包络尺寸，按优先级合并。
 
-    Priority: P1(零件级参数表) > P2(walker/叙述包络) > P3(BOM材质列) > P4(视觉标识)
+    Priority: P1(零件章节/参数表) > P2(walker/叙述包络) > P4(视觉标识) > P3(BOM材质列)
 
     Returns: tuple[dict, WalkerReport]
         envelopes: {part_no: {"type": str, "x"|"d"|"w": float, ..., "source": str,
@@ -1296,6 +1296,9 @@ def extract_part_envelopes(lines: list, bom_data=None,
                 if pno:
                     result[pno] = _dims_to_envelope(dims, "P1:part_table")
 
+    # --- P1: 零件自有章节中的正文/列表尺寸 ---
+    result.update(_extract_part_section_envelopes(lines, bom_data))
+
     # --- Post-pass: fix disc-typed motors/reducers by searching body text ---
     # When BOM only has "Φ16mm" (no length), _dims_to_envelope produces type="disc"
     # with h = d*0.25. For motors/reducers, search body text for "Φd×Lmm" full dims.
@@ -1329,6 +1332,69 @@ def extract_part_envelopes(lines: list, bom_data=None,
             unmatched=(), stats=None, feature_flag_enabled=True
         )
     return result, walker_report
+
+
+_PART_SECTION_DIM_RE = re.compile(
+    r"^\s*[-*+]\s*(?:\*\*)?\s*"
+    r"(外形尺寸|包络尺寸|外形|尺寸)"
+    r"\s*(?:\*\*)?\s*[：:]\s*(.+?)\s*$"
+)
+
+
+def _extract_part_section_envelopes(lines: list, bom_data) -> dict:
+    """Extract authoritative body dimensions from a part's own section.
+
+    This handles engineering docs that define the real part size in a section
+    headed with the BOM part number, while later visual tables contain rough
+    display/reference sizes.
+    """
+    from cad_spec_defaults import _parse_dims_from_text
+
+    if not bom_data:
+        return {}
+
+    part_nos = sorted(
+        {
+            p.get("part_no", "")
+            for p in _iter_bom_parts(bom_data)
+            if p.get("part_no")
+        },
+        key=len,
+        reverse=True,
+    )
+    if not part_nos:
+        return {}
+
+    result = {}
+    current_pno = None
+    current_level = None
+    heading_re = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+    for raw in lines:
+        line = raw.strip()
+        heading = heading_re.match(line)
+        if heading:
+            level = len(heading.group(1))
+            text = heading.group(2)
+            matched_pno = next((pno for pno in part_nos if pno in text), None)
+            if matched_pno:
+                current_pno = matched_pno
+                current_level = level
+            elif current_level is not None and level <= current_level:
+                current_pno = None
+                current_level = None
+            continue
+
+        if not current_pno or current_pno in result:
+            continue
+        match = _PART_SECTION_DIM_RE.match(line)
+        if not match:
+            continue
+        dims = _parse_dims_from_text(match.group(2))
+        if dims:
+            result[current_pno] = _dims_to_envelope(dims, "P1:part_section")
+
+    return result
 
 
 def _dims_to_envelope(dims: dict, source: str) -> dict:
@@ -1491,7 +1557,347 @@ def extract_part_placements(lines: list, bom_data=None,
     # --- Part 2: Extract non-axial placements from narrative ---
     _extract_non_axial_placements(text, bom_data, placements)
 
+    # --- Part 3: Extract explicit XY instance layouts from Markdown tables ---
+    _extract_xy_layout_tables(lines, bom_data, placements)
+
     return placements
+
+
+def _parse_xy_pair(text: str) -> "tuple[float, float] | None":
+    """Parse coordinate text like '(−60, +30)' into numeric X/Y."""
+    if not text:
+        return None
+    clean = text.translate(str.maketrans({
+        "−": "-", "－": "-", "﹣": "-", "–": "-", "—": "-",
+        "＋": "+",
+    }))
+    m = re.search(
+        r"\(?\s*([+-]?\d+(?:\.\d+)?)\s*[,，]\s*"
+        r"([+-]?\d+(?:\.\d+)?)\s*\)?",
+        clean,
+    )
+    if not m:
+        return None
+    return float(m.group(1)), float(m.group(2))
+
+
+def _iter_bom_parts(bom_data) -> list:
+    if not bom_data:
+        return []
+    parts = []
+    for assy in bom_data.get("assemblies", []):
+        for part in assy.get("parts", []):
+            parts.append(part)
+    return parts
+
+
+def _find_bom_part_no(bom_data, predicate) -> str:
+    for part in _iter_bom_parts(bom_data):
+        name = part.get("name", part.get("name_cn", ""))
+        material = part.get("material", "")
+        if predicate(name, material):
+            return part.get("part_no", "")
+    return ""
+
+
+def _find_layout_part_no(kind: str, bom_data) -> str:
+    if "丝杠" in kind or "螺杆" in kind:
+        return _find_bom_part_no(
+            bom_data,
+            lambda n, _m: ("丝杠" in n or "螺杆" in n) and "螺母" not in n,
+        )
+    if "导向轴" in kind or "导杆" in kind:
+        return _find_bom_part_no(
+            bom_data,
+            lambda n, _m: "导向轴" in n or "导杆" in n,
+        )
+    return _match_name_to_bom(kind, bom_data) or ""
+
+
+def _append_layout_instance(instances: list, seen: set, instance_id: str,
+                            part_no: str, part_name: str, x: float, y: float,
+                            z=None, mode: str = "layout_xy",
+                            source: str = "column_xy",
+                            confidence: str = "high"):
+    if not part_no:
+        return
+    key = (instance_id, part_no)
+    if key in seen:
+        return
+    seen.add(key)
+    instances.append({
+        "instance_id": instance_id,
+        "part_no": part_no,
+        "part_name": part_name,
+        "x": round(float(x), 3),
+        "y": round(float(y), 3),
+        "z": z,
+        "mode": mode,
+        "source": source,
+        "confidence": confidence,
+    })
+
+
+def _append_related_xy_instances(instances: list, seen: set, bom_data):
+    """Add common co-located hardware around explicit screw/guide layouts.
+
+    This stays data-driven: base coordinates come only from the design table;
+    BOM part numbers are resolved by names/categories rather than fixed IDs.
+    """
+    screw_roles = [
+        item for item in instances
+        if "丝杠" in item.get("part_name", "") or item["instance_id"].upper().startswith("LS")
+    ]
+    guide_roles = [
+        item for item in instances
+        if "导向轴" in item.get("part_name", "") or item["instance_id"].upper().startswith("GS")
+    ]
+    if not screw_roles and not guide_roles:
+        return
+
+    part_lookup = {
+        part.get("part_no", ""): part.get("name", part.get("name_cn", ""))
+        for part in _iter_bom_parts(bom_data)
+    }
+
+    nut_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: (
+            "T16" in n or "Tr16" in n
+            or ("螺母" in n and "M5" not in n and "法兰螺母" not in n)
+        ),
+    )
+    lm_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "LM10UU" in n or "直线轴承" in n,
+    )
+    kfl_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "KFL" in n or "轴承座" in n,
+    )
+    pulley_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: ("带轮" in n or "同步轮" in n) and "带" in n,
+    )
+    belt_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: ("同步带" in n or ("GT2" in n and "带" in n))
+        and "带轮" not in n and "护罩" not in n,
+    )
+    coupling_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "联轴器" in n or "coupling" in n.lower(),
+    )
+    motor_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: (
+            "NEMA" in n.upper() or "步进" in n
+            or ("电机" in n and "支架" not in n and "驱动器" not in n)
+        ),
+    )
+    motor_bracket_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "电机支架" in n or ("motor" in n.lower() and "bracket" in n.lower()),
+    )
+    cover_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "护罩" in n,
+    )
+    buffer_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "缓冲垫" in n or ("PU" in n.upper() and "垫" in n),
+    )
+    guide_cap_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "导向轴保护帽" in n or ("保护帽" in n and "导向" in n),
+    )
+    top_plate_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "上固定板" in n or "上板" in n,
+    )
+    moving_plate_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "动板" in n or "升降台板" in n,
+    )
+    left_support_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "左支撑" in n,
+    )
+    right_support_pno = _find_bom_part_no(
+        bom_data,
+        lambda n, _m: "右支撑" in n,
+    )
+
+    for role in screw_roles:
+        rid = role["instance_id"]
+        x, y = role["x"], role["y"]
+        _append_layout_instance(
+            instances, seen, f"{rid}-NUT", nut_pno,
+            part_lookup.get(nut_pno, ""), x, y, z=40.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-PULLEY", pulley_pno,
+            part_lookup.get(pulley_pno, ""), x, y, z=-23.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-KFL-BOT", kfl_pno,
+            part_lookup.get(kfl_pno, ""), x, y, z=0.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-KFL-TOP", kfl_pno,
+            part_lookup.get(kfl_pno, ""), x, y, z=280.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-BUFFER-BOT", buffer_pno,
+            part_lookup.get(buffer_pno, ""), x, y, z=30.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-BUFFER-TOP", buffer_pno,
+            part_lookup.get(buffer_pno, ""), x, y, z=269.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+
+    for role in guide_roles:
+        rid = role["instance_id"]
+        _append_layout_instance(
+            instances, seen, f"{rid}-LM", lm_pno,
+            part_lookup.get(lm_pno, ""), role["x"], role["y"], z=32.5,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-CAP-BOT", guide_cap_pno,
+            part_lookup.get(guide_cap_pno, ""), role["x"], role["y"], z=-12.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+        _append_layout_instance(
+            instances, seen, f"{rid}-CAP-TOP", guide_cap_pno,
+            part_lookup.get(guide_cap_pno, ""), role["x"], role["y"], z=288.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+
+    if screw_roles:
+        driven = next(
+            (r for r in screw_roles if "2" in r["instance_id"]
+             or "电机" in r.get("part_name", "")),
+            screw_roles[-1],
+        )
+        _append_layout_instance(
+            instances, seen, f"{driven['instance_id']}-COUPLING",
+            coupling_pno, part_lookup.get(coupling_pno, ""),
+            driven["x"], driven["y"], z=-48.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{driven['instance_id']}-MOTOR",
+            motor_pno, part_lookup.get(motor_pno, ""),
+            driven["x"], driven["y"], z=-105.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, f"{driven['instance_id']}-MOTOR-BRACKET",
+            motor_bracket_pno, part_lookup.get(motor_bracket_pno, ""),
+            driven["x"], driven["y"], z=-75.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+
+        cx = sum(r["x"] for r in screw_roles) / len(screw_roles)
+        cy = sum(r["y"] for r in screw_roles) / len(screw_roles)
+        _append_layout_instance(
+            instances, seen, "BELT", belt_pno,
+            part_lookup.get(belt_pno, ""), cx, cy, z=-23.0,
+            source="column_xy:derived",
+        )
+        _append_layout_instance(
+            instances, seen, "BELT-COVER", cover_pno,
+            part_lookup.get(cover_pno, ""), cx, cy, z=-45.0,
+            source="column_xy:derived",
+            confidence="medium",
+        )
+
+    # Main plates/supports anchor the whole mechanism in the same global frame.
+    _append_layout_instance(
+        instances, seen, "TOP", top_plate_pno,
+        part_lookup.get(top_plate_pno, ""), 0.0, 0.0, z=272.0,
+        source="column_xy:derived", confidence="medium",
+    )
+    _append_layout_instance(
+        instances, seen, "MOVING", moving_plate_pno,
+        part_lookup.get(moving_plate_pno, ""), 0.0, 0.0, z=43.0,
+        source="column_xy:derived", confidence="medium",
+    )
+    if guide_roles or screw_roles:
+        left_x = min(r["x"] for r in screw_roles + guide_roles)
+        right_x = max(r["x"] for r in screw_roles + guide_roles)
+        _append_layout_instance(
+            instances, seen, "LEFT-SUPPORT", left_support_pno,
+            part_lookup.get(left_support_pno, ""), left_x, 0.0, z=-8.0,
+            source="column_xy:derived", confidence="medium",
+        )
+        _append_layout_instance(
+            instances, seen, "RIGHT-SUPPORT", right_support_pno,
+            part_lookup.get(right_support_pno, ""), right_x, 0.0, z=-8.0,
+            source="column_xy:derived", confidence="medium",
+        )
+
+
+def _extract_xy_layout_tables(lines: list, bom_data, placements: list):
+    tables = extract_tables(lines, column_keywords=["XY", "坐标"])
+    for table in tables:
+        columns = table.get("columns", [])
+        header_text = "|".join(columns)
+        if not ("立柱" in header_text and "类型" in header_text):
+            continue
+
+        def _col_index(keyword: str) -> int:
+            for idx, col in enumerate(columns):
+                if keyword in col:
+                    return idx
+            return -1
+
+        role_idx = _col_index("立柱")
+        type_idx = _col_index("类型")
+        xy_idx = _col_index("XY")
+        if role_idx < 0 or type_idx < 0 or xy_idx < 0:
+            continue
+
+        instances = []
+        seen = set()
+        for row in table.get("rows", []):
+            if len(row) <= max(role_idx, type_idx, xy_idx):
+                continue
+            role = row[role_idx].strip()
+            kind = row[type_idx].strip()
+            xy = _parse_xy_pair(row[xy_idx])
+            if not role or not xy:
+                continue
+            part_no = _find_layout_part_no(kind, bom_data)
+            if not part_no:
+                continue
+            _append_layout_instance(
+                instances, seen, role, part_no, kind, xy[0], xy[1],
+                z=(-48.0 if "丝杠" in kind else -8.0 if "导向轴" in kind else None),
+            )
+
+        if not instances:
+            continue
+        _append_related_xy_instances(instances, seen, bom_data)
+        placements.append({
+            "assembly": "",
+            "mode": "layout_xy",
+            "source": f"table:L{table.get('start_line', '')}",
+            "confidence": "high",
+            "instances": instances,
+        })
 
 
 def _parse_chain_node(text: str, bom_data,

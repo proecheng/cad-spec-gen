@@ -35,7 +35,8 @@ from bom_parser import classify_part
 # Categories that get simplified CadQuery geometry. Must stay in sync with
 # _GENERATORS in codegen/gen_std_parts.py.
 _STD_PART_CATEGORIES = {"motor", "reducer", "spring", "bearing", "sensor",
-                        "pump", "connector", "seal", "tank", "other"}
+                        "pump", "connector", "seal", "tank", "transmission",
+                        "other"}
 
 
 def parse_assembly_pose(spec_path: str) -> dict:
@@ -222,6 +223,7 @@ _STD_COLOR_MAP = {
     "connector": ("C_STD_CONN",    0.25, 0.25, 0.25),  # dark grey
     "seal":      ("C_STD_SEAL",    0.08, 0.08, 0.08),  # black rubber
     "tank":      ("C_STD_TANK",    0.82, 0.82, 0.85),  # bright steel
+    "transmission": ("C_STD_TRANS", 0.70, 0.42, 0.20),  # bronze/steel
     "other":     ("C_STD_OTHER",   0.45, 0.45, 0.50),  # neutral grey
 }
 
@@ -991,10 +993,44 @@ def parse_render_exclusions(spec_path: str) -> dict:
     return {"assemblies": assemblies, "parts": parts}
 
 
+def _split_md_row(line: str) -> list:
+    raw_cells = [c.strip() for c in line.split("|")]
+    return raw_cells[1:-1] if len(raw_cells) >= 2 else raw_cells
+
+
+def _header_index(header: list, aliases: tuple) -> int:
+    for idx, col in enumerate(header):
+        compact = re.sub(r"\s+", "", col).lower()
+        for alias in aliases:
+            if alias.lower() in compact:
+                return idx
+    return -1
+
+
+def _cell_float(cells: list, idx: int):
+    if idx < 0 or idx >= len(cells):
+        return None
+    value = cells[idx].strip()
+    if value in ("", "—", "-"):
+        return None
+    value = value.translate(str.maketrans({
+        "−": "-", "－": "-", "﹣": "-", "–": "-", "—": "-",
+        "＋": "+",
+    }))
+    m = re.search(r"[+-]?\d+(?:\.\d+)?", value)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except ValueError:
+        return None
+
+
 def _parse_part_positions(spec_path: str) -> dict:
     """Parse §6.3 part-level positioning table from CAD_SPEC.md.
 
-    Returns {part_no: {"z": float, "h": float, "mode": str, "confidence": str}}.
+    Returns {part_no: {"z": float, "h": float, "mode": str,
+                       "confidence": str, "instances": [...]}}.
     """
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
@@ -1003,10 +1039,12 @@ def _parse_part_positions(spec_path: str) -> dict:
 
     positions = {}
     in_section = False
+    header = []
 
     for line in text.splitlines():
         if "### 6.3" in line and "零件级定位" in line:
             in_section = True
+            header = []
             continue
         if in_section and line.startswith("### ") and "6.3" not in line:
             break
@@ -1017,36 +1055,84 @@ def _parse_part_positions(spec_path: str) -> dict:
         if not line.startswith("|") or "---" in line:
             continue
 
-        # Preserve empty cells to maintain column alignment
-        # ("|a||b|" → ["", "a", "", "b", ""] → strip leading/trailing → ["a", "", "b"])
-        raw_cells = [c.strip() for c in line.split("|")]
-        cells = raw_cells[1:-1] if len(raw_cells) >= 2 else raw_cells  # strip outer empties
+        cells = _split_md_row(line)
         if len(cells) < 5:
             continue
-        # Skip header rows
-        if cells[0] == "料号":
+        if "料号" in cells:
+            header = cells
+            continue
+        if not header:
             continue
 
-        pno = cells[0]
+        pno_idx = _header_index(header, ("料号", "part_no"))
+        inst_idx = _header_index(header, ("实例", "instance"))
+        mode_idx = _header_index(header, ("模式", "mode"))
+        h_idx = _header_index(header, ("高度", "h(mm)", "height"))
+        z_idx = _header_index(header, ("底面z", "z(mm)", "z"))
+        x_idx = _header_index(header, ("x(mm)", "x"))
+        y_idx = _header_index(header, ("y(mm)", "y"))
+        src_idx = _header_index(header, ("来源", "source"))
+        conf_idx = _header_index(header, ("置信度", "confidence"))
+
+        if pno_idx < 0 or pno_idx >= len(cells):
+            continue
+        pno = cells[pno_idx]
         if not re.match(r"[A-Z]+-", pno):
             continue
 
-        mode = cells[2] if len(cells) > 2 else "axial_stack"
-        try:
-            h = float(cells[3]) if len(cells) > 3 and cells[3] not in ("", "—") else None
-        except ValueError:
-            h = None
-        try:
-            z = float(cells[4]) if len(cells) > 4 and cells[4] not in ("", "—") else None
-        except ValueError:
-            z = None
-        confidence = cells[6] if len(cells) > 6 else ""
+        mode = cells[mode_idx] if 0 <= mode_idx < len(cells) else "axial_stack"
+        h = _cell_float(cells, h_idx)
+        z = _cell_float(cells, z_idx)
+        x = _cell_float(cells, x_idx)
+        y = _cell_float(cells, y_idx)
+        source = cells[src_idx] if 0 <= src_idx < len(cells) else ""
+        confidence = cells[conf_idx] if 0 <= conf_idx < len(cells) else ""
+        instance_id = cells[inst_idx] if 0 <= inst_idx < len(cells) else ""
 
-        positions[pno] = {
+        pos = positions.setdefault(pno, {
             "z": z, "h": h, "mode": mode, "confidence": confidence,
-        }
+            "source": source, "instances": [],
+        })
+        if not pos.get("instances"):
+            pos.update({
+                "z": z, "h": h, "mode": mode,
+                "confidence": confidence, "source": source,
+            })
+        if instance_id or x is not None or y is not None:
+            pos["instances"].append({
+                "instance_id": instance_id or pno,
+                "part_no": pno,
+                "x": x if x is not None else 0.0,
+                "y": y if y is not None else 0.0,
+                "z": z if z is not None else 0.0,
+                "h": h,
+                "mode": mode,
+                "source": source,
+                "confidence": confidence,
+            })
 
     return positions
+
+
+def _safe_instance_id(instance_id: str) -> str:
+    safe = re.sub(r"[^0-9A-Za-z_]+", "_", instance_id or "")
+    return safe.strip("_").lower()
+
+
+def _offset_from_instance(instance: dict, fallback):
+    if instance:
+        return (
+            float(instance.get("x") or 0.0),
+            float(instance.get("y") or 0.0),
+            float(instance.get("z") or 0.0),
+        )
+    return fallback
+
+
+def _offset_to_literal(offset) -> str:
+    if not offset or offset == (0, 0, 0):
+        return ""
+    return f"({offset[0]}, {offset[1]}, {offset[2]})"
 
 
 def generate_assembly(spec_path: str) -> str:
@@ -1099,6 +1185,7 @@ def generate_assembly(spec_path: str) -> str:
     # C1: Extract per-assembly pose from §6.2 (keyed by part number)
     layer_poses = _extract_all_layer_poses(pose, parts)
     part_offsets = _resolve_child_offsets(parts, layer_poses, spec_path)
+    part_positions = _parse_part_positions(spec_path)
 
     # C6: Build orientation map from §6.2 axis_dir column
     axis_map = _build_layer_axis_map(pose)
@@ -1150,6 +1237,9 @@ def generate_assembly(spec_path: str) -> str:
             c_stripped = strip_part_prefix(child["part_no"])
             c_suffix = c_stripped.split("-")[-1] if "-" in c_stripped else c_stripped
             make_buy = child.get("make_buy", "")
+            child_instances = part_positions.get(
+                child["part_no"], {}).get("instances", [])
+            placement_rows = child_instances or [None]
 
             if "外购" in make_buy or "标准" in make_buy:
                 # Standard/purchased part — use std_ module
@@ -1165,24 +1255,30 @@ def generate_assembly(spec_path: str) -> str:
                 color_info = _STD_COLOR_MAP.get(category, ("C_STD_SENSOR", 0.2, 0.2, 0.2))
                 std_colors_used[color_info[0]] = color_info
 
-                # C6: Apply station-level orientation from §6.2 axis_dir
-                var_name = f"p_{std_mod}"
-                local_xform, orient_ref = _axis_dir_to_local_transform(
-                    station_axis_dir, var_name, child["name_cn"])
+                for inst in placement_rows:
+                    inst_id = inst.get("instance_id", "") if inst else ""
+                    inst_safe = _safe_instance_id(inst_id)
+                    inst_suffix = f"_{inst_safe}" if inst_safe else ""
+                    name_suffix = f"-{inst_id}" if inst_id else ""
 
-                offset = part_offsets.get(child["part_no"])
-                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
-                              if offset and offset != (0, 0, 0) else "")
-                station_parts.append({
-                    "var": var_name,
-                    "make_call": f"{std_func}()",
-                    "local_transform": local_xform,
-                    "orient_doc_ref": orient_ref or "",
-                    "orient_rule": "",
-                    "local_offset": offset_str,
-                    "assy_name": f"STD-{child['part_no']}",
-                    "color_var": color_info[0],
-                })
+                    # C6: Apply station-level orientation from §6.2 axis_dir
+                    var_name = f"p_{std_mod}{inst_suffix}"
+                    local_xform, orient_ref = _axis_dir_to_local_transform(
+                        station_axis_dir, var_name, child["name_cn"])
+
+                    offset = _offset_from_instance(
+                        inst, part_offsets.get(child["part_no"]))
+                    offset_str = _offset_to_literal(offset)
+                    station_parts.append({
+                        "var": var_name,
+                        "make_call": f"{std_func}()",
+                        "local_transform": local_xform,
+                        "orient_doc_ref": orient_ref or "",
+                        "orient_rule": "",
+                        "local_offset": offset_str,
+                        "assy_name": f"STD-{child['part_no']}{name_suffix}",
+                        "color_var": color_info[0],
+                    })
                 std_func_imports.append({
                     "module": std_mod,
                     "func": std_func,
@@ -1199,24 +1295,30 @@ def generate_assembly(spec_path: str) -> str:
                 ee_func = f"make_{ee_mod}"
                 c_color = _COLOR_PALETTE[color_idx % len(_COLOR_PALETTE)][0]
 
-                # C6: Apply station-level orientation from §6.2 axis_dir
-                var_name = f"p_{ee_mod}"
-                local_xform, orient_ref = _axis_dir_to_local_transform(
-                    station_axis_dir, var_name, child["name_cn"])
+                for inst in placement_rows:
+                    inst_id = inst.get("instance_id", "") if inst else ""
+                    inst_safe = _safe_instance_id(inst_id)
+                    inst_suffix = f"_{inst_safe}" if inst_safe else ""
+                    name_suffix = f"-{inst_id}" if inst_id else ""
 
-                offset = part_offsets.get(child["part_no"])
-                offset_str = (f"({offset[0]}, {offset[1]}, {offset[2]})"
-                              if offset and offset != (0, 0, 0) else "")
-                station_parts.append({
-                    "var": var_name,
-                    "make_call": f"{ee_func}()",
-                    "local_transform": local_xform,
-                    "orient_doc_ref": orient_ref or "",
-                    "orient_rule": "",
-                    "local_offset": offset_str,
-                    "assy_name": c_stripped,
-                    "color_var": c_color,
-                })
+                    # C6: Apply station-level orientation from §6.2 axis_dir
+                    var_name = f"p_{ee_mod}{inst_suffix}"
+                    local_xform, orient_ref = _axis_dir_to_local_transform(
+                        station_axis_dir, var_name, child["name_cn"])
+
+                    offset = _offset_from_instance(
+                        inst, part_offsets.get(child["part_no"]))
+                    offset_str = _offset_to_literal(offset)
+                    station_parts.append({
+                        "var": var_name,
+                        "make_call": f"{ee_func}()",
+                        "local_transform": local_xform,
+                        "orient_doc_ref": orient_ref or "",
+                        "orient_rule": "",
+                        "local_offset": offset_str,
+                        "assy_name": f"{c_stripped}{name_suffix}",
+                        "color_var": c_color,
+                    })
                 # Each custom part gets its own import line
                 part_imports.append({
                     "module": ee_mod,

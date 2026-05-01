@@ -49,6 +49,42 @@ from parts_resolver import PartQuery, default_resolver
 _SKIP_CATEGORIES = {"fastener", "cable"}
 
 
+def _build_part_query(p: dict, category: str, env, project_root: str) -> PartQuery:
+    """Build the resolver query shared by prewarm and generation loops."""
+    return PartQuery(
+        part_no=p["part_no"],
+        name_cn=p["name_cn"],
+        material=p["material"],
+        category=category,
+        make_buy=p.get("make_buy", ""),
+        spec_envelope=_envelope_to_spec_envelope(env),
+        spec_envelope_granularity=_envelope_to_granularity(env),
+        project_root=project_root,
+    )
+
+
+def _has_exact_step_pool_mapping(resolver, query: PartQuery) -> bool:
+    """True when parts_library.yaml has an exact part_no STEP rule.
+
+    User-provided STEP imports are written this way. They must be allowed
+    through even for categories normally skipped by coarse codegen filters.
+    """
+    matching_rules = getattr(resolver, "matching_rules", None)
+    if matching_rules is None:
+        return False
+    for rule in matching_rules(query, adapter_name="step_pool"):
+        match = rule.get("match") or {}
+        if isinstance(match, dict) and match.get("part_no") == query.part_no:
+            return True
+    return False
+
+
+def _should_skip_category(category: str, resolver, query: PartQuery) -> bool:
+    if category not in _SKIP_CATEGORIES:
+        return False
+    return not _has_exact_step_pool_mapping(resolver, query)
+
+
 def _safe_module_name(part_no: str) -> str:
     """Part number → std module name.
 
@@ -220,6 +256,18 @@ def {func_name}() -> cq.Workplane:
             path_resolver_line = (
                 f'    _step_path = os.path.join(_here, "..", "..", {_step_path!r})'
             )
+        normalize_origin = (result.metadata or {}).get("normalize_origin")
+        if normalize_origin == "center_xy_bottom_z":
+            import_return = '''    _model = cq.importers.importStep(_step_path)
+    _bbox = _model.val().BoundingBox()
+    _origin_shift = (
+        -(_bbox.xmin + _bbox.xmax) / 2.0,
+        -(_bbox.ymin + _bbox.ymax) / 2.0,
+        -_bbox.zmin,
+    )
+    return _model.translate(_origin_shift)'''
+        else:
+            import_return = "    return cq.importers.importStep(_step_path)"
         func_block = f'''
 
 def {func_name}() -> cq.Workplane:
@@ -234,7 +282,7 @@ def {func_name}() -> cq.Workplane:
     if not os.path.isfile(_step_path):
         raise FileNotFoundError(
             f"STEP file missing for {part["part_no"]}: {{_step_path}}")
-    return cq.importers.importStep(_step_path)
+{import_return}
 '''
 
     elif result.kind == "python_import":
@@ -354,19 +402,11 @@ def generate_std_part_files(
         if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
             continue
         category = classify_part(p["name_cn"], p["material"])
-        if category in _SKIP_CATEGORIES:
-            continue
         env = envelopes.get(p["part_no"])
-        queries_for_prewarm.append(PartQuery(
-            part_no=p["part_no"],
-            name_cn=p["name_cn"],
-            material=p["material"],
-            category=category,
-            make_buy=p.get("make_buy", ""),
-            spec_envelope=_envelope_to_spec_envelope(env),
-            spec_envelope_granularity=_envelope_to_granularity(env),
-            project_root=project_root,
-        ))
+        query = _build_part_query(p, category, env, project_root)
+        if _should_skip_category(category, resolver, query):
+            continue
+        queries_for_prewarm.append(query)
     if queries_for_prewarm:
         try:
             resolver.prewarm(queries_for_prewarm)
@@ -381,21 +421,12 @@ def generate_std_part_files(
             continue
 
         category = classify_part(p["name_cn"], p["material"])
-        if category in _SKIP_CATEGORIES:
-            continue
 
         # Build the query, priming spec_envelope from §6.4 when available
         env = envelopes.get(p["part_no"])
-        query = PartQuery(
-            part_no=p["part_no"],
-            name_cn=p["name_cn"],
-            material=p["material"],
-            category=category,
-            make_buy=p.get("make_buy", ""),
-            spec_envelope=_envelope_to_spec_envelope(env),
-            spec_envelope_granularity=_envelope_to_granularity(env),
-            project_root=project_root,
-        )
+        query = _build_part_query(p, category, env, project_root)
+        if _should_skip_category(category, resolver, query):
+            continue
 
         try:
             result = resolver.resolve(query)

@@ -88,6 +88,38 @@ def test_f3_compactness_uses_actual_height_when_envelope_missing():
     assert issues == []
 
 
+def test_match_name_to_part_no_accepts_unique_single_segment_suffix():
+    """Generated SLP assemblies name custom parts as 100/P01, not SLP-100."""
+    from assembly_validator import _match_name_to_part_no
+
+    part_nos = ["SLP-100", "SLP-P01", "SLP-C02"]
+
+    assert _match_name_to_part_no("100", part_nos) == "SLP-100"
+    assert _match_name_to_part_no("P01", part_nos) == "SLP-P01"
+
+
+def test_match_name_to_part_no_accepts_instance_suffixes():
+    """Assembly instance names should map back to their BOM base part."""
+    from assembly_validator import _match_name_to_part_no
+
+    part_nos = ["SLP-P01", "SLP-P02", "SLP-C04"]
+
+    assert _match_name_to_part_no("P01-LS1", part_nos) == "SLP-P01"
+    assert _match_name_to_part_no("P02-GS2", part_nos) == "SLP-P02"
+    assert _match_name_to_part_no("STD-SLP-C04-LS2", part_nos) == "SLP-C04"
+    assert _match_name_to_part_no("STD-SLP-C01-LS1-NUT", part_nos + ["SLP-C01"]) == "SLP-C01"
+    assert _match_name_to_part_no("200-LEFT-SUPPORT", part_nos + ["SLP-200"]) == "SLP-200"
+
+
+def test_match_name_to_part_no_rejects_ambiguous_single_segment_suffix():
+    """One-token suffix matching is only safe when it is unique."""
+    from assembly_validator import _match_name_to_part_no
+
+    part_nos = ["GIS-EE-001-04", "GIS-EE-003-04"]
+
+    assert _match_name_to_part_no("04", part_nos) == ""
+
+
 def test_f5_completeness_excludes_connectors_cables_and_excluded_assemblies():
     """Expected and actual counts should use the same render exclusion contract."""
     from assembly_validator import check_f5_completeness
@@ -123,3 +155,36 @@ def test_f5_completeness_excludes_connectors_cables_and_excluded_assemblies():
     assert report["actual"] == 1
     assert report["missing"] == []
     assert report["ok"] is True
+
+
+def test_f5_completeness_counts_mechanical_drivetrain_parts():
+    """Mechanical drivetrain leaves must be counted, so missing belts,
+    pulleys, couplings, screw nuts, and guards are visible in F5."""
+    from assembly_validator import check_f5_completeness
+
+    bom_parts = [
+        {"part_no": "SLP-100", "name_cn": "上固定板",
+         "is_assembly": False, "material": "6061", "make_buy": "自制"},
+        {"part_no": "SLP-500", "name_cn": "同步带护罩",
+         "is_assembly": False, "material": "PLA", "make_buy": "自制"},
+        {"part_no": "SLP-C01", "name_cn": "T16 螺母 C7",
+         "is_assembly": False, "material": "", "make_buy": "外购"},
+        {"part_no": "SLP-C04", "name_cn": "GT2 20T 开式带轮 φ12",
+         "is_assembly": False, "material": "", "make_buy": "外购"},
+        {"part_no": "SLP-C05", "name_cn": "GT2-310-6mm 带",
+         "is_assembly": False, "material": "", "make_buy": "外购"},
+        {"part_no": "SLP-C06", "name_cn": "L070 联轴器",
+         "is_assembly": False, "material": "", "make_buy": "外购"},
+    ]
+    bboxes = {
+        "100": (0, 0, 0, 100, 80, 10),
+    }
+
+    report = check_f5_completeness(bboxes, bom_parts)
+
+    assert report["expected"] == 6
+    assert report["actual"] == 1
+    assert set(report["missing"]) == {
+        "SLP-500", "SLP-C01", "SLP-C04", "SLP-C05", "SLP-C06",
+    }
+    assert report["ok"] is False

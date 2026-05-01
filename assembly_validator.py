@@ -169,14 +169,35 @@ def _match_name_to_part_no(name: str, part_nos) -> str:
     if clean in part_nos:
         return clean
 
+    candidates = [clean]
+    current = clean
+    while "-" in current:
+        base, suffix = current.rsplit("-", 1)
+        # Generated multi-instance names append semantic instance IDs
+        # (LS1/GS2/TOP/etc.) after the real assembly suffix. Some names
+        # append several semantic tokens, e.g. SLP-C01-LS1-NUT.
+        if not re.search(r"[A-Za-z]", suffix):
+            break
+        candidates.append(base)
+        current = base
+
     # Match by longest suffix so EE-003-04 maps to GIS-EE-003-04, while
     # avoiding one-token suffixes that collide across stations.
-    for pno in sorted(part_nos, key=len, reverse=True):
-        segments = pno.split("-")
-        for start in range(len(segments)):
-            suffix = "-".join(segments[start:])
-            if suffix.count("-") >= 1 and suffix == clean:
-                return pno
+    for candidate in candidates:
+        if candidate in part_nos:
+            return candidate
+        for pno in sorted(part_nos, key=len, reverse=True):
+            segments = pno.split("-")
+            for start in range(len(segments)):
+                suffix = "-".join(segments[start:])
+                if suffix.count("-") >= 1 and suffix == candidate:
+                    return pno
+        single_segment_matches = [
+            pno for pno in part_nos
+            if pno.split("-")[-1] == candidate
+        ]
+        if len(single_segment_matches) == 1:
+            return single_segment_matches[0]
     return ""
 
 

@@ -19,6 +19,7 @@ class UserStepMapping:
     source_path: str
     source_hash: str
     bbox_mm: tuple[float, float, float] | None = None
+    normalize_origin: str = "center_xy_bottom_z"
     validated: bool = True
     validation_status: str = "resolver_verified"
 
@@ -103,9 +104,12 @@ def _build_mapping(mapping: UserStepMapping) -> dict[str, Any]:
     }
     if mapping.bbox_mm is not None:
         provenance["bbox_mm"] = [float(value) for value in mapping.bbox_mm]
+    spec: dict[str, Any] = {"file": mapping.file_rel}
+    if mapping.normalize_origin:
+        spec["normalize_origin"] = mapping.normalize_origin
     return {
         "match": {"part_no": mapping.part_no},
         "adapter": "step_pool",
-        "spec": {"file": mapping.file_rel},
+        "spec": spec,
         "provenance": provenance,
     }

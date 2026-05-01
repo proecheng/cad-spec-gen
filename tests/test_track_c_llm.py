@@ -104,6 +104,16 @@ def test_enriched_envelope_unknown_type_returns_box():
     assert wp is not None
 
 
+def test_enriched_envelope_uses_bottom_z_origin():
+    """L3 envelope must follow generated part convention: bottom face Z=0."""
+    pytest.importorskip("cadquery")
+    from cad_spec_gen.data.codegen.enriched_envelope import _make_enriched_envelope
+    wp = _make_enriched_envelope("plate", 50.0, 40.0, 30.0)
+    bbox = wp.val().BoundingBox()
+    assert abs(bbox.zmin) < 0.01
+    assert abs(bbox.zmax - 30.0) < 0.01
+
+
 def test_enriched_envelope_exports_valid_step(tmp_path):
     """富化 envelope 可导出为合法 STEP 文件（文件大小 > 1KB）"""
     pytest.importorskip("cadquery")

@@ -58,6 +58,7 @@ artifacts/*/sw_report_data.json
 
 # sw_config_broker 运行时产物（lock / decisions.json / pending.json）
 .cad-spec-gen/
+artifacts/20??????-??????/
 artifacts/20260424-*/
 artifacts/20260425-*/
 

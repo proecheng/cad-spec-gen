@@ -263,6 +263,105 @@ def test_high_confidence_bypasses_outlier_guard():
         os.unlink(spec_path)
 
 
+def test_parse_part_positions_supports_xy_instance_table():
+    """§6.3 new contract must preserve repeated XY instances per part."""
+    import tempfile
+    import textwrap
+    from gen_assembly import _parse_part_positions
+
+    spec_md = textwrap.dedent("""\
+        # CAD Spec — 升降平台 (SLP)
+
+        ### 6.3 零件级定位
+
+        #### UNKNOWN 未分组
+
+        | 实例 | 料号 | 零件名 | 模式 | X(mm) | Y(mm) | 底面Z(mm) | 高度(mm) | 来源 | 置信度 |
+        | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+        | LS1 | SLP-P01 | 丝杠 L350 | layout_xy | -60 | 30 | 0 | 350 | column_xy | high |
+        | LS2 | SLP-P01 | 丝杠 L350 | layout_xy | 60 | -30 | 0 | 350 | column_xy | high |
+        | GS1 | SLP-P02 | 导向轴 L296 | layout_xy | 60 | 30 | 0 | 296 | column_xy | high |
+    """)
+    with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write(spec_md)
+        spec_path = f.name
+    try:
+        positions = _parse_part_positions(spec_path)
+        p01 = positions["SLP-P01"]
+        assert len(p01["instances"]) == 2
+        assert p01["instances"][0]["instance_id"] == "LS1"
+        assert p01["instances"][0]["x"] == -60.0
+        assert p01["instances"][0]["y"] == 30.0
+        assert p01["instances"][1]["instance_id"] == "LS2"
+        assert p01["instances"][1]["x"] == 60.0
+        assert p01["instances"][1]["y"] == -30.0
+        assert positions["SLP-P02"]["instances"][0]["instance_id"] == "GS1"
+    finally:
+        os.unlink(spec_path)
+
+
+def test_generate_assembly_emits_xy_multi_instances():
+    """Repeated BOM rows with §6.3 instances should emit repeated parts."""
+    import tempfile
+    import textwrap
+    from gen_assembly import generate_assembly
+
+    spec_md = textwrap.dedent("""\
+        # CAD Spec — 升降平台 (SLP)
+
+        ## 5. BOM树
+
+        | 料号 | 名称 | 材质/型号 | 数量 | 自制/外购 | 单价 |
+        | --- | --- | --- | --- | --- | --- |
+        | **UNKNOWN** | **未分组** | — | 1 | 总成 | — |
+        | SLP-P01 | 丝杠 L350 | 45#钢 Φ16×350mm | 2 | 自制 | — |
+        | SLP-P02 | 导向轴 L296 | GCr15 Φ10×296mm | 2 | 自制 | — |
+
+        ## 6. 装配姿态与定位
+
+        ### 6.2 装配层叠
+
+        | 层级 | 零件/模块 | 固定/运动 | 连接方式 | 偏移(Z/R/θ) | 轴线方向 | 排除 |
+        | --- | --- | --- | --- | --- | --- | --- |
+        | 1 | 丝杠与导向轴 | 固定 | — | 基准原点 | 轴沿Z |  |
+
+        ### 6.3 零件级定位
+
+        #### UNKNOWN 未分组
+
+        | 实例 | 料号 | 零件名 | 模式 | X(mm) | Y(mm) | 底面Z(mm) | 高度(mm) | 来源 | 置信度 |
+        | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+        | LS1 | SLP-P01 | 丝杠 L350 | layout_xy | -60 | 30 | 0 | 350 | column_xy | high |
+        | LS2 | SLP-P01 | 丝杠 L350 | layout_xy | 60 | -30 | 0 | 350 | column_xy | high |
+        | GS1 | SLP-P02 | 导向轴 L296 | layout_xy | 60 | 30 | 0 | 296 | column_xy | high |
+        | GS2 | SLP-P02 | 导向轴 L296 | layout_xy | -60 | -30 | 0 | 296 | column_xy | high |
+
+        ### 6.4 零件包络尺寸
+
+        | 料号 | 零件名 | 类型 | 尺寸(mm) | 来源 |
+        | --- | --- | --- | --- | --- |
+        | SLP-P01 | 丝杠 L350 | cylinder | Φ16×350 | design |
+        | SLP-P02 | 导向轴 L296 | cylinder | Φ10×296 | design |
+    """)
+    with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write(spec_md)
+        spec_path = f.name
+    try:
+        content = generate_assembly(spec_path)
+        assert content.count("make_p01()") == 2
+        assert content.count("make_p02()") == 2
+        assert 'name="P01-LS1"' in content
+        assert 'name="P01-LS2"' in content
+        assert 'name="P02-GS1"' in content
+        assert 'name="P02-GS2"' in content
+        assert ".translate((-60.0, 30.0, 0.0))" in content
+        assert ".translate((60.0, -30.0, 0.0))" in content
+    finally:
+        os.unlink(spec_path)
+
+
 def test_offsets_non_radial():
     from gen_assembly import _resolve_child_offsets
     bom = [
@@ -596,3 +695,37 @@ def test_generate_assembly_omits_exclude_stack_leaf_parts():
     assert 'name="STD-GIS-EE-002-05"' not in content
     assert 'name="STD-GIS-EE-003-08"' not in content
     assert 'name="STD-GIS-EE-004-13"' not in content
+
+
+def test_generate_assembly_includes_mechanical_transmission_std_parts(tmp_path):
+    """GT2 drivetrain parts and couplings must reach assembly.py."""
+    spec = tmp_path / "CAD_SPEC.md"
+    spec.write_text(
+        "# 丝杠式升降平台 (SLP)\n"
+        "\n"
+        "## 5. BOM树\n"
+        "| 料号 | 名称 | 规格 | 数量 | 自制/外购 | 材料 |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| SLP-000 | 丝杠式升降平台 |  | 1 | 总成 | — |\n"
+        "| SLP-100 | 上固定板 |  | 1 | 自制 | 6061 |\n"
+        "| SLP-C04 | GT2 20T 开式带轮 φ12 |  | 2 | 外购 | — |\n"
+        "| SLP-C05 | GT2-310-6mm 带 |  | 1 | 外购 | — |\n"
+        "| SLP-C06 | L070 联轴器 |  | 1 | 外购 | — |\n"
+        "\n"
+        "## 6. 装配姿态\n"
+        "### 6.1 坐标系定义\n"
+        "| 术语 | 定义 |\n"
+        "| --- | --- |\n"
+        "| 原点 | 下板顶面中心 |\n",
+        encoding="utf-8",
+    )
+    from gen_assembly import generate_assembly
+
+    content = generate_assembly(str(spec))
+
+    assert "from std_c04 import make_std_c04" in content
+    assert "from std_c05 import make_std_c05" in content
+    assert "from std_c06 import make_std_c06" in content
+    assert 'name="STD-SLP-C04"' in content
+    assert 'name="STD-SLP-C05"' in content
+    assert 'name="STD-SLP-C06"' in content

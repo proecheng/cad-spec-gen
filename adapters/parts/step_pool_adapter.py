@@ -143,6 +143,9 @@ class StepPoolAdapter(PartsAdapter):
             step_path=rel_path,
             real_dims=dims,
             source_tag=f"STEP:{rel_path}",
+            metadata={
+                "normalize_origin": str(spec.get("normalize_origin") or "").strip(),
+            },
         )
 
     def probe_dims(self, query, spec: dict) -> Optional[tuple]:

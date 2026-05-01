@@ -432,6 +432,30 @@ class TestMultiAdapterEmission:
         assert "C:/Users/" not in src
         assert "Path.home()" in src
 
+    def test_emit_step_import_module_normalizes_declared_user_step_origin(self):
+        from codegen.gen_std_parts import _emit_module_source
+
+        result = ResolveResult(
+            status="hit",
+            kind="step_import",
+            adapter="step_pool",
+            step_path="std_parts/user_provided/nema23.step",
+            real_dims=(57.2, 75.2, 57.2),
+            source_tag="STEP:std_parts/user_provided/nema23.step",
+            metadata={"normalize_origin": "center_xy_bottom_z"},
+        )
+        src = _emit_module_source(
+            self._bom_part("SLP-C07", "NEMA23 stepper"),
+            "std_c07",
+            "motor",
+            result,
+        )
+
+        ast.parse(src)
+        assert "BoundingBox()" in src
+        assert "_origin_shift" in src
+        assert "return _model.translate(_origin_shift)" in src
+
     def test_emit_python_import_module_bd_warehouse(self):
         from codegen.gen_std_parts import _emit_module_source
 
@@ -754,6 +778,75 @@ class TestEndToEndPipeline:
             assert "from bd_warehouse" not in content
             assert "import partcad" not in content
             assert "cq.importers.importStep" not in content
+
+    def test_user_step_part_no_mapping_overrides_skip_category(
+        self, tmp_path, step_pool_dir, monkeypatch
+    ):
+        """A user-provided exact STEP mapping must be consumed even when
+        classify_part() returns a normally skipped category such as cable.
+
+        This protects model-import from silently writing a parts_library.yaml
+        rule that codegen never uses.
+        """
+        from codegen import gen_std_parts
+
+        project_root = step_pool_dir.parent
+        (project_root / "cad" / "end_effector").mkdir(parents=True)
+        spec_path = project_root / "cad" / "end_effector" / "CAD_SPEC.md"
+        spec_path.write_text("# placeholder\n", encoding="utf-8")
+
+        import yaml
+        (project_root / "parts_library.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "step_pool": {"root": "std_parts/"},
+                    "mappings": [
+                        {
+                            "match": {"part_no": "GIS-EE-006-01"},
+                            "adapter": "step_pool",
+                            "spec": {"file": "sensors/ati_nano17.step"},
+                            "provenance": {"provided_by_user": True},
+                        },
+                        {"match": {"any": True}, "adapter": "jinja_primitive"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            gen_std_parts,
+            "parse_bom_tree",
+            lambda path: [
+                {
+                    "part_no": "GIS-EE-006-01",
+                    "name_cn": "GT2-310-6mm 带",
+                    "material": "",
+                    "make_buy": "外购",
+                    "is_assembly": False,
+                }
+            ],
+        )
+        monkeypatch.setattr(gen_std_parts, "parse_envelopes", lambda path: {})
+        monkeypatch.setattr(
+            gen_std_parts,
+            "classify_part",
+            lambda name, material: "cable",
+        )
+
+        out_dir = tmp_path / "generated_user_step"
+        out_dir.mkdir()
+
+        generated, _, _resolver, _pending = gen_std_parts.generate_std_part_files(
+            spec_path=str(spec_path),
+            output_dir=str(out_dir),
+            mode="force",
+        )
+
+        produced = {Path(f).name for f in generated}
+        assert "std_ee_006_01.py" in produced
+        src = (out_dir / "std_ee_006_01.py").read_text(encoding="utf-8")
+        assert "cq.importers.importStep" in src
+        assert "ati_nano17.step" in src
 
 
 def test_resolver_skip_not_in_gen_output(tmp_path, monkeypatch):

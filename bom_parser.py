@@ -36,18 +36,19 @@ _PART_CATEGORY_RULES = [
     ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测", "接近开关",
                    "光电", "限位", "编码器", "encoder"]),
     ("pump",      ["泵", "pump", "齿轮泵"]),
-    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头",
-                   "联轴器", "coupler", "coupling", "L070", "L050"]),
+    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头"]),
     ("seal",      ["O型圈", "O-ring", "FKM", "NBR", "缓冲垫", "PU垫"]),
     ("tank",      ["储液罐", "储罐", "tank", "容器"]),
-    ("transmission", ["齿轮", "链轮", "皮带轮", "蜗杆", "蜗轮",
-                      "齿条", "锥齿轮", "斜齿轮",
-                      "gear", "sprocket", "pulley", "worm"]),
-    ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴",
-                   "同步带", "GT2", "皮带", "belt"]),
+    ("other",     ["护罩", "防护罩", "guard", "cover"]),
+    ("transmission", ["齿轮", "链轮", "皮带轮", "带轮", "同步带", "蜗杆", "蜗轮",
+                      "齿条", "锥齿轮", "斜齿轮", "联轴器", "coupler", "coupling",
+                      "L070", "L050", "GT2", "皮带", "belt", "丝杠螺母",
+                      "丝杆螺母", "T16 螺母", "铜螺母", "lead screw nut",
+                      "trapezoidal nut", "gear", "sprocket", "pulley", "worm"]),
+    ("cable",     ["线缆", "cable", "FFC", "线束", "拖链", "drag chain", "coax", "同轴"]),
     ("locating",  ["定位销", "导向销", "定位柱", "圆柱销", "圆锥销", "dowel pin", "locating pin"]),
     ("fastener",  ["螺栓", "螺钉", "螺母", "销", "pin", "screw", "bolt",
-                   "DIN912", "DIN7991", "DIN933", "挡圈", "钢丝螺套", "护罩"]),
+                   "DIN912", "DIN7991", "DIN933", "挡圈", "钢丝螺套"]),
 ]
 
 
@@ -90,7 +91,7 @@ def classify_part(name: str, material: str = "") -> str:
     """Classify a BOM part by name/material keywords → category string.
 
     Returns one of: motor, reducer, spring, bearing, sensor, pump,
-    connector, seal, tank, cable, fastener, other.
+    connector, seal, tank, transmission, cable, fastener, other.
     """
     text = (name + " " + material).upper()
     for category, keywords in _PART_CATEGORY_RULES:

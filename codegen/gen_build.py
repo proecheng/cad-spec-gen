@@ -31,7 +31,7 @@ from bom_parser import classify_part
 
 # Categories that get simplified CadQuery geometry (skip fastener/cable/other)
 _STD_PART_CATEGORIES = {"motor", "reducer", "spring", "bearing", "sensor",
-                        "pump", "connector", "seal", "tank"}
+                        "pump", "connector", "seal", "tank", "transmission"}
 
 
 def parse_bom_tree(spec_path: str) -> list:
