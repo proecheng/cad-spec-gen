@@ -383,6 +383,34 @@ def test_project_library_routes_lifting_platform_kfl001_to_cache_step(
     assert (cache_root / "mechanical" / "kfl001_flange_bearing.step").is_file()
 
 
+def test_project_library_routes_lifting_platform_t16_nut_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C01",
+            name_cn="T16 螺母 C7",
+            material="",
+            category="transmission",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.step_path == "cache://transmission/t16_lead_screw_nut.step"
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (cache_root / "transmission" / "t16_lead_screw_nut.step").is_file()
+
+
 def test_project_library_routes_lifting_platform_gt2_pulley_to_cache_step(
     tmp_path, monkeypatch
 ):
