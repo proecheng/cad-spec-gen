@@ -99,6 +99,20 @@ mappings:
     source_section: §6.4
     source_license: project_spec_generated_geometry
 - match:
+    part_no: SLP-F13
+  adapter: step_pool
+  spec:
+    file: mechanical/guide_shaft_protective_cap_10mm.step
+    synthesizer: guide_shaft_protective_cap_10mm
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    generated_by: vendor_synthesizer
+    name_cn: guide_shaft_protective_cap_10mm
+    display_name_cn: 导向轴保护帽 φ10
+    source_path: cad/lifting_platform/CAD_SPEC.md
+    source_section: §6.4
+    source_license: project_spec_generated_geometry
+- match:
     part_no: SLP-F12
   adapter: step_pool
   spec:

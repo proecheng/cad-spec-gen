@@ -467,6 +467,39 @@ def test_project_library_routes_lifting_platform_pu_buffer_pad_to_cache_step(
     assert (cache_root / "elastomer" / "pu_buffer_pad_20x20x3.step").is_file()
 
 
+def test_project_library_routes_lifting_platform_guide_cap_to_cache_step(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "step_cache"
+    monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-F13",
+            name_cn="导向轴保护帽 φ10",
+            material="",
+            category="other",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert (
+        result.step_path
+        == "cache://mechanical/guide_shaft_protective_cap_10mm.step"
+    )
+    assert result.path_kind == "shared_cache"
+    assert result.geometry_quality == "A"
+    assert result.validated is True
+    assert result.requires_model_review is False
+    assert (
+        cache_root / "mechanical" / "guide_shaft_protective_cap_10mm.step"
+    ).is_file()
+
+
 def test_project_library_routes_lifting_platform_gt2_pulley_to_cache_step(
     tmp_path, monkeypatch
 ):
