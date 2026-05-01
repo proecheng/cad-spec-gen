@@ -569,25 +569,33 @@ Rules:
 7. Managed user STEP filenames include a short source hash suffix, for example `user_provided/P-001_夹具_1a2b3c4d5e6f.step`, so re-importing the same display name with different bytes creates a distinct target path instead of silently overwriting old geometry.
 8. `sw_export_plan.json` is advisory only, but each executable candidate uses `action: "reuse_cache"` or `action: "export"`. A missing Toolbox `target_config` is treated as the stable `Default` configuration and still gets a deterministic cache path; existing legacy warmup cache files without `_Default` suffix are recognized as reusable cache hits.
 
-### ProjectContext (planned cleanup)
+### ModelProjectContext (implemented path contract)
 
-Path logic should be centralized in a later cleanup pass:
+Path logic is centralized in `tools/model_context.py` through
+`ModelProjectContext`. Model-library commands and helpers should derive
+project artifacts from this contract instead of re-parsing `cwd`, `output/`,
+`cad/`, or `artifacts/` paths independently:
 
 ```python
 @dataclass
-class ProjectContext:
+class ModelProjectContext:
     project_root: Path
-    subsystem: str
-    subsystem_dir: Path              # cad/<subsystem>
-    hidden_dir: Path                 # cad/<subsystem>/.cad-spec-gen
+    subsystem: str | None = None
+
+    cad_dir: Path | None             # cad/<subsystem>, when subsystem is set
+    meta_dir: Path                   # cad/<subsystem>/.cad-spec-gen or root .cad-spec-gen
     std_parts_dir: Path              # <project_root>/std_parts
+    user_provided_dir: Path          # <project_root>/std_parts/user_provided
     parts_library_path: Path         # <project_root>/parts_library.yaml
-    artifacts_dir: Path | None
+    model_choices_path: Path         # <meta_dir>/model_choices.json
+    model_imports_path: Path         # <meta_dir>/model_imports.json
+    geometry_report_path: Path       # <meta_dir>/geometry_report.json
+    sw_export_plan_path: Path        # <meta_dir>/sw_export_plan.json
 ```
 
-`ProjectContext` will replace scattered uses of `os.getcwd()`,
-`spec_path.parent.parent.parent`, `output/<subsystem>`, and ad hoc
-`artifacts/{run_id}` path construction.
+If new model-library code needs a path under `.cad-spec-gen`, `std_parts/`, or
+`parts_library.yaml`, add it to `ModelProjectContext` first and reuse it across
+pipeline, audit, import, and planning commands.
 
 ### Resolver modes
 
