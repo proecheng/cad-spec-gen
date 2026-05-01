@@ -66,6 +66,10 @@ Factory vocabulary:
                       4-layer signal-conditioning PCB assembly
   sma_bulkhead_50ohm  SMA bulkhead connector
   m12_4pin_bulkhead   M12 4-pin waterproof bulkhead connector
+  kfl001_flange_bearing
+                      KFL001 12 mm two-bolt flange bearing unit
+  l070_clamping_coupling
+                      L070 split clamping coupling, Φ25 × 30 mm
 
 Adding a new vendor part:
   1. Write a `make_xxx()` factory that returns a cq.Workplane with the right
@@ -802,6 +806,160 @@ def _make_m12_4pin_bulkhead():
     return connector.union(key)
 
 
+def _make_kfl001_flange_bearing():
+    """KFL001 12 mm two-bolt flange bearing unit.
+
+    Common catalog dimensions:
+      - Overall flange envelope: 63 x 38 x 16 mm
+      - Bore: 12 mm
+      - Mounting hole center distance: 48 mm
+      - Mounting holes: approx. 7 mm clearance
+    """
+    import cadquery as cq
+
+    length, width, total_h = 63.0, 38.0, 16.0
+    bore_d = 12.0
+    hole_spacing = 48.0
+    mount_hole_d = 7.0
+    base_t = 5.4
+
+    # Flattened diamond flange with enough real envelope signal for render and
+    # assembly checks. The STEP cache path promotes this out of codegen fallback.
+    flange_outline = [
+        (-length / 2, 0.0),
+        (-hole_spacing / 2, -width / 2),
+        (hole_spacing / 2, -width / 2),
+        (length / 2, 0.0),
+        (hole_spacing / 2, width / 2),
+        (-hole_spacing / 2, width / 2),
+    ]
+    body = cq.Workplane("XY").polyline(flange_outline).close().extrude(base_t)
+    try:
+        body = body.edges("|Z").fillet(1.2)
+    except Exception:
+        pass
+
+    lower_boss = (
+        cq.Workplane("XY")
+        .circle(17.0)
+        .extrude(5.8)
+        .translate((0, 0, base_t))
+    )
+    bearing_insert = (
+        cq.Workplane("XY")
+        .circle(13.0)
+        .extrude(total_h - base_t)
+        .translate((0, 0, base_t))
+    )
+    top_lip = (
+        cq.Workplane("XY")
+        .circle(14.2)
+        .circle(8.0)
+        .extrude(1.5)
+        .translate((0, 0, total_h - 1.5))
+    )
+    body = body.union(lower_boss).union(bearing_insert).union(top_lip)
+
+    bore = (
+        cq.Workplane("XY")
+        .circle(bore_d / 2)
+        .extrude(total_h + 1.0)
+        .translate((0, 0, -0.5))
+    )
+    body = body.cut(bore)
+
+    for x in (-hole_spacing / 2, hole_spacing / 2):
+        recess = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(5.4)
+            .extrude(2.0)
+            .translate((0, 0, base_t - 1.9))
+        )
+        hole = (
+            cq.Workplane("XY")
+            .center(x, 0)
+            .circle(mount_hole_d / 2)
+            .extrude(base_t + 1.0)
+            .translate((0, 0, -0.5))
+        )
+        body = body.cut(recess).cut(hole)
+
+    # Small locking screw cue on the bearing insert, visible in close renders.
+    screw = (
+        cq.Workplane("YZ")
+        .center(0, base_t + 6.0)
+        .circle(1.15)
+        .extrude(5.0)
+        .translate((11.0, 0, 0))
+    )
+    body = body.cut(screw)
+
+    try:
+        body = body.edges("|Z").chamfer(0.25)
+    except Exception:
+        pass
+    return body
+
+
+def _make_l070_clamping_coupling():
+    """L070 split clamping coupling, 25 mm diameter by 30 mm long.
+
+    Project CAD_SPEC dimensions:
+      - Outside diameter: 25 mm
+      - Overall length: 30 mm
+      - Bore display diameter: 6.35 mm
+      - Two 15 mm clamp sections with split slots and radial clamp screws
+    """
+    import cadquery as cq
+
+    d, length = 25.0, 30.0
+    bore_d = 6.35
+    r = d / 2.0
+    screw_d = 3.5
+
+    body = cq.Workplane("XY").circle(r).circle(bore_d / 2.0).extrude(length)
+
+    # Two clamp relief grooves give the plain cylinder a recognizable
+    # two-ended coupling silhouette without changing the reported envelope.
+    for z in (8.4, 20.4):
+        groove = (
+            cq.Workplane("XY")
+            .circle(r + 0.05)
+            .circle(r - 0.8)
+            .extrude(1.8)
+            .translate((0, 0, z))
+        )
+        body = body.cut(groove)
+
+    # Axial split slots on opposite sides, one per clamp section.
+    for zc in (7.5, 22.5):
+        slot = (
+            cq.Workplane("YZ")
+            .center(0, zc)
+            .box(3.0, d + 1.0, 11.0, centered=(True, True, True))
+            .translate((r - 1.2, 0, 0))
+        )
+        body = body.cut(slot)
+
+    # Radial clamp screw holes crossing each split section.
+    for zc in (7.5, 22.5):
+        screw = (
+            cq.Workplane("YZ")
+            .center(0, zc)
+            .circle(screw_d / 2.0)
+            .extrude(d + 2.0, both=True)
+        )
+        body = body.cut(screw)
+
+    try:
+        body = body.faces(">Z").edges(">Z").chamfer(0.35)
+        body = body.faces("<Z").edges("<Z").chamfer(0.35)
+    except Exception:
+        pass
+    return body
+
+
 # ─── Registry ─────────────────────────────────────────────────────────────
 
 SYNTHESIZERS: dict[str, Callable[[], object]] = {
@@ -832,6 +990,8 @@ SYNTHESIZERS: dict[str, Callable[[], object]] = {
     "signal_conditioning_pcb_45x35": _make_signal_conditioning_pcb_45x35,
     "sma_bulkhead_50ohm": _make_sma_bulkhead_50ohm,
     "m12_4pin_bulkhead": _make_m12_4pin_bulkhead,
+    "kfl001_flange_bearing": _make_kfl001_flange_bearing,
+    "l070_clamping_coupling": _make_l070_clamping_coupling,
 }
 
 # Default cache layout — mirrors parts_library.default.yaml so tests and
@@ -872,6 +1032,8 @@ DEFAULT_STEP_FILES: dict[str, str] = {
     ),
     "sma_bulkhead_50ohm": "connectors/sma_bulkhead_50ohm.step",
     "m12_4pin_bulkhead": "connectors/m12_4pin_bulkhead.step",
+    "kfl001_flange_bearing": "mechanical/kfl001_flange_bearing.step",
+    "l070_clamping_coupling": "transmission/l070_clamping_coupling.step",
 }
 
 
