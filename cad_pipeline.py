@@ -3411,6 +3411,22 @@ def cmd_model_import(args):
     return run_model_import(args)
 
 
+def cmd_product_graph(args):
+    """生成 PRODUCT_GRAPH.json 产品图契约。"""
+    from tools.product_graph import write_product_graph
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    output = write_product_graph(
+        PROJECT_ROOT,
+        args.subsystem,
+        output=getattr(args, "output", None),
+    )
+    log.info("PRODUCT_GRAPH.json written: %s", output)
+    return 0
+
+
 def cmd_sw_export_plan(args):
     """生成只读 SolidWorks Toolbox 导出候选计划。"""
     from codegen.gen_build import parse_bom_tree
@@ -3885,6 +3901,18 @@ def main():
         help="跳过导入后的 resolver 消费校验",
     )
 
+    # product-graph：生成照片级 3D 产品图契约
+    p_product_graph = sub.add_parser(
+        "product-graph",
+        help="Generate PRODUCT_GRAPH.json contract from CAD_SPEC.md",
+    )
+    p_product_graph.add_argument("--subsystem", "-s", required=True)
+    p_product_graph.add_argument(
+        "--output",
+        default=None,
+        help="Output PRODUCT_GRAPH.json path (default: cad/<subsystem>/PRODUCT_GRAPH.json)",
+    )
+
     # sw-export-plan：只读生成 SW Toolbox 导出候选计划
     p_sw_export_plan = sub.add_parser(
         "sw-export-plan",
@@ -3935,6 +3963,7 @@ def main():
         "sw-inspect": cmd_sw_inspect,
         "model-audit": cmd_model_audit,
         "model-import": cmd_model_import,
+        "product-graph": cmd_product_graph,
         "sw-export-plan": cmd_sw_export_plan,
     }
 
