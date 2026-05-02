@@ -428,6 +428,236 @@
           850
         ]
       }
+    ],
+    "V2": [
+      {
+        "component": "SLP-100_top_plate",
+        "anchor": [
+          840,
+          180
+        ],
+        "label": [
+          1450,
+          120
+        ]
+      },
+      {
+        "component": "SLP-300_moving_plate",
+        "anchor": [
+          820,
+          470
+        ],
+        "label": [
+          1450,
+          420
+        ]
+      },
+      {
+        "component": "SLP-P02_GS1",
+        "anchor": [
+          760,
+          390
+        ],
+        "label": [
+          160,
+          330
+        ]
+      },
+      {
+        "component": "SLP-400_bracket",
+        "anchor": [
+          920,
+          650
+        ],
+        "label": [
+          1450,
+          790
+        ]
+      }
+    ],
+    "V3": [
+      {
+        "component": "SLP-100_top_plate",
+        "anchor": [
+          920,
+          200
+        ],
+        "label": [
+          1450,
+          120
+        ]
+      },
+      {
+        "component": "SLP-P02_GS1",
+        "anchor": [
+          880,
+          360
+        ],
+        "label": [
+          160,
+          300
+        ]
+      },
+      {
+        "component": "SLP-300_moving_plate",
+        "anchor": [
+          930,
+          490
+        ],
+        "label": [
+          1450,
+          430
+        ]
+      },
+      {
+        "component": "SLP-400_bracket",
+        "anchor": [
+          950,
+          700
+        ],
+        "label": [
+          1450,
+          760
+        ]
+      }
+    ],
+    "V4": [
+      {
+        "component": "SLP-100_top_plate",
+        "anchor": [
+          1000,
+          20
+        ],
+        "label": [
+          1450,
+          120
+        ]
+      },
+      {
+        "component": "SLP-300_moving_plate",
+        "anchor": [
+          980,
+          420
+        ],
+        "label": [
+          1450,
+          390
+        ]
+      },
+      {
+        "component": "SLP-400_bracket",
+        "anchor": [
+          910,
+          420
+        ],
+        "label": [
+          160,
+          390
+        ]
+      },
+      {
+        "component": "NEMA23_motor",
+        "anchor": [
+          1130,
+          940
+        ],
+        "label": [
+          1450,
+          900
+        ]
+      }
+    ],
+    "V5": [
+      {
+        "component": "SLP-100_top_plate",
+        "anchor": [
+          930,
+          210
+        ],
+        "label": [
+          1450,
+          120
+        ]
+      },
+      {
+        "component": "SLP-300_moving_plate",
+        "anchor": [
+          930,
+          520
+        ],
+        "label": [
+          1450,
+          480
+        ]
+      },
+      {
+        "component": "SLP-P01_LS1",
+        "anchor": [
+          870,
+          430
+        ],
+        "label": [
+          160,
+          330
+        ]
+      },
+      {
+        "component": "SLP-400_bracket",
+        "anchor": [
+          960,
+          720
+        ],
+        "label": [
+          1450,
+          820
+        ]
+      }
+    ],
+    "V6": [
+      {
+        "component": "SLP-100_top_plate",
+        "anchor": [
+          930,
+          200
+        ],
+        "label": [
+          1450,
+          120
+        ]
+      },
+      {
+        "component": "SLP-P01_LS1",
+        "anchor": [
+          905,
+          410
+        ],
+        "label": [
+          160,
+          330
+        ]
+      },
+      {
+        "component": "SLP-300_moving_plate",
+        "anchor": [
+          930,
+          530
+        ],
+        "label": [
+          1450,
+          480
+        ]
+      },
+      {
+        "component": "SLP-400_bracket",
+        "anchor": [
+          940,
+          760
+        ],
+        "label": [
+          1450,
+          820
+        ]
+      }
     ]
   },
   "resolution": {
