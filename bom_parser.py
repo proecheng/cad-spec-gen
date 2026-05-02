@@ -93,7 +93,24 @@ def classify_part(name: str, material: str = "") -> str:
     Returns one of: motor, reducer, spring, bearing, sensor, pump,
     connector, seal, tank, transmission, cable, fastener, other.
     """
-    text = (name + " " + material).upper()
+    raw_text = f"{name} {material}"
+    lower_text = raw_text.lower()
+    threaded_transmission_keywords = [
+        "丝杠",
+        "丝杆",
+        "lead screw",
+        "leadscrew",
+        "trapezoidal screw",
+        "梯形螺纹",
+    ]
+    if any(keyword in lower_text for keyword in threaded_transmission_keywords):
+        return "transmission"
+    if re.search(r"\btr\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\b", raw_text, re.I):
+        return "transmission"
+    if re.search(r"\bt\s*\d+\b", raw_text, re.I) and ("螺母" in raw_text or "丝杠" in raw_text):
+        return "transmission"
+
+    text = raw_text.upper()
     for category, keywords in _PART_CATEGORY_RULES:
         if any(kw.upper() in text for kw in keywords):
             return category
