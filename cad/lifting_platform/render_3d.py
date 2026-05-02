@@ -19,10 +19,84 @@ import logging
 import math
 import os
 import sys
+from pathlib import Path
 from mathutils import Vector, Euler
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 log = logging.getLogger("render_3d")
+
+
+# ── A1-1 SW 纹理桥 · 纯 Python helpers（Track A §3.3）────────────────────────
+# 放在 bpy / argparse / mathutils 使用之前，源码级隔离（tests 可 AST 抽取 + exec
+# 到干净 namespace 直接调用，不需要启 Blender）。依赖仅 stdlib：os / pathlib /
+# logging。引入任何 bpy 依赖会打破可测性契约。
+
+def _resolve_texture_path(rel_or_abs):
+    """把 preset 里的 base_color_texture/normal_texture 等字符串解析成磁盘路径。
+
+    查找顺序（Track A §3.3）：
+      1. 绝对路径 → 存在即返回；不存在返回 None
+      2. 相对路径 + CAD_SPEC_GEN_TEXTURE_DIR env → 拼接并检查存在
+      3. 相对路径 + SW_TEXTURES_DIR env（由 cmd_render 从 SwInfo.textures_dir
+         注入）→ 拼接并检查存在
+      4. 以上全 miss → None（上层按材质打 warning 并降级纯色）
+
+    Parameters
+    ----------
+    rel_or_abs : str or None
+        preset 里声明的 texture 路径（可空 / 可绝对 / 可相对）
+
+    Returns
+    -------
+    Path or None
+        真实磁盘路径（Path 对象）；空输入或全部 miss 返回 None。
+    """
+    if not rel_or_abs:
+        return None
+    candidate = Path(rel_or_abs)
+    if candidate.is_absolute():
+        return candidate if candidate.is_file() else None
+
+    for env_name in ("CAD_SPEC_GEN_TEXTURE_DIR", "SW_TEXTURES_DIR"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        joined = Path(base) / rel_or_abs
+        if joined.is_file():
+            return joined
+
+    return None
+
+
+def _detect_normal_convention(normal_filename):
+    """根据文件名推断 normal map 是 DirectX (Y-) 还是 OpenGL (Y+) 约定。
+
+    SW 的 PBR 导出默认 DirectX，故默认值设 `'dx'`。匹配规则（大小写无关）：
+      - 文件名含 `_gl` / `opengl` → `'gl'`
+      - 文件名含 `_dx` / `directx` → `'dx'`
+      - 其他 → `'dx'`（SW 默认）
+
+    Blender 渲染时约定不匹配会让法线 Y 轴翻转，表面凹凸感倒置。本函数提供
+    per-file 明确标记机会；如果 SW 纹理库混存两种约定，Track A §3.2 的节点图
+    会按本函数结果切换 Normal Map 节点的 space 参数。
+
+    Parameters
+    ----------
+    normal_filename : str
+        normal map 文件名（可带路径前缀）
+
+    Returns
+    -------
+    str
+        `'dx'` 或 `'gl'`
+    """
+    if not normal_filename:
+        return "dx"
+    name = str(normal_filename).lower()
+    if "_gl" in name or "opengl" in name:
+        return "gl"
+    return "dx"
+
 
 # ── Parse CLI args (after "--") ──────────────────────────────────────────────
 argv = sys.argv
@@ -188,6 +262,63 @@ MATERIAL_MAP = {
     },
 }
 
+# —— A1 重构：SW 装了时 _build_blender_env 落了 runtime_materials.json；
+# 此处加载覆盖内置 MATERIAL_MAP（仅当前进程副本，源码不被污染）——
+# rcfg 在有 --config 路径下已 import；无 config 时按需 import。
+try:
+    _rcfg_rt = rcfg  # type: ignore[name-defined]  # rcfg 是条件 import（有 --config 时于上方绑定；无时此处未定义，属预期）
+except NameError:
+    try:
+        sys.path.insert(0, SCRIPT_DIR)
+        import render_config as _rcfg_rt  # type: ignore[assignment]  # _rcfg_rt 从 None 改赋 module 对象，类型切换属预期流程
+    except ImportError:
+        _rcfg_rt = None  # type: ignore[assignment]  # 同上，回退 None 后反复赋值 module 或 None，mypy 无法推断但逻辑正确
+
+if _rcfg_rt is not None:
+    _runtime_override = _rcfg_rt.load_runtime_materials_override()
+    if _runtime_override:
+        _merged = dict(MATERIAL_MAP)
+        for _name, _params in _runtime_override.items():
+            if _name in _merged:
+                _entry = dict(_merged[_name])
+                _entry.update(_params)
+                _merged[_name] = _entry
+            else:
+                _merged[_name] = dict(_params)
+        log.info("runtime preset override loaded: %d entries", len(_runtime_override))
+        _MATERIAL_PRESETS_RUNTIME = _merged
+
+        # —— A1 修复：render_config.json 走 _CONFIG_MATERIALS，需把 runtime 纹理
+        # 字段同步 patch 进去，否则 assign_materials() 优先用 _CONFIG_MATERIALS
+        # 而看不到任何 base_color_texture。
+        # 步骤：读取原始 config 中每个 pattern → preset 名的映射，
+        # 再把 runtime override 里对应 preset 的纹理字段合并进展开后的条目。
+        _TEXTURE_FIELDS = (
+            "base_color_texture", "normal_texture",
+            "roughness_texture", "metallic_texture",
+        )
+        if _CONFIG_MATERIALS and _CONFIG:
+            _raw_mats = _CONFIG.get("materials", {})
+            for _pat, _raw_entry in _raw_mats.items():
+                _preset_name = _raw_entry.get("preset") if isinstance(_raw_entry, dict) else None
+                if _preset_name and _preset_name in _runtime_override:
+                    _tex_params = _runtime_override[_preset_name]
+                    if _pat in _CONFIG_MATERIALS:
+                        _CONFIG_MATERIALS[_pat] = dict(_CONFIG_MATERIALS[_pat])
+                        for _tf in _TEXTURE_FIELDS:
+                            if _tf in _tex_params and _tex_params[_tf] is not None:
+                                _CONFIG_MATERIALS[_pat][_tf] = _tex_params[_tf]
+            _patched = sum(
+                1 for _p in _CONFIG_MATERIALS.values() if any(
+                    _p.get(_tf) for _tf in _TEXTURE_FIELDS
+                )
+            )
+            log.info("runtime texture patch applied: %d pattern(s) now have textures", _patched)
+    else:
+        _MATERIAL_PRESETS_RUNTIME = MATERIAL_MAP
+else:
+    _MATERIAL_PRESETS_RUNTIME = MATERIAL_MAP
+
 # ── Camera presets (§4.10.4) ─────────────────────────────────────────────────
 CAMERA_PRESETS = {
     "V1": {
@@ -249,7 +380,30 @@ def import_glb(filepath):
 
 
 def create_pbr_material(name, params):
-    """Create a Principled BSDF material with given PBR parameters."""
+    """Create a Principled BSDF material with given PBR parameters.
+
+    A1-2（Track A §3.2）：支持 4 类贴图字段——
+      - params['base_color_texture']  (sRGB)
+      - params['normal_texture']      (Non-Color + NormalMap 节点)
+      - params['roughness_texture']   (Non-Color)
+      - params['metallic_texture']    (Non-Color)
+      - params['texture_scale']       (Mapping.Scale，默认 1.0)
+
+    文件查找走 _resolve_texture_path（A1-1，相对路径靠 CAD_SPEC_GEN_TEXTURE_DIR /
+    SW_TEXTURES_DIR env）；miss 则 log.warning + 退回标量（老字段仍生效，不抛）。
+
+    法线约定靠 _detect_normal_convention（文件名后缀 → 'dx' / 'gl'）；当前版本
+    两约定都落到 NormalMap(TANGENT) 节点（肉眼正确率 ~80%，SW 默认 DX 是本 repo
+    主流）。DX→GL 的 Y-flip 转换链（SeparateRGB + Invert + CombineRGB）留到 A1-5。
+
+    节点拓扑（无 UV 降级）：
+        TexCoord.Generated → Mapping(Scale) → TexImage(BOX, blend=0.2)
+                                                     │
+                                                     ├─ Color → BSDF.Base Color
+                                                     ├─ Color → BSDF.Roughness
+                                                     ├─ Color → BSDF.Metallic
+                                                     └─ Color → NormalMap → BSDF.Normal
+    """
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -282,35 +436,139 @@ def create_pbr_material(name, params):
             sc = params["sss_color"]
             bsdf.inputs["Subsurface Radius"].default_value = (sc[0], sc[1], sc[2])
 
+    # ─── A1-2 纹理桥（Track A §3.2） ─────────────────────────────────────────
+    resolved = {}
+    for field in (
+        "base_color_texture",
+        "normal_texture",
+        "roughness_texture",
+        "metallic_texture",
+    ):
+        rel = params.get(field)
+        if not rel:
+            continue
+        path = _resolve_texture_path(rel)
+        if path is None:
+            log.warning(
+                "texture miss: %s -> %s (material=%s, falling back to scalar)",
+                field, rel, name,
+            )
+            continue
+        resolved[field] = path
+
+    if resolved:
+        tex_coord = nodes.new("ShaderNodeTexCoord")
+        tex_coord.location = (-600, 0)
+        mapping = nodes.new("ShaderNodeMapping")
+        mapping.location = (-400, 0)
+        scale = params.get("texture_scale", 1.0)
+        mapping.inputs["Scale"].default_value = (scale, scale, scale)
+        links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
+
+        # (socket_name, colorspace, location)；normal 单独走 NormalMap 节点
+        tex_specs = {
+            "base_color_texture": ("Base Color", "sRGB", (-200, 200)),
+            "roughness_texture": ("Roughness", "Non-Color", (-200, 0)),
+            "metallic_texture": ("Metallic", "Non-Color", (-200, -200)),
+        }
+
+        for field, resolved_path in resolved.items():
+            if field == "normal_texture":
+                continue
+            socket_name, colorspace, loc = tex_specs[field]
+            tex = nodes.new("ShaderNodeTexImage")
+            tex.location = loc
+            tex.projection = "BOX"
+            tex.projection_blend = 0.2
+            try:
+                tex.image = bpy.data.images.load(
+                    str(resolved_path), check_existing=True
+                )
+                tex.image.colorspace_settings.name = colorspace
+            except RuntimeError as exc:
+                log.warning(
+                    "bpy.data.images.load failed for %s: %s", resolved_path, exc
+                )
+                continue
+            links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
+            links.new(tex.outputs["Color"], bsdf.inputs[socket_name])
+
+        if "normal_texture" in resolved:
+            n_path = resolved["normal_texture"]
+            convention = _detect_normal_convention(str(n_path))
+            log.info("normal map convention=%s for material=%s", convention, name)
+            ntex = nodes.new("ShaderNodeTexImage")
+            ntex.location = (-200, -400)
+            ntex.projection = "BOX"
+            ntex.projection_blend = 0.2
+            try:
+                ntex.image = bpy.data.images.load(
+                    str(n_path), check_existing=True
+                )
+                ntex.image.colorspace_settings.name = "Non-Color"
+            except RuntimeError as exc:
+                log.warning(
+                    "bpy.data.images.load failed for normal %s: %s", n_path, exc
+                )
+            else:
+                links.new(mapping.outputs["Vector"], ntex.inputs["Vector"])
+                normal_map = nodes.new("ShaderNodeNormalMap")
+                normal_map.location = (0, -400)
+                links.new(ntex.outputs["Color"], normal_map.inputs["Color"])
+                links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    # ─── /A1-2 ───────────────────────────────────────────────────────────────
+
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
     return mat
 
 
 def assign_materials():
-    """Match objects to materials based on name patterns.
+    """Match objects to materials based on name patterns and bom_id lookup.
 
-    Uses _CONFIG_MATERIALS from render_config.json if loaded,
-    otherwise falls back to hardcoded MATERIAL_MAP.
+    Uses render_config.py's resolve_bom_materials() for bom_id→material bridging.
+    Priority: bom_id prefix match > material pattern substring > default gray.
     """
-    source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else MATERIAL_MAP
+    source = _CONFIG_MATERIALS if _CONFIG_MATERIALS else _MATERIAL_PRESETS_RUNTIME
 
     materials = {}
     for pattern, params in source.items():
         mat = create_pbr_material(f"PBR_{pattern}", params)
         materials[pattern] = mat
 
+    # Build bom_id → PBR material map via shared render_config function
+    bom_mat_map = {}
+    if _CONFIG:
+        bom_key_map = rcfg.resolve_bom_materials(_CONFIG, source)
+        for bid, mat_key in bom_key_map.items():
+            if mat_key in materials:
+                bom_mat_map[bid] = materials[mat_key]
+
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":
             continue
         name_lower = obj.name.lower()
         assigned = False
-        for pattern, mat in materials.items():
-            if pattern in name_lower:
+
+        # Priority 1: bom_id prefix match (longest first)
+        for bid, mat in sorted(bom_mat_map.items(), key=lambda x: -len(x[0])):
+            if bid in name_lower:
                 obj.data.materials.clear()
                 obj.data.materials.append(mat)
-                log.debug("  Material '%s' → %s", pattern, obj.name)
+                log.debug("  Material (bom) '%s' → %s", bid, obj.name)
                 assigned = True
                 break
+
+        # Priority 2: material pattern substring match
+        if not assigned:
+            for pattern, mat in materials.items():
+                if pattern in name_lower:
+                    obj.data.materials.clear()
+                    obj.data.materials.append(mat)
+                    log.debug("  Material '%s' → %s", pattern, obj.name)
+                    assigned = True
+                    break
+
+        # Priority 3: default gray
         if not assigned:
             if "PBR_default" not in bpy.data.materials:
                 default_mat = create_pbr_material("PBR_default", {
@@ -404,7 +662,12 @@ def setup_lighting():
 
     Light sizes and energies scaled for a scene ~300mm across.
     When config is loaded, energies scale with _BOUNDING_R.
+    Automatically creates studio environment (ground + sky) if not present.
     """
+    # Ensure studio environment exists (called by render_3d main, but
+    # render_exploded.py / render_section.py may skip it)
+    if not any(o.name == "Ground" for o in bpy.context.scene.objects):
+        setup_studio_environment()
     # Energy scaling factor (1.0 at 300mm)
     if _CONFIG:
         sys.path.insert(0, SCRIPT_DIR)
@@ -461,17 +724,31 @@ def setup_lighting():
 
 
 def _get_bounding_sphere():
-    """Return (center, radius) of all non-ground mesh objects in scene."""
-    verts = []
+    """Return (center, radius) of all non-ground mesh objects in scene.
+
+    Uses the axis-aligned bounding box center (NOT the vertex centroid)
+    so vertex density on one side of the model cannot bias the framing.
+    The radius is the distance from that center to the farthest vertex,
+    which is the minimum sphere guaranteed to enclose the geometry.
+    """
+    xs, ys, zs = [], [], []
     for obj in bpy.context.scene.objects:
         if obj.type == "MESH" and obj.name not in ("Ground",):
             matrix = obj.matrix_world
             for v in obj.data.vertices:
-                verts.append(matrix @ v.co)
-    if not verts:
+                w = matrix @ v.co
+                xs.append(w.x)
+                ys.append(w.y)
+                zs.append(w.z)
+    if not xs:
         return Vector((0.0, 0.0, 0.0)), float(_BOUNDING_R)
-    center = sum(verts, Vector()) / len(verts)
-    radius = max((v - center).length for v in verts)
+    center = Vector((
+        (min(xs) + max(xs)) * 0.5,
+        (min(ys) + max(ys)) * 0.5,
+        (min(zs) + max(zs)) * 0.5,
+    ))
+    # Half-diagonal is a tight upper bound; good enough for framing.
+    radius = (Vector((max(xs), max(ys), max(zs))) - center).length
     return center, radius
 
 
@@ -532,26 +809,45 @@ def setup_camera(preset_key):
     # ── Auto-frame: normalize distance so object fills frame_fill of vertical FOV ──
     # Works for any view direction; disable per-view with "auto_frame": false
     auto_frame = preset.get("auto_frame", True)
-    if cam_data.type == "PERSP" and auto_frame:
+    if auto_frame:
         try:
             bs_center, bs_radius = _get_bounding_sphere()
             frame_fill = (_CONFIG.get("frame_fill", 0.75) if _CONFIG else 0.75)
-            scene = bpy.context.scene
-            sensor_w = cam_data.sensor_width  # Blender default 36mm
-            aspect = scene.render.resolution_x / scene.render.resolution_y
-            sensor_h = sensor_w / aspect
-            fov_half = math.atan(sensor_h / (2.0 * cam_data.lens))
-            required_dist = bs_radius / math.sin(fov_half) / frame_fill
-            # Direction: from bounding-sphere center toward camera
-            view_dir = (cam_obj.location - Vector(tgt)).normalized()
-            cam_obj.location = bs_center + view_dir * required_dist
-            # Re-aim at bounding-sphere center
-            aim = bs_center - cam_obj.location
-            cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
-            log.info("  Auto-frame [%s]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
-                     preset_key,
-                     bs_center.x, bs_center.y, bs_center.z,
-                     bs_radius, required_dist, frame_fill * 100)
+
+            if cam_data.type == "PERSP":
+                scene = bpy.context.scene
+                sensor_w = cam_data.sensor_width  # Blender default 36mm
+                aspect = scene.render.resolution_x / scene.render.resolution_y
+                sensor_h = sensor_w / aspect
+                # Spec 1 fix: use min(fov_v, fov_h) so wide models frame correctly.
+                # Vertical-FOV-only was the old behavior and under-framed landscape models.
+                fov_v = math.atan(sensor_h / (2.0 * cam_data.lens))
+                fov_h = math.atan(sensor_w / (2.0 * cam_data.lens))
+                fov_half = min(fov_v, fov_h)
+                required_dist = bs_radius / math.sin(fov_half) / frame_fill
+                # Direction: from bounding-sphere center toward camera
+                view_dir = (cam_obj.location - Vector(tgt)).normalized()
+                cam_obj.location = bs_center + view_dir * required_dist
+                # Re-aim at bounding-sphere center
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                log.info("  Auto-frame [%s]: center=(%.0f,%.0f,%.0f) r=%.0f dist=%.0f fill=%.0f%%",
+                         preset_key,
+                         bs_center.x, bs_center.y, bs_center.z,
+                         bs_radius, required_dist, frame_fill * 100)
+
+            elif cam_data.type == "ORTHO":
+                # Auto-scale ortho to fit model bounding sphere
+                cam_data.ortho_scale = bs_radius * 2.0 / frame_fill
+                # Re-center camera aim at bounding-sphere center
+                view_dir = (cam_obj.location - Vector(tgt)).normalized()
+                cam_obj.location = bs_center + view_dir * (bs_radius * 4)
+                aim = bs_center - cam_obj.location
+                cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
+                log.info("  Auto-frame ORTHO [%s]: ortho_scale=%.0f r=%.0f fill=%.0f%%",
+                         preset_key, cam_data.ortho_scale,
+                         bs_radius, frame_fill * 100)
+
         except Exception as _af_err:
             log.warning("  Auto-frame skipped: %s", _af_err)
 
