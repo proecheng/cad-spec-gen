@@ -1,6 +1,20 @@
 extends: default
 mappings:
 - match:
+    part_no: SLP-P01
+  adapter: parametric_transmission
+  spec:
+    template: trapezoidal_lead_screw
+    defaults:
+      outer_diameter_mm: 16.0
+      pitch_mm: 4.0
+      total_length_mm: 350.0
+      thread_length_mm: 230.0
+      lower_shaft_diameter_mm: 12.0
+      lower_shaft_length_mm: 70.0
+      upper_shaft_diameter_mm: 12.0
+      upper_shaft_length_mm: 40.0
+- match:
     part_no: SLP-C01
   adapter: step_pool
   spec:

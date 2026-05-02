@@ -500,6 +500,26 @@ mappings:
       subcategories: ["compression_springs", "extension_springs"]
       part_category: elastic
 
+  # ─── 传动件 STANDARD_TRANSMISSION —— 梯形丝杠 / lead screw ─────────
+  # 零配置默认：从 Tr16x4/T16/L350 与 §6.4 envelope 推导通用丝杠几何。
+  # 项目专用轴端长度等细节放在项目 parts_library.yaml，不放进默认库。
+  - match:
+      category: transmission
+      keyword_contains: ["丝杠", "丝杆", "梯形丝杠", "lead screw", "leadscrew", "Tr", "T16"]
+    adapter: parametric_transmission
+    spec:
+      template: trapezoidal_lead_screw
+      parameter_source: bom_text_or_project_mapping
+      defaults:
+        root_diameter_mm:
+        thread_length_mm:
+        lower_shaft_diameter_mm:
+        lower_shaft_length_mm: 0.0
+        upper_shaft_diameter_mm:
+        upper_shaft_length_mm: 0.0
+        visual_thread: true
+        normalize_origin: center_xy_bottom_z
+
   # ─── 传动件 STANDARD_TRANSMISSION —— 齿轮 / 链轮（Task 8） ───────────
   # 命中条件：category=transmission；走 jinja_primitive（齿轮需按模数/齿数参数化生成）
   - match:

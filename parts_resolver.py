@@ -1028,6 +1028,7 @@ _MATCH_CATEGORY_TO_PART: dict[str, PartCategory] = {
 # jinja_primitive 永远是 CUSTOM（参数化原语兜底）
 _ADAPTER_NAME_TO_PART: dict[str, PartCategory] = {
     "jinja_primitive": PartCategory.CUSTOM,
+    "parametric_transmission": PartCategory.STANDARD_TRANSMISSION,
 }
 
 
@@ -1270,6 +1271,13 @@ def default_resolver(
         ))
     except ImportError:
         pass
+
+    try:
+        from adapters.parts.parametric_transmission_adapter import ParametricTransmissionAdapter
+        resolver.register_adapter(ParametricTransmissionAdapter())
+    except ImportError as e:
+        if logger:
+            logger(f"  [resolver] ParametricTransmissionAdapter unavailable: {e}")
 
     # Phase C — PartCADAdapter (opt-in)
     if registry.get("partcad", {}).get("enabled"):
