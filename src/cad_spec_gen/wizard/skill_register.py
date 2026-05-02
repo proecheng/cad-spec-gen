@@ -21,7 +21,7 @@ USER_CONFIG_FILES = ["config/gisbot.json"]
 # Pipeline-specific tools (not shared across subsystems)
 _PIPELINE_TOOLS = [
     "cad_pipeline.py", "cad_spec_gen.py", "cad_spec_extractors.py",
-    "cad_spec_reviewer.py", "cad_paths.py",
+    "cad_spec_reviewer.py", "assembly_validator.py", "cad_paths.py",
     "bom_parser.py", "annotate_render.py",
     "enhance_prompt.py", "prompt_data_builder.py",
     "gemini_gen.py",

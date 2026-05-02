@@ -104,6 +104,7 @@ def test_match_name_to_part_no_accepts_instance_suffixes():
 
     part_nos = ["SLP-P01", "SLP-P02", "SLP-C04"]
 
+    assert _match_name_to_part_no("SLP-P01#01", part_nos) == "SLP-P01"
     assert _match_name_to_part_no("P01-LS1", part_nos) == "SLP-P01"
     assert _match_name_to_part_no("P02-GS2", part_nos) == "SLP-P02"
     assert _match_name_to_part_no("STD-SLP-C04-LS2", part_nos) == "SLP-C04"
@@ -188,3 +189,224 @@ def test_f5_completeness_counts_mechanical_drivetrain_parts():
         "SLP-500", "SLP-C01", "SLP-C04", "SLP-C05", "SLP-C06",
     }
     assert report["ok"] is False
+
+
+def test_validate_assembly_writes_run_scoped_report_and_signature(tmp_path):
+    """Runtime validation artifacts should be bound to the current run_id."""
+    import json
+
+    sub_dir = tmp_path / "project" / "cad" / "demo"
+    output_dir = tmp_path / "project" / "cad" / "output"
+    sub_dir.mkdir(parents=True)
+    (sub_dir / "CAD_SPEC.md").write_text(
+        "# CAD Spec — Demo (P)\n"
+        "\n"
+        "## 5. BOM\n"
+        "| 料号 | 名称 | 材质 | 数量 | 自制/外购 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| P-100 | Demo总成 | 组合件 | 1 | 总成 |\n"
+        "| P-100-01 | 基座 | Q235 | 1 | 自制 |\n"
+        "\n"
+        "### 6.4 包络尺寸\n"
+        "| 料号 | 名称 | 位置 | 包络尺寸 | 粒度 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| P-100-01 | 基座 | 原点 | 10 x 10 x 10 | part_envelope |\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (sub_dir / "PRODUCT_GRAPH.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "path_context_hash": "sha256:pathctx",
+            "instances": [{
+                "instance_id": "P-100-01#01",
+                "part_no": "P-100-01",
+                "required": True,
+                "render_policy": "required",
+                "visual_priority": "hero",
+            }],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (sub_dir / "assembly.py").write_text(
+        "class BBox:\n"
+        "    xmin = ymin = zmin = 0.0\n"
+        "    xmax = ymax = zmax = 10.0\n"
+        "class Shape:\n"
+        "    def moved(self, loc):\n"
+        "        return self\n"
+        "    def BoundingBox(self):\n"
+        "        return BBox()\n"
+        "class Sub:\n"
+        "    obj = Shape()\n"
+        "    loc = None\n"
+        "class Assy:\n"
+        "    objects = {'P-100-01#01': Sub()}\n"
+        "def make_assembly():\n"
+        "    return Assy()\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from assembly_validator import validate_assembly
+
+    report = validate_assembly(
+        str(sub_dir),
+        str(sub_dir / "CAD_SPEC.md"),
+        str(output_dir),
+    )
+
+    run_dir = output_dir / "runs" / "RUN001"
+    report_path = run_dir / "ASSEMBLY_REPORT.json"
+    signature_path = run_dir / "ASSEMBLY_SIGNATURE.json"
+    assert report["report_path"] == str(report_path.resolve())
+    assert report["assembly_signature_path"] == str(signature_path.resolve())
+    assert report_path.is_file()
+    assert not (output_dir / "ASSEMBLY_REPORT.json").exists()
+    signature = json.loads(signature_path.read_text(encoding="utf-8"))
+    assert signature["source_mode"] == "runtime"
+    assert signature["coverage"]["matched_total"] == 1
+
+
+def test_validate_assembly_rejects_bad_product_graph_instead_of_silent_skip(tmp_path):
+    sub_dir = tmp_path / "project" / "cad" / "demo"
+    sub_dir.mkdir(parents=True)
+    (sub_dir / "CAD_SPEC.md").write_text("# CAD Spec\n", encoding="utf-8")
+    (sub_dir / "PRODUCT_GRAPH.json").write_text("{bad json", encoding="utf-8")
+    (sub_dir / "assembly.py").write_text(
+        "class BBox:\n"
+        "    xmin = ymin = zmin = 0.0\n"
+        "    xmax = ymax = zmax = 1.0\n"
+        "class Shape:\n"
+        "    def moved(self, loc):\n"
+        "        return self\n"
+        "    def BoundingBox(self):\n"
+        "        return BBox()\n"
+        "class Sub:\n"
+        "    obj = Shape()\n"
+        "    loc = None\n"
+        "class Assy:\n"
+        "    objects = {'P-001#01': Sub()}\n"
+        "def make_assembly():\n"
+        "    return Assy()\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from assembly_validator import validate_assembly
+
+    report = validate_assembly(str(sub_dir), str(sub_dir / "CAD_SPEC.md"))
+
+    assert "error" in report
+    assert "PRODUCT_GRAPH.json" in report["error"]
+    assert not (tmp_path / "project" / "cad" / "output").exists()
+
+
+def test_validate_assembly_rejects_output_dir_outside_project(tmp_path):
+    import json
+
+    sub_dir = tmp_path / "project" / "cad" / "demo"
+    outside = tmp_path / "outside"
+    sub_dir.mkdir(parents=True)
+    (sub_dir / "CAD_SPEC.md").write_text("# CAD Spec\n", encoding="utf-8")
+    (sub_dir / "PRODUCT_GRAPH.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "instances": [{
+                "instance_id": "P-001#01",
+                "part_no": "P-001",
+                "required": True,
+                "render_policy": "required",
+            }],
+        }),
+        encoding="utf-8",
+    )
+    (sub_dir / "assembly.py").write_text(
+        "class BBox:\n"
+        "    xmin = ymin = zmin = 0.0\n"
+        "    xmax = ymax = zmax = 1.0\n"
+        "class Shape:\n"
+        "    def moved(self, loc):\n"
+        "        return self\n"
+        "    def BoundingBox(self):\n"
+        "        return BBox()\n"
+        "class Sub:\n"
+        "    obj = Shape()\n"
+        "    loc = None\n"
+        "class Assy:\n"
+        "    objects = {'P-001#01': Sub()}\n"
+        "def make_assembly():\n"
+        "    return Assy()\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from assembly_validator import validate_assembly
+
+    report = validate_assembly(
+        str(sub_dir),
+        str(sub_dir / "CAD_SPEC.md"),
+        str(outside),
+    )
+
+    assert "error" in report
+    assert "output_dir" in report["error"]
+    assert not outside.exists()
+
+
+def test_validate_assembly_rejects_run_id_path_traversal(tmp_path):
+    import json
+
+    sub_dir = tmp_path / "project" / "cad" / "demo"
+    output_dir = tmp_path / "project" / "cad" / "output"
+    sub_dir.mkdir(parents=True)
+    (sub_dir / "CAD_SPEC.md").write_text("# CAD Spec\n", encoding="utf-8")
+    (sub_dir / "PRODUCT_GRAPH.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "run_id": "..\\..\\outside",
+            "subsystem": "demo",
+            "instances": [{
+                "instance_id": "P-001#01",
+                "part_no": "P-001",
+                "required": True,
+                "render_policy": "required",
+            }],
+        }),
+        encoding="utf-8",
+    )
+    (sub_dir / "assembly.py").write_text(
+        "class BBox:\n"
+        "    xmin = ymin = zmin = 0.0\n"
+        "    xmax = ymax = zmax = 1.0\n"
+        "class Shape:\n"
+        "    def moved(self, loc):\n"
+        "        return self\n"
+        "    def BoundingBox(self):\n"
+        "        return BBox()\n"
+        "class Sub:\n"
+        "    obj = Shape()\n"
+        "    loc = None\n"
+        "class Assy:\n"
+        "    objects = {'P-001#01': Sub()}\n"
+        "def make_assembly():\n"
+        "    return Assy()\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from assembly_validator import validate_assembly
+
+    report = validate_assembly(
+        str(sub_dir),
+        str(sub_dir / "CAD_SPEC.md"),
+        str(output_dir),
+    )
+
+    assert "error" in report
+    assert "run_id" in report["error"]
+    assert not output_dir.exists()

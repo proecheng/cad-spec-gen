@@ -729,3 +729,72 @@ def test_generate_assembly_includes_mechanical_transmission_std_parts(tmp_path):
     assert 'name="STD-SLP-C04"' in content
     assert 'name="STD-SLP-C05"' in content
     assert 'name="STD-SLP-C06"' in content
+
+
+def test_generate_assembly_uses_product_graph_instance_ids_when_available(tmp_path):
+    spec = tmp_path / "cad" / "demo" / "CAD_SPEC.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "# CAD Spec — Demo (P)\n"
+        "\n"
+        "## 5. BOM\n"
+        "| 料号 | 名称 | 材质 | 数量 | 自制/外购 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| P-100 | Demo总成 | 组合件 | 1 | 总成 |\n"
+        "| P-100-01 | 基座 | Q235 | 1 | 自制 |\n"
+        "| P-100-02 | 导柱 | 45钢 | 2 | 自制 |\n"
+        "\n"
+        "### 6.2 装配层叠\n"
+        "| 层级 | 零件 | 固定/运动 | 连接 | 偏移 | 轴向 |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| L1 | Demo总成 (P-100) | 固定 | 基准 | 0 | Z |\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    product_graph_path = spec.parent / "PRODUCT_GRAPH.json"
+    product_graph_path.write_text(
+        "{\n"
+        '  "schema_version": 1,\n'
+        '  "instances": [\n'
+        '    {"instance_id": "P-100-01#01", "part_no": "P-100-01"},\n'
+        '    {"instance_id": "P-100-02#01", "part_no": "P-100-02"},\n'
+        '    {"instance_id": "P-100-02#02", "part_no": "P-100-02"}\n'
+        "  ]\n"
+        "}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from gen_assembly import generate_assembly
+
+    content = generate_assembly(str(spec))
+
+    assert 'name="P-100-01#01"' in content
+    assert 'name="P-100-02#01"' in content
+    assert 'name="P-100-02#02"' in content
+
+
+def test_generate_assembly_rejects_invalid_product_graph_when_present(tmp_path):
+    spec = tmp_path / "cad" / "demo" / "CAD_SPEC.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "# CAD Spec — Demo (P)\n"
+        "\n"
+        "## 5. BOM\n"
+        "| 料号 | 名称 | 材质 | 数量 | 自制/外购 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| P-100 | Demo总成 | 组合件 | 1 | 总成 |\n"
+        "| P-100-01 | 基座 | Q235 | 1 | 自制 |\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (spec.parent / "PRODUCT_GRAPH.json").write_text(
+        "{bad json",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    from gen_assembly import generate_assembly
+
+    with pytest.raises(ValueError, match="PRODUCT_GRAPH.json"):
+        generate_assembly(str(spec))

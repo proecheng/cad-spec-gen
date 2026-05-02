@@ -25,6 +25,7 @@ _PIPELINE_TOOLS = [
     "cad_spec_extractors.py",
     "cad_spec_section_walker.py",
     "cad_spec_reviewer.py",
+    "assembly_validator.py",
     "cad_paths.py",
     "bom_parser.py",
     "annotate_render.py",
