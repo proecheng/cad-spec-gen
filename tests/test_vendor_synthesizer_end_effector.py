@@ -439,6 +439,27 @@ def test_project_library_routes_lifting_platform_cl57t_to_cache_step(
     assert (cache_root / "electronics" / "cl57t_stepper_driver.step").is_file()
 
 
+def test_project_library_normalizes_lifting_platform_nema23_step_origin():
+    resolver = default_resolver(project_root=".")
+
+    result = resolver.resolve(
+        PartQuery(
+            part_no="SLP-C07",
+            name_cn="NEMA23 闭环步进 ≥1.0Nm",
+            material="",
+            category="motor",
+            make_buy="外购",
+        )
+    )
+
+    assert result.status == "hit"
+    assert result.adapter == "step_pool"
+    assert result.kind == "step_import"
+    assert result.path_kind == "project_relative"
+    assert result.geometry_quality == "A"
+    assert (result.metadata or {}).get("normalize_origin") == "center_xy_bottom_z"
+
+
 def test_project_library_routes_lifting_platform_pu_buffer_pad_to_cache_step(
     tmp_path, monkeypatch
 ):
