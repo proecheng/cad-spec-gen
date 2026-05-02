@@ -482,6 +482,10 @@ def generate_std_part_files(
     if geometry_report_path is not None:
         print(f"[gen_std_parts] 几何质量报告 → {geometry_report_path}")
 
+    model_contract_path = _write_model_contract(resolver, output_dir, project_root)
+    if model_contract_path is not None:
+        print(f"[gen_std_parts] 模型契约 → {model_contract_path}")
+
     return generated, skipped, resolver, pending_records
 
 
@@ -515,6 +519,26 @@ def _write_geometry_report(resolver, output_dir: str) -> Path | None:
     )
     os.replace(tmp, out_path)
     return out_path
+
+
+def _write_model_contract(resolver, output_dir: str, project_root: str) -> Path | None:
+    """Write MODEL_CONTRACT.json when PRODUCT_GRAPH.json is available."""
+    if not hasattr(resolver, "geometry_decisions"):
+        return None
+    product_graph_path = Path(output_dir) / "PRODUCT_GRAPH.json"
+    if not product_graph_path.exists():
+        print(
+            f"[gen_std_parts] MODEL_CONTRACT 跳过：未找到 {product_graph_path}"
+        )
+        return None
+    from tools.model_contract import write_model_contract
+
+    return write_model_contract(
+        project_root,
+        product_graph_path,
+        resolver_decisions=resolver.geometry_decisions(),
+        output=Path(output_dir) / ".cad-spec-gen" / "MODEL_CONTRACT.json",
+    )
 
 
 def _write_pending_file(

@@ -42,6 +42,7 @@ from adapters.solidworks.sw_config_broker import NeedsUserDecision
 from bom_parser import classify_part
 from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
+from codegen.library_routing import build_library_part_query, is_library_routed_row
 from parts_resolver import PartQuery, default_resolver
 
 # Categories the pipeline never tries to generate geometry for.
@@ -51,14 +52,10 @@ _SKIP_CATEGORIES = {"fastener", "cable"}
 
 def _build_part_query(p: dict, category: str, env, project_root: str) -> PartQuery:
     """Build the resolver query shared by prewarm and generation loops."""
-    return PartQuery(
-        part_no=p["part_no"],
-        name_cn=p["name_cn"],
-        material=p["material"],
+    return build_library_part_query(
+        p,
         category=category,
-        make_buy=p.get("make_buy", ""),
-        spec_envelope=_envelope_to_spec_envelope(env),
-        spec_envelope_granularity=_envelope_to_granularity(env),
+        envelope=env,
         project_root=project_root,
     )
 
@@ -83,6 +80,17 @@ def _should_skip_category(category: str, resolver, query: PartQuery) -> bool:
     if category not in _SKIP_CATEGORIES:
         return False
     return not _has_exact_step_pool_mapping(resolver, query)
+
+
+def _should_generate_std_row(part: dict, category: str, resolver, query: PartQuery) -> bool:
+    if "外购" in part.get("make_buy", "") or "标准" in part.get("make_buy", ""):
+        return True
+    return is_library_routed_row(
+        part,
+        category=category,
+        resolver=resolver,
+        query=query,
+    )
 
 
 def _safe_module_name(part_no: str) -> str:
@@ -399,11 +407,11 @@ def generate_std_part_files(
     for p in parts:
         if p["is_assembly"]:
             continue
-        if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
-            continue
         category = classify_part(p["name_cn"], p["material"])
         env = envelopes.get(p["part_no"])
         query = _build_part_query(p, category, env, project_root)
+        if not _should_generate_std_row(p, category, resolver, query):
+            continue
         if _should_skip_category(category, resolver, query):
             continue
         queries_for_prewarm.append(query)
@@ -417,14 +425,14 @@ def generate_std_part_files(
     for p in parts:
         if p["is_assembly"]:
             continue
-        if "外购" not in p.get("make_buy", "") and "标准" not in p.get("make_buy", ""):
-            continue
 
         category = classify_part(p["name_cn"], p["material"])
 
         # Build the query, priming spec_envelope from §6.4 when available
         env = envelopes.get(p["part_no"])
         query = _build_part_query(p, category, env, project_root)
+        if not _should_generate_std_row(p, category, resolver, query):
+            continue
         if _should_skip_category(category, resolver, query):
             continue
 
@@ -474,6 +482,10 @@ def generate_std_part_files(
     if geometry_report_path is not None:
         print(f"[gen_std_parts] 几何质量报告 → {geometry_report_path}")
 
+    model_contract_path = _write_model_contract(resolver, output_dir, project_root)
+    if model_contract_path is not None:
+        print(f"[gen_std_parts] 模型契约 → {model_contract_path}")
+
     return generated, skipped, resolver, pending_records
 
 
@@ -507,6 +519,26 @@ def _write_geometry_report(resolver, output_dir: str) -> Path | None:
     )
     os.replace(tmp, out_path)
     return out_path
+
+
+def _write_model_contract(resolver, output_dir: str, project_root: str) -> Path | None:
+    """Write MODEL_CONTRACT.json when PRODUCT_GRAPH.json is available."""
+    if not hasattr(resolver, "geometry_decisions"):
+        return None
+    product_graph_path = Path(output_dir) / "PRODUCT_GRAPH.json"
+    if not product_graph_path.exists():
+        print(
+            f"[gen_std_parts] MODEL_CONTRACT 跳过：未找到 {product_graph_path}"
+        )
+        return None
+    from tools.model_contract import write_model_contract
+
+    return write_model_contract(
+        project_root,
+        product_graph_path,
+        resolver_decisions=resolver.geometry_decisions(),
+        output=Path(output_dir) / ".cad-spec-gen" / "MODEL_CONTRACT.json",
+    )
 
 
 def _write_pending_file(
