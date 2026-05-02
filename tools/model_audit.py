@@ -17,6 +17,9 @@ from cad_paths import PROJECT_ROOT
 from tools.model_context import ModelProjectContext
 
 _QUALITY_ORDER = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1, "unknown": 0}
+_QUALITY_DESCRIPTIONS = {
+    "B": "B = curated parametric template; visually and dimensionally useful, not vendor STEP.",
+}
 _CACHE_URI_PREFIX = "cache://"
 
 
@@ -149,6 +152,10 @@ def _print_text(payload: dict[str, Any]) -> None:
     counts = payload.get("quality_counts") or {}
     if counts:
         print("quality: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        for quality in counts:
+            description = _QUALITY_DESCRIPTIONS.get(str(quality))
+            if description:
+                print(f"  {description}")
     print(f"review_required: {payload['review_required_count']}")
     print(f"missing_step_paths: {payload['missing_step_count']}")
 

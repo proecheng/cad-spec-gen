@@ -203,3 +203,49 @@ def test_model_audit_missing_report_is_clear(tmp_path):
 
     assert result.returncode == 2
     assert "geometry_report.json 不存在" in result.stderr
+
+
+def test_model_audit_text_describes_parametric_template_quality(tmp_path):
+    report_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "geometry_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "total": 1,
+                "quality_counts": {"B": 1},
+                "decisions": [
+                    {
+                        "part_no": "P-001",
+                        "name_cn": "丝杠",
+                        "geometry_quality": "B",
+                        "geometry_source": "PARAMETRIC_TEMPLATE",
+                        "adapter": "parametric_transmission",
+                        "requires_model_review": False,
+                        "step_path": None,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    env = {
+        **os.environ,
+        "CAD_PROJECT_ROOT": str(tmp_path),
+        "PYTHONIOENCODING": "utf-8",
+    }
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "model-audit", "--subsystem", "demo"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert "status: pass" in result.stdout
+    assert "B = curated parametric template" in result.stdout
