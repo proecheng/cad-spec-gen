@@ -387,8 +387,8 @@
       {
         "component": "SLP-100_top_plate",
         "anchor": [
-          960,
-          150
+          980,
+          260
         ],
         "label": [
           1600,
@@ -398,8 +398,8 @@
       {
         "component": "SLP-300_moving_plate",
         "anchor": [
-          960,
-          450
+          985,
+          520
         ],
         "label": [
           1600,
@@ -409,8 +409,8 @@
       {
         "component": "SLP-P01_LS1",
         "anchor": [
-          400,
-          400
+          925,
+          625
         ],
         "label": [
           150,
@@ -420,8 +420,8 @@
       {
         "component": "NEMA23_motor",
         "anchor": [
-          1200,
-          800
+          1030,
+          790
         ],
         "label": [
           1600,
