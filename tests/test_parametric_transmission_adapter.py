@@ -124,3 +124,33 @@ def test_default_registry_routes_lead_screw_before_generic_transmission_fallback
     assert result.status == "hit"
     assert result.adapter == "parametric_transmission"
     assert result.geometry_source == "PARAMETRIC_TEMPLATE"
+
+
+def test_emitted_parametric_std_module_adds_project_root_to_sys_path():
+    from codegen.gen_std_parts import _emit_module_source
+
+    adapter = ParametricTransmissionAdapter()
+    query = PartQuery(
+        part_no="P-001",
+        name_cn="丝杠 L100",
+        material="Tr12x3",
+        category="transmission",
+        make_buy="自制",
+    )
+    result = adapter.resolve(query, {"template": "trapezoidal_lead_screw"})
+
+    source = _emit_module_source(
+        {
+            "part_no": "P-001",
+            "name_cn": "丝杠 L100",
+            "material": "Tr12x3",
+            "make_buy": "自制",
+        },
+        "std_p001",
+        "transmission",
+        result,
+    )
+
+    assert "import sys" in source
+    assert "_project_root" in source
+    assert "adapters.parts.parametric_transmission" in source

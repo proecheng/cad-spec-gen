@@ -153,6 +153,17 @@ def _geometry_doc_lines(result) -> str:
     ])
 
 
+def _project_root_import_block() -> str:
+    return '''import os
+import sys
+_here = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.normpath(os.path.join(_here, "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+'''
+
+
 def _emit_module_source(part, mod_name: str, category: str, result) -> str:
     """Build the full Python module text for a std_*.py file.
 
@@ -222,7 +233,7 @@ Source: {result.source_tag}
 {note}
 """
 
-import cadquery as cq
+{_project_root_import_block()}import cadquery as cq
 '''
 
     func_name = f"make_{mod_name}"
