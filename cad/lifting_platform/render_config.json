@@ -37,57 +37,69 @@
     "V4": "ONLY enhance surface materials of the parts ALREADY VISIBLE in the input image. Do NOT add any new parts."
   },
   "materials": {
-    "SLP-100*": {
+    "SLP-100": {
       "preset": "black_anodized",
       "label": "Top plate"
     },
-    "SLP-200*": {
+    "SLP-200": {
       "preset": "black_anodized",
       "label": "Left bar"
     },
-    "SLP-201*": {
+    "SLP-201": {
       "preset": "black_anodized",
       "label": "Right bar"
     },
-    "SLP-300*": {
+    "SLP-300": {
       "preset": "black_anodized",
       "label": "Moving plate"
     },
-    "SLP-400*": {
+    "SLP-400": {
       "preset": "black_anodized",
       "label": "Motor bracket"
     },
-    "SLP-P01*": {
+    "SLP-403": {
+      "preset": "black_anodized",
+      "label": "Lower limit bracket"
+    },
+    "SLP-404": {
+      "preset": "black_anodized",
+      "label": "Upper limit bracket"
+    },
+    "SLP-500": {
+      "preset": "black_anodized",
+      "label": "Belt cover"
+    },
+    "SLP-P01": {
       "preset": "dark_steel",
       "label": "Lead screw"
     },
-    "SLP-P02*": {
+    "SLP-P02": {
       "preset": "stainless_304",
       "label": "Guide shaft"
     },
-    "KFL001*": {
-      "preset": "stainless_304",
-      "label": "Bearing block"
-    },
-    "T16*": {
-      "preset": "bronze",
-      "label": "Bronze nut"
-    },
-    "LM10UU*": {
+    "SLP-C02": {
       "preset": "stainless_304",
       "label": "Linear bearing"
     },
-    "NEMA23*": {
-      "preset": "dark_steel",
-      "label": "Motor"
+    "SLP-C03": {
+      "preset": "stainless_304",
+      "label": "Bearing block"
     },
-    "L070*": {
+    "SLP-C06": {
       "preset": "brushed_aluminum",
       "label": "Coupler"
     },
-    "GT2*": {
+    "SLP-C07": {
       "preset": "dark_steel",
-      "label": "Pulley"
+      "label": "Motor"
+    },
+    "SLP-F11": {
+      "preset": "black_rubber",
+      "label": "Bumper pad"
+    },
+    "SLP-F12": {
+      "preset": "dark_steel",
+      "label": "Proximity sensor"
     },
     "assy_UNKNOWN": {
       "preset": "brushed_aluminum",
@@ -258,62 +270,115 @@
     "SLP-100_top_plate": {
       "name_cn": "上固定板",
       "name_en": "Top Plate",
-      "bom_id": "SLP-100"
+      "bom_id": "SLP-100",
+      "material": "SLP-100"
     },
     "SLP-200_left_bar": {
       "name_cn": "左支撑条",
       "name_en": "Left Support Bar",
-      "bom_id": "SLP-200"
+      "bom_id": "SLP-200",
+      "material": "SLP-200"
     },
     "SLP-201_right_bar": {
       "name_cn": "右支撑条",
       "name_en": "Right Support Bar",
-      "bom_id": "SLP-201"
+      "bom_id": "SLP-201",
+      "material": "SLP-201"
     },
     "SLP-300_moving_plate": {
       "name_cn": "动板",
       "name_en": "Moving Plate",
-      "bom_id": "SLP-300"
+      "bom_id": "SLP-300",
+      "material": "SLP-300"
     },
     "SLP-400_bracket": {
       "name_cn": "电机支架",
       "name_en": "Motor Bracket",
-      "bom_id": "SLP-400"
+      "bom_id": "SLP-400",
+      "material": "SLP-400"
+    },
+    "SLP-403_lower_limit_bracket": {
+      "name_cn": "下限位传感器支架",
+      "name_en": "Lower Limit Sensor Bracket",
+      "bom_id": "SLP-403",
+      "material": "SLP-403"
+    },
+    "SLP-404_upper_limit_bracket": {
+      "name_cn": "上限位传感器支架",
+      "name_en": "Upper Limit Sensor Bracket",
+      "bom_id": "SLP-404",
+      "material": "SLP-404"
+    },
+    "SLP-500_belt_cover": {
+      "name_cn": "同步带护罩",
+      "name_en": "Timing Belt Cover",
+      "bom_id": "SLP-500",
+      "material": "SLP-500"
     },
     "SLP-P01_LS1": {
       "name_cn": "丝杠LS1",
       "name_en": "Lead Screw LS1",
-      "bom_id": "SLP-P01"
+      "bom_id": "SLP-P01",
+      "material": "SLP-P01"
     },
     "SLP-P01_LS2": {
       "name_cn": "丝杠LS2",
       "name_en": "Lead Screw LS2",
-      "bom_id": "SLP-P01"
+      "bom_id": "SLP-P01",
+      "material": "SLP-P01"
     },
     "SLP-P02_GS1": {
       "name_cn": "导向轴GS1",
       "name_en": "Guide Shaft GS1",
-      "bom_id": "SLP-P02"
+      "bom_id": "SLP-P02",
+      "material": "SLP-P02"
     },
     "SLP-P02_GS2": {
       "name_cn": "导向轴GS2",
       "name_en": "Guide Shaft GS2",
-      "bom_id": "SLP-P02"
+      "bom_id": "SLP-P02",
+      "material": "SLP-P02"
+    },
+    "LM10UU_linear_bearing": {
+      "name_cn": "LM10UU直线轴承",
+      "name_en": "LM10UU Linear Bearing",
+      "bom_id": "SLP-C02",
+      "material": "SLP-C02"
+    },
+    "KFL001_bearing_block": {
+      "name_cn": "KFL001轴承座",
+      "name_en": "KFL001 Bearing Block",
+      "bom_id": "SLP-C03",
+      "material": "SLP-C03"
     },
     "NEMA23_motor": {
       "name_cn": "步进电机",
       "name_en": "NEMA23 Motor",
-      "bom_id": "SLP-C07"
+      "bom_id": "SLP-C07",
+      "material": "SLP-C07"
     },
     "L070_coupler": {
       "name_cn": "联轴器",
       "name_en": "Coupler L070",
-      "bom_id": "SLP-C06"
+      "bom_id": "SLP-C06",
+      "material": "SLP-C06"
+    },
+    "PU_bumper_pad": {
+      "name_cn": "PU缓冲垫",
+      "name_en": "PU Bumper Pad",
+      "bom_id": "SLP-F11",
+      "material": "SLP-F11"
+    },
+    "M8_proximity_sensor": {
+      "name_cn": "M8接近开关",
+      "name_en": "M8 Proximity Sensor",
+      "bom_id": "SLP-F12",
+      "material": "SLP-F12"
     },
     "assy_UNKNOWN": {
       "name_cn": "未分组",
       "name_en": "",
-      "bom_id": "UNKNOWN",
+      "bom_id": "",
       "material": "assy_UNKNOWN"
     }
   },
