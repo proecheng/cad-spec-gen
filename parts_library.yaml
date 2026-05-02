@@ -133,6 +133,7 @@ mappings:
   adapter: step_pool
   spec:
     file: user_provided/SLP-C07_NEMA23_stepper.step
+    normalize_origin: center_xy_bottom_z
   provenance:
     provided_by_user: true
     provided_at: '2026-04-30T02:30:44.708119+00:00'
