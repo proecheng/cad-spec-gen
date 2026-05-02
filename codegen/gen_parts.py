@@ -80,6 +80,9 @@ try:
     from cad_spec_defaults import strip_part_prefix  # 脚本运行时可用
 except ImportError:
     strip_part_prefix = None  # type: ignore[assignment]
+from bom_parser import classify_part
+from codegen.library_routing import build_library_part_query, is_library_routed_row
+from parts_resolver import default_resolver
 
 
 def _safe_module_name(part_no: str, name_cn: str) -> str:
@@ -806,6 +809,8 @@ def generate_part_files(
         pno: (e["dims"] if isinstance(e, dict) else e)
         for pno, e in envelopes_raw.items()
     }
+    project_root = str(Path(spec_path).resolve().parent.parent.parent)
+    resolver = default_resolver(project_root=project_root)
 
     for p in parts:
         # Only generate for custom-made leaf parts
@@ -817,13 +822,28 @@ def generate_part_files(
         mod_name = _safe_module_name(p["part_no"], p["name_cn"])
         func_name = mod_name
         out_file = os.path.join(output_dir, f"{mod_name}.py")
+        envelope = envelopes.get(p["part_no"])
+        category = classify_part(p["name_cn"], p.get("material", ""))
+        query = build_library_part_query(
+            p,
+            category=category,
+            envelope=envelopes_raw.get(p["part_no"], envelope),
+            project_root=project_root,
+        )
+        if is_library_routed_row(
+            p,
+            category=category,
+            resolver=resolver,
+            query=query,
+        ):
+            skipped.append(out_file)
+            continue
 
         # Skip existing unless force mode
         if os.path.exists(out_file) and mode != "force":
             skipped.append(out_file)
             continue
 
-        envelope = envelopes.get(p["part_no"])
         geom = _guess_geometry(p["name_cn"], p["material"], envelope=envelope)
 
         # Track C: route() 为唯一路由入口（取代 _match_template）

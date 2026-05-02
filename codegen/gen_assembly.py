@@ -31,6 +31,13 @@ if sys.platform == "win32":
 
 from codegen.gen_build import parse_bom_tree
 from bom_parser import classify_part
+from codegen.library_routing import (
+    build_library_part_query,
+    is_library_routed_row,
+    library_make_function,
+    library_module_name,
+)
+from parts_resolver import default_resolver
 
 # Categories that get simplified CadQuery geometry. Must stay in sync with
 # _GENERATORS in codegen/gen_std_parts.py.
@@ -1194,6 +1201,9 @@ def generate_assembly(spec_path: str) -> str:
     render_exclusions = parse_render_exclusions(spec_path)
     excluded_assemblies = render_exclusions["assemblies"]
     excluded_part_nos = render_exclusions["parts"]
+    envelopes = parse_envelopes(spec_path)
+    project_root = str(Path(spec_path).resolve().parent.parent.parent)
+    resolver = default_resolver(project_root=project_root)
 
     for i, assy in enumerate(assemblies):
         pno = assy["part_no"]
@@ -1240,18 +1250,26 @@ def generate_assembly(spec_path: str) -> str:
             child_instances = part_positions.get(
                 child["part_no"], {}).get("instances", [])
             placement_rows = child_instances or [None]
+            category = classify_part(child["name_cn"], child.get("material", ""))
+            query = build_library_part_query(
+                child,
+                category=category,
+                envelope=envelopes.get(child["part_no"]),
+                project_root=project_root,
+            )
+            library_routed = is_library_routed_row(
+                child,
+                category=category,
+                resolver=resolver,
+                query=query,
+            )
 
-            if "外购" in make_buy or "标准" in make_buy:
-                # Standard/purchased part — use std_ module
-                category = classify_part(child["name_cn"], child.get("material", ""))
+            if "外购" in make_buy or "标准" in make_buy or library_routed:
+                # Standard/purchased or resolver-routed custom part — use std_ module
                 if category not in _STD_PART_CATEGORIES:
                     continue
-                # Module name via strip_part_prefix: GIS-EE-001-05 → std_ee_001_05, SLP-C01 → std_c01
-                std_suffix = strip_part_prefix(child["part_no"]).lower().replace("-", "_")
-                if std_suffix and std_suffix[0].isdigit():
-                    std_suffix = "p" + std_suffix
-                std_mod = f"std_{std_suffix}"
-                std_func = f"make_{std_mod}"
+                std_mod = library_module_name(child["part_no"])
+                std_func = library_make_function(child["part_no"])
                 color_info = _STD_COLOR_MAP.get(category, ("C_STD_SENSOR", 0.2, 0.2, 0.2))
                 std_colors_used[color_info[0]] = color_info
 

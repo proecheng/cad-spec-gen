@@ -138,7 +138,7 @@ def _part_no_to_step_filename(part_no: str) -> str:
     return f"{suffix}.step"
 
 
-def generate_build_tables(parts: list) -> dict:
+def generate_build_tables(parts: list, spec_path: str | None = None) -> dict:
     """Generate _STEP_BUILDS and _DXF_BUILDS from BOM.
 
     - Assembly-level parts (GIS-EE-001) → STEP builds
@@ -148,10 +148,21 @@ def generate_build_tables(parts: list) -> dict:
     step_builds = []
     dxf_builds = []
     std_step_builds = []
+    project_root = None
+    resolver = None
+    envelopes = {}
+    if spec_path:
+        from codegen.gen_assembly import parse_envelopes
+        from parts_resolver import default_resolver
+
+        envelopes = parse_envelopes(spec_path)
+        project_root = str(Path(spec_path).resolve().parent.parent.parent)
+        resolver = default_resolver(project_root=project_root)
 
     for p in parts:
         pno = p["part_no"]
         name = p["name_cn"]
+        category = classify_part(name, p.get("material", ""))
 
         if p["is_assembly"]:
             # Assembly-level entries (GIS-EE-001, 002...) are exported by
@@ -159,6 +170,33 @@ def generate_build_tables(parts: list) -> dict:
             # since there are no standalone sub-assembly Python modules.
             continue
         elif "自制" in p.get("make_buy", ""):
+            if resolver is not None and project_root is not None:
+                from codegen.library_routing import (
+                    build_library_part_query,
+                    is_library_routed_row,
+                    library_make_function,
+                    library_module_name,
+                )
+
+                query = build_library_part_query(
+                    p,
+                    category=category,
+                    envelope=envelopes.get(pno),
+                    project_root=project_root,
+                )
+                if is_library_routed_row(
+                    p,
+                    category=category,
+                    resolver=resolver,
+                    query=query,
+                ):
+                    std_step_builds.append({
+                        "label": f"[模型库] {re.sub(r'[（(].*$', '', name).strip()}",
+                        "module": library_module_name(pno),
+                        "func": library_make_function(pno),
+                        "filename": f"{pno}_std.step",
+                    })
+                    continue
             # Custom-made leaf part → DXF drawing
             # Module name must match gen_parts.py: GIS-EE-001-01 → ee_001_01
             from cad_spec_defaults import strip_part_prefix
@@ -176,7 +214,6 @@ def generate_build_tables(parts: list) -> dict:
             })
         elif "外购" in p.get("make_buy", "") or "标准" in p.get("make_buy", ""):
             # Purchased standard part → simplified STEP
-            category = classify_part(name, p.get("material", ""))
             if category in _STD_PART_CATEGORIES:
                 from cad_spec_defaults import strip_part_prefix
                 suffix = strip_part_prefix(pno).lower().replace("-", "_")
@@ -246,7 +283,7 @@ def main():
     parts = parse_bom_tree(spec_path)
     print(f"[gen_build] Parsed {len(parts)} BOM entries")
 
-    tables = generate_build_tables(parts)
+    tables = generate_build_tables(parts, spec_path=spec_path)
     print(f"[gen_build] Generated {len(tables['step_builds'])} STEP + "
           f"{len(tables['dxf_builds'])} DXF + "
           f"{len(tables.get('std_step_builds', []))} STD build targets")
