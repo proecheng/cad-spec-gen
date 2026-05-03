@@ -64,7 +64,7 @@ def run_photo3d_gate(
             artifacts=_relative_artifacts(root, artifact_paths),
             enhancement_status="blocked",
         )
-        return _write_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json")
+        return _finalize_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json", run_dir)
 
     product_graph = load_json_required(artifact_paths["product_graph"], "product graph")
     model_contract = load_json_required(artifact_paths["model_contract"], "model contract")
@@ -72,7 +72,7 @@ def run_photo3d_gate(
     render_manifest = load_json_required(artifact_paths["render_manifest"], "render manifest")
 
     run_id = str(active_run_id or product_graph.get("run_id") or "")
-    run_dir = artifact_paths["product_graph"].parent
+    run_dir = _default_run_dir(root, subsystem, run_id)
     path_context_hash = product_graph.get("path_context_hash")
     blocking_reasons: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -133,7 +133,7 @@ def run_photo3d_gate(
         artifacts=_relative_artifacts(root, artifact_paths),
         enhancement_status="blocked" if status == "blocked" else "not_run",
     )
-    return _write_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json")
+    return _finalize_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json", run_dir)
 
 
 def _check_identity(
@@ -412,6 +412,29 @@ def _ordinary_user_message(
 
 def _write_report(project_root: Path, report: dict[str, Any], output_path: str | Path) -> dict[str, Any]:
     target = _resolve_project_path(project_root, output_path, "photo3d report output")
+    write_json_atomic(target, report)
+    return report
+
+
+def _finalize_report(
+    project_root: Path,
+    report: dict[str, Any],
+    output_path: str | Path,
+    run_dir: Path,
+) -> dict[str, Any]:
+    target = _resolve_project_path(project_root, output_path, "photo3d report output")
+    report.setdefault("artifacts", {})["photo3d_report"] = project_relative(target, project_root)
+    if report.get("status") == "blocked":
+        from tools.photo3d_actions import build_action_plan, build_llm_context_pack
+
+        action_plan_path = _resolve_project_path(project_root, run_dir / "ACTION_PLAN.json", "action plan output")
+        llm_pack_path = _resolve_project_path(project_root, run_dir / "LLM_CONTEXT_PACK.json", "llm context output")
+        report["artifacts"]["action_plan"] = project_relative(action_plan_path, project_root)
+        report["artifacts"]["llm_context_pack"] = project_relative(llm_pack_path, project_root)
+        action_plan = build_action_plan(project_root, report)
+        llm_context_pack = build_llm_context_pack(project_root, report, action_plan)
+        write_json_atomic(action_plan_path, action_plan)
+        write_json_atomic(llm_pack_path, llm_context_pack)
     write_json_atomic(target, report)
     return report
 
