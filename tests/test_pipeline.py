@@ -252,11 +252,12 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                         os.path.normcase(expected_output_dir),
                     )
                     os.makedirs(actual_output_dir, exist_ok=True)
-                    with open(
-                        os.path.join(actual_output_dir, "V1_front_20260101_0000.png"),
-                        "wb",
-                    ) as png:
-                        png.write(b"png")
+                    from PIL import Image, ImageDraw
+
+                    image = Image.new("RGB", (256, 256), (245, 245, 245))
+                    draw = ImageDraw.Draw(image)
+                    draw.rectangle((64, 64, 192, 192), fill=(40, 90, 150))
+                    image.save(os.path.join(actual_output_dir, "V1_front_20260101_0000.png"))
                     return True, 0.1
 
                 mock_get_blender_path.return_value = os.path.join(td, "blender.exe")

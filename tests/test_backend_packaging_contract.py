@@ -57,6 +57,7 @@ def test_contract_gate_tools_are_mirrored_for_packaged_installs():
         "change_scope.py",
         "import_policy.py",
         "model_contract.py",
+        "render_qa.py",
     ]:
         source = root / "tools" / tool_name
         mirror = root / "src" / "cad_spec_gen" / "data" / "tools" / tool_name

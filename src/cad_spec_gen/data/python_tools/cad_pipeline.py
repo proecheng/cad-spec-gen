@@ -2197,6 +2197,8 @@ def cmd_build(args):
 
 def cmd_render(args):
     """Run Blender rendering for a subsystem."""
+    from tools.render_qa import write_render_manifest
+
     blender = get_blender_path()
     if not blender:
         log.error("Blender not found. Set BLENDER_PATH env var.")
@@ -2265,11 +2267,7 @@ def cmd_render(args):
     if _custom_output_dir:
         _custom_output_dir = os.path.abspath(_custom_output_dir)
     _renders_dir_pre = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
-    _pre_existing = (
-        set(glob.glob(os.path.join(_renders_dir_pre, "V*.png")))
-        if os.path.isdir(_renders_dir_pre)
-        else set()
-    )
+    _pre_existing = _snapshot_render_pngs(_renders_dir_pre)
 
     # A1-3：Blender subprocess 环境——注入 SW_TEXTURES_DIR 让 render_3d.py
     # 里 A1-1/A1-2 的 _resolve_texture_path 能查到 SW 的 PBR 贴图目录
@@ -2343,11 +2341,13 @@ def cmd_render(args):
                 failures += 1
 
     if not args.dry_run:
-        import time as _time
-
         _renders_dir = _custom_output_dir or os.path.join(DEFAULT_OUTPUT, "renders")
-        _all_now = set(glob.glob(os.path.join(_renders_dir, "V*.png")))
-        _new_files = sorted(_all_now - _pre_existing)
+        _all_now = _snapshot_render_pngs(_renders_dir)
+        _new_files = sorted(
+            path
+            for path, signature in _all_now.items()
+            if path not in _pre_existing or _pre_existing[path] != signature
+        )
         # Deduplicate: when --timestamp is used, both V1_name_TS.png and
         # V1_name.png (latest copy) are new.  Keep only the timestamped one
         # to avoid enhance processing the same image twice.
@@ -2358,16 +2358,47 @@ def cmd_render(args):
             if _ts_files:
                 _new_files = _ts_files
         if _new_files:
-            manifest = {
-                "subsystem": getattr(args, "subsystem", ""),
-                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "render_dir": _renders_dir,
-                "files": _new_files,
-                "partial": failures > 0,
-            }
-            manifest_path = os.path.join(_renders_dir, "render_manifest.json")
-            with open(manifest_path, "w", encoding="utf-8") as _mf:
-                json.dump(manifest, _mf, indent=2)
+            _product_graph_path = os.path.join(sub_dir, "PRODUCT_GRAPH.json")
+            _product_graph = _load_json_if_present(_product_graph_path)
+            _run_id = (
+                getattr(args, "run_id", None)
+                or (_product_graph or {}).get("run_id")
+                or datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
+            )
+            _path_context_hash = (
+                getattr(args, "path_context_hash", None)
+                or (_product_graph or {}).get("path_context_hash")
+            )
+            _model_contract_path = _first_existing_path([
+                os.path.join(sub_dir, ".cad-spec-gen", "MODEL_CONTRACT.json"),
+                os.path.join(DEFAULT_OUTPUT, ".cad-spec-gen", "MODEL_CONTRACT.json"),
+            ])
+            _assembly_signature_path = _first_existing_path([
+                os.path.join(DEFAULT_OUTPUT, "runs", str(_run_id), "ASSEMBLY_SIGNATURE.json"),
+                os.path.join(DEFAULT_OUTPUT, "ASSEMBLY_SIGNATURE.json"),
+            ])
+            _glb_path = _configured_glb_path(config_path)
+            _manifest_project_root = _project_root_for_manifest(_renders_dir)
+            manifest_path = write_render_manifest(
+                _manifest_project_root,
+                _renders_dir,
+                _new_files,
+                subsystem=getattr(args, "subsystem", "") or os.path.basename(sub_dir),
+                run_id=str(_run_id),
+                path_context_hash=_path_context_hash,
+                product_graph=_product_graph_path if os.path.isfile(_product_graph_path) else None,
+                model_contract=_model_contract_path,
+                assembly_signature=_assembly_signature_path,
+                render_config_path=config_path if os.path.isfile(config_path) else None,
+                glb_path=_glb_path,
+                render_script_path=render_script if os.path.isfile(render_script) else None,
+                partial=failures > 0,
+            )
+            _written_manifest = _load_json_if_present(str(manifest_path)) or {}
+            if _written_manifest.get("status") == "blocked":
+                failures += 1
+                for _reason in (_written_manifest.get("blocking_reasons") or [])[:5]:
+                    log.error("render QA blocked: %s %s", _reason.get("code", ""), _reason.get("reasons", ""))
             log.info(
                 "Manifest written: %s (%d files%s)",
                 manifest_path,
@@ -2398,8 +2429,65 @@ def _build_enhance_cfg_with_hero(cfg: dict, hero_image: str) -> dict:
     return result
 
 
+def _load_json_if_present(path: str) -> dict | None:
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    return data if isinstance(data, dict) else None
+
+
+def _snapshot_render_pngs(render_dir: str) -> dict[str, tuple[int, int, int, str]]:
+    if not os.path.isdir(render_dir):
+        return {}
+    from tools.contract_io import file_sha256
+
+    snapshot = {}
+    for path in glob.glob(os.path.join(render_dir, "V*.png")):
+        try:
+            stat = os.stat(path)
+            content_hash = file_sha256(path)
+        except OSError:
+            continue
+        snapshot[path] = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, content_hash)
+    return snapshot
+
+
+def _first_existing_path(paths: list[str]) -> str | None:
+    for path in paths:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _project_root_for_manifest(render_dir: str) -> str:
+    render_path = os.path.abspath(render_dir)
+    candidates = [os.path.abspath(PROJECT_ROOT), os.path.abspath(os.getcwd())]
+    for candidate in candidates:
+        try:
+            if os.path.commonpath([render_path, candidate]) == candidate:
+                return candidate
+        except ValueError:
+            continue
+    return render_path
+
+
+def _configured_glb_path(config_path: str) -> str | None:
+    config = _load_json_if_present(config_path)
+    glb_file = (config or {}).get("subsystem", {}).get("glb_file")
+    if not glb_file:
+        return None
+    candidates = [
+        glb_file if os.path.isabs(glb_file) else os.path.join(DEFAULT_OUTPUT, glb_file),
+        glb_file if os.path.isabs(glb_file) else os.path.join(PROJECT_ROOT, glb_file),
+    ]
+    return _first_existing_path(candidates)
+
+
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
+    from tools.render_qa import manifest_blocks_enhance, manifest_image_paths, require_render_manifest
+
     from enhance_prompt import (
         build_enhance_prompt,
         build_labeled_prompt,
@@ -2415,6 +2503,13 @@ def cmd_enhance(args):
     log.info("Enhance backend: %s", backend)
     if getattr(args, "labeled", False) and backend != "gemini":
         log.warning("--labeled is only supported with gemini backend; ignoring")
+    _explicit_render_dir = getattr(args, "dir", None)
+    if _explicit_render_dir:
+        try:
+            require_render_manifest(_explicit_render_dir, explicit=True)
+        except FileNotFoundError as exc:
+            log.error("%s", exc)
+            return 1
 
     # ── Backend-specific init & validation ─────────────────────────────
     # _enhance_fn / _enhance_cfg_key: set for table-driven backends
@@ -2509,7 +2604,8 @@ def cmd_enhance(args):
         _manifest_search_dirs = []
         if getattr(args, "dir", None):
             _manifest_search_dirs.append(args.dir)
-        _manifest_search_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
+        else:
+            _manifest_search_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
         for _mdir in _manifest_search_dirs:
             _manifest_path_check = os.path.join(_mdir, "render_manifest.json")
             if os.path.isfile(_manifest_path_check):
@@ -2548,17 +2644,22 @@ def cmd_enhance(args):
     render_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     manifest_path = os.path.join(render_dir, "render_manifest.json")
     if not os.path.isfile(manifest_path) and args.dir:
-        # also check default location as fallback
-        _default_manifest = os.path.join(
-            DEFAULT_OUTPUT, "renders", "render_manifest.json"
-        )
-        if os.path.isfile(_default_manifest):
-            manifest_path = _default_manifest
+        log.error("render_manifest.json not found in explicit render dir: %s", render_dir)
+        return 1
     if os.path.isfile(manifest_path):
         with open(manifest_path, encoding="utf-8") as _mf:
             _manifest = json.load(_mf)
+        _manifest_blocks = manifest_blocks_enhance(_manifest)
+        if _manifest_blocks:
+            log.error(
+                "Render manifest is blocked; refusing enhancement (%d reasons).",
+                len(_manifest_blocks),
+            )
+            for _reason in _manifest_blocks[:5]:
+                log.error("  %s: %s", _reason.get("code", "blocked"), _reason.get("message", ""))
+            return 1
         pngs = sorted(
-            [p for p in _manifest.get("files", []) if os.path.isfile(p)],
+            [p for p in manifest_image_paths(_manifest, project_root=PROJECT_ROOT, require_qa_passed=True) if os.path.isfile(p)],
             key=lambda p: view_sort_key(p, rc),
         )
         log.info(
@@ -3090,10 +3191,18 @@ def cmd_enhance(args):
 
 def cmd_annotate(args):
     """Add component labels to enhanced images."""
+    from tools.render_qa import require_render_manifest
+
     annotate_script = os.path.join(SKILL_ROOT, "annotate_render.py")
     if not os.path.isfile(annotate_script):
         log.error("annotate_render.py not found at %s", annotate_script)
         return 1
+    if getattr(args, "dir", None):
+        try:
+            require_render_manifest(args.dir, explicit=True)
+        except FileNotFoundError as exc:
+            log.error("%s", exc)
+            return 1
 
     sub_dir = get_subsystem_dir(args.subsystem)
     # Auto-detect subsystem from manifest if not specified
@@ -3101,7 +3210,8 @@ def cmd_annotate(args):
         _detect_dirs = []
         if getattr(args, "dir", None):
             _detect_dirs.append(args.dir)
-        _detect_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
+        else:
+            _detect_dirs.append(os.path.join(DEFAULT_OUTPUT, "renders"))
         for _mdir in _detect_dirs:
             _mp = os.path.join(_mdir, "render_manifest.json")
             if os.path.isfile(_mp):
@@ -3122,11 +3232,8 @@ def cmd_annotate(args):
     img_dir = args.dir or os.path.join(DEFAULT_OUTPUT, "renders")
     _manifest_path = os.path.join(img_dir, "render_manifest.json")
     if not os.path.isfile(_manifest_path) and args.dir:
-        _default_manifest = os.path.join(
-            DEFAULT_OUTPUT, "renders", "render_manifest.json"
-        )
-        if os.path.isfile(_default_manifest):
-            _manifest_path = _default_manifest
+        log.error("render_manifest.json not found in explicit render dir: %s", img_dir)
+        return 1
     _use_manifest = os.path.isfile(_manifest_path)
     if _use_manifest:
         log.info("Annotate using manifest: %s", _manifest_path)
@@ -3409,6 +3516,22 @@ def cmd_model_import(args):
     from tools.model_import import run_model_import
 
     return run_model_import(args)
+
+
+def cmd_product_graph(args):
+    """生成 PRODUCT_GRAPH.json 产品图契约。"""
+    from tools.product_graph import write_product_graph
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    output = write_product_graph(
+        PROJECT_ROOT,
+        args.subsystem,
+        output=getattr(args, "output", None),
+    )
+    log.info("PRODUCT_GRAPH.json written: %s", output)
+    return 0
 
 
 def cmd_sw_export_plan(args):
@@ -3885,6 +4008,18 @@ def main():
         help="跳过导入后的 resolver 消费校验",
     )
 
+    # product-graph：生成照片级 3D 产品图契约
+    p_product_graph = sub.add_parser(
+        "product-graph",
+        help="Generate PRODUCT_GRAPH.json contract from CAD_SPEC.md",
+    )
+    p_product_graph.add_argument("--subsystem", "-s", required=True)
+    p_product_graph.add_argument(
+        "--output",
+        default=None,
+        help="Output PRODUCT_GRAPH.json path (default: cad/<subsystem>/PRODUCT_GRAPH.json)",
+    )
+
     # sw-export-plan：只读生成 SW Toolbox 导出候选计划
     p_sw_export_plan = sub.add_parser(
         "sw-export-plan",
@@ -3935,6 +4070,7 @@ def main():
         "sw-inspect": cmd_sw_inspect,
         "model-audit": cmd_model_audit,
         "model-import": cmd_model_import,
+        "product-graph": cmd_product_graph,
         "sw-export-plan": cmd_sw_export_plan,
     }
 
