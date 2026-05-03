@@ -44,6 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
+| photo3d | photo3d, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -427,7 +428,69 @@ First-time setup:
   (Interactive wizard to set API Key / Base URL / Model)
 ```
 
-### 10. troubleshoot — Troubleshooting Guide
+### 10. photo3d — Photo3D Contract Gate
+
+**Trigger**: User asks for one-click photorealistic 3D output, photo3d, pass/warning/blocked gate status, accepted/preview/blocked delivery status, baseline drift, or LLM next actions.
+
+Recommended command:
+
+```bash
+python cad_pipeline.py photo3d --subsystem <name>
+```
+
+The command validates the current `run_id` before any AI enhancement. It reads artifacts only from `ARTIFACT_INDEX.json`; do not scan directories to guess the newest render, and do not fall back to a default path when the user supplied an explicit path.
+
+Required contract chain:
+
+1. `PRODUCT_GRAPH.json` proves what parts and instances should exist.
+2. `MODEL_CONTRACT.json` proves each renderable part has a model decision.
+3. `ASSEMBLY_SIGNATURE.json` proves the runtime assembly matches those instances.
+4. `RENDER_MANIFEST.json` proves PNG outputs came from the current assembly, camera, material config, GLB, and file hashes.
+5. Optional `baseline` / `CHANGE_SCOPE.json` proves drift is authorized.
+
+Gate status:
+
+- `pass`: CAD contract gate passed; enhancement may run.
+- `warning`: CAD contract gate passed with non-blocking warnings; show warnings before enhancement.
+- `blocked`: CAD contract gate failed; do not run AI enhancement.
+
+Enhancement delivery status:
+
+- `accepted`: CAD gate and enhancement consistency pass; image may be delivered.
+- `preview`: CAD gate passed, but enhancement consistency is unverified or failed; use only as preview.
+- `blocked`: CAD gate failed; enhancement must not run.
+
+At this gate stage, `PHOTO3D_REPORT.json` may include `enhancement_status` as `not_run` or `blocked`; `accepted` / `preview` belong to the later enhancement delivery layer.
+
+Outputs for ordinary users and LLMs:
+
+- `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
+- `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
+- `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
+
+路径隔离 and old artifact cleanup:
+
+- Every run has an isolated `run_id`.
+- Contract files live under `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/`.
+- Render files live under `cad/output/renders/<subsystem>/<run_id>/`.
+- `ARTIFACT_INDEX.json` is the only active-run lookup table; old files do not become valid just because they still exist.
+- 旧产物 cleanup may delete stale run/render directories, but never delete files referenced by the current `active_run_id`.
+
+接受基准 / baseline flow:
+
+- The first passing run is only a 候选基准 / candidate baseline.
+- The user must confirm the current `PHOTO3D_REPORT.json` before the run is treated as accepted baseline.
+- Until an explicit `accept-baseline` command exists, preserve and pass `--baseline-signature cad/<subsystem>/.cad-spec-gen/runs/<run_id>/ASSEMBLY_SIGNATURE.json`, or record the accepted run in `ARTIFACT_INDEX.json` when tooling supports it.
+- Later runs compare against `baseline` / `CHANGE_SCOPE.json`; unauthorized count, bbox, position, or rotation drift must stay `blocked`. Reject accidental drift, or authorize intentional drift in `CHANGE_SCOPE.json` with an `authorized` scope entry.
+
+Agent rule:
+
+- When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
+- 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。
+- Do not use AI enhancement to repair missing CAD geometry, missing instances, wrong positions, stale renders, or baseline mismatch.
+- If the action requires user input, ask for that input instead of inventing a file path or model choice.
+
+### 11. troubleshoot — Troubleshooting Guide
 
 ```
 === Common Issue Troubleshooting ===
@@ -531,9 +594,15 @@ A: 1. Run `python cad_pipeline.py model-audit --subsystem <name>` and check
       `python cad_pipeline.py sw-export-plan --subsystem <name> --json`
       and show the read-only `sw_export_plan.json` candidates; inspect/probe/report
       stages must not trigger COM export.
+
+Q: Photo3D / photo3d 输出 blocked，下一步怎么办？
+A: 打开当前 run 的 `PHOTO3D_REPORT.json` 看中文阻断原因，然后读取
+   `ACTION_PLAN.json`。大模型只能执行该文件列出的动作，例如重新渲染、
+   重新 build、请求用户提供 STEP 模型或进入人工审查。不要扫描目录猜最新
+   PNG，也不要让 AI 增强补齐 CAD 阶段缺失的结构。
 ```
 
-### 11. file_struct — File Structure
+### 12. file_struct — File Structure
 
 ```
 === CAD Rendering Pipeline File Structure ===
@@ -575,9 +644,19 @@ tools/blender/blender.exe      ← Blender 4.2 LTS portable
 
 gemini_gen.py  ← Gemini image-to-image global tool (outside project)
 ~/.claude/gemini_image_config.json ← Gemini API config (key/url/model)
+
+cad/<subsystem>/.cad-spec-gen/              ← Photo3D contract state
+├── ARTIFACT_INDEX.json                     ← active run_id artifact index
+└── runs/<run_id>/
+    ├── PRODUCT_GRAPH.json
+    ├── MODEL_CONTRACT.json
+    ├── ASSEMBLY_SIGNATURE.json
+    ├── PHOTO3D_REPORT.json
+    ├── ACTION_PLAN.json
+    └── LLM_CONTEXT_PACK.json
 ```
 
-### 12. status — Subsystem Status
+### 13. status — Subsystem Status
 
 Scan and report:
 
@@ -606,7 +685,7 @@ Pending modeling (sorted by design maturity):
 Recommendation: Next model §5 Electrical System (highest maturity unmodeled chapter)
 ```
 
-### 13. integration — Integrate Other LLMs / Agents
+### 14. integration — Integrate Other LLMs / Agents
 
 ```
 === Cross-Model Integration Guide ===
@@ -665,7 +744,7 @@ Installation (PyPI recommended):
 Adapters for other platforms: see adapters/ directory (openai, langchain, dify)
 ```
 
-### 14. parts — Parts/BOM Parsing
+### 15. parts — Parts/BOM Parsing
 
 **Trigger**: User asks about a subsystem's parts, BOM list, component structure, etc.
 
@@ -695,7 +774,7 @@ Adapters for other platforms: see adapters/ directory (openai, langchain, dify)
 - Part rows: part number format `GIS-XX-NNN-NN` (4 segments), belongs to the nearest assembly row above
 - Unit price format: `500 CNY`, `100 CNY x2`, `—`
 
-### 15. spec — CAD Spec Generation/Viewing
+### 16. spec — CAD Spec Generation/Viewing
 
 **Trigger**: User asks about CAD_SPEC, data extraction, parameter specifications, etc.
 
@@ -717,7 +796,7 @@ Adapters for other platforms: see adapters/ directory (openai, langchain, dify)
 
 4. **Template**: `templates/cad_spec_template.md` (blank template with filling instructions)
 
-### 16. review — Design Review
+### 17. review — Design Review
 
 **Trigger**: User requests design review, mechanics/assembly/material checks, design audit.
 

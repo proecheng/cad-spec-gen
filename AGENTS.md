@@ -13,7 +13,7 @@ cad-spec-gen 是 6 阶段 CAD 混合渲染管线（设计文档 → Spec → Cad
 
 | Skill | Trigger | 说明 |
 |---|---|---|
-| CAD Pipeline Assistant | `/cad-help` | Natural-language assistant for the CAD rendering pipeline (16 intents: env check, config validation,... |
+| CAD Pipeline Assistant | `/cad-help` | Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation,... |
 | CAD Spec Generator | `/cad-spec` | Phase 1: Extract 9 categories of structured data from design documents into CAD_SPEC.md. v2.5: §6.3 ... |
 | CAD Code Generator | `/cad-codegen` | Phase 2: Generate CadQuery scaffolds (params.py, build_all.py, assembly.py, part modules, std_*.py s... |
 | AI Enhancement (4 backends) | `/cad-enhance` | Phase 5: Enhance Blender-rendered PNG to photorealistic JPG via 4 backends — gemini (cloud AI, ~$0.0... |

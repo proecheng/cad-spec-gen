@@ -15,7 +15,7 @@
 
 ## 功能总览
 
-`/cad-help` 支持 **16 种意图**，覆盖 CAD 混合渲染管线全生命周期：
+`/cad-help` 支持 **17 种意图**，覆盖 CAD 混合渲染管线全生命周期：
 
 | # | 意图 | 触发示例 | 说明 |
 |---|------|----------|------|
@@ -35,6 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 运行 `python cad_pipeline.py photo3d --subsystem <name>`，验证当前 `run_id` 的契约链，生成普通用户报告和大模型动作计划 |
 
 ### v2.3.0 新增能力
 
@@ -172,6 +173,51 @@ python gemini_gen.py \
   "Keep ALL geometry EXACTLY unchanged. Apply photorealistic materials..."
 # → 输出: 照片级 JPG (~6MB, 5460×3072)
 ```
+
+### Photo3D 一键照片级契约门禁
+
+普通用户优先使用：
+
+```bash
+python cad_pipeline.py photo3d --subsystem <name>
+```
+
+该命令不会扫描目录猜最新文件；它只读取当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物，并校验 `PRODUCT_GRAPH.json`、`MODEL_CONTRACT.json`、`ASSEMBLY_SIGNATURE.json`、`RENDER_MANIFEST.json` 与可选 `baseline` / `CHANGE_SCOPE.json` 是否一致。
+
+门禁状态（Gate status，`photo3d` 命令写入 `PHOTO3D_REPORT.json` 的 `status`）：
+
+- `pass`：CAD 契约门禁通过，可以进入增强阶段。
+- `warning`：CAD 契约门禁通过但存在非阻断警告，应先展示警告；用户确认后可进入增强。
+- `blocked`：CAD 契约门禁失败，不运行 AI 增强。
+
+增强交付状态（Enhancement delivery status，增强阶段完成后的上层判定）：
+
+- `accepted`：CAD 门禁和增强一致性都通过，可作为照片级交付图。
+- `preview`：CAD 门禁通过，但增强一致性未验证或未通过，只能作为预览。
+- `blocked`：CAD 门禁失败，增强不得执行。
+
+当前门禁阶段的 `PHOTO3D_REPORT.json` 只会把 `enhancement_status` 写成 `not_run` 或 `blocked`；`accepted` / `preview` 属于后续增强交付层。
+
+阻断时会写出：
+
+- `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
+- `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
+- `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
+
+大模型必须依据 `ACTION_PLAN.json` 中的动作继续，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。
+
+路径隔离与旧产物清理：
+
+- 每次运行都有独立 `run_id`，契约文件写入 `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/`，渲染图写入 `cad/output/renders/<subsystem>/<run_id>/`。
+- `ARTIFACT_INDEX.json` 只记录当前 run 的已登记产物；旧产物不会因为文件还存在而自动参与本轮门禁。
+- 需要清理旧产物时，只删除过期 run 目录或旧 render 目录；不要删除当前 `active_run_id` 仍引用的文件。
+
+接受基准流程：
+
+- 首次 `pass` 的结果只能作为候选基准；不要伪造历史稳定性。
+- 用户确认当前 `PHOTO3D_REPORT.json` 后，才能把该 `run_id` 记录为 accepted baseline。
+- 当前没有显式 `accept-baseline` 命令时，保存并传入 `--baseline-signature cad/<subsystem>/.cad-spec-gen/runs/<run_id>/ASSEMBLY_SIGNATURE.json`；等工具支持记录 accepted run 后，再把用户确认的 run 写入 `ARTIFACT_INDEX.json` 对应字段。
+- 后续 `photo3d` 会用 `baseline` / `CHANGE_SCOPE.json` 比较实例数量、位置、bbox 和旋转漂移。误改应回退；有意变更必须在 `CHANGE_SCOPE.json` 中写清授权范围并标注为 authorized，否则漂移保持 `blocked`。
 
 ### AI 增强工作流（所有配置的视角）
 

@@ -4071,12 +4071,39 @@ def main():
     p_photo3d = sub.add_parser(
         "photo3d",
         help="Run contract gate before photorealistic enhancement",
+        description=(
+            "Photo3D 契约门禁：在 AI 增强前验证当前 run_id 的产品图、模型契约、"
+            "装配签名、渲染清单和 baseline 漂移。通过时可进入增强；失败时写出"
+            "普通用户可读的 PHOTO3D_REPORT.json、ACTION_PLAN.json 和 "
+            "LLM_CONTEXT_PACK.json，供大模型按允许动作继续。"
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py photo3d --subsystem <name>\n"
+            "Artifacts are resolved only through ARTIFACT_INDEX.json for the active "
+            "run_id; the command does not scan directories for the newest PNG.\n"
+            "Gate status: pass = CAD contract gate passed; warning = CAD gate passed "
+            "with non-blocking warnings; blocked = CAD gate failed and enhancement "
+            "must not run. PHOTO3D_REPORT.json enhancement_status is blocked or "
+            "not_run at this gate stage.\n"
+            "Enhancement delivery status used later: accepted = CAD gate and "
+            "enhancement consistency pass; preview = CAD gate pass but enhancement "
+            "consistency is unverified or failed; blocked = CAD gate failed.\n"
+            "The first pass is only a candidate baseline; after user confirmation, "
+            "preserve/pass --baseline-signature cad/<subsystem>/.cad-spec-gen/runs/"
+            "<run_id>/ASSEMBLY_SIGNATURE.json or record the accepted run when "
+            "tooling supports it. Use --change-scope to authorize intentional drift."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_photo3d.add_argument("--subsystem", "-s", required=True)
     p_photo3d.add_argument(
         "--artifact-index",
         default=None,
-        help="ARTIFACT_INDEX.json path (default: cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json)",
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only artifact discovery source for the current run_id."
+        ),
     )
     p_photo3d.add_argument(
         "--change-scope",
@@ -4086,12 +4113,15 @@ def main():
     p_photo3d.add_argument(
         "--baseline-signature",
         default=None,
-        help="Optional baseline ASSEMBLY_SIGNATURE.json",
+        help="Optional baseline ASSEMBLY_SIGNATURE.json for accepted baseline comparison",
     )
     p_photo3d.add_argument(
         "--output",
         default=None,
-        help="PHOTO3D_REPORT.json output path",
+        help=(
+            "PHOTO3D_REPORT.json output path; blocked runs also write "
+            "ACTION_PLAN.json and LLM_CONTEXT_PACK.json beside the active run artifacts"
+        ),
     )
 
     # sw-export-plan：只读生成 SW Toolbox 导出候选计划

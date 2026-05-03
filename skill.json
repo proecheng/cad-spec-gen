@@ -13,7 +13,7 @@
       "id": "cad-help",
       "name": "CAD Pipeline Assistant",
       "trigger": "/cad-help",
-      "description": "Natural-language assistant for the CAD rendering pipeline (16 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review)",
+      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, photo3d contract gate, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, ACTION_PLAN.json, and LLM_CONTEXT_PACK.json for foolproof user and LLM recovery flows.",
       "knowledge_file": "skill_cad_help.md"
     },
     {
@@ -49,6 +49,11 @@
       "name": "cad_pipeline",
       "description": "Unified 6-phase pipeline orchestrator: spec → codegen → build → render → enhance → annotate",
       "cli": "python cad_pipeline.py {spec|codegen|build|render|enhance|annotate|full|status|env-check} [OPTIONS]"
+    },
+    {
+      "name": "photo3d",
+      "description": "Contract-driven photorealistic gate: validates current run_id via ARTIFACT_INDEX.json, PRODUCT_GRAPH.json, MODEL_CONTRACT.json, ASSEMBLY_SIGNATURE.json, RENDER_MANIFEST.json, and optional baseline / CHANGE_SCOPE before enhancement. Writes PHOTO3D_REPORT.json, ACTION_PLAN.json, and LLM_CONTEXT_PACK.json; gate status is pass/warning/blocked, while later enhancement delivery status is accepted/preview/blocked.",
+      "cli": "python cad_pipeline.py photo3d --subsystem <name>"
     },
     {
       "name": "cad_spec_gen",
