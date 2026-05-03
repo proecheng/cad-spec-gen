@@ -479,8 +479,10 @@ Outputs for ordinary users and LLMs:
 接受基准 / baseline flow:
 
 - The first passing run is only a 候选基准 / candidate baseline.
-- The user must confirm the current `PHOTO3D_REPORT.json` before the run is treated as accepted baseline.
-- Until an explicit `accept-baseline` command exists, preserve and pass `--baseline-signature cad/<subsystem>/.cad-spec-gen/runs/<run_id>/ASSEMBLY_SIGNATURE.json`, or record the accepted run in `ARTIFACT_INDEX.json` when tooling supports it.
+- The user must confirm the current `PHOTO3D_REPORT.json`, then run `python cad_pipeline.py accept-baseline --subsystem <name>`.
+- `PHOTO3D_REPORT.json` records `artifact_hashes` for the required contracts. `accept-baseline` validates that the report path, report artifact paths, and current artifact file hashes all match the same run in `ARTIFACT_INDEX.json`, so stale reports, handwritten reports, and mutated temporary artifacts cannot become baseline evidence.
+- `accept-baseline` writes `accepted_baseline_run_id` to `ARTIFACT_INDEX.json`; it accepts only `pass` / `warning` reports, does not switch `active_run_id`, and does not scan directories for the newest artifact.
+- Later `photo3d --change-scope <CHANGE_SCOPE.json>` automatically reuses the accepted baseline `ASSEMBLY_SIGNATURE.json`; `--baseline-signature <path>` remains an explicit override.
 - Later runs compare against `baseline` / `CHANGE_SCOPE.json`; unauthorized count, bbox, position, or rotation drift must stay `blocked`. Reject accidental drift, or authorize intentional drift in `CHANGE_SCOPE.json` with an `authorized` scope entry.
 
 Agent rule:

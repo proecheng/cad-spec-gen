@@ -215,8 +215,10 @@ python cad_pipeline.py photo3d --subsystem <name>
 接受基准流程：
 
 - 首次 `pass` 的结果只能作为候选基准；不要伪造历史稳定性。
-- 用户确认当前 `PHOTO3D_REPORT.json` 后，才能把该 `run_id` 记录为 accepted baseline。
-- 当前没有显式 `accept-baseline` 命令时，保存并传入 `--baseline-signature cad/<subsystem>/.cad-spec-gen/runs/<run_id>/ASSEMBLY_SIGNATURE.json`；等工具支持记录 accepted run 后，再把用户确认的 run 写入 `ARTIFACT_INDEX.json` 对应字段。
+- 用户确认当前 `PHOTO3D_REPORT.json` 后，运行 `python cad_pipeline.py accept-baseline --subsystem <name>`，把该 `run_id` 写入 `ARTIFACT_INDEX.json` 的 `accepted_baseline_run_id`，并记录为 accepted baseline。
+- `PHOTO3D_REPORT.json` 会记录关键契约的 `artifact_hashes`；`accept-baseline` 会校验报告路径、报告中的 artifact 路径、以及当前文件哈希都与 `ARTIFACT_INDEX.json` 中同一 run 一致，防止旧报告、手写报告或被改动后的临时产物成为基线证据。
+- 该命令只接受 `pass` / `warning` 的 `PHOTO3D_REPORT.json`，不会切换 `active_run_id`，也不会扫描目录猜最新产物；需要指定历史 run 时传 `--run-id <run_id>`。
+- 后续 `photo3d --change-scope <CHANGE_SCOPE.json>` 会自动使用 `accepted_baseline_run_id` 对应的 `ASSEMBLY_SIGNATURE.json`；仍可用 `--baseline-signature <path>` 显式覆盖。
 - 后续 `photo3d` 会用 `baseline` / `CHANGE_SCOPE.json` 比较实例数量、位置、bbox 和旋转漂移。误改应回退；有意变更必须在 `CHANGE_SCOPE.json` 中写清授权范围并标注为 authorized，否则漂移保持 `blocked`。
 
 ### AI 增强工作流（所有配置的视角）

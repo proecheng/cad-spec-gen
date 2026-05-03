@@ -23,6 +23,8 @@ USER_FLOW_TERMS = {
     "enhancement_status",
     "baseline",
     "baseline-signature",
+    "accept-baseline",
+    "accepted_baseline_run_id",
     "CHANGE_SCOPE.json",
 }
 
@@ -65,6 +67,33 @@ def test_photo3d_help_explains_user_flow_and_reports():
     assert "python cad_pipeline.py photo3d --subsystem <name>" in help_text
 
 
+def test_accept_baseline_help_explains_explicit_acceptance_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "accept-baseline", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "accept-baseline",
+        "PHOTO3D_REPORT.json",
+        "ARTIFACT_INDEX.json",
+        "accepted baseline",
+        "pass",
+        "warning",
+        "active_run_id",
+        "baseline-signature",
+    ):
+        assert term in help_text
+
+
 def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
     for rel in (
         "docs/cad-help-guide-zh.md",
@@ -95,10 +124,16 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
 
         tools_by_name = {tool["name"]: tool for tool in data["tools"]}
         assert "photo3d" in tools_by_name, rel
+        assert "accept_baseline" in tools_by_name, rel
         assert (
             tools_by_name["photo3d"]["cli"]
             == "python cad_pipeline.py photo3d --subsystem <name>"
         )
+        assert (
+            tools_by_name["accept_baseline"]["cli"]
+            == "python cad_pipeline.py accept-baseline --subsystem <name>"
+        )
         assert "LLM_CONTEXT_PACK.json" in tools_by_name["photo3d"]["description"]
         assert "pass/warning/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted/preview/blocked" in tools_by_name["photo3d"]["description"]
+        assert "accepted_baseline_run_id" in tools_by_name["accept_baseline"]["description"]

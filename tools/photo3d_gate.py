@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from tools.artifact_index import get_active_artifacts
+from tools.artifact_index import get_accepted_baseline, get_active_artifacts
 from tools.change_scope import evaluate_change_scope, load_change_scope
 from tools.contract_io import file_sha256, load_json_required, stable_json_hash, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
@@ -62,6 +62,7 @@ def run_photo3d_gate(
             warnings=[],
             counts={},
             artifacts=_relative_artifacts(root, artifact_paths),
+            artifact_hashes=_artifact_hashes(artifact_paths),
             enhancement_status="blocked",
         )
         return _finalize_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json", run_dir)
@@ -94,11 +95,30 @@ def run_photo3d_gate(
         scope_path = _resolve_project_path(root, change_scope_path, "change scope")
         change_scope = load_change_scope(scope_path)
         baseline_signature = None
+        baseline_signature_path_for_report = None
         if baseline_signature_path is not None:
-            baseline_signature = load_json_required(
-                _resolve_project_path(root, baseline_signature_path, "baseline assembly signature"),
+            baseline_signature_path_for_report = _resolve_project_path(
+                root,
+                baseline_signature_path,
                 "baseline assembly signature",
             )
+        else:
+            try:
+                accepted_baseline = get_accepted_baseline(index)
+            except ValueError:
+                accepted_baseline = None
+            if accepted_baseline is not None:
+                baseline_signature_path_for_report = _resolve_project_path(
+                    root,
+                    accepted_baseline["assembly_signature"],
+                    "accepted baseline assembly signature",
+                )
+        if baseline_signature_path_for_report is not None:
+            baseline_signature = load_json_required(
+                baseline_signature_path_for_report,
+                "baseline assembly signature",
+            )
+            artifact_paths["baseline_assembly_signature"] = baseline_signature_path_for_report
         change_report = evaluate_change_scope(
             change_scope,
             current_signature=assembly_signature,
@@ -131,6 +151,7 @@ def run_photo3d_gate(
             ]),
         },
         artifacts=_relative_artifacts(root, artifact_paths),
+        artifact_hashes=_artifact_hashes(artifact_paths),
         enhancement_status="blocked" if status == "blocked" else "not_run",
     )
     return _finalize_report(root, report, output_path or run_dir / "PHOTO3D_REPORT.json", run_dir)
@@ -378,6 +399,7 @@ def _build_report(
     warnings: list[dict[str, Any]],
     counts: dict[str, int],
     artifacts: dict[str, str],
+    artifact_hashes: dict[str, str],
     enhancement_status: str,
 ) -> dict[str, Any]:
     return {
@@ -392,6 +414,7 @@ def _build_report(
         "warnings": warnings,
         "counts": counts,
         "artifacts": artifacts,
+        "artifact_hashes": artifact_hashes,
         "enhancement_status": enhancement_status,
     }
 
@@ -455,4 +478,12 @@ def _relative_artifacts(project_root: Path, artifacts: dict[str, Path]) -> dict[
     return {
         key: project_relative(path, project_root)
         for key, path in artifacts.items()
+    }
+
+
+def _artifact_hashes(artifacts: dict[str, Path]) -> dict[str, str]:
+    return {
+        key: file_sha256(path)
+        for key, path in artifacts.items()
+        if path.is_file()
     }
