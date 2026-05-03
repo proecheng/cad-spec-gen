@@ -3534,6 +3534,27 @@ def cmd_product_graph(args):
     return 0
 
 
+def cmd_photo3d(args):
+    """运行照片级 3D 契约门禁。"""
+    from tools.photo3d_gate import run_photo3d_gate
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    report = run_photo3d_gate(
+        PROJECT_ROOT,
+        args.subsystem,
+        artifact_index_path=getattr(args, "artifact_index", None),
+        change_scope_path=getattr(args, "change_scope", None),
+        baseline_signature_path=getattr(args, "baseline_signature", None),
+        output_path=getattr(args, "output", None),
+        config=_load_pipeline_config(),
+    )
+    status = report.get("status")
+    log.info("PHOTO3D_REPORT: %s", report.get("ordinary_user_message"))
+    return 0 if status in {"pass", "warning"} else 1
+
+
 def cmd_sw_export_plan(args):
     """生成只读 SolidWorks Toolbox 导出候选计划。"""
     from codegen.gen_build import parse_bom_tree
@@ -4020,6 +4041,33 @@ def main():
         help="Output PRODUCT_GRAPH.json path (default: cad/<subsystem>/PRODUCT_GRAPH.json)",
     )
 
+    # photo3d：运行照片级契约门禁
+    p_photo3d = sub.add_parser(
+        "photo3d",
+        help="Run contract gate before photorealistic enhancement",
+    )
+    p_photo3d.add_argument("--subsystem", "-s", required=True)
+    p_photo3d.add_argument(
+        "--artifact-index",
+        default=None,
+        help="ARTIFACT_INDEX.json path (default: cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json)",
+    )
+    p_photo3d.add_argument(
+        "--change-scope",
+        default=None,
+        help="Optional CHANGE_SCOPE.json for baseline drift checking",
+    )
+    p_photo3d.add_argument(
+        "--baseline-signature",
+        default=None,
+        help="Optional baseline ASSEMBLY_SIGNATURE.json",
+    )
+    p_photo3d.add_argument(
+        "--output",
+        default=None,
+        help="PHOTO3D_REPORT.json output path",
+    )
+
     # sw-export-plan：只读生成 SW Toolbox 导出候选计划
     p_sw_export_plan = sub.add_parser(
         "sw-export-plan",
@@ -4071,6 +4119,7 @@ def main():
         "model-audit": cmd_model_audit,
         "model-import": cmd_model_import,
         "product-graph": cmd_product_graph,
+        "photo3d": cmd_photo3d,
         "sw-export-plan": cmd_sw_export_plan,
     }
 

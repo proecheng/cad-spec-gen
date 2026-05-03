@@ -16,7 +16,7 @@ def test_pipeline_command_modules_exist_for_major_phases():
     if loaded is not None and not hasattr(loaded, "__path__"):
         del sys.modules["cad_spec_gen"]
 
-    for name in ("spec", "codegen", "build", "render", "enhance", "annotate"):
+    for name in ("spec", "codegen", "build", "render", "enhance", "annotate", "photo3d"):
         mod = importlib.import_module(f"cad_spec_gen.pipeline.commands.{name}")
         assert hasattr(mod, "run")
         assert callable(mod.run)

@@ -56,7 +56,9 @@ def test_contract_gate_tools_are_mirrored_for_packaged_installs():
         "assembly_signature.py",
         "change_scope.py",
         "import_policy.py",
+        "enhance_consistency.py",
         "model_contract.py",
+        "photo3d_gate.py",
         "render_qa.py",
     ]:
         source = root / "tools" / tool_name
