@@ -1998,6 +1998,20 @@ def cmd_codegen(args):
     # 2-pre: Deploy shared tool modules to subsystem directory
     _deploy_tool_modules(sub_dir)
 
+    # 2-contract: PRODUCT_GRAPH is the instance identity source for assembly
+    # layout contracts. Generate it explicitly so codegen stays one-command
+    # usable while downstream tools never infer identities from names.
+    cmd = [
+        sys.executable,
+        os.path.join(SKILL_ROOT, "cad_pipeline.py"),
+        "product-graph",
+        "--subsystem",
+        args.subsystem,
+    ]
+    ok, _ = _run_subprocess(cmd, "codegen PRODUCT_GRAPH.json", dry_run=args.dry_run)
+    if not ok:
+        failures += 1
+
     # 2a: params.py
     cmd = [
         sys.executable,
@@ -2067,6 +2081,8 @@ def cmd_codegen(args):
         "--mode",
         mode,
     ]
+    if getattr(args, "force_layout", False):
+        cmd.append("--force-layout")
     ok, _ = _run_subprocess(cmd, "codegen assembly.py", dry_run=args.dry_run)
     if not ok:
         failures += 1
@@ -3817,6 +3833,11 @@ def main():
     p_codegen.add_argument(
         "--force", action="store_true", help="Overwrite existing files"
     )
+    p_codegen.add_argument(
+        "--force-layout",
+        action="store_true",
+        help="Rebuild assembly_layout.py; plain --force preserves manual layout",
+    )
 
     # build
     p_build = sub.add_parser("build", help="Build STEP + DXF files")
@@ -3887,6 +3908,11 @@ def main():
         "--force-spec", action="store_true", help="Force spec regeneration"
     )
     p_full.add_argument("--force", action="store_true", help="Force codegen overwrite")
+    p_full.add_argument(
+        "--force-layout",
+        action="store_true",
+        help="Rebuild assembly_layout.py during codegen; plain --force preserves it",
+    )
     p_full.add_argument(
         "--render",
         action="store_true",

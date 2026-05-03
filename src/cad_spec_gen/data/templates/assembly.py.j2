@@ -28,6 +28,8 @@ from params import (
 import params  # noqa: F401
 {% endif %}
 
+ASSEMBLY_PART_NO = "{{ assembly_part_no }}"
+
 
 def _station_transform(part, angle: float, tx: float, ty: float, tz: float):
     """Apply station rotation + translation."""

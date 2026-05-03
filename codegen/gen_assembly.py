@@ -39,6 +39,12 @@ from codegen.library_routing import (
     library_module_name,
 )
 from parts_resolver import default_resolver
+from tools.layout_contract import (
+    build_layout_contract,
+    manual_overrides_from_layout_file,
+    should_preserve_manual_layout,
+    write_layout_contract,
+)
 
 # Categories that get simplified CadQuery geometry. Must stay in sync with
 # _GENERATORS in codegen/gen_std_parts.py.
@@ -1128,16 +1134,10 @@ def _safe_instance_id(instance_id: str) -> str:
 
 
 def _load_product_graph_instance_map(spec_path: str) -> dict[str, list[str]]:
-    graph_path = Path(spec_path).resolve().parent / "PRODUCT_GRAPH.json"
-    if not graph_path.is_file():
+    graph = _load_product_graph_for_assembly(spec_path)
+    if not graph:
         return {}
-    try:
-        with graph_path.open(encoding="utf-8") as f:
-            graph = json.load(f)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid PRODUCT_GRAPH.json: {graph_path}: {exc}") from exc
-    except OSError as exc:
-        raise ValueError(f"Cannot read PRODUCT_GRAPH.json: {graph_path}: {exc}") from exc
+    graph_path = Path(spec_path).resolve().parent / "PRODUCT_GRAPH.json"
     if not isinstance(graph, dict):
         raise ValueError(f"Invalid PRODUCT_GRAPH.json: expected object: {graph_path}")
     result: dict[str, list[str]] = {}
@@ -1160,6 +1160,32 @@ def _load_product_graph_instance_map(spec_path: str) -> dict[str, list[str]]:
             seen_instance_ids.add(instance_id)
             result.setdefault(str(part_no), []).append(str(instance_id))
     return result
+
+
+def _load_product_graph_for_assembly(spec_path: str) -> dict:
+    graph_path = Path(spec_path).resolve().parent / "PRODUCT_GRAPH.json"
+    if not graph_path.is_file():
+        return {}
+    try:
+        with graph_path.open(encoding="utf-8") as f:
+            graph = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid PRODUCT_GRAPH.json: {graph_path}: {exc}") from exc
+    except OSError as exc:
+        raise ValueError(f"Cannot read PRODUCT_GRAPH.json: {graph_path}: {exc}") from exc
+    if not isinstance(graph, dict):
+        raise ValueError(f"Invalid PRODUCT_GRAPH.json: expected object: {graph_path}")
+    return graph
+
+
+def _load_required_product_graph_for_layout(spec_path: str) -> dict:
+    graph_path = Path(spec_path).resolve().parent / "PRODUCT_GRAPH.json"
+    graph = _load_product_graph_for_assembly(spec_path)
+    if not graph:
+        raise FileNotFoundError(
+            f"PRODUCT_GRAPH.json is required before writing LAYOUT_CONTRACT.json: {graph_path}"
+        )
+    return graph
 
 
 def _placement_rows_for_part(
@@ -1495,24 +1521,233 @@ def generate_assembly(spec_path: str) -> str:
     return content
 
 
+def write_assembly_files(
+    spec_path: str,
+    output_path: str | None = None,
+    *,
+    mode: str = "scaffold",
+    force_layout: bool = False,
+) -> dict:
+    """Write generated assembly files without overwriting manual layout by default."""
+    spec_path = os.path.abspath(spec_path)
+    stable_path = Path(output_path or os.path.join(os.path.dirname(spec_path), "assembly.py"))
+    stable_path.parent.mkdir(parents=True, exist_ok=True)
+    generated_path = stable_path.parent / "assembly.generated.py"
+    layout_path = stable_path.parent / "assembly_layout.py"
+    contract_path = stable_path.parent / "LAYOUT_CONTRACT.json"
+
+    if mode == "scaffold" and stable_path.exists():
+        return {
+            "skipped": True,
+            "stable_entry": str(stable_path),
+            "generated": str(generated_path),
+            "layout": str(layout_path),
+            "layout_preserved": layout_path.exists(),
+            "contract": str(contract_path),
+        }
+
+    product_graph = _load_required_product_graph_for_layout(spec_path)
+    preserve_layout = should_preserve_manual_layout(layout_path, force_layout=force_layout)
+    manual_overrides = (
+        manual_overrides_from_layout_file(layout_path)
+        if preserve_layout
+        else []
+    )
+    legacy_entry_backup = _preserve_legacy_assembly_entry(stable_path)
+
+    generated_content = generate_assembly(spec_path)
+    generated_path.write_text(generated_content, encoding="utf-8")
+
+    if not preserve_layout:
+        layout_path.write_text(_default_assembly_layout_content(), encoding="utf-8")
+
+    stable_path.write_text(
+        _stable_assembly_entry_content(generated_path.name, layout_path.name),
+        encoding="utf-8",
+    )
+
+    contract = build_layout_contract(
+        product_graph,
+        generated_files=[generated_path.name, stable_path.name],
+        manual_overrides=manual_overrides,
+        force_layout=force_layout,
+    )
+    migration_events = []
+    if legacy_entry_backup:
+        migration_events.append({
+            "code": "legacy_assembly_entry_preserved",
+            "source": stable_path.name,
+            "backup": legacy_entry_backup.name,
+            "message": "Existing assembly.py was preserved before writing the stable entrypoint.",
+        })
+    contract["manual_layout"]["preserved"] = preserve_layout
+    contract["manual_layout"]["layout_rebuilt"] = bool(force_layout and not preserve_layout)
+    contract["migration_events"] = migration_events
+    if migration_events:
+        contract["warnings"].extend(migration_events)
+        if contract["status"] == "ok":
+            contract["status"] = "warning"
+    if preserve_layout:
+        contract["manual_layout"]["reason"] = "existing assembly_layout.py preserved; use --force-layout to rebuild it"
+    elif force_layout:
+        contract["manual_layout"]["reason"] = "--force-layout requested; manual layout scaffold was rebuilt"
+    else:
+        contract["manual_layout"]["reason"] = "assembly_layout.py scaffold created because no manual layout existed"
+    write_layout_contract(contract_path, contract)
+
+    return {
+        "skipped": False,
+        "stable_entry": str(stable_path),
+        "generated": str(generated_path),
+        "layout": str(layout_path),
+        "layout_preserved": preserve_layout,
+        "contract": str(contract_path),
+        "legacy_entry_backup": str(legacy_entry_backup) if legacy_entry_backup else "",
+        "unlaid_out_instances": contract["unlaid_out_instances"],
+        "orphan_overrides": contract["orphan_overrides"],
+    }
+
+
+def _default_assembly_layout_content() -> str:
+    return '''"""Manual assembly layout overrides.
+
+This file is owned by users or design agents. Ordinary codegen --force
+preserves it; pass --force-layout only when you intentionally want to rebuild
+the manual layout scaffold.
+"""
+
+MANUAL_LAYOUT_OVERRIDES = {}
+
+
+def apply_layout(assy):
+    """Return assy after applying manual placement overrides."""
+    return assy
+'''
+
+
+def _preserve_legacy_assembly_entry(stable_path: Path) -> Path | None:
+    if not stable_path.is_file():
+        return None
+    existing = stable_path.read_text(encoding="utf-8")
+    if "Stable assembly entrypoint" in existing and "assembly.generated.py" in existing:
+        return None
+
+    backup_path = stable_path.with_name("assembly_legacy.py")
+    if backup_path.exists() and backup_path.read_text(encoding="utf-8") != existing:
+        idx = 1
+        while True:
+            candidate = stable_path.with_name(f"assembly_legacy_{idx}.py")
+            if not candidate.exists():
+                backup_path = candidate
+                break
+            idx += 1
+    backup_path.write_text(existing, encoding="utf-8")
+    return backup_path
+
+
+def _stable_assembly_entry_content(generated_filename: str, layout_filename: str) -> str:
+    return f'''"""Stable assembly entrypoint.
+
+Generated scaffold lives in {generated_filename}; manual layout overrides live
+in {layout_filename}. Re-running codegen --force refreshes only the generated
+scaffold and this stable entrypoint.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import os
+import sys
+
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+
+def _load_module_from_file(filename: str, label: str):
+    path = os.path.join(_HERE, filename)
+    module_hash = hashlib.sha256(os.path.abspath(path).encode("utf-8")).hexdigest()[:12]
+    module_name = f"_cad_spec_gen_{{label}}_{{module_hash}}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load {{label}} module from {{path}}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_generated = _load_module_from_file("{generated_filename}", "assembly_generated")
+_layout = _load_module_from_file("{layout_filename}", "assembly_layout")
+
+
+def make_assembly():
+    assy = _generated.make_assembly()
+    apply_layout = getattr(_layout, "apply_layout", None)
+    if callable(apply_layout):
+        assy = apply_layout(assy)
+    return assy
+
+
+def export_assembly(output_dir: str, glb: bool = True) -> str:
+    assy = make_assembly()
+    assembly_part_no = getattr(_generated, "ASSEMBLY_PART_NO", "assembly")
+    path = os.path.join(output_dir, f"{{assembly_part_no}}_assembly.step")
+    assy.save(path, "STEP")
+    print(f"Exported: {{path}}")
+    if glb:
+        glb_path = os.path.join(output_dir, f"{{assembly_part_no}}_assembly.glb")
+        assy.save(glb_path, "GLTF")
+        print(f"Exported: {{glb_path}}")
+    return path
+
+
+if __name__ == "__main__":
+    out = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(out, exist_ok=True)
+    export_assembly(out)
+'''
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate assembly.py scaffold from CAD_SPEC.md")
     parser.add_argument("spec", help="Path to CAD_SPEC.md")
     parser.add_argument("--output", "-o", default=None)
     parser.add_argument("--mode", choices=["scaffold", "force"], default="scaffold")
+    parser.add_argument(
+        "--force-layout",
+        action="store_true",
+        help="Rebuild assembly_layout.py; ordinary --mode force preserves it",
+    )
     args = parser.parse_args()
 
     spec_path = os.path.abspath(args.spec)
     output_path = args.output or os.path.join(os.path.dirname(spec_path), "assembly.py")
 
-    if args.mode == "scaffold" and os.path.exists(output_path):
+    result = write_assembly_files(
+        spec_path,
+        output_path,
+        mode=args.mode,
+        force_layout=args.force_layout,
+    )
+    if result["skipped"]:
         print(f"[gen_assembly] SKIP: {output_path} already exists (use --mode force)")
         return
 
-    content = generate_assembly(spec_path)
-    Path(output_path).write_text(content, encoding="utf-8")
-    print(f"[gen_assembly] Generated: {output_path}")
+    print(f"[gen_assembly] Generated: {result['generated']}")
+    print(f"[gen_assembly] Stable entry: {result['stable_entry']}")
+    if result["layout_preserved"]:
+        print(f"[gen_assembly] Preserved manual layout: {result['layout']}")
+    else:
+        print(f"[gen_assembly] Wrote manual layout scaffold: {result['layout']}")
+    print(f"[gen_assembly] Layout contract: {result['contract']}")
+    for instance_id in result["unlaid_out_instances"]:
+        print(f"[gen_assembly] WARNING: unlaid-out instance: {instance_id}")
+    for instance_id in result["orphan_overrides"]:
+        print(f"[gen_assembly] BLOCKED: orphan manual layout override: {instance_id}")
 
 
 if __name__ == "__main__":

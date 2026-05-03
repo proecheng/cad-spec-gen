@@ -61,6 +61,7 @@ def test_contract_gate_tools_are_mirrored_for_packaged_installs():
         "photo3d_actions.py",
         "photo3d_gate.py",
         "render_qa.py",
+        "layout_contract.py",
     ]:
         source = root / "tools" / tool_name
         mirror = root / "src" / "cad_spec_gen" / "data" / "tools" / tool_name
