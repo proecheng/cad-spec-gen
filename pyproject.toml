@@ -82,6 +82,7 @@ markers = [
     "requires_solidworks: 需真实 SolidWorks + pywin32；缺任一自动 skip（不报 fail）",
     "mypy: mypy CI gate 自校验测试（subprocess 调 mypy 验证 gate 有效）",
     "optional: optional dependency integration tests; skip or select explicitly in lean local envs",
+    "photo3d_contract: 照片级 3D 契约测试总线，默认 pytest 必跑",
 ]
 testpaths = ["tests"]
 # rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：

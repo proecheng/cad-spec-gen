@@ -33,6 +33,42 @@ sys.path.insert(0, _SRC_STR)
 sys.path.append(_ROOT_STR)
 
 
+PHOTO3D_CONTRACT_TEST_FILES = frozenset(
+    {
+        "test_contract_io.py",
+        "test_path_context_contract.py",
+        "test_artifact_index_contract.py",
+        "test_run_manifest_isolation.py",
+        "test_product_graph_contract.py",
+        "test_model_contract.py",
+        "test_assembly_signature_contract.py",
+        "test_assembly_import_isolation.py",
+        "test_change_scope_gate.py",
+        "test_render_manifest_signature.py",
+        "test_render_qa.py",
+        "test_render_manifest_no_fallback.py",
+        "test_photo3d_stale_artifacts.py",
+        "test_photo3d_gate_contract.py",
+        "test_photo3d_gate_matrix.py",
+        "test_photo3d_path_drift.py",
+        "test_photo3d_baseline_binding.py",
+        "test_enhance_consistency.py",
+        "test_photo3d_llm_action_plan.py",
+        "test_layout_contract.py",
+        "test_photo3d_packaging_sync.py",
+    }
+)
+
+
+def _mark_photo3d_contract_tests(items):
+    """Auto-tag default-run Photo3D contract tests by file membership."""
+    marker = pytest.mark.photo3d_contract
+    for item in items:
+        item_path = Path(str(getattr(item, "path", "")))
+        if item_path.name in PHOTO3D_CONTRACT_TEST_FILES:
+            item.add_marker(marker)
+
+
 def _dir_state_hash(path: Path) -> str | None:
     """Return a stable hash of a directory's contents, or None if missing."""
     if not path.exists():
@@ -83,8 +119,12 @@ def isolate_cad_spec_gen_home(monkeypatch, tmp_path):
 # ─── @requires_solidworks marker 自动 skip 钩子（Part 2c P1 T2） ───
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """为 @pytest.mark.requires_solidworks 的 item 按需加 skip 标记。
+
+    同时把照片级 3D 契约测试按文件清单自动标记为 photo3d_contract；
+    该 marker 只做集合识别，不添加 skip，保证普通 pytest 默认执行。
 
     触发 skip 条件（任一满足，优先级从高到低）：
       1. sys.platform != "win32"（COM 是 Windows 独占）
@@ -96,6 +136,8 @@ def pytest_collection_modifyitems(config, items):
     但显式检查 sys.platform 让 skip reason 更精确）。
     异常不吞：sw_detect 导入失败 → collection 失败，不 silent skip。
     """
+    _mark_photo3d_contract_tests(items)
+
     needs_sw = [it for it in items if it.get_closest_marker("requires_solidworks")]
     if not needs_sw:
         return
