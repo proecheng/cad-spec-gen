@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：常用模型库扩展第一批已在 `codex/common-model-library-expansion` 功能分支完成实现与相关验证；默认库现在显式路由 motor、sensor、cable、pneumatic 等可复用类别，并新增 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板，详见 [项目看板](../PROGRESS.md) 和 [常用模型库扩展计划](plans/2026-05-04-common-model-library-expansion.md)。
+2026-05-04：`main` 已推送到远端，常用模型库扩展第二批计划已在 `codex/common-model-library-batch-2` 创建；目标是继续扩展 linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动附件，同时保持默认库通用规则、项目库可覆盖和包络测试护栏，详见 [项目看板](../PROGRESS.md) 和 [第二批计划](plans/2026-05-04-common-model-library-batch-2.md)。
 
 ## 当前主入口
 
@@ -20,6 +20,7 @@
 | [`plans/2026-05-04-enhancement-summary-guide.md`](plans/2026-05-04-enhancement-summary-guide.md) | 增强交付摘要接入向导计划 |
 | [`plans/2026-05-04-project-guide.md`](plans/2026-05-04-project-guide.md) | 新用户只读项目向导执行计划 |
 | [`plans/2026-05-04-common-model-library-expansion.md`](plans/2026-05-04-common-model-library-expansion.md) | 常用模型库扩展第一批执行计划 |
+| [`plans/2026-05-04-common-model-library-batch-2.md`](plans/2026-05-04-common-model-library-batch-2.md) | 常用模型库扩展第二批计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -49,8 +50,9 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| Done (branch) | 常用模型库扩展第一批 | 已完成默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板 |
+| Planned | 常用模型库扩展第二批 | 已写计划，准备审查和 TDD 执行 linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动附件 |
+| Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
-| P0 | 常用模型库后续类别 | 继续扩展 linear guide、更多轴承/联轴器/皮带轮/齿轮、端子/接插件、更多气动件，减少临时特判 |
+| P0 | 第二批计划审查 | 防止分类过宽、默认库抢真实模型、模板包络不可测、路径/镜像漂移 |
 | P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |

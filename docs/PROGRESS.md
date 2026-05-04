@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-04 |
-| 当前分支 | `main` |
-| 最新功能基线 | `87c184a feat(parts-library): 扩展常用模型库通用类别` |
+| 当前分支 | `codex/common-model-library-batch-2` |
+| 最新功能基线 | `87c184a feat(parts-library): 扩展常用模型库通用类别`；第二批计划分支已创建 |
 | 最新合并提交 | `87c184a feat(parts-library): 扩展常用模型库通用类别` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 合并到 `main` 后 `pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `298 passed, 2 skipped` |
+| 最近验证 | 第二批计划 worktree 基线 `pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` -> `34 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | 无 |
+| 当前未跟踪 | 新增第二批计划文档，待提交 |
 
 ## 一句话结论
 
@@ -41,6 +41,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
 | Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
 | Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
+| Planned | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已创建计划：linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动附件；计划要求分类、路由、B 级模板、包络和镜像测试 | 审查计划后按 TDD 顺序执行 |
 
 ## 当前能力边界
 
@@ -67,14 +68,18 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 下一轮继续按类别扩展模型库：linear guide、更多轴承/联轴器/皮带轮/齿轮、端子/接插件、更多气动件，并坚持默认库通用规则加项目库覆盖的边界。
-2. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
-3. 把 `project-guide` 与模型质量报告、导入 STEP、SW export plan 的用户提示进一步整合。
+1. 先审查 `docs/superpowers/plans/2026-05-04-common-model-library-batch-2.md`，重点看分类是否过宽、默认库规则是否会抢真实模型、模板包络是否可测。
+2. 审查通过后按计划 TDD 执行第二批：先 red tests，再实现分类/尺寸/模板/路由，最后同步镜像和更新看板。
+3. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-04 | `git push origin main` | 已推送 `main` 到远端，`b958712..cea6e1b` |
+| 2026-05-04 | `git worktree add .worktrees/common-model-library-batch-2 -b codex/common-model-library-batch-2` | 已创建第二批计划 worktree |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` | 第二批计划 worktree 基线 `34 passed` |
+| 2026-05-04 | `python scripts\dev_sync.py --check` | 新 worktree 填充 ignored 镜像后通过 |
 | 2026-05-04 | `python -m pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `298 passed, 2 skipped` |
 | 2026-05-04 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过 |
 | 2026-05-04 | `git diff --check` | 合并到 `main` 后通过 |
