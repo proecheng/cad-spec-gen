@@ -14,11 +14,13 @@ USER_FLOW_TERMS = {
     "photo3d",
     "photo3d-autopilot",
     "photo3d-action",
+    "photo3d-run",
     "photo3d-recover",
     "run_id",
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
     "PHOTO3D_ACTION_RUN.json",
+    "PHOTO3D_RUN.json",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
     "ARTIFACT_INDEX.json",
@@ -160,6 +162,43 @@ def test_photo3d_action_help_explains_confirmed_execution_flow():
     assert "does not run enhancement" in help_text or "不" in help_text
 
 
+def test_photo3d_run_help_explains_multi_round_user_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "photo3d-run", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "photo3d-run",
+        "PHOTO3D_RUN.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "--max-rounds",
+        "--confirm-actions",
+        "photo3d-autopilot",
+        "accept-baseline",
+        "enhance",
+        "needs_baseline_acceptance",
+        "ready_for_enhancement",
+        "needs_user_input",
+        "needs_manual_review",
+        "loop_limit_reached",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py photo3d-run --subsystem <name>" in help_text
+    assert "does not scan directories" in help_text or "扫描目录" in help_text
+    assert "不会静默 accept-baseline" in help_text
+    assert "不会运行 enhance" in help_text
+
+
 def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
     for rel in (
         "docs/cad-help-guide-zh.md",
@@ -181,6 +220,9 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
+        assert "photo3d-run" in text, f"{rel} missing multi-round guide"
+        assert "PHOTO3D_RUN.json" in text, f"{rel} missing loop report"
+        assert "--confirm-actions" in text, f"{rel} missing confirmed loop guidance"
         assert "photo3d-recover" in text, f"{rel} missing run-aware recovery wrapper"
         assert "--run-id" in text, f"{rel} missing run-aware run_id binding"
         assert "--artifact-index" in text, f"{rel} missing artifact-index binding"
@@ -200,6 +242,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d" in tools_by_name, rel
         assert "photo3d_autopilot" in tools_by_name, rel
         assert "photo3d_action" in tools_by_name, rel
+        assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
@@ -215,6 +258,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             == "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
         )
         assert (
+            tools_by_name["photo3d_run"]["cli"]
+            == "python cad_pipeline.py photo3d-run --subsystem <name> --confirm-actions"
+        )
+        assert (
             tools_by_name["photo3d_recover"]["cli"]
             == "python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action render"
         )
@@ -228,6 +275,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "--confirm" in tools_by_name["photo3d_action"]["description"]
         assert "post_action_autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
+        assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]
+        assert "--confirm-actions" in tools_by_name["photo3d_run"]["description"]
+        assert "does not accept baseline" in tools_by_name["photo3d_run"]["description"]
+        assert "does not run enhancement" in tools_by_name["photo3d_run"]["description"]
         assert "run-aware" in tools_by_name["photo3d_recover"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_recover"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_recover"]["description"]

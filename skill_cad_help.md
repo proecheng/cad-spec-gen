@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | photo3d, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | photo3d, photo3d-run, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -435,6 +435,18 @@ First-time setup:
 Recommended ordinary-user command:
 
 ```bash
+python cad_pipeline.py photo3d-run --subsystem <name>
+```
+
+`photo3d-run` is the foolproof multi-round guide. It runs the current active run through `photo3d` gate + `photo3d-autopilot`, writes `PHOTO3D_RUN.json`, and stops at `needs_baseline_acceptance`, `ready_for_enhancement`, `needs_user_input`, `needs_manual_review`, `execution_failed`, or `loop_limit_reached`. It does not accept baseline, does not run enhancement, does not switch `active_run_id`, and does not scan directories for the newest file. If the report says low-risk recovery is available, the user can explicitly confirm:
+
+```bash
+python cad_pipeline.py photo3d-run --subsystem <name> --confirm-actions
+```
+
+Single-round autopilot remains available:
+
+```bash
 python cad_pipeline.py photo3d-autopilot --subsystem <name>
 ```
 
@@ -486,6 +498,7 @@ Outputs for ordinary users and LLMs:
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
 - `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
 - `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run; `post_action_autopilot` records whether a successful confirmed run automatically reran autopilot and what next action it produced.
+- `PHOTO3D_RUN.json`: multi-round report from `photo3d-run`, including each gate/autopilot/action round, final stop reason, and next safe action.
 
 路径隔离 and old artifact cleanup:
 
@@ -506,6 +519,7 @@ Outputs for ordinary users and LLMs:
 
 Agent rule:
 
+- Prefer `photo3d-run` / `PHOTO3D_RUN.json` for ordinary users and LLM-facing next-step loops.
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
 - Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. Allowed recovery shell commands must be `photo3d-recover` with explicit `--run-id` and `--artifact-index`, so product-graph/build/render outputs stay bound to the current run. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。
@@ -680,6 +694,7 @@ cad/<subsystem>/.cad-spec-gen/              ← Photo3D contract state
     ├── PHOTO3D_REPORT.json
     ├── PHOTO3D_AUTOPILOT.json
     ├── PHOTO3D_ACTION_RUN.json
+    ├── PHOTO3D_RUN.json
     ├── ACTION_PLAN.json
     └── LLM_CONTEXT_PACK.json
 ```

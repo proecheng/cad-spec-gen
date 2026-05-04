@@ -22,6 +22,7 @@ PHOTO3D_CONTRACT_TOOL_FILES = {
     "photo3d_action_runner.py",
     "photo3d_autopilot.py",
     "photo3d_gate.py",
+    "photo3d_loop.py",
     "photo3d_recover.py",
     "product_graph.py",
     "render_qa.py",
