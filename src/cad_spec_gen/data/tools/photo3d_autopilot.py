@@ -94,12 +94,21 @@ def build_photo3d_autopilot_report(
         _resolve_project_path(root, output_path, "photo3d autopilot output"),
         root,
     )
+    enhancement_summary, enhancement_report = _enhancement_summary_for_run(
+        root,
+        subsystem,
+        run_id,
+        artifacts,
+    )
+    if enhancement_report:
+        artifacts["enhancement_report"] = enhancement_report
 
     status, next_action = _next_action(
         subsystem,
         gate_status=gate_status,
         accepted_baseline_run_id=accepted_baseline_run_id,
         artifacts=artifacts,
+        enhancement_summary=enhancement_summary,
     )
 
     return {
@@ -109,8 +118,13 @@ def build_photo3d_autopilot_report(
         "subsystem": subsystem,
         "gate_status": gate_status,
         "enhancement_status": photo3d_report.get("enhancement_status"),
+        "enhancement_summary": enhancement_summary,
         "status": status,
-        "ordinary_user_message": _ordinary_user_message(status, gate_status),
+        "ordinary_user_message": _ordinary_user_message(
+            status,
+            gate_status,
+            enhancement_summary=enhancement_summary,
+        ),
         "accepted_baseline_run_id": accepted_baseline_run_id,
         "next_action": next_action,
         "artifacts": artifacts,
@@ -123,6 +137,7 @@ def _next_action(
     gate_status: str,
     accepted_baseline_run_id: str | None,
     artifacts: dict[str, str],
+    enhancement_summary: dict[str, Any] | None,
 ) -> tuple[str, dict[str, Any]]:
     if gate_status == "blocked":
         return (
@@ -147,6 +162,41 @@ def _next_action(
             "needs_baseline_acceptance",
             action,
         )
+    if enhancement_summary:
+        delivery_status = str(
+            enhancement_summary.get("delivery_status")
+            or enhancement_summary.get("status")
+            or ""
+        )
+        if delivery_status == "accepted":
+            return (
+                "enhancement_accepted",
+                {
+                    "kind": "delivery_complete",
+                    "requires_user_confirmation": False,
+                    "enhancement_report": enhancement_summary.get("enhancement_report"),
+                },
+            )
+        if delivery_status == "preview":
+            return (
+                "enhancement_preview",
+                {
+                    "kind": "review_enhancement_preview",
+                    "requires_user_confirmation": True,
+                    "enhancement_report": enhancement_summary.get("enhancement_report"),
+                    "blocking_reasons": enhancement_summary.get("blocking_reasons") or [],
+                },
+            )
+        if delivery_status == "blocked":
+            return (
+                "enhancement_blocked",
+                {
+                    "kind": "fix_enhancement_blockers",
+                    "requires_user_confirmation": False,
+                    "enhancement_report": enhancement_summary.get("enhancement_report"),
+                    "blocking_reasons": enhancement_summary.get("blocking_reasons") or [],
+                },
+            )
     render_dir = _render_dir_from_manifest_path(artifacts.get("render_manifest"))
     if not render_dir:
         raise ValueError("Photo3D autopilot cannot recommend enhancement without render_manifest")
@@ -165,7 +215,22 @@ def _next_action(
     )
 
 
-def _ordinary_user_message(status: str, gate_status: str) -> str:
+def _ordinary_user_message(
+    status: str,
+    gate_status: str,
+    *,
+    enhancement_summary: dict[str, Any] | None = None,
+) -> str:
+    if status in {"enhancement_accepted", "enhancement_preview", "enhancement_blocked"}:
+        message = (enhancement_summary or {}).get("ordinary_user_message")
+        if message:
+            return str(message)
+    if status == "enhancement_accepted":
+        return "增强一致性验收通过，可作为照片级交付。"
+    if status == "enhancement_preview":
+        return "增强图已生成但仍有交付风险，只能作为预览。"
+    if status == "enhancement_blocked":
+        return "增强验收阻断；请按 ENHANCEMENT_REPORT.json 修复后复查。"
     if status == "needs_baseline_acceptance":
         return "Photo3D 门禁通过；请确认本轮报告后显式接受为 baseline。"
     if status == "ready_for_enhancement":
@@ -200,6 +265,45 @@ def _safe_artifacts(
         if _artifact_belongs_to_run(rel_path, subsystem, run_id, key):
             result[key] = rel_path
     return result
+
+
+def _enhancement_summary_for_run(
+    root: Path,
+    subsystem: str,
+    run_id: str,
+    artifacts: dict[str, str],
+) -> tuple[dict[str, Any] | None, str | None]:
+    render_manifest = artifacts.get("render_manifest")
+    render_dir = _render_dir_from_manifest_path(render_manifest)
+    if not render_dir:
+        return None, None
+    report_rel = f"{render_dir}/ENHANCEMENT_REPORT.json"
+    report_path = _resolve_project_path(root, report_rel, "enhancement report")
+    if not report_path.is_file():
+        return None, None
+    report = load_json_required(report_path, "enhancement report")
+    if str(report.get("run_id") or "") != run_id:
+        return None, None
+    if str(report.get("subsystem") or "") != subsystem:
+        return None, None
+    if str(report.get("render_manifest") or "") != render_manifest:
+        return None, None
+    summary = _compact_enhancement_summary(report, report_rel)
+    return summary, report_rel
+
+
+def _compact_enhancement_summary(report: dict[str, Any], report_rel: str) -> dict[str, Any]:
+    status = str(report.get("delivery_status") or report.get("status") or "")
+    return {
+        "status": str(report.get("status") or status),
+        "delivery_status": status,
+        "ordinary_user_message": str(report.get("ordinary_user_message") or ""),
+        "enhancement_report": report_rel,
+        "render_manifest": str(report.get("render_manifest") or ""),
+        "view_count": int(report.get("view_count") or 0),
+        "enhanced_view_count": int(report.get("enhanced_view_count") or 0),
+        "blocking_reasons": list(report.get("blocking_reasons") or []),
+    }
 
 
 def _artifact_belongs_to_run(path_rel_project: str, subsystem: str, run_id: str, key: str) -> bool:

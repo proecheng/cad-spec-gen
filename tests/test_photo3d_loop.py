@@ -15,6 +15,36 @@ def _render_stale_fixture(tmp_path):
     return fixture
 
 
+def _accept_baseline(fixture):
+    from tools.artifact_index import accept_run_baseline
+
+    index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+    accept_run_baseline(index, fixture["run_id"])
+    fixture["index_path"].write_text(
+        json.dumps(index, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _write_enhancement_report(fixture, status):
+    _write_json(
+        fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+        {
+            "schema_version": 1,
+            "run_id": fixture["run_id"],
+            "subsystem": "demo",
+            "status": status,
+            "delivery_status": status,
+            "ordinary_user_message": f"enhancement {status}",
+            "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+            "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+            "view_count": 1,
+            "enhanced_view_count": 1 if status != "blocked" else 0,
+            "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
+        },
+    )
+
+
 def test_photo3d_run_stops_at_baseline_acceptance_without_accepting(tmp_path):
     from tools.photo3d_loop import run_photo3d_loop
 
@@ -123,6 +153,27 @@ def test_photo3d_run_confirm_executes_low_risk_actions_and_stops_on_post_action_
     assert report["rounds"][0]["post_action_autopilot"]["rerun"] is True
     assert report["rounds"][0]["post_action_autopilot"]["status"] == "needs_baseline_acceptance"
     assert report["next_action"]["kind"] == "accept_baseline"
+
+
+def test_photo3d_run_surfaces_accepted_enhancement_delivery(tmp_path):
+    from tools.photo3d_loop import run_photo3d_loop
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_loop(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    assert report["status"] == "enhancement_accepted"
+    assert report["ordinary_user_message"] == "enhancement accepted"
+    assert report["enhancement_summary"]["status"] == "accepted"
+    assert report["rounds"][0]["autopilot_status"] == "enhancement_accepted"
+    assert report["rounds"][0]["enhancement_summary"]["status"] == "accepted"
+    assert report["next_action"]["kind"] == "delivery_complete"
 
 
 def test_photo3d_run_does_not_continue_when_action_plan_needs_user_input(tmp_path):
