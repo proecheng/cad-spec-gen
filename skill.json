@@ -13,7 +13,7 @@
       "id": "cad-help",
       "name": "CAD Pipeline Assistant",
       "trigger": "/cad-help",
-      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement/enhance-check, photo3d contract gate/autopilot/action/run/recover, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, LLM_CONTEXT_PACK.json, PHOTO3D_ACTION_RUN.json, PHOTO3D_RUN.json, and ENHANCEMENT_REPORT.json; action plans use run-aware photo3d-recover commands; photo3d-run loops to the next user decision without accepting baseline or running enhancement; enhance-check validates explicit render_dir outputs without scanning directories; accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
+      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement/enhance-check, project-guide, photo3d contract gate/autopilot/action/run/recover, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PROJECT_GUIDE.json, PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, LLM_CONTEXT_PACK.json, PHOTO3D_ACTION_RUN.json, PHOTO3D_RUN.json, and ENHANCEMENT_REPORT.json; project-guide is read-only and selects the next safe init/spec/codegen/build-render/photo3d-run handoff without scanning directories or mutating pipeline state; action plans use run-aware photo3d-recover commands; photo3d-run loops to the next user decision without accepting baseline or running enhancement; enhance-check validates explicit render_dir outputs without scanning directories; accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
       "knowledge_file": "skill_cad_help.md"
     },
     {
@@ -49,6 +49,11 @@
       "name": "cad_pipeline",
       "description": "Unified 6-phase pipeline orchestrator: spec → codegen → build → render → enhance → annotate",
       "cli": "python cad_pipeline.py {spec|codegen|build|render|enhance|annotate|full|status|env-check} [OPTIONS]"
+    },
+    {
+      "name": "project_guide",
+      "description": "Read-only ordinary-user and LLM project guide: writes PROJECT_GUIDE.json, selects the next safe command across init/spec/codegen/build-render/photo3d-run/enhance-check/accept-baseline handoff, uses explicit subsystem/design-doc/artifact-index inputs, does not scan directories, and does not mutate pipeline state.",
+      "cli": "python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>"
     },
     {
       "name": "photo3d",

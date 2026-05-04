@@ -8,17 +8,17 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-04 |
-| 主分支 | `main` |
-| 最新功能基线 | `feat(photo3d): 接入增强交付摘要` |
-| 最新合并提交 | `6269e06 merge: 合并增强交付摘要` |
+| 当前分支 | `codex/photo3d-project-guide` |
+| 最新功能基线 | `feat(project-guide): 增加只读项目向导` |
+| 最新合并提交 | 待合并；当前基于 `4a62b25 docs(progress): 更新增强摘要合并验证` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 合并到 `main` 后：`pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py -q` -> `18 passed`；`pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `141 passed` |
+| 最近验证 | 本分支 `pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `151 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行 + run-aware 恢复 + build 证据回填 + 执行后自动回看下一步 + 增强后交付摘要”阶段：当前管线能用 run_id、artifact index、产品图、模型契约、装配签名、装配报告、装配 GLB/STEP、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图；普通用户优先运行 `photo3d-run`，到 `ready_for_enhancement` 后显式运行 `enhance`，再用 `enhance-check --dir <render_dir>` 生成 `accepted/preview/blocked` 交付状态，随后 `photo3d-run` 会读取当前 run 的报告并给出“可交付/仅预览/阻断”的统一下一步。
+Photo3D 契约驱动出图主线已进入“只读项目向导 + 多轮向导 + 报告 + 确认执行 + run-aware 恢复 + build 证据回填 + 执行后自动回看下一步 + 增强后交付摘要”阶段：普通用户和大模型可先运行 `project-guide` 生成 `PROJECT_GUIDE.json`，再按报告进入 `init/spec/codegen/build --render/photo3d-run`；已有 active run 后，管线继续用 run_id、artifact index、产品图、模型契约、装配签名、装配报告、装配 GLB/STEP、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图。
 
 ## 看板
 
@@ -39,8 +39,8 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | Done | 增强一致性验收 | 照片级输出不仅生成，还能解释是否可交付 | 新增 `tools/enhance_consistency.py` 批量报告与 `cad_pipeline.py enhance-check`；从 `render_manifest.json` 读取视角，要求增强图在同一 render dir、每个视角唯一匹配；输出 `ENHANCEMENT_REPORT.json` 的 `accepted/preview/blocked` | 下一步把验收摘要回写到更高层 Photo3D/project guide |
 | Done | Build artifact backfill | 恢复动作后把更多运行时证据登记回当前 run | `photo3d-recover build` 成功后回填当前 run 的 `ASSEMBLY_SIGNATURE.json`、`ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP；optional 产物只在精确路径、配置路径或唯一候选存在时登记 | 下一步把增强验收摘要接入 `photo3d-run` / 项目向导 |
 | Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
+| Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
 | Planned | 常用模型库扩展 | 对其他设备也能复用，不围绕单个元件临时特判 | 已有 adapter/resolver 基础 | 建议按类别扩展：fastener、bearing、linear guide、motor、sensor、cable、pneumatic |
-| Planned | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 现有 `cad_pipeline.py init/spec/codegen/photo3d` 可组合 | 设计 `cad_pipeline.py autopilot` 或 skill-level checklist |
 
 ## 当前能力边界
 
@@ -58,14 +58,15 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 - `enhance-check` 不会在同一视角有多个增强图时猜一个；这种歧义直接 `blocked` 并在 `ENHANCEMENT_REPORT.json` 写出候选列表。
 - `ENHANCEMENT_REPORT.json` 的 `accepted` 才能作为交付；`preview` 只能预览，`blocked` 表示缺视角、路径越界、同视角多候选或输入不完整。
 - `photo3d-run` 不运行增强、不运行 `enhance-check`、不扫描增强图；它只把已存在且 run/subsystem/render_manifest 都匹配的 `ENHANCEMENT_REPORT.json` 摘要写进 `PHOTO3D_RUN.json`。
+- `project-guide` 只读，除了写 `PROJECT_GUIDE.json` 不修改管线状态；它不扫描目录、不猜最新 run、不接受 baseline、不运行增强，只按显式输入和固定契约路径给出下一条安全命令。
 - `warning` 可以接受为 baseline，但应在看板或报告里明确剩余风险。
 - 被 `.gitignore` 忽略的 `src/cad_spec_gen/data/*` 镜像仍由 `dev_sync.py` 维护；每轮结束必须跑 `python scripts/dev_sync.py --check`。`skill.json` metadata 现在也纳入同步/检查范围，避免安装版 skill 描述漂移。
 
 ## 下一步建议
 
-1. 下一轮优先设计新用户项目向导，把 `init/spec/codegen/photo3d-run/enhance-check` 串成更少技术选项的傻瓜式流程。
-2. 再继续常用模型库扩展，按类别扩展 fastener、bearing、linear guide、motor、sensor、cable、pneumatic，而不是围绕单个设备或元件特判。
-3. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+1. 下一轮优先做常用模型库扩展，按类别扩展 fastener、bearing、linear guide、motor、sensor、cable、pneumatic，而不是围绕单个设备或元件特判。
+2. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+3. 再把 `project-guide` 与模型质量报告、导入 STEP、SW export plan 的用户提示进一步整合。
 
 ## 验证记录
 
@@ -80,6 +81,10 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | 2026-05-04 | `python -m pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py -q` | 合并到 `main` 后 `18 passed` |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 合并到 `main` 后通过 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `141 passed` |
+| 2026-05-04 | `python -m pytest tests\test_project_guide.py -q` | 先红后绿，最终 `8 passed`；覆盖只读项目向导、显式设计文档、active run 绑定、子系统不匹配和输出路径约束 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | 先红后绿，最终 `12 passed`；覆盖 `project-guide` CLI help、metadata、cad-help 文档和工具镜像 |
+| 2026-05-04 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `151 passed` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；`project_guide.py`、CLI、metadata、帮助文档镜像无漂移 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_backfills_current_run_build_artifacts -q` | 先红后绿，覆盖 build recovery 回填 `ASSEMBLY_REPORT.json`、刷新 `MODEL_CONTRACT.json`、装配 GLB/STEP |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_accepts_configured_output_relative_glb_path -q` | 先红后绿，覆盖 `render_config.json` 配置相对子路径时不能回退误选其他装配文件 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py -q` | `7 passed` |

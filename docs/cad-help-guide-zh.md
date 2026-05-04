@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py photo3d-run --subsystem <name>`，验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json`；阻断后的低风险 CLI 恢复动作可用 `--confirm-actions` 显式确认执行 |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后再进入 `photo3d-run`，验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
 
 ### v2.3.0 新增能力
 
@@ -176,7 +176,15 @@ python gemini_gen.py \
 
 ### Photo3D 一键照片级契约门禁
 
-普通用户优先使用多轮向导：
+普通用户和大模型优先从只读项目向导开始：
+
+```bash
+python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
+```
+
+`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。
+
+已有 active run 后，使用多轮向导：
 
 ```bash
 python cad_pipeline.py photo3d-run --subsystem <name>
@@ -244,6 +252,7 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 阻断时会写出：
 
+- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
 - `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
