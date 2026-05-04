@@ -3,6 +3,10 @@
 本目录是 cad-spec-gen 的 Superpowers 计划、规格、报告和运行手册入口。
 每轮工作结束后，先更新 [项目看板](../PROGRESS.md)，再按需补充本目录下的计划或报告。
 
+## 最新更新
+
+2026-05-04：`6269e06 merge: 合并增强交付摘要` 已合并到 `main`；增强报告摘要现已接入 `photo3d-autopilot` / `photo3d-run`，详见 [项目看板](../PROGRESS.md) 和 [增强交付摘要接入向导计划](plans/2026-05-04-enhancement-summary-guide.md)。
+
 ## 当前主入口
 
 | 文档 | 用途 |

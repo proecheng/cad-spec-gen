@@ -10,9 +10,9 @@
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
 | 最新功能基线 | `feat(photo3d): 接入增强交付摘要` |
-| 最新合并提交 | `b540400 merge: 合并 build 恢复证据回填` |
+| 最新合并提交 | `6269e06 merge: 合并增强交付摘要` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 本分支 `python -m pytest -q` -> `2048 passed, 18 skipped, 10 warnings` |
+| 最近验证 | 合并到 `main` 后：`pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py -q` -> `18 passed`；`pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `141 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
 
@@ -75,8 +75,11 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | 2026-05-04 | `python -m pytest tests\test_photo3d_autopilot.py -q` | `12 passed`；覆盖 accepted/preview/blocked 和错 run/manifest 绑定不污染当前 run |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_loop.py -q` | `6 passed`；覆盖 `photo3d-run` 顶层 `enhancement_summary` |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；`photo3d_autopilot.py`、`photo3d_loop.py` 镜像同步 |
-| 2026-05-04 | `python -m pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `158 passed` |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `159 passed` |
 | 2026-05-04 | `python -m pytest -q` | `2048 passed, 18 skipped, 10 warnings`；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py -q` | 合并到 `main` 后 `18 passed` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 合并到 `main` 后通过 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `141 passed` |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_backfills_current_run_build_artifacts -q` | 先红后绿，覆盖 build recovery 回填 `ASSEMBLY_REPORT.json`、刷新 `MODEL_CONTRACT.json`、装配 GLB/STEP |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_accepts_configured_output_relative_glb_path -q` | 先红后绿，覆盖 `render_config.json` 配置相对子路径时不能回退误选其他装配文件 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py -q` | `7 passed` |
