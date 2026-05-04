@@ -491,6 +491,14 @@ Enhancement delivery status:
 
 At this gate stage, `PHOTO3D_REPORT.json` may include `enhancement_status` as `not_run` or `blocked`; `accepted` / `preview` belong to the later enhancement delivery layer.
 
+After enhancement, run delivery acceptance:
+
+```bash
+python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
+```
+
+`enhance-check` reads only the explicit render directory's `render_manifest.json` and same-directory `*_enhanced.*` files, then writes `ENHANCEMENT_REPORT.json`. Every manifest view must have a matching enhanced image; source/enhanced shape similarity and basic image QA determine `accepted` / `preview` / `blocked`. It does not scan directories for newest files and does not accept enhanced images outside `--dir`.
+
 Outputs for ordinary users and LLMs:
 
 - `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
@@ -499,6 +507,7 @@ Outputs for ordinary users and LLMs:
 - `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
 - `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run; `post_action_autopilot` records whether a successful confirmed run automatically reran autopilot and what next action it produced.
 - `PHOTO3D_RUN.json`: multi-round report from `photo3d-run`, including each gate/autopilot/action round, final stop reason, and next safe action.
+- `ENHANCEMENT_REPORT.json`: enhancement delivery acceptance report with per-view source image, enhanced image, similarity, QA, and `accepted` / `preview` / `blocked` status.
 
 路径隔离 and old artifact cleanup:
 

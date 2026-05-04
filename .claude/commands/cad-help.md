@@ -35,6 +35,7 @@
      - `preview`：CAD 门禁通过，但增强一致性未验证或未通过，只能作为预览。
      - `blocked`：CAD 门禁失败，增强不得执行。
      - 当前门禁阶段的 `PHOTO3D_REPORT.json` 只会把 `enhancement_status` 写成 `not_run` 或 `blocked`；`accepted` / `preview` 属于后续增强交付层。
+     - 增强完成后运行 `python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>`，只读取显式 render dir 的 `render_manifest.json` 和同目录 `*_enhanced.*`，写 `ENHANCEMENT_REPORT.json`。它要求每个 manifest 视角都有增强图，并检查轮廓相似度和基础图片 QA；不会扫描目录猜最新文件，也不会接受 render dir 外的增强图。
    - 阻断时读取并解释：
      - `PHOTO3D_REPORT.json`：普通用户中文阻断原因。
      - `PHOTO3D_AUTOPILOT.json`：普通用户本轮下一步报告。
@@ -42,6 +43,7 @@
      - `LLM_CONTEXT_PACK.json`：给其他大模型的当前 run 最小上下文。
      - `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行报告，列出 executable/user_input/rejected/executed actions；`post_action_autopilot` 记录成功确认执行后的自动重跑摘要。
      - `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，列出每轮 gate/autopilot/action 状态、最终停止原因和下一步。
+     - `ENHANCEMENT_REPORT.json`：增强交付验收报告，逐视角记录源图、增强图、相似度、QA 和 `accepted` / `preview` / `blocked`。
    - 路径隔离：每次运行都有独立 `run_id`；契约在 `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/`，渲染图在 `cad/output/renders/<subsystem>/<run_id>/`。
    - 旧产物清理：只能清理不再被 `active_run_id` 引用的旧 run/render 目录，不能把旧 PNG 当成本轮通过证据。
    - 接受基准：首次 `pass` 只作为候选基准；用户确认当前 `PHOTO3D_REPORT.json` 后，运行 `python cad_pipeline.py accept-baseline --subsystem <name>`。报告会记录关键契约的 `artifact_hashes`；命令只接受 `pass` / `warning` 报告，并校验报告路径、artifact 路径和当前文件哈希都与 `ARTIFACT_INDEX.json` 中同一 run 一致，再把 `run_id` 写入 `accepted_baseline_run_id`。它不会切换 `active_run_id`，也不会扫描目录猜最新产物；需要指定历史 run 时传 `--run-id <run_id>`。

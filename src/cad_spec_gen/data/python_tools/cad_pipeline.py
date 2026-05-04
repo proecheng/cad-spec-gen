@@ -12,6 +12,7 @@ Usage:
     python cad_pipeline.py build --render                # + Blender renders
     python cad_pipeline.py render --subsystem end_effector --timestamp
     python cad_pipeline.py enhance --dir cad/output/renders
+    python cad_pipeline.py enhance-check --subsystem end_effector --dir cad/output/renders/end_effector/<run_id>
     python cad_pipeline.py annotate --config render_config.json --lang cn
     python cad_pipeline.py full --subsystem end_effector  # all 6 phases
     python cad_pipeline.py model-audit --subsystem end_effector
@@ -3205,6 +3206,86 @@ def cmd_enhance(args):
     return 1 if failures else 0
 
 
+def cmd_enhance_check(args):
+    """Validate enhanced images against the current render manifest."""
+    from pathlib import Path
+
+    from tools.contract_io import load_json_required
+    from tools.enhance_consistency import write_enhancement_report
+    from tools.path_policy import assert_within_project
+
+    project_root = Path(getattr(args, "project_root", None) or PROJECT_ROOT).resolve()
+    render_dir = Path(args.dir)
+    if not render_dir.is_absolute():
+        render_dir = project_root / render_dir
+    render_dir = render_dir.resolve()
+    try:
+        assert_within_project(render_dir, project_root, "render_dir")
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+    if not render_dir.is_dir():
+        log.error("Render directory not found: %s", render_dir)
+        return 1
+
+    manifest_path = (
+        Path(args.manifest)
+        if getattr(args, "manifest", None)
+        else render_dir / "render_manifest.json"
+    )
+    if not manifest_path.is_absolute():
+        manifest_path = project_root / manifest_path
+    manifest_path = manifest_path.resolve()
+    output_path = getattr(args, "output", None)
+
+    try:
+        assert_within_project(manifest_path, project_root, "render manifest")
+        manifest = load_json_required(manifest_path, "render manifest")
+        if getattr(args, "subsystem", None):
+            manifest_subsystem = manifest.get("subsystem")
+            if manifest_subsystem and manifest_subsystem != args.subsystem:
+                log.error(
+                    "Subsystem mismatch: CLI --subsystem=%s, manifest subsystem=%s",
+                    args.subsystem,
+                    manifest_subsystem,
+                )
+                return 1
+
+        manifest_render_dir = (
+            manifest.get("render_dir_abs_resolved")
+            or manifest.get("render_dir")
+            or manifest.get("render_dir_rel_project")
+        )
+        if manifest_render_dir:
+            manifest_render_dir_path = Path(manifest_render_dir)
+            if not manifest_render_dir_path.is_absolute():
+                manifest_render_dir_path = project_root / manifest_render_dir_path
+            if manifest_render_dir_path.resolve() != render_dir:
+                log.error(
+                    "Render directory mismatch: CLI --dir=%s, manifest render_dir=%s",
+                    render_dir,
+                    manifest_render_dir_path.resolve(),
+                )
+                return 1
+
+        report = write_enhancement_report(
+            project_root,
+            {**manifest, "manifest_path": str(manifest_path)},
+            min_similarity=float(args.min_similarity),
+            output_path=output_path,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("%s", exc)
+        return 1
+
+    log.info(
+        "Enhancement acceptance: %s (%s)",
+        report["status"],
+        report["enhancement_report"],
+    )
+    return 1 if report["status"] == "blocked" else 0
+
+
 def cmd_annotate(args):
     """Add component labels to enhanced images."""
     from tools.render_qa import require_render_manifest
@@ -4091,6 +4172,51 @@ def main():
         help="Override model key from pipeline_config.json (e.g. nano_banana_2)",
     )
 
+    # enhance-check
+    p_enhance_check = sub.add_parser(
+        "enhance-check",
+        help="Validate enhanced image delivery status",
+        description=(
+            "Enhancement consistency acceptance: reads the explicit render "
+            "directory's render_manifest.json, matches each manifest view to an "
+            "enhanced image in the same directory, and writes ENHANCEMENT_REPORT.json."
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>\n"
+            "Status semantics: accepted = every manifest view has a matching "
+            "enhanced image and consistency passes; preview = enhanced images exist "
+            "but shape/QA consistency needs review; blocked = required views or "
+            "inputs are missing. The command does not scan directories for the "
+            "newest file and never accepts enhanced images outside --dir.\n"
+            "Use --manifest to bind a specific render_manifest.json, --output to "
+            "override ENHANCEMENT_REPORT.json, and --min-similarity to adjust the "
+            "generic mask-IoU threshold."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_enhance_check.add_argument("--subsystem", "-s", default=None)
+    p_enhance_check.add_argument(
+        "--dir",
+        required=True,
+        help="Explicit current render directory; no fallback scanning is performed",
+    )
+    p_enhance_check.add_argument(
+        "--manifest",
+        default=None,
+        help="Explicit render_manifest.json path (default: --dir/render_manifest.json)",
+    )
+    p_enhance_check.add_argument(
+        "--output",
+        default=None,
+        help="ENHANCEMENT_REPORT.json output path (default: --dir/ENHANCEMENT_REPORT.json)",
+    )
+    p_enhance_check.add_argument(
+        "--min-similarity",
+        type=float,
+        default=0.85,
+        help="Minimum source/enhanced shape similarity for accepted status",
+    )
+
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
     p_annotate.add_argument("--subsystem", "-s", default=None)
@@ -4308,7 +4434,11 @@ def main():
             "silently accepting baseline or running enhancement.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
-            "consistency is unverified or failed; blocked = CAD gate failed.\n"
+            "consistency is unverified or failed; blocked = CAD gate failed. After "
+            "enhance writes *_enhanced.* files, run python cad_pipeline.py "
+            "enhance-check --subsystem <name> --dir <render_dir> to write "
+            "ENHANCEMENT_REPORT.json; it does not scan directories for the newest "
+            "file and only accepts enhanced images inside the explicit render dir.\n"
             "The first pass is only a candidate baseline; after user confirmation, "
             "run: python cad_pipeline.py accept-baseline --subsystem <name>. "
             "This records accepted_baseline_run_id in ARTIFACT_INDEX.json without "
@@ -4362,6 +4492,9 @@ def main():
             "Gate status remains pass/warning/blocked. Enhancement delivery status "
             "remains accepted/preview/blocked and is not produced by this command; "
             "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
+            "After ready_for_enhancement, run enhance, then run enhance-check with "
+            "the explicit render dir to write ENHANCEMENT_REPORT.json; it does not "
+            "scan directories for the newest file. "
             "If the first pass/warning run has no accepted baseline, autopilot "
             "recommends: python cad_pipeline.py accept-baseline --subsystem <name>. "
             "That explicit command records accepted_baseline_run_id in "
@@ -4630,6 +4763,7 @@ def main():
         "build": cmd_build,
         "render": cmd_render,
         "enhance": cmd_enhance,
+        "enhance-check": cmd_enhance_check,
         "annotate": cmd_annotate,
         "full": cmd_full,
         "init": cmd_init,
