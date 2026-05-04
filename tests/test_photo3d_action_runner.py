@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 
@@ -88,13 +89,13 @@ def _user_request_action():
     }
 
 
-def _cmd_args(fixture, *, confirm=False):
+def _cmd_args(fixture, *, confirm=False, action_id=None):
     return SimpleNamespace(
         subsystem="demo",
         artifact_index=str(fixture["index_path"]),
         autopilot_report=None,
         action_plan=None,
-        action_id=None,
+        action_id=action_id,
         confirm=confirm,
         output=None,
     )
@@ -164,6 +165,245 @@ def test_photo3d_action_confirm_executes_low_risk_cli_with_current_interpreter(
         "--subsystem",
         "demo",
     ]
+
+
+def test_photo3d_action_confirm_reruns_autopilot_after_success(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(tmp_path, action=_rerun_render_action())
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="render ok", stderr="")
+
+    def fake_gate(project_root, subsystem, **kwargs):
+        assert project_root == tmp_path
+        assert subsystem == "demo"
+        assert Path(kwargs["artifact_index_path"]) == fixture["index_path"]
+        return {
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "status": "pass",
+            "enhancement_status": "not_run",
+            "ordinary_user_message": "照片级 CAD 门禁通过，可以进入增强阶段。",
+            "artifacts": {
+                "photo3d_report": "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_REPORT.json",
+                "product_graph": "cad/demo/.cad-spec-gen/runs/RUN001/PRODUCT_GRAPH.json",
+                "model_contract": "cad/demo/.cad-spec-gen/runs/RUN001/MODEL_CONTRACT.json",
+                "assembly_signature": "cad/demo/.cad-spec-gen/runs/RUN001/ASSEMBLY_SIGNATURE.json",
+                "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+            },
+        }
+
+    def fake_autopilot(project_root, subsystem, photo3d_report, **kwargs):
+        assert photo3d_report["status"] == "pass"
+        assert Path(kwargs["artifact_index_path"]) == fixture["index_path"]
+        return {
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "gate_status": "pass",
+            "status": "needs_baseline_acceptance",
+            "ordinary_user_message": "Photo3D 门禁通过；请确认本轮报告后显式接受为 baseline。",
+            "next_action": {
+                "kind": "accept_baseline",
+                "requires_user_confirmation": True,
+                "argv": ["python", "cad_pipeline.py", "accept-baseline", "--subsystem", "demo"],
+                "cli": "python cad_pipeline.py accept-baseline --subsystem demo",
+            },
+            "artifacts": {
+                "photo3d_report": "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_REPORT.json",
+                "photo3d_autopilot": "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_AUTOPILOT.json",
+            },
+        }
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", fake_gate)
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", fake_autopilot)
+
+    rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed"
+    assert report["ordinary_user_message"] == "已执行低风险恢复动作，并自动重跑 photo3d-autopilot；请查看 post_action_autopilot。"
+    assert report["post_action_autopilot"] == {
+        "rerun": True,
+        "gate_status": "pass",
+        "status": "needs_baseline_acceptance",
+        "ordinary_user_message": "Photo3D 门禁通过；请确认本轮报告后显式接受为 baseline。",
+        "next_action": {
+            "kind": "accept_baseline",
+            "requires_user_confirmation": True,
+            "argv": ["python", "cad_pipeline.py", "accept-baseline", "--subsystem", "demo"],
+            "cli": "python cad_pipeline.py accept-baseline --subsystem demo",
+        },
+        "artifacts": {
+            "photo3d_report": "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_REPORT.json",
+            "photo3d_autopilot": "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_AUTOPILOT.json",
+        },
+    }
+
+
+def test_photo3d_action_does_not_rerun_autopilot_when_previewing(tmp_path, monkeypatch):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(tmp_path, action=_rerun_render_action())
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")))
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=False))
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "awaiting_confirmation"
+    assert report["post_action_autopilot"] == {"rerun": False}
+
+
+def test_photo3d_action_does_not_rerun_autopilot_after_cli_failure(tmp_path, monkeypatch):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(tmp_path, action=_rerun_render_action())
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(returncode=7, stdout="", stderr="render failed")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
+
+    assert rc == 1
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "execution_failed"
+    assert report["post_action_autopilot"] == {"rerun": False}
+
+
+def test_photo3d_action_does_not_rerun_autopilot_when_user_input_remains(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(
+        tmp_path,
+        actions=[_rerun_render_action(), _user_request_action()],
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="render ok", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed_with_followup"
+    assert report["post_action_autopilot"] == {"rerun": False}
+
+
+def test_photo3d_action_does_not_rerun_autopilot_when_unselected_user_input_remains(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(
+        tmp_path,
+        actions=[_rerun_render_action(), _user_request_action()],
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="render ok", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    rc = cad_pipeline.cmd_photo3d_action(
+        _cmd_args(fixture, confirm=True, action_id="rerun_render")
+    )
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed"
+    assert report["post_action_autopilot"] == {"rerun": False}
+
+
+def test_photo3d_action_does_not_rerun_autopilot_when_unselected_cli_remains(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(
+        tmp_path,
+        actions=[_rerun_build_action(), _rerun_render_action()],
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="build ok", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    rc = cad_pipeline.cmd_photo3d_action(
+        _cmd_args(fixture, confirm=True, action_id="rerun_build")
+    )
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed"
+    assert report["post_action_autopilot"] == {"rerun": False}
+
+
+def test_photo3d_action_blocks_post_autopilot_when_active_run_id_changes(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(tmp_path, action=_rerun_render_action())
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    def fake_run(argv, **kwargs):
+        index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+        index["active_run_id"] = "RUN999"
+        _write_json(fixture["index_path"], index)
+        return SimpleNamespace(returncode=0, stdout="render ok", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner, "run_photo3d_gate", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun gate")))
+    monkeypatch.setattr(runner, "write_photo3d_autopilot_report", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not rerun autopilot")))
+
+    try:
+        cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
+    except ValueError as exc:
+        assert "active_run_id changed during Photo3D action execution" in str(exc)
+    else:
+        raise AssertionError("expected active_run_id drift to block post-action autopilot")
 
 
 def test_photo3d_action_confirm_keeps_user_request_for_human(tmp_path, monkeypatch):
