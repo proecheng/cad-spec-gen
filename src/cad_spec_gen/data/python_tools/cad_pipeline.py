@@ -3598,6 +3598,27 @@ def cmd_photo3d_autopilot(args):
     return 0 if report.get("status") in {"pass", "warning"} else 1
 
 
+def cmd_photo3d_action(args):
+    """预览或确认执行 Photo3D action plan 中的低风险动作。"""
+    from tools.photo3d_action_runner import command_return_code, run_photo3d_action
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    report = run_photo3d_action(
+        PROJECT_ROOT,
+        args.subsystem,
+        artifact_index_path=getattr(args, "artifact_index", None),
+        autopilot_report_path=getattr(args, "autopilot_report", None),
+        action_plan_path=getattr(args, "action_plan", None),
+        action_id=getattr(args, "action_id", None),
+        confirm=bool(getattr(args, "confirm", False)),
+        output_path=getattr(args, "output", None),
+    )
+    log.info("PHOTO3D_ACTION_RUN: %s", report.get("ordinary_user_message"))
+    return command_return_code(report)
+
+
 def cmd_accept_baseline(args):
     """接受当前通过门禁的 Photo3D run 作为后续漂移基准。"""
     from pathlib import Path
@@ -4225,6 +4246,10 @@ def main():
             "Ordinary users can run: python cad_pipeline.py photo3d-autopilot "
             "--subsystem <name>. It writes PHOTO3D_AUTOPILOT.json with the next "
             "safe action and still never scans directories for the newest file.\n"
+            "When blocked actions are low-risk CLI recoveries, ordinary users can "
+            "preview then explicitly confirm: python cad_pipeline.py photo3d-action "
+            "--subsystem <name> --confirm. This writes PHOTO3D_ACTION_RUN.json and "
+            "does not run enhancement or baseline acceptance.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
             "consistency is unverified or failed; blocked = CAD gate failed.\n"
@@ -4285,7 +4310,11 @@ def main():
             "recommends: python cad_pipeline.py accept-baseline --subsystem <name>. "
             "That explicit command records accepted_baseline_run_id in "
             "ARTIFACT_INDEX.json; this autopilot command only reports the next "
-            "action and never mutates the baseline."
+            "action and never mutates the baseline. If gate status is blocked, "
+            "preview/execute allowlisted low-risk ACTION_PLAN.json recovery steps "
+            "with: python cad_pipeline.py photo3d-action --subsystem <name> --confirm; "
+            "that command writes PHOTO3D_ACTION_RUN.json and keeps user-input "
+            "actions for the user."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4313,6 +4342,63 @@ def main():
         "--output",
         default=None,
         help="PHOTO3D_AUTOPILOT.json output path (default: current run directory)",
+    )
+
+    # photo3d-action：确认后执行当前 run 动作计划中的低风险 CLI 动作
+    p_photo3d_action = sub.add_parser(
+        "photo3d-action",
+        help="Preview or confirm low-risk Photo3D action-plan CLI recovery steps",
+        description=(
+            "Photo3D action runner：读取当前 active run 的 "
+            "PHOTO3D_AUTOPILOT.json / ACTION_PLAN.json，默认只预览可执行动作；"
+            "只有传 --confirm 才会执行 low-risk、无需用户输入、白名单内的 CLI "
+            "恢复动作。用户输入类动作会保留给用户处理。"
+        ),
+        epilog=(
+            "Typical preview: python cad_pipeline.py photo3d-action --subsystem <name>\n"
+            "Typical execute: python cad_pipeline.py photo3d-action --subsystem <name> --confirm\n"
+            "Allowed automatic CLI recovery commands are limited to product-graph, "
+            "build, and render for the same subsystem/run_id. The command only "
+            "resolves files through ARTIFACT_INDEX.json active_run_id and current "
+            "run directory; it does not scan directories for latest artifacts and "
+            "does not run enhancement or baseline acceptance."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_action.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_action.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active run_id source."
+        ),
+    )
+    p_photo3d_action.add_argument(
+        "--autopilot-report",
+        default=None,
+        help="PHOTO3D_AUTOPILOT.json path (default: active run directory)",
+    )
+    p_photo3d_action.add_argument(
+        "--action-plan",
+        default=None,
+        help="ACTION_PLAN.json path (default: value referenced by PHOTO3D_AUTOPILOT.json)",
+    )
+    p_photo3d_action.add_argument(
+        "--action-id",
+        default=None,
+        help="Optional action_id to execute/preview; default considers all actions",
+    )
+    p_photo3d_action.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Actually execute allowlisted low-risk CLI actions; omitted means preview only",
+    )
+    p_photo3d_action.add_argument(
+        "--output",
+        default=None,
+        help="PHOTO3D_ACTION_RUN.json output path (default: current run directory)",
     )
 
     # accept-baseline：显式接受通过门禁的 Photo3D run
@@ -4404,6 +4490,7 @@ def main():
         "product-graph": cmd_product_graph,
         "photo3d": cmd_photo3d,
         "photo3d-autopilot": cmd_photo3d_autopilot,
+        "photo3d-action": cmd_photo3d_action,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,
     }

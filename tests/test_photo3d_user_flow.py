@@ -13,9 +13,11 @@ _ROOT = Path(__file__).resolve().parents[1]
 USER_FLOW_TERMS = {
     "photo3d",
     "photo3d-autopilot",
+    "photo3d-action",
     "run_id",
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
+    "PHOTO3D_ACTION_RUN.json",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
     "ARTIFACT_INDEX.json",
@@ -121,6 +123,37 @@ def test_photo3d_autopilot_help_explains_foolproof_next_action_flow():
     assert "python cad_pipeline.py accept-baseline --subsystem <name>" in help_text
 
 
+def test_photo3d_action_help_explains_confirmed_execution_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "photo3d-action", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "photo3d-action",
+        "PHOTO3D_AUTOPILOT.json",
+        "ACTION_PLAN.json",
+        "PHOTO3D_ACTION_RUN.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "--confirm",
+        "low-risk",
+        "用户输入",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py photo3d-action --subsystem <name>" in help_text
+    assert "does not scan directories" in help_text or "扫描目录" in help_text
+    assert "does not run enhancement" in help_text or "不" in help_text
+
+
 def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
     for rel in (
         "docs/cad-help-guide-zh.md",
@@ -138,6 +171,8 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert ("Enhancement delivery status" in text or "增强交付状态" in text), rel
         assert "大模型" in text, f"{rel} missing LLM-facing guidance"
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
+        assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
+        assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
 
 
 def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
@@ -152,6 +187,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         tools_by_name = {tool["name"]: tool for tool in data["tools"]}
         assert "photo3d" in tools_by_name, rel
         assert "photo3d_autopilot" in tools_by_name, rel
+        assert "photo3d_action" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
             tools_by_name["photo3d"]["cli"]
@@ -162,11 +198,17 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             == "python cad_pipeline.py photo3d-autopilot --subsystem <name>"
         )
         assert (
+            tools_by_name["photo3d_action"]["cli"]
+            == "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
+        )
+        assert (
             tools_by_name["accept_baseline"]["cli"]
             == "python cad_pipeline.py accept-baseline --subsystem <name>"
         )
         assert "LLM_CONTEXT_PACK.json" in tools_by_name["photo3d"]["description"]
         assert "PHOTO3D_AUTOPILOT.json" in tools_by_name["photo3d_autopilot"]["description"]
+        assert "PHOTO3D_ACTION_RUN.json" in tools_by_name["photo3d_action"]["description"]
+        assert "--confirm" in tools_by_name["photo3d_action"]["description"]
         assert "普通用户" in tools_by_name["photo3d_autopilot"]["description"]
         assert "pass/warning/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted/preview/blocked" in tools_by_name["photo3d"]["description"]

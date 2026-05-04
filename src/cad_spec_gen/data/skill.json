@@ -13,7 +13,7 @@
       "id": "cad-help",
       "name": "CAD Pipeline Assistant",
       "trigger": "/cad-help",
-      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, photo3d contract gate/autopilot, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, and LLM_CONTEXT_PACK.json, and accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
+      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, photo3d contract gate/autopilot/action, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, LLM_CONTEXT_PACK.json, and PHOTO3D_ACTION_RUN.json; accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
       "knowledge_file": "skill_cad_help.md"
     },
     {
@@ -59,6 +59,11 @@
       "name": "photo3d_autopilot",
       "description": "普通用户 Photo3D autopilot: runs the contract gate from ARTIFACT_INDEX.json active run_id, writes PHOTO3D_REPORT.json and PHOTO3D_AUTOPILOT.json, points blocked runs to ACTION_PLAN.json / LLM_CONTEXT_PACK.json, recommends explicit accept-baseline when pass/warning has no accepted_baseline_run_id, and never scans directories or silently accepts a baseline.",
       "cli": "python cad_pipeline.py photo3d-autopilot --subsystem <name>"
+    },
+    {
+      "name": "photo3d_action",
+      "description": "Confirmed Photo3D action runner: reads the current active_run_id PHOTO3D_AUTOPILOT.json / ACTION_PLAN.json, previews by default, and only with --confirm executes allowlisted low-risk CLI recovery actions (product-graph/build/render) that need no user input. Writes PHOTO3D_ACTION_RUN.json, keeps user-input actions for the user, and never scans directories, runs enhancement, or accepts a baseline.",
+      "cli": "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
     },
     {
       "name": "accept_baseline",

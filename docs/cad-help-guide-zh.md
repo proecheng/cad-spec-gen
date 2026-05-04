@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户运行 `python cad_pipeline.py photo3d-autopilot --subsystem <name>`，验证当前 `run_id` 的契约链，生成下一步报告；底层门禁命令为 `python cad_pipeline.py photo3d --subsystem <name>` |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户运行 `python cad_pipeline.py photo3d-autopilot --subsystem <name>`，验证当前 `run_id` 的契约链，生成下一步报告；阻断后的低风险 CLI 恢复动作可用 `python cad_pipeline.py photo3d-action --subsystem <name> --confirm` 显式确认执行 |
 
 ### v2.3.0 新增能力
 
@@ -184,6 +184,20 @@ python cad_pipeline.py photo3d-autopilot --subsystem <name>
 
 它会先运行 `photo3d` 契约门禁，再写出 `PHOTO3D_AUTOPILOT.json`。这个报告只给普通用户和大模型一个安全的下一步：`blocked` 时指向 `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`；`pass` / `warning` 且没有 accepted baseline 时，建议用户确认后显式运行 `python cad_pipeline.py accept-baseline --subsystem <name>`；已有 `accepted_baseline_run_id` 时，才建议进入增强阶段。`photo3d-autopilot` 不会静默接受 baseline，不会切换 `active_run_id`，也不会扫描目录猜最新文件。
 
+当 `PHOTO3D_AUTOPILOT.json` 指向 `ACTION_PLAN.json` 且动作是低风险 CLI 恢复动作时，普通用户可以先预览：
+
+```bash
+python cad_pipeline.py photo3d-action --subsystem <name>
+```
+
+确认后再执行：
+
+```bash
+python cad_pipeline.py photo3d-action --subsystem <name> --confirm
+```
+
+`photo3d-action` 只读取当前 `active_run_id` 的 `PHOTO3D_AUTOPILOT.json` / `ACTION_PLAN.json`，默认只写 `PHOTO3D_ACTION_RUN.json` 预览报告；带 `--confirm` 时也只执行白名单内、无需用户输入、low-risk 的 `product-graph` / `build` / `render` 恢复命令。需要用户输入的动作继续询问用户；它不会扫描目录猜最新文件，不会运行增强，也不会接受 baseline。
+
 底层门禁命令：
 
 ```bash
@@ -209,10 +223,12 @@ python cad_pipeline.py photo3d --subsystem <name>
 阻断时会写出：
 
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
+- `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
 - `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
+- `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行结果，只记录当前 run 的动作分类、执行结果和后续人工输入项。
 
-大模型必须依据 `ACTION_PLAN.json` 中的动作继续，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。
+大模型必须依据 `ACTION_PLAN.json` 中的动作继续；可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。
 
 路径隔离与旧产物清理：
 
