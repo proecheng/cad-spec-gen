@@ -54,7 +54,7 @@ def build_action_plan(project_root: str | Path, report: dict[str, Any]) -> dict[
     for reason in report.get("blocking_reasons", []):
         if not isinstance(reason, dict):
             continue
-        for action in _actions_for_reason(report, reason):
+        for action in _actions_for_reason(project_root, report, reason):
             action_id = action["action_id"]
             if action_id in seen:
                 continue
@@ -109,19 +109,27 @@ def build_llm_context_pack(
     }
 
 
-def _actions_for_reason(report: dict[str, Any], reason: dict[str, Any]) -> list[dict[str, Any]]:
+def _actions_for_reason(
+    project_root: str | Path,
+    report: dict[str, Any],
+    reason: dict[str, Any],
+) -> list[dict[str, Any]]:
     code = str(reason.get("code") or "")
     subsystem = str(report.get("subsystem") or "")
+    run_id = str(report.get("run_id") or "")
+    artifact_index = _artifact_index_for_recovery(project_root, report, subsystem)
     if not _safe_cli_token(subsystem):
         return [_manual_review_action("review_run_context", "复查当前 run_id、子系统和路径上下文")]
+    if not _safe_cli_token(run_id):
+        return [_manual_review_action("review_run_context", "复查当前 run_id、子系统和路径上下文")]
     if code in RENDER_STALE_CODES:
-        return [_rerun_render_action(subsystem)]
+        return [_rerun_render_action(subsystem, run_id, artifact_index)]
     if code in MODEL_CODES:
         return [_ask_for_model_action(reason)]
     if code in ASSEMBLY_CODES:
-        return [_rerun_build_action(subsystem)]
+        return [_rerun_build_action(subsystem, run_id, artifact_index)]
     if code == "artifact_index_missing_required_artifact":
-        return [_action_for_missing_artifact(subsystem, reason)]
+        return [_action_for_missing_artifact(subsystem, run_id, artifact_index, reason)]
     if code.startswith("baseline_") or code.startswith("unexpected_") or code.startswith("current_"):
         return [_manual_review_action("review_change_scope", "复查变更范围和基准绑定")]
     if code in {"subsystem_mismatch", "run_id_mismatch", "path_context_hash_missing", "path_context_hash_mismatch"}:
@@ -129,29 +137,58 @@ def _actions_for_reason(report: dict[str, Any], reason: dict[str, Any]) -> list[
     return [_manual_review_action("manual_review", "人工复查照片级门禁报告")]
 
 
-def _rerun_render_action(subsystem: str) -> dict[str, Any]:
-    argv = ["python", "cad_pipeline.py", "render", "--subsystem", subsystem]
+def _rerun_render_action(subsystem: str, run_id: str, artifact_index: str) -> dict[str, Any]:
+    return _run_aware_recovery_action(
+        subsystem,
+        run_id,
+        artifact_index,
+        "render",
+        "rerun_render",
+        "重新构建并渲染当前装配",
+    )
+
+
+def _rerun_build_action(subsystem: str, run_id: str, artifact_index: str) -> dict[str, Any]:
+    return _run_aware_recovery_action(
+        subsystem,
+        run_id,
+        artifact_index,
+        "build",
+        "rerun_build",
+        "重新构建当前装配并生成运行时签名",
+    )
+
+
+def _run_aware_recovery_action(
+    subsystem: str,
+    run_id: str,
+    artifact_index: str,
+    recovery_action: str,
+    action_id: str,
+    label_cn: str,
+) -> dict[str, Any]:
+    argv = [
+        "python",
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        subsystem,
+        "--run-id",
+        run_id,
+        "--artifact-index",
+        artifact_index,
+        "--action",
+        recovery_action,
+    ]
     return {
-        "action_id": "rerun_render",
+        "action_id": action_id,
         "kind": "cli",
-        "label_cn": "重新构建并渲染当前装配",
+        "label_cn": label_cn,
         "command": " ".join(argv),
         "argv": argv,
         "requires_user_input": False,
         "risk": "low",
-    }
-
-
-def _rerun_build_action(subsystem: str) -> dict[str, Any]:
-    argv = ["python", "cad_pipeline.py", "build", "--subsystem", subsystem]
-    return {
-        "action_id": "rerun_build",
-        "kind": "cli",
-        "label_cn": "重新构建当前装配并生成运行时签名",
-        "command": " ".join(argv),
-        "argv": argv,
-        "requires_user_input": False,
-        "risk": "low",
+        "recovery_action": recovery_action,
     }
 
 
@@ -167,25 +204,28 @@ def _ask_for_model_action(reason: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _action_for_missing_artifact(subsystem: str, reason: dict[str, Any]) -> dict[str, Any]:
+def _action_for_missing_artifact(
+    subsystem: str,
+    run_id: str,
+    artifact_index: str,
+    reason: dict[str, Any],
+) -> dict[str, Any]:
     artifact = str(reason.get("artifact") or "")
     if artifact == "product_graph":
-        argv = ["python", "cad_pipeline.py", "product-graph", "--subsystem", subsystem]
-        return {
-            "action_id": "regenerate_product_graph",
-            "kind": "cli",
-            "label_cn": "重新生成产品图契约",
-            "command": " ".join(argv),
-            "argv": argv,
-            "requires_user_input": False,
-            "risk": "low",
-        }
+        return _run_aware_recovery_action(
+            subsystem,
+            run_id,
+            artifact_index,
+            "product-graph",
+            "regenerate_product_graph",
+            "重新生成产品图契约",
+        )
     if artifact == "model_contract":
         return _ask_for_model_action(reason)
     if artifact == "assembly_signature":
-        return _rerun_build_action(subsystem)
+        return _rerun_build_action(subsystem, run_id, artifact_index)
     if artifact == "render_manifest":
-        return _rerun_render_action(subsystem)
+        return _rerun_render_action(subsystem, run_id, artifact_index)
     return _manual_review_action("manual_review", "人工复查照片级门禁报告")
 
 
@@ -248,3 +288,22 @@ def _artifact_belongs_to_run(path_rel_project: str, run_id: str, key: str, subsy
 
 def _safe_cli_token(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value or ""))
+
+
+def _artifact_index_for_recovery(
+    project_root: str | Path,
+    report: dict[str, Any],
+    subsystem: str,
+) -> str:
+    path_value = str(report.get("artifact_index") or "")
+    if not path_value:
+        return f"cad/{subsystem}/.cad-spec-gen/ARTIFACT_INDEX.json"
+    root = Path(project_root).resolve()
+    requested = Path(path_value)
+    resolved = requested if requested.is_absolute() else root / requested
+    try:
+        resolved = resolved.resolve()
+        assert_within_project(resolved, root, "artifact index")
+        return project_relative(resolved, root)
+    except ValueError:
+        return f"cad/{subsystem}/.cad-spec-gen/ARTIFACT_INDEX.json"

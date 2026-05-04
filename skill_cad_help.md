@@ -447,7 +447,7 @@ python cad_pipeline.py photo3d-action --subsystem <name>
 python cad_pipeline.py photo3d-action --subsystem <name> --confirm
 ```
 
-`photo3d-action` reads only the current active run's `PHOTO3D_AUTOPILOT.json` and `ACTION_PLAN.json`. Preview mode writes `PHOTO3D_ACTION_RUN.json` without executing. With `--confirm`, it executes only allowlisted low-risk CLI recovery actions (`product-graph`, `build`, `render`) for the same subsystem/run_id and no user input. User-input actions stay in the report for the user. When every confirmed low-risk CLI action succeeds and no user-input, manual-review, or rejected action remains, it 自动重跑 `photo3d-autopilot` and writes the next-step summary to `post_action_autopilot` in `PHOTO3D_ACTION_RUN.json`; preview, failed execution, remaining user input, or rejected actions do not rerun autopilot. It does not scan directories for latest artifacts, does not run enhancement, and does not accept baseline.
+`photo3d-action` reads only the current active run's `PHOTO3D_AUTOPILOT.json` and `ACTION_PLAN.json`. Preview mode writes `PHOTO3D_ACTION_RUN.json` without executing. With `--confirm`, it executes only allowlisted low-risk CLI recovery actions (`product-graph`, `build`, `render`) for the same subsystem/run_id and no user input. In `ACTION_PLAN.json`, those CLI actions must use the run-aware wrapper `python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index cad/<name>/.cad-spec-gen/ARTIFACT_INDEX.json --action product-graph|build|render`; bare `product-graph` / `build` / `render --subsystem <name>` commands are not allowed automatic recoveries. User-input actions stay in the report for the user. When every confirmed low-risk CLI action succeeds and no user-input, manual-review, or rejected action remains, it 自动重跑 `photo3d-autopilot` and writes the next-step summary to `post_action_autopilot` in `PHOTO3D_ACTION_RUN.json`; preview, failed execution, remaining user input, or rejected actions do not rerun autopilot. It does not scan directories for latest artifacts, does not run enhancement, and does not accept baseline.
 
 Underlying gate command:
 
@@ -507,7 +507,7 @@ Outputs for ordinary users and LLMs:
 Agent rule:
 
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
-- Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
+- Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. Allowed recovery shell commands must be `photo3d-recover` with explicit `--run-id` and `--artifact-index`, so product-graph/build/render outputs stay bound to the current run. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。
 - Do not use AI enhancement to repair missing CAD geometry, missing instances, wrong positions, stale renders, or baseline mismatch.
 - If the action requires user input, ask for that input instead of inventing a file path or model choice.
@@ -623,7 +623,9 @@ A: 打开当前 run 的 `PHOTO3D_REPORT.json` 看中文阻断原因，然后读�
    重新 build、请求用户提供 STEP 模型或进入人工审查。不要扫描目录猜最新
    PNG，也不要让 AI 增强补齐 CAD 阶段缺失的结构。低风险 CLI 动作先运行
    `python cad_pipeline.py photo3d-action --subsystem <name>` 预览，用户确认后
-   再加 `--confirm` 执行；结果写入 `PHOTO3D_ACTION_RUN.json`。
+   再加 `--confirm` 执行；结果写入 `PHOTO3D_ACTION_RUN.json`。动作计划里的
+   CLI 必须是 `photo3d-recover --run-id <run_id> --artifact-index <path>`，
+   禁止回退到裸 `render/build/product-graph --subsystem <name>`。
 ```
 
 ### 12. file_struct — File Structure

@@ -9,15 +9,15 @@
 | --- | --- |
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
-| 最新功能基线 | `feat(photo3d): 增加 action 后 autopilot 循环` |
+| 最新功能基线 | `feat(photo3d): 增加 run-aware 恢复 wrapper` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `python -m pytest -q` -> `2017 passed, 16 skipped, 16 warnings` |
+| 最近验证 | `python -m pytest -q` -> `2023 passed, 18 skipped, 8 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“报告 + 确认执行 + 执行后自动回看下一步”阶段：当前管线能用 run_id、artifact index、产品图、模型契约、装配签名、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json` 和 `PHOTO3D_ACTION_RUN.json` 保护照片级 3D 出图；低风险恢复动作必须由当前 run 的动作计划驱动，经用户确认后执行，成功后再自动重跑门禁和 autopilot，不再依赖“临时收紧”或扫描最新目录猜测产物。
+Photo3D 契约驱动出图主线已进入“报告 + 确认执行 + run-aware 恢复 + 执行后自动回看下一步”阶段：当前管线能用 run_id、artifact index、产品图、模型契约、装配签名、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json` 和 `PHOTO3D_ACTION_RUN.json` 保护照片级 3D 出图；低风险恢复动作必须由当前 run 的动作计划驱动，经 `photo3d-recover --run-id --artifact-index` 绑定当前 run 输出路径，经用户确认后执行，成功后再自动重跑门禁和 autopilot，不再依赖“临时收紧”或扫描最新目录猜测产物。
 
 ## 看板
 
@@ -31,6 +31,7 @@ Photo3D 契约驱动出图主线已进入“报告 + 确认执行 + 执行后自
 | Done | 普通用户 Photo3D autopilot | 把门禁结果转成固定 round-end 下一步报告 | 新增 `photo3d-autopilot`，写 `PHOTO3D_AUTOPILOT.json`；blocked 指向动作计划；pass/warning 无 baseline 时只建议显式接受；已有 baseline 时建议带 `--dir` 的当前 run 增强命令 | 后续接增强一致性验收 |
 | Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 后续扩成显式多轮 `--loop` 或一键向导 |
+| Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 后续扩展 `build` 的产物回写覆盖更多运行时报告 |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
 | In Progress | 傻瓜式照片级 3D 流程 | 非编程用户只说需求，大模型按动作计划推进 | 已有 autopilot 报告、确认执行层和 action 后自动回看下一步；仍未做完整连续向导/UI | 设计显式 `--loop`：连续推进到用户输入、人工复查、baseline 确认或增强验收 |
@@ -45,16 +46,17 @@ Photo3D 契约驱动出图主线已进入“报告 + 确认执行 + 执行后自
 - `accept-baseline` 不扫描目录、不选择最新文件、不切换 `active_run_id`；它只接受同一 run 中路径和哈希都匹配的 `PHOTO3D_REPORT.json`。
 - `photo3d-autopilot` 只写下一步报告，不静默接受 baseline，不切换 `active_run_id`；增强建议必须带当前 run 的 `--dir cad/output/renders/<subsystem>/<run_id>`。
 - `photo3d-action` 默认只预览，不执行；只有 `--confirm` 才执行当前 active run `ACTION_PLAN.json` 中 low-risk、无需用户输入、白名单内的 `product-graph` / `build` / `render` CLI。它不运行增强、不接受 baseline、不切换 `active_run_id`，输出必须留在当前 run 目录。
+- `ACTION_PLAN.json` 中自动恢复 CLI 必须是 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；裸 `product-graph` / `build` / `render --subsystem <name>` 会被 `photo3d-action` 拒绝。
 - `post_action_autopilot` 的自动重跑判定看整份 `ACTION_PLAN.json`，不只看 `--action-id` 选中的动作；只要仍有用户输入、人工复查、rejected/skipped 动作、未执行完全部 low-risk CLI、任一 CLI 失败或 `active_run_id` 在执行/重跑过程中变化，就不会自动重跑。
-- 目前 `product-graph` / `build` / `render` 子命令本身还没有统一 `--run-id` / run-scoped wrapper；当前层用 action `run_id`、active_run 前后断言和 gate 校验防止漂移。下一步需要把底层恢复命令改成显式 run-aware，进一步减少并发或默认输出带来的歧义。
+- `photo3d-recover` 不扫描目录、不切换 `active_run_id`、不创建新 run；`product-graph` 写入当前 run `PRODUCT_GRAPH.json`，`render` 使用当前 run 渲染目录，`build` 完成后回填当前 run 的装配签名路径（如存在）。
 - `warning` 可以接受为 baseline，但应在看板或报告里明确剩余风险。
 - 被 `.gitignore` 忽略的 `src/cad_spec_gen/data/*` 镜像仍由 `dev_sync.py` 维护；每轮结束必须跑 `python scripts/dev_sync.py --check`。`skill.json` metadata 现在也纳入同步/检查范围，避免安装版 skill 描述漂移。
 
 ## 下一步建议
 
-1. 下一轮优先把 `product-graph` / `build` / `render` 的低风险恢复动作做成显式 run-aware wrapper：命令必须绑定 `run_id`、`ARTIFACT_INDEX.json` 和当前 run 输出路径，不能依赖默认目录或新建 run。
-2. 然后把“单次 action 后自动回看”扩成显式多轮向导，例如 `photo3d-autopilot --loop` 或独立 `photo3d-run`：连续推进到用户输入、人工复查、baseline 确认或增强验收为止。
-3. 随后做增强一致性验收：增强前后结构、视角、遮挡、关键实例数量和轮廓不能漂移，输出 `accepted/preview/blocked` 的可解释交付状态。
+1. 下一轮优先把“单次 action 后自动回看”扩成显式多轮向导，例如 `photo3d-autopilot --loop` 或独立 `photo3d-run`：连续推进到用户输入、人工复查、baseline 确认或增强验收为止。
+2. 随后做增强一致性验收：增强前后结构、视角、遮挡、关键实例数量和轮廓不能漂移，输出 `accepted/preview/blocked` 的可解释交付状态。
+3. 再扩展 `build` 恢复后的 run artifact 回写范围，把 `ASSEMBLY_REPORT.json`、GLB/STEP 证据和模型契约刷新也纳入统一登记策略。
 
 ## 验证记录
 
@@ -83,6 +85,16 @@ Photo3D 契约驱动出图主线已进入“报告 + 确认执行 + 执行后自
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；审查修正后 action runner 镜像无漂移 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_action_runner.py tests\test_photo3d_autopilot.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_gate_contract.py tests\test_photo3d_accept_baseline.py tests\test_dev_sync_check.py -q` | `59 passed, 1 warning` |
 | 2026-05-04 | `python -m pytest -q` | `2017 passed, 16 skipped, 16 warnings` |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py tests\test_photo3d_llm_action_plan.py::test_render_stale_reason_generates_rerun_render_action tests\test_photo3d_llm_action_plan.py::test_missing_render_manifest_artifact_generates_rerun_render_action tests\test_photo3d_action_runner.py::test_photo3d_action_confirm_executes_low_risk_cli_with_current_interpreter tests\test_photo3d_action_runner.py::test_photo3d_action_confirm_stops_after_first_cli_failure tests\test_photo3d_action_runner.py::test_photo3d_action_rejects_legacy_recovery_cli_without_run_scope -q` | 先红后绿，覆盖 run-aware wrapper 生成、执行、旧式裸恢复命令拒绝 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_action_runner.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_recover.py tests\test_photo3d_user_flow.py tests\test_photo3d_autopilot.py tests\test_photo3d_gate_contract.py tests\test_dev_sync_check.py -q` | `54 passed, 1 warning` |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_render_stages_current_run_contracts_for_legacy_render_inputs tests\test_photo3d_recover.py::test_photo3d_recover_build_fails_when_runtime_signature_is_not_produced -q` | 先红后绿，覆盖 legacy build/render 输入投影和 build 缺失运行时签名失败 |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；`photo3d_recover.py`、CLI、metadata、帮助文档镜像无漂移 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_action_runner.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_recover.py tests\test_photo3d_user_flow.py tests\test_photo3d_autopilot.py tests\test_photo3d_gate_contract.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `189 passed, 1 warning` |
+| 2026-05-04 | `python -m pytest -q` | `2023 passed, 16 skipped, 13 warnings` |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_llm_action_plan.py::test_action_plan_uses_report_artifact_index_for_run_aware_recovery tests\test_photo3d_action_runner.py::test_photo3d_action_allows_recovery_wrapper_with_custom_artifact_index_path -q` | 先红后绿，覆盖自定义 `--artifact-index` 不回退默认路径 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_action_runner.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_recover.py tests\test_photo3d_user_flow.py tests\test_photo3d_autopilot.py tests\test_photo3d_gate_contract.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `191 passed, 1 warning` |
+| 2026-05-04 | `python -m pytest -q` | `2025 passed, 16 skipped, 13 warnings` |
+| 2026-05-04 | `python -m pytest -q` | `2023 passed, 18 skipped, 8 warnings` |
 
 ## 每轮结束模板
 

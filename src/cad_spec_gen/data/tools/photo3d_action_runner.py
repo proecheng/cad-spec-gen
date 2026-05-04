@@ -12,7 +12,7 @@ from tools.photo3d_autopilot import write_photo3d_autopilot_report
 from tools.photo3d_gate import run_photo3d_gate
 
 
-LOW_RISK_CLI_COMMANDS = {
+LOW_RISK_RECOVERY_ACTIONS = {
     "product-graph",
     "build",
     "render",
@@ -107,7 +107,7 @@ def run_photo3d_action(
     for raw_action in action_plan.get("actions") or []:
         if not isinstance(raw_action, dict):
             continue
-        classified = _classify_action(raw_action, subsystem, active_run_id)
+        classified = _classify_action(raw_action, subsystem, active_run_id, index_path, root)
         kind = classified.pop("_classification")
         if kind == "executable":
             all_executable_actions.append(classified)
@@ -257,6 +257,8 @@ def _classify_action(
     action: dict[str, Any],
     subsystem: str,
     active_run_id: str,
+    artifact_index_path: Path,
+    project_root: Path,
 ) -> dict[str, Any]:
     result = dict(action)
     action_run_id = str(action.get("run_id") or "")
@@ -275,7 +277,7 @@ def _classify_action(
         return result
 
     argv = action.get("argv")
-    if not _is_allowed_cli_argv(argv, subsystem):
+    if not _is_allowed_cli_argv(argv, subsystem, active_run_id, artifact_index_path, project_root):
         result["_classification"] = "rejected"
         result["reason"] = "not an allowed Photo3D recovery command"
         return result
@@ -356,19 +358,49 @@ def _ordinary_user_message(status: str, post_action_autopilot: dict[str, Any] | 
     return messages.get(status, "Photo3D action runner 已生成报告。")
 
 
-def _is_allowed_cli_argv(argv: Any, subsystem: str) -> bool:
-    if not isinstance(argv, list) or len(argv) != 5:
+def _is_allowed_cli_argv(
+    argv: Any,
+    subsystem: str,
+    active_run_id: str,
+    artifact_index_path: Path,
+    project_root: Path,
+) -> bool:
+    if not isinstance(argv, list) or len(argv) != 11:
         return False
     if not all(isinstance(item, str) for item in argv):
         return False
-    python_token, script, command, flag, value = argv
+    (
+        python_token,
+        script,
+        command,
+        subsystem_flag,
+        subsystem_value,
+        run_id_flag,
+        run_id_value,
+        artifact_index_flag,
+        artifact_index_value,
+        action_flag,
+        action_value,
+    ) = argv
     if Path(python_token).name.lower() not in {"python", "python.exe"}:
         return False
     if script != "cad_pipeline.py":
         return False
-    if command not in LOW_RISK_CLI_COMMANDS:
+    if command != "photo3d-recover":
         return False
-    return flag == "--subsystem" and value == subsystem
+    if subsystem_flag != "--subsystem" or subsystem_value != subsystem:
+        return False
+    if run_id_flag != "--run-id" or run_id_value != active_run_id:
+        return False
+    if artifact_index_flag != "--artifact-index":
+        return False
+    try:
+        resolved_index = _resolve_project_path(project_root, artifact_index_value, "action artifact index")
+    except ValueError:
+        return False
+    if resolved_index != artifact_index_path:
+        return False
+    return action_flag == "--action" and action_value in LOW_RISK_RECOVERY_ACTIONS
 
 
 def _runtime_argv(argv: list[str]) -> list[str]:
