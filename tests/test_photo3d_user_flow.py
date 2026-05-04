@@ -12,8 +12,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 USER_FLOW_TERMS = {
     "photo3d",
+    "photo3d-autopilot",
     "run_id",
     "PHOTO3D_REPORT.json",
+    "PHOTO3D_AUTOPILOT.json",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
     "ARTIFACT_INDEX.json",
@@ -94,6 +96,31 @@ def test_accept_baseline_help_explains_explicit_acceptance_flow():
         assert term in help_text
 
 
+def test_photo3d_autopilot_help_explains_foolproof_next_action_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "photo3d-autopilot", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in USER_FLOW_TERMS:
+        assert term in help_text
+    for term in DELIVERY_STATUS_TERMS:
+        assert term in help_text
+    assert "autopilot" in help_text
+    assert "普通用户" in help_text
+    assert "does not scan directories" in help_text or "扫描目录猜最新文件" in help_text
+    assert "python cad_pipeline.py photo3d-autopilot --subsystem <name>" in help_text
+    assert "python cad_pipeline.py accept-baseline --subsystem <name>" in help_text
+
+
 def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
     for rel in (
         "docs/cad-help-guide-zh.md",
@@ -124,16 +151,23 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
 
         tools_by_name = {tool["name"]: tool for tool in data["tools"]}
         assert "photo3d" in tools_by_name, rel
+        assert "photo3d_autopilot" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
             tools_by_name["photo3d"]["cli"]
             == "python cad_pipeline.py photo3d --subsystem <name>"
         )
         assert (
+            tools_by_name["photo3d_autopilot"]["cli"]
+            == "python cad_pipeline.py photo3d-autopilot --subsystem <name>"
+        )
+        assert (
             tools_by_name["accept_baseline"]["cli"]
             == "python cad_pipeline.py accept-baseline --subsystem <name>"
         )
         assert "LLM_CONTEXT_PACK.json" in tools_by_name["photo3d"]["description"]
+        assert "PHOTO3D_AUTOPILOT.json" in tools_by_name["photo3d_autopilot"]["description"]
+        assert "普通用户" in tools_by_name["photo3d_autopilot"]["description"]
         assert "pass/warning/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted/preview/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted_baseline_run_id" in tools_by_name["accept_baseline"]["description"]

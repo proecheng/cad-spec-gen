@@ -28,6 +28,7 @@ PHOTO3D_CONTRACT_TEST_FILES = {
     "test_photo3d_path_drift.py",
     "test_photo3d_baseline_binding.py",
     "test_photo3d_accept_baseline.py",
+    "test_photo3d_autopilot.py",
     "test_enhance_consistency.py",
     "test_photo3d_llm_action_plan.py",
     "test_layout_contract.py",
