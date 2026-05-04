@@ -3619,6 +3619,25 @@ def cmd_photo3d_action(args):
     return command_return_code(report)
 
 
+def cmd_photo3d_run(args):
+    """运行 Photo3D 多轮普通用户向导。"""
+    from tools.photo3d_loop import command_return_code_for_loop, run_photo3d_loop
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    report = run_photo3d_loop(
+        PROJECT_ROOT,
+        args.subsystem,
+        artifact_index_path=getattr(args, "artifact_index", None),
+        max_rounds=int(getattr(args, "max_rounds", 3) or 3),
+        confirm_actions=bool(getattr(args, "confirm_actions", False)),
+        output_path=getattr(args, "output", None),
+    )
+    log.info("PHOTO3D_RUN: %s", report.get("ordinary_user_message"))
+    return command_return_code_for_loop(report)
+
+
 def cmd_photo3d_recover(args):
     """执行绑定当前 run_id 的 Photo3D 低风险恢复动作。"""
     from tools.photo3d_recover import run_photo3d_recover
@@ -4281,6 +4300,12 @@ def main():
             "ACTION_PLAN.json recovery commands must be run-aware photo3d-recover "
             "commands with --run-id and --artifact-index; bare render/build/"
             "product-graph commands are not automatic recoveries.\n"
+            "For a foolproof multi-round guide, run: python cad_pipeline.py "
+            "photo3d-run --subsystem <name>. It writes PHOTO3D_RUN.json, uses "
+            "--max-rounds / --confirm-actions, and stops at "
+            "needs_baseline_acceptance, ready_for_enhancement, needs_user_input, "
+            "needs_manual_review, execution_failed, or loop_limit_reached without "
+            "silently accepting baseline or running enhancement.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
             "consistency is unverified or failed; blocked = CAD gate failed.\n"
@@ -4348,7 +4373,11 @@ def main():
             "actions for the user. ACTION_PLAN.json low-risk CLI recoveries must "
             "be encoded as photo3d-recover --run-id <run_id> --artifact-index <path> "
             "--action product-graph|build|render, never as bare render/build/"
-            "product-graph commands."
+            "product-graph commands. Multi-round users can run: python cad_pipeline.py "
+            "photo3d-run --subsystem <name>. It writes PHOTO3D_RUN.json, supports "
+            "--max-rounds and --confirm-actions, and stops at needs_baseline_acceptance, "
+            "ready_for_enhancement, needs_user_input, needs_manual_review, "
+            "execution_failed, or loop_limit_reached."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4442,6 +4471,54 @@ def main():
         "--output",
         default=None,
         help="PHOTO3D_ACTION_RUN.json output path (default: current run directory)",
+    )
+
+    # photo3d-run：普通用户多轮向导，只推进到下一处需要确认/输入/增强的位置
+    p_photo3d_run = sub.add_parser(
+        "photo3d-run",
+        help="Run the Photo3D ordinary-user multi-round guide",
+        description=(
+            "Photo3D 多轮向导：按当前 active run 的 ARTIFACT_INDEX.json 运行 "
+            "photo3d gate + photo3d-autopilot，并在用户显式传 --confirm-actions "
+            "时执行 low-risk action plan 恢复动作。该命令写 PHOTO3D_RUN.json，"
+            "不会扫描目录猜最新产物，不会静默 accept-baseline，不会运行 enhance。"
+        ),
+        epilog=(
+            "Typical preview: python cad_pipeline.py photo3d-run --subsystem <name>\n"
+            "Typical confirmed recovery loop: python cad_pipeline.py photo3d-run "
+            "--subsystem <name> --confirm-actions\n"
+            "The loop stops at needs_baseline_acceptance, ready_for_enhancement, "
+            "needs_user_input, needs_manual_review, execution_failed, or "
+            "loop_limit_reached. All artifacts remain bound to active_run_id and "
+            "PHOTO3D_RUN.json is written inside cad/<name>/.cad-spec-gen/runs/<run_id>."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_run.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_run.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only artifact discovery source for active_run_id."
+        ),
+    )
+    p_photo3d_run.add_argument(
+        "--max-rounds",
+        type=int,
+        default=3,
+        help="Maximum gate/action/autopilot rounds before stopping for review",
+    )
+    p_photo3d_run.add_argument(
+        "--confirm-actions",
+        action="store_true",
+        help="Explicitly execute allowlisted low-risk recovery actions",
+    )
+    p_photo3d_run.add_argument(
+        "--output",
+        default=None,
+        help="PHOTO3D_RUN.json output path (default: current run directory)",
     )
 
     # photo3d-recover：只由 action runner 调用的 run-aware 低风险恢复 wrapper
@@ -4567,6 +4644,7 @@ def main():
         "photo3d": cmd_photo3d,
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
+        "photo3d-run": cmd_photo3d_run,
         "photo3d-recover": cmd_photo3d_recover,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,

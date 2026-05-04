@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户运行 `python cad_pipeline.py photo3d-autopilot --subsystem <name>`，验证当前 `run_id` 的契约链，生成下一步报告；阻断后的低风险 CLI 恢复动作可用 `python cad_pipeline.py photo3d-action --subsystem <name> --confirm` 显式确认执行 |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py photo3d-run --subsystem <name>`，验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json`；阻断后的低风险 CLI 恢复动作可用 `--confirm-actions` 显式确认执行 |
 
 ### v2.3.0 新增能力
 
@@ -176,13 +176,27 @@ python gemini_gen.py \
 
 ### Photo3D 一键照片级契约门禁
 
-普通用户优先使用：
+普通用户优先使用多轮向导：
+
+```bash
+python cad_pipeline.py photo3d-run --subsystem <name>
+```
+
+它会按当前 `active_run_id` 连续运行 `photo3d` 门禁和 `photo3d-autopilot`，并写出 `PHOTO3D_RUN.json`。向导只推进到下一处需要用户决策的位置：`needs_baseline_acceptance`、`ready_for_enhancement`、`needs_user_input`、`needs_manual_review`、`execution_failed` 或 `loop_limit_reached`。它不会静默接受 baseline，不会运行 `enhance`，不会切换 `active_run_id`，也不会扫描目录猜最新文件；要提高轮数可传 `--max-rounds <n>`。
+
+如果 `PHOTO3D_RUN.json` 提示存在低风险恢复动作，用户确认后运行：
+
+```bash
+python cad_pipeline.py photo3d-run --subsystem <name> --confirm-actions
+```
+
+`--confirm-actions` 只会通过 `photo3d-action` 执行当前 `ACTION_PLAN.json` 中 white-listed、low-risk、无需用户输入的恢复动作；它仍不会接受 baseline 或运行增强。底层单轮下一步报告也可以单独运行：
 
 ```bash
 python cad_pipeline.py photo3d-autopilot --subsystem <name>
 ```
 
-它会先运行 `photo3d` 契约门禁，再写出 `PHOTO3D_AUTOPILOT.json`。这个报告只给普通用户和大模型一个安全的下一步：`blocked` 时指向 `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`；`pass` / `warning` 且没有 accepted baseline 时，建议用户确认后显式运行 `python cad_pipeline.py accept-baseline --subsystem <name>`；已有 `accepted_baseline_run_id` 时，才建议进入增强阶段。`photo3d-autopilot` 不会静默接受 baseline，不会切换 `active_run_id`，也不会扫描目录猜最新文件。
+`photo3d-autopilot` 会先运行 `photo3d` 契约门禁，再写出 `PHOTO3D_AUTOPILOT.json`。这个报告只给普通用户和大模型一个安全的下一步：`blocked` 时指向 `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`；`pass` / `warning` 且没有 accepted baseline 时，建议用户确认后显式运行 `python cad_pipeline.py accept-baseline --subsystem <name>`；已有 `accepted_baseline_run_id` 时，才建议进入增强阶段。`photo3d-autopilot` 不会静默接受 baseline，不会切换 `active_run_id`，也不会扫描目录猜最新文件。
 
 当 `PHOTO3D_AUTOPILOT.json` 指向 `ACTION_PLAN.json` 且动作是低风险 CLI 恢复动作时，普通用户可以先预览：
 
@@ -227,8 +241,9 @@ python cad_pipeline.py photo3d --subsystem <name>
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
 - `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
 - `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行结果，只记录当前 run 的动作分类、执行结果和后续人工输入项；成功确认执行后，`post_action_autopilot` 固定记录是否自动重跑以及重跑后的 gate/status/next_action 摘要。
+- `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，记录每轮 gate/autopilot/action 状态、最终 `next_action` 和停止原因。
 
-大模型必须依据 `ACTION_PLAN.json` 中的动作继续；可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
+大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；需要分步处理时，必须依据 `ACTION_PLAN.json` 中的动作继续。可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
 路径隔离与旧产物清理：
 
