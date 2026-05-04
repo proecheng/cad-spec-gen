@@ -234,6 +234,14 @@ python cad_pipeline.py photo3d --subsystem <name>
 
 当前门禁阶段的 `PHOTO3D_REPORT.json` 只会把 `enhancement_status` 写成 `not_run` 或 `blocked`；`accepted` / `preview` 属于后续增强交付层。
 
+增强完成后必须运行增强一致性验收：
+
+```bash
+python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
+```
+
+`enhance-check` 只读取显式 `--dir` 内的 `render_manifest.json` 和同目录的 `*_enhanced.*` 文件，写出 `ENHANCEMENT_REPORT.json`。它要求 manifest 中每个视角都有对应增强图，并检查源渲染/增强图的轮廓相似度和基础图片 QA；状态为 `accepted` 才可交付，`preview` 只能预览，`blocked` 表示缺少视角或输入不完整。该命令不会扫描目录猜最新文件，也不会接受 render dir 外的增强图。
+
 阻断时会写出：
 
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
@@ -242,6 +250,7 @@ python cad_pipeline.py photo3d --subsystem <name>
 - `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
 - `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行结果，只记录当前 run 的动作分类、执行结果和后续人工输入项；成功确认执行后，`post_action_autopilot` 固定记录是否自动重跑以及重跑后的 gate/status/next_action 摘要。
 - `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，记录每轮 gate/autopilot/action 状态、最终 `next_action` 和停止原因。
+- `ENHANCEMENT_REPORT.json`：增强完成后的交付验收报告，记录每个视角的源图、增强图、相似度、QA 和 `accepted` / `preview` / `blocked` 状态。
 
 大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；需要分步处理时，必须依据 `ACTION_PLAN.json` 中的动作继续。可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 

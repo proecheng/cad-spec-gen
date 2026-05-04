@@ -83,6 +83,9 @@ N-view PNG — 100% geometry-accurate, cross-view consistent (default 5, configu
     ↓ AI enhancement (reskin only, geometry locked) — 4 backends: gemini | fal | comfyui | engineering
        python cad_pipeline.py enhance --subsystem <name> [--dir <dir>] [--backend <backend>]
 Photorealistic PNG — presentation / defense / business plan ready
+    ↓ Enhancement acceptance — manifest-bound delivery status
+       python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
+ENHANCEMENT_REPORT.json — accepted / preview / blocked
     ↓ python cad_pipeline.py annotate — PIL-based component labels (CN/EN)
 Labeled PNG — with leader lines and component names
 ```
@@ -303,6 +306,7 @@ python cad_pipeline.py render --subsystem end_effector --timestamp
 # Phase 5-6: AI enhance + annotate (optional)
 # enhance auto-reads render_manifest.json (only current-session renders); use --dir to override
 python cad_pipeline.py enhance --subsystem end_effector
+python cad_pipeline.py enhance-check --subsystem end_effector --dir cad/output/renders/end_effector/<run_id>
 python cad_pipeline.py annotate --subsystem end_effector --lang cn,en
 
 # Check pipeline status
@@ -366,6 +370,14 @@ Switch backend permanently in `pipeline_config.json`:
 ```
 
 Output: `<render_dir>/<VN>_<name>_<timestamp>_enhanced.png` per view, photorealistic studio quality.
+
+Run acceptance before delivery:
+
+```bash
+python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
+```
+
+`enhance-check` reads the explicit render directory's `render_manifest.json`, requires every manifest view to have exactly one same-directory `*_enhanced.*` image, compares source/enhanced shape and basic image QA, and writes `ENHANCEMENT_REPORT.json` with `accepted`, `preview`, or `blocked`. It does not scan directories for newest files and rejects enhanced images outside the bound render directory.
 
 ### Component Label Annotation
 

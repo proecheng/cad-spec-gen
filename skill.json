@@ -13,7 +13,7 @@
       "id": "cad-help",
       "name": "CAD Pipeline Assistant",
       "trigger": "/cad-help",
-      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement, photo3d contract gate/autopilot/action/run/recover, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, LLM_CONTEXT_PACK.json, PHOTO3D_ACTION_RUN.json, and PHOTO3D_RUN.json; action plans use run-aware photo3d-recover commands; photo3d-run loops to the next user decision without accepting baseline or running enhancement; accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
+      "description": "Natural-language assistant for the CAD rendering pipeline (17 intents: env check, config validation, next-step recommendation, materials, camera, exploded view, rendering, AI enhancement/enhance-check, photo3d contract gate/autopilot/action/run/recover, troubleshooting, file structure, status, cross-model integration, BOM/parts/model library, CAD spec, codegen, design review). Photo3D gate status is pass/warning/blocked; later enhancement delivery status is accepted/preview/blocked. It writes PHOTO3D_REPORT.json, PHOTO3D_AUTOPILOT.json, ACTION_PLAN.json, LLM_CONTEXT_PACK.json, PHOTO3D_ACTION_RUN.json, PHOTO3D_RUN.json, and ENHANCEMENT_REPORT.json; action plans use run-aware photo3d-recover commands; photo3d-run loops to the next user decision without accepting baseline or running enhancement; enhance-check validates explicit render_dir outputs without scanning directories; accept-baseline records accepted_baseline_run_id for foolproof user and LLM recovery flows.",
       "knowledge_file": "skill_cad_help.md"
     },
     {
@@ -74,6 +74,11 @@
       "name": "photo3d_recover",
       "description": "Internal run-aware Photo3D recovery wrapper: runs product-graph/build/render only when --run-id matches ARTIFACT_INDEX.json active_run_id, updates current run artifacts, does not scan directories, does not create or switch runs, and is normally invoked through ACTION_PLAN.json plus photo3d-action.",
       "cli": "python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action render"
+    },
+    {
+      "name": "enhance_check",
+      "description": "Run-aware enhancement consistency acceptance: reads an explicit render_manifest.json / render_dir, verifies every manifest view has an enhanced image in the same directory, compares source/enhanced shape and image QA, writes ENHANCEMENT_REPORT.json, reports accepted/preview/blocked, and does not scan directories for newest files.",
+      "cli": "python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>"
     },
     {
       "name": "accept_baseline",

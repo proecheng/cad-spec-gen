@@ -11,6 +11,7 @@
 | [`decisions.md`](decisions.md) | 已做过的重要架构/流程决策 |
 | [`plans/2026-05-02-contract-driven-photo3d-pipeline.md`](plans/2026-05-02-contract-driven-photo3d-pipeline.md) | Photo3D 契约驱动管线方案 |
 | [`plans/2026-05-02-generic-threaded-parts-pipeline.md`](plans/2026-05-02-generic-threaded-parts-pipeline.md) | 通用传动件/丝杠类零件管线归档计划 |
+| [`plans/2026-05-04-enhancement-consistency-acceptance.md`](plans/2026-05-04-enhancement-consistency-acceptance.md) | 增强一致性验收执行计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -40,7 +41,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| P0 | 普通用户 Photo3D autopilot | 把动作计划、报告、接受基线、变更范围串成少命令流程 |
+| P0 | Build artifact backfill | 把恢复动作后的 `ASSEMBLY_REPORT.json`、GLB/STEP、模型契约等证据纳入当前 run 登记 |
 | P1 | 常用模型库扩展 | 对更多机械类别复用模型库/参数化适配器，减少临时特判 |
-| P1 | 增强验收与一致性评分 | 让照片级输出能被自动判定为 accepted/preview/blocked |
+| P1 | 更高层项目向导 | 把 init/spec/codegen/build/render/photo3d/enhance-check 的多阶段状态统一给普通用户和大模型 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
