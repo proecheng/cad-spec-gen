@@ -9,16 +9,16 @@
 | --- | --- |
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
-| 最新功能基线 | `feat(photo3d): 增加增强一致性验收` |
+| 最新功能基线 | `feat(photo3d): build 恢复回填运行证据` |
 | 最新合并提交 | `36b651a merge: 合并增强一致性验收` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 合并到 `main` 后 `python -m pytest -q` -> `2044 passed, 14 skipped, 8 warnings` |
+| 最近验证 | 本分支 `python -m pytest -q` -> `2043 passed, 18 skipped, 10 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | 无；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
+| 当前未跟踪 | 无；本轮新增 `docs/superpowers/plans/2026-05-04-build-artifact-backfill.md` 将随代码提交 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行 + run-aware 恢复 + 执行后自动回看下一步 + 增强后交付验收”阶段：当前管线能用 run_id、artifact index、产品图、模型契约、装配签名、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图；普通用户优先运行 `photo3d-run`，到 `ready_for_enhancement` 后显式运行 `enhance`，再用 `enhance-check --dir <render_dir>` 生成 `accepted/preview/blocked` 交付状态。
+Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行 + run-aware 恢复 + build 证据回填 + 执行后自动回看下一步 + 增强后交付验收”阶段：当前管线能用 run_id、artifact index、产品图、模型契约、装配签名、装配报告、装配 GLB/STEP、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图；普通用户优先运行 `photo3d-run`，到 `ready_for_enhancement` 后显式运行 `enhance`，再用 `enhance-check --dir <render_dir>` 生成 `accepted/preview/blocked` 交付状态。
 
 ## 看板
 
@@ -32,13 +32,13 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | Done | 普通用户 Photo3D autopilot | 把门禁结果转成固定 round-end 下一步报告 | 新增 `photo3d-autopilot`，写 `PHOTO3D_AUTOPILOT.json`；blocked 指向动作计划；pass/warning 无 baseline 时只建议显式接受；已有 baseline 时建议带 `--dir` 的当前 run 增强命令 | 已在帮助中说明增强后运行 `enhance-check` |
 | Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
-| Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 后续扩展 `build` 的产物回写覆盖更多运行时报告 |
+| Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
 | Done | 傻瓜式照片级 3D 流程 | 非编程用户只说需求，大模型按动作计划推进 | 新增 `photo3d-run`，写 `PHOTO3D_RUN.json`；默认只预览并停在低风险动作确认点，`--confirm-actions` 后串联 `photo3d-action`，连续推进到用户输入、人工复查、baseline 确认、增强入口、执行失败或 `--max-rounds` | 下一步接更高层项目向导 |
 | Done | 增强一致性验收 | 照片级输出不仅生成，还能解释是否可交付 | 新增 `tools/enhance_consistency.py` 批量报告与 `cad_pipeline.py enhance-check`；从 `render_manifest.json` 读取视角，要求增强图在同一 render dir、每个视角唯一匹配；输出 `ENHANCEMENT_REPORT.json` 的 `accepted/preview/blocked` | 下一步把验收摘要回写到更高层 Photo3D/project guide |
+| Done | Build artifact backfill | 恢复动作后把更多运行时证据登记回当前 run | `photo3d-recover build` 成功后回填当前 run 的 `ASSEMBLY_SIGNATURE.json`、`ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP；optional 产物只在精确路径、配置路径或唯一候选存在时登记 | 下一步把增强验收摘要接入 `photo3d-run` / 项目向导 |
 | Planned | 常用模型库扩展 | 对其他设备也能复用，不围绕单个元件临时特判 | 已有 adapter/resolver 基础 | 建议按类别扩展：fastener、bearing、linear guide、motor、sensor、cable、pneumatic |
-| Planned | Build artifact backfill | 恢复动作后把更多运行时证据登记回当前 run | `photo3d-recover build/render` 已能写回关键产物 | 扩展 `ASSEMBLY_REPORT.json`、GLB/STEP、模型契约刷新策略 |
 | Planned | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 现有 `cad_pipeline.py init/spec/codegen/photo3d` 可组合 | 设计 `cad_pipeline.py autopilot` 或 skill-level checklist |
 
 ## 当前能力边界
@@ -51,7 +51,8 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 - `photo3d-action` 默认只预览，不执行；只有 `--confirm` 才执行当前 active run `ACTION_PLAN.json` 中 low-risk、无需用户输入、白名单内的 `product-graph` / `build` / `render` CLI。它不运行增强、不接受 baseline、不切换 `active_run_id`，输出必须留在当前 run 目录。
 - `ACTION_PLAN.json` 中自动恢复 CLI 必须是 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；裸 `product-graph` / `build` / `render --subsystem <name>` 会被 `photo3d-action` 拒绝。
 - `post_action_autopilot` 的自动重跑判定看整份 `ACTION_PLAN.json`，不只看 `--action-id` 选中的动作；只要仍有用户输入、人工复查、rejected/skipped 动作、未执行完全部 low-risk CLI、任一 CLI 失败或 `active_run_id` 在执行/重跑过程中变化，就不会自动重跑。
-- `photo3d-recover` 不扫描目录、不切换 `active_run_id`、不创建新 run；`product-graph` 写入当前 run `PRODUCT_GRAPH.json`，`render` 使用当前 run 渲染目录，`build` 完成后回填当前 run 的装配签名路径（如存在）。
+- `photo3d-recover` 不扫描目录、不切换 `active_run_id`、不创建新 run；`product-graph` 写入当前 run `PRODUCT_GRAPH.json`，`render` 使用当前 run 渲染目录，`build` 完成后回填当前 run 的运行时装配签名，并在存在时回填 `ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP。
+- `photo3d-recover build` 对 GLB/STEP 不按最新文件、默认前缀或设备名猜测；优先使用 `render_config.json` 中 `subsystem.glb_file` 指向的 `cad/output` 内文件，缺少配置时只接受 `cad/output/*_assembly.glb` / `*_assembly.step` 的唯一候选。
 - `enhance-check` 只读取显式 `--dir` 的 `render_manifest.json` 和同目录 `*_enhanced.*`；增强图、报告、manifest 源图都必须留在同一 render dir/当前项目内。
 - `enhance-check` 不会在同一视角有多个增强图时猜一个；这种歧义直接 `blocked` 并在 `ENHANCEMENT_REPORT.json` 写出候选列表。
 - `ENHANCEMENT_REPORT.json` 的 `accepted` 才能作为交付；`preview` 只能预览，`blocked` 表示缺视角、路径越界、同视角多候选或输入不完整。
@@ -60,14 +61,21 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 
 ## 下一步建议
 
-1. 下一轮优先做 build artifact backfill：把 `ASSEMBLY_REPORT.json`、GLB/STEP 证据和模型契约刷新纳入当前 run 的统一登记策略。
-2. 再把 `ENHANCEMENT_REPORT.json` 摘要接入 `photo3d-run` / 更高层项目向导，让普通用户看到“已可交付/只能预览/阻断原因”的统一下一步。
+1. 下一轮优先把 `ENHANCEMENT_REPORT.json` 摘要接入 `photo3d-run` / 更高层项目向导，让普通用户看到“已可交付/只能预览/阻断原因”的统一下一步。
+2. 再设计新用户项目向导，把 `init/spec/codegen/photo3d-run/enhance-check` 串成更少技术选项的傻瓜式流程。
 3. 随后继续常用模型库扩展，按类别扩展 fastener、bearing、linear guide、motor、sensor、cable、pneumatic，而不是围绕单个设备或元件特判。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_backfills_current_run_build_artifacts -q` | 先红后绿，覆盖 build recovery 回填 `ASSEMBLY_REPORT.json`、刷新 `MODEL_CONTRACT.json`、装配 GLB/STEP |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py::test_photo3d_recover_build_accepts_configured_output_relative_glb_path -q` | 先红后绿，覆盖 `render_config.json` 配置相对子路径时不能回退误选其他装配文件 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py -q` | `7 passed` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；`photo3d_recover.py` 安装版镜像无漂移 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py tests\test_photo3d_action_runner.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `181 passed` |
+| 2026-05-04 | `python -m pytest -q` | `2043 passed, 18 skipped, 10 warnings`；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `133 passed`；规划索引更新后复查 |
 | 2026-05-04 | `python -m pytest tests\test_enhance_consistency.py -q` | `11 passed`；覆盖批量验收、空 manifest 阻断、缺视角、轮廓漂移、路径越界、manifest 路径稳定、同视角多增强图不猜测、CLI accepted/blocked |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | `11 passed`；覆盖 `enhance-check` help、metadata、文档与工具镜像同步 |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；CLI、metadata、工具镜像无漂移 |

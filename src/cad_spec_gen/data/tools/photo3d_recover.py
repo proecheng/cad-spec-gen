@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 import shutil
@@ -11,6 +12,17 @@ from tools.path_policy import assert_within_project, project_relative
 
 
 RECOVERY_ACTIONS = {"product-graph", "build", "render"}
+RUN_BUILD_JSON_ARTIFACTS = (
+    ("assembly_signature", "ASSEMBLY_SIGNATURE.json", True),
+    ("assembly_report", "ASSEMBLY_REPORT.json", False),
+)
+BUILD_PROJECT_JSON_ARTIFACTS = (
+    (
+        "model_contract",
+        Path("cad") / "{subsystem}" / ".cad-spec-gen" / "MODEL_CONTRACT.json",
+        "MODEL_CONTRACT.json",
+    ),
+)
 
 
 def run_photo3d_recover(
@@ -54,14 +66,7 @@ def run_photo3d_recover(
         )
         if build_rc != 0:
             return _report(index_path, subsystem, run_id, action, build_rc, artifacts)
-        copied = _copy_run_output_artifact(
-            root,
-            source=root / "cad" / "output" / "runs" / run_id / "ASSEMBLY_SIGNATURE.json",
-            target=run_dir / "ASSEMBLY_SIGNATURE.json",
-            artifact_key="assembly_signature",
-            artifacts=artifacts,
-        )
-        if not copied:
+        if not _backfill_build_artifacts(root, subsystem, run_id, run_dir, artifacts):
             return _report(index_path, subsystem, run_id, action, 1, artifacts)
     else:
         _stage_legacy_inputs(root, subsystem, run_id, artifacts, include_signature=True)
@@ -164,6 +169,108 @@ def _copy_run_output_artifact(
     shutil.copy2(source, target)
     artifacts[artifact_key] = project_relative(target, root)
     return True
+
+
+def _backfill_build_artifacts(
+    root: Path,
+    subsystem: str,
+    run_id: str,
+    run_dir: Path,
+    artifacts: dict[str, str],
+) -> bool:
+    output_dir = root / "cad" / "output"
+    run_output_dir = output_dir / "runs" / run_id
+    for artifact_key, filename, required in RUN_BUILD_JSON_ARTIFACTS:
+        copied = _copy_run_output_artifact(
+            root,
+            source=run_output_dir / filename,
+            target=run_dir / filename,
+            artifact_key=artifact_key,
+            artifacts=artifacts,
+        )
+        if required and not copied:
+            return False
+
+    for artifact_key, source_template, filename in BUILD_PROJECT_JSON_ARTIFACTS:
+        source = root / Path(str(source_template).format(subsystem=subsystem))
+        _copy_run_output_artifact(
+            root,
+            source=source,
+            target=run_dir / filename,
+            artifact_key=artifact_key,
+            artifacts=artifacts,
+        )
+
+    for artifact_key, source in _assembly_deliverable_sources(root, subsystem):
+        _copy_run_output_artifact(
+            root,
+            source=source,
+            target=run_dir / source.name,
+            artifact_key=artifact_key,
+            artifacts=artifacts,
+        )
+    return True
+
+
+def _assembly_deliverable_sources(root: Path, subsystem: str) -> list[tuple[str, Path]]:
+    output_dir = root / "cad" / "output"
+    has_configured_glb, configured_glb = _configured_assembly_glb(root, subsystem)
+    if configured_glb:
+        result = [("assembly_glb", configured_glb)]
+        configured_step = configured_glb.with_suffix(".step")
+        if configured_step.is_file():
+            result.append(("assembly_step", configured_step))
+        return result
+    if has_configured_glb:
+        return []
+
+    result: list[tuple[str, Path]] = []
+    unique_glb = _unique_assembly_deliverable(output_dir, ".glb")
+    if unique_glb:
+        result.append(("assembly_glb", unique_glb))
+    unique_step = _unique_assembly_deliverable(output_dir, ".step")
+    if unique_step:
+        result.append(("assembly_step", unique_step))
+    return result
+
+
+def _configured_assembly_glb(root: Path, subsystem: str) -> tuple[bool, Path | None]:
+    config_path = root / "cad" / subsystem / "render_config.json"
+    if not config_path.is_file():
+        return False, None
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, None
+    glb_file = ((config.get("subsystem") or {}).get("glb_file") or "")
+    if not isinstance(glb_file, str) or not glb_file:
+        return False, None
+    candidate = Path(glb_file)
+    if candidate.is_absolute():
+        try:
+            resolved = candidate.resolve()
+            assert_within_project(resolved, root / "cad" / "output", "configured assembly glb")
+        except ValueError:
+            return True, None
+    else:
+        if any(part in {"", ".", ".."} for part in candidate.parts):
+            return True, None
+        resolved = (root / "cad" / "output" / candidate).resolve()
+        try:
+            assert_within_project(resolved, root / "cad" / "output", "configured assembly glb")
+        except ValueError:
+            return True, None
+    if not resolved.is_file():
+        return True, None
+    return True, resolved
+
+
+def _unique_assembly_deliverable(output_dir: Path, suffix: str) -> Path | None:
+    candidates = sorted(output_dir.glob(f"*_assembly{suffix}"))
+    candidates = [path.resolve() for path in candidates if path.is_file()]
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
 
 
 def _stage_legacy_inputs(
