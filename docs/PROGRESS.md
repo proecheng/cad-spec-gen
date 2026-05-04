@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-04 |
-| 当前分支 | `main` |
-| 最新功能基线 | `0f4bae4 feat(parts-library): 扩展常用模型库第二批` |
-| 最新合并/进度提交 | `b6555ce docs(progress): 记录第二批模型库合并验证` |
+| 当前分支 | `codex/common-model-library-batch-3` worktree：`.worktrees/common-model-library-batch-3` |
+| 最新功能基线 | `0f4bae4 feat(parts-library): 扩展常用模型库第二批`；第三批待提交 |
+| 最新合并/进度提交 | `6029f1a docs(progress): 记录第二批推送清理` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 合并到 `main` 后范围回归 `pytest tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `352 passed, 2 skipped`；推送/清理后 `python scripts/dev_sync.py --check`、`git diff --check` 复查通过 |
+| 最近验证 | 第三批最终范围回归 `pytest tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `405 passed, 2 skipped` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过 |
-| 当前未跟踪 | 无；第二批实现已推送到 `origin/main`，`codex/common-model-library-batch-2` worktree/分支已清理 |
+| 当前未跟踪 | `docs/superpowers/plans/2026-05-04-common-model-library-batch-3.md`、`tests/test_common_model_library_batch_3.py` 待纳入第三批提交 |
 
 ## 一句话结论
 
@@ -41,7 +41,8 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
 | Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
 | Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
-| Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已合并并推送到 `origin/main`；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；范围回归通过；已清理 `codex/common-model-library-batch-2` worktree/分支 | 进入第三批跨产品高频模型库扩展 |
+| Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已合并并推送到 `origin/main`；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；范围回归通过；已清理 `codex/common-model-library-batch-2` worktree/分支 | 已进入第三批跨产品高频模型库扩展 |
+| In Progress | 常用模型库扩展第三批 | 扩展更多跨产品高频外购件，继续减少单设备临时调参 | 已实现 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；新增分类、category-scoped 尺寸、默认库显式顺序规则和负例；回归中恢复 `KFL001` 精确模板优先，形成“精确成熟模板优先于通用族模板”的通用规则 | 跑最终回归、提交、合并到 `main`、推送并清理 worktree/分支 |
 
 ## 当前能力边界
 
@@ -63,6 +64,8 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 - 常用模型库扩展只把明确、可参数化、跨项目复用的类别放进 `parts_library.default.yaml`；项目真实 STEP、SolidWorks/Toolbox 或用户导入模型仍应通过项目前置规则覆盖默认 B 级模板。
 - 新增线束模板只覆盖明确“线束 / harness / FFC”意图；普通拖链段、柔性同轴等未命中可复用线束模板时继续 `skip`，防止退回无意义盒子。
 - 第二批常用模型库不使用裸 `滑块`、`M12`、`PC6/PC8` 等短 token 抢类别或路由；这些 token 只能在已有明确 family intent 后作为尺寸/针数/管径解析线索。
+- 第三批常用模型库不使用裸 `DIN`、`阀`、`模块`、`支撑座`、`BK`、`BF` 或 `35mm` 抢类别/路由；只有类别和明确 family intent 同时成立才进入 B 级模板。
+- 精确成熟模板优先于新增通用族模板；例如已有专用模板的型号不能被更宽的默认 family route 抢走。
 - 默认尺寸查询支持 category-scoped key，防止 `material` 中的别族描述（例如泵的“电磁阀式”）覆盖 `name_cn` 中更具体的同类零件尺寸。
 - 新增可复用模板必须保持生成几何不超过 `real_dims`，否则会污染后续装配、渲染和照片级增强的契约证据。
 - `warning` 可以接受为 baseline，但应在看板或报告里明确剩余风险。
@@ -70,15 +73,23 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 下一批建议优先扩展“轴承座/支撑座、标准线性模组、常见阀岛/调压过滤器、常见电气 DIN 导轨件”等跨产品高频类别。
-2. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
-3. 把模型库扩展规则沉淀为更严格的通用准入测试：分类证据、路由顺序、尺寸作用域、包络不超界、真实模型覆盖优先级都必须有回归。
+1. 完成第三批最终回归、提交、合并、推送，并清理 `codex/common-model-library-batch-3` worktree/分支。
+2. 下一批模型库建议优先做“小型电气柜/面板件、常见传感器安装附件、常见真空元件、标准铝型材/角码”等跨产品高频类别。
+3. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
 | 2026-05-04 | `git push origin main` | 已推送 `main` 到远端，`cea6e1b..b6555ce` |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py -q` | 第三批实现后 `44 passed, 7 warnings`；覆盖分类、模板、负例、包络不超 `real_dims` |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_parts_library_standard_categories.py -q` | 第三批默认库顺序补测后 `68 passed, 7 warnings` |
+| 2026-05-04 | `python -m pytest tests\test_jinja_generators_new.py::test_lifting_platform_curated_parts_report_b_grade_parametric_templates tests\test_jinja_generators_new.py::test_lifting_platform_template_geometry_stays_within_reported_real_dims tests\test_common_model_library_batch_3.py -q` | 回归修正后 `66 passed, 7 warnings`；恢复 `KFL001` 精确模板优先于新增通用轴承座模板 |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py -q` | 第三批范围回归 `274 passed, 2 skipped, 11 warnings` |
+| 2026-05-04 | `python scripts\dev_sync.py --check` | 第三批同步后通过；安装版镜像无漂移 |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 第三批最终回归 `405 passed, 2 skipped, 11 warnings` |
+| 2026-05-04 | `python scripts\dev_sync.py --check` | 第三批最终同步检查通过 |
+| 2026-05-04 | `git diff --check` | 第三批最终空白检查通过 |
 | 2026-05-04 | `git worktree remove .worktrees\common-model-library-batch-2`；`git branch -d codex/common-model-library-batch-2` | 已清理第二批已合并 worktree/分支；保留其他独立 worktree |
 | 2026-05-04 | `python scripts\dev_sync.py --check` | 推送和清理后复查通过 |
 | 2026-05-04 | `git diff --check` | 推送和清理后复查通过 |

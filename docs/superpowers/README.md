@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：常用模型库扩展第二批已合并并推送到 `origin/main`，`codex/common-model-library-batch-2` worktree/分支已清理；新增 linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动阀和快插接头 B 级模板；路由、包络和 category-scoped 尺寸防漂移测试已落地，详见 [项目看板](../PROGRESS.md) 和 [第二批计划](plans/2026-05-04-common-model-library-batch-2.md)。
+2026-05-04：常用模型库扩展第三批已在 `codex/common-model-library-batch-3` 实现并进入最终收尾；新增 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和包络测试，并恢复精确成熟模板优先于新增通用族模板的规则。详见 [项目看板](../PROGRESS.md) 和 [第三批计划](plans/2026-05-04-common-model-library-batch-3.md)。
 
 ## 当前主入口
 
@@ -21,6 +21,7 @@
 | [`plans/2026-05-04-project-guide.md`](plans/2026-05-04-project-guide.md) | 新用户只读项目向导执行计划 |
 | [`plans/2026-05-04-common-model-library-expansion.md`](plans/2026-05-04-common-model-library-expansion.md) | 常用模型库扩展第一批执行计划 |
 | [`plans/2026-05-04-common-model-library-batch-2.md`](plans/2026-05-04-common-model-library-batch-2.md) | 常用模型库扩展第二批计划 |
+| [`plans/2026-05-04-common-model-library-batch-3.md`](plans/2026-05-04-common-model-library-batch-3.md) | 常用模型库扩展第三批计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -50,10 +51,10 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
+| In Progress | 常用模型库扩展第三批 | 已实现并通过范围回归；下一步最终检查、提交、合并、推送和清理 worktree/分支 |
 | Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
-| P1 | 常用模型库扩展第三批 | 扩展轴承座/支撑座、标准线性模组、阀岛/调压过滤器、DIN 导轨件等跨产品高频类别 |
 | P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |

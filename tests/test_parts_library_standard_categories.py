@@ -180,3 +180,134 @@ def test_batch_2_m12_sensor_route_is_not_stolen_by_connector_rule() -> None:
     )
 
     assert rules[0]["match"].get("category") == "sensor"
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "match_key", "match_value"),
+    [
+        (
+            "bearing",
+            "UCP204 轴承座",
+            "",
+            "name_contains",
+            ["轴承座", "pillow block", "flange bearing", "UCP", "UCF", "KP08", "KFL"],
+        ),
+        (
+            "transmission",
+            "BK12 丝杠支撑座",
+            "",
+            "keyword_contains",
+            ["BK12", "BF12", "丝杠支撑座", "丝杆支撑座", "lead screw support", "support block"],
+        ),
+        (
+            "transmission",
+            "KK60 直线模组",
+            "行程300mm",
+            "keyword_contains",
+            ["直线模组", "线性模组", "滑台模组", "linear module", "linear actuator module", "KK60", "KK86"],
+        ),
+        (
+            "connector",
+            "DIN导轨端子",
+            "2.5mm2",
+            "name_contains",
+            ["DIN导轨端子", "DIN rail terminal"],
+        ),
+        (
+            "other",
+            "DIN导轨电源",
+            "24V 60W",
+            "keyword_contains",
+            ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"],
+        ),
+    ],
+)
+def test_batch_3_default_routes_precede_generic_fallbacks(
+    category: str,
+    name: str,
+    material: str,
+    match_key: str,
+    match_value: list[str],
+) -> None:
+    """第三批常用模型必须先命中显式族规则，不能靠 any:true 终端兜底。"""
+    query = PartQuery(
+        part_no="B3-DEFAULT-RULE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules
+    assert rules[0]["match"].get("category") == category
+    assert rules[0]["match"].get(match_key) == match_value
+
+
+def test_batch_3_pneumatic_accessory_route_covers_manifold_and_frl() -> None:
+    """气动附件路线应覆盖阀岛和 FRL，且早于普通气缸路线。"""
+    resolver = default_resolver(project_root="__missing_project__")
+
+    for name, material in [
+        ("4联阀岛", "DC24V"),
+        ("过滤减压阀", "G1/4 FRL"),
+    ]:
+        query = PartQuery(
+            part_no="B3-PNEUMATIC",
+            name_cn=name,
+            material=material,
+            category="pneumatic",
+            make_buy="外购",
+        )
+        rules = resolver.matching_rules(query, adapter_name="jinja_primitive")
+
+        assert rules
+        assert rules[0]["match"].get("keyword_contains") == [
+            "电磁阀",
+            "solenoid valve",
+            "快插",
+            "push fitting",
+            "气管接头",
+            "调压阀",
+            "过滤减压阀",
+            "阀岛",
+            "valve manifold",
+            "FRL",
+            "filter regulator",
+            "air regulator",
+            "调压过滤器",
+        ]
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("fastener", "DIN912 内六角螺钉", "M5×16"),
+        ("other", "阀体安装板", "6061 80×40×6mm"),
+        ("other", "普通支撑座", "铝合金 60×40×20mm"),
+    ],
+)
+def test_batch_3_broad_tokens_do_not_activate_new_default_routes(
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    """裸 DIN/阀/支撑座 等宽泛词不能触发第三批 B 级模板族。"""
+    query = PartQuery(
+        part_no="B3-NEGATIVE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules[0]["match"] == {"any": True}

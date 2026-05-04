@@ -808,6 +808,77 @@ def _gen_pillow_block_bearing_kfl001(dims: dict) -> str:
     return body"""
 
 
+def _gen_mounted_bearing_support(dims: dict) -> str:
+    w = dims.get("w", 127)
+    d = dims.get("d", 38)
+    h = dims.get("h", 65)
+    bore_d = min(dims.get("bore_d", 20), min(w, d, h) * 0.72)
+    mount_d = min(dims.get("mount_d", 12), max(d * 0.42, 4.0))
+    base_h = max(min(h * 0.22, 16.0), 5.0)
+    boss_d = min(max(bore_d * 1.35, d * 0.72), w * 0.46, d - 0.2, h - 2.0)
+    bore_d = min(bore_d, max(boss_d - 1.0, 1.0))
+    boss_h = min(d * 0.72, d - 1.0)
+    mount_x = min(w * 0.36, w / 2 - mount_d)
+    return f"""    # Mounted bearing support: base feet, raised bearing boss, shaft bore
+    base = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {base_h:.3f}, centered=(True, True, False))
+    pedestal = (cq.Workplane("XY")
+                .box({min(w * 0.46, boss_d * 1.45):.3f}, {d * 0.82:.3f}, {h - base_h:.3f}, centered=(True, True, False))
+                .translate((0, 0, {base_h:.3f})))
+    boss = (cq.Workplane("YZ")
+            .circle({boss_d / 2:.3f})
+            .extrude({boss_h:.3f})
+            .translate(({ -boss_h / 2:.3f}, 0, {base_h + (h - base_h) * 0.46:.3f})))
+    body = base.union(pedestal).union(boss)
+    bore = (cq.Workplane("YZ")
+            .circle({bore_d / 2:.3f})
+            .extrude({d + 0.4:.3f})
+            .translate(({-(d / 2 + 0.2):.3f}, 0, {base_h + (h - base_h) * 0.46:.3f})))
+    body = body.cut(bore)
+    for x in ({-mount_x:.3f}, {mount_x:.3f}):
+        hole = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({mount_d / 2:.3f})
+                .extrude({base_h + 0.4:.3f})
+                .translate((0, 0, -0.2)))
+        pocket = (cq.Workplane("XY")
+                  .center(x, 0)
+                  .circle({min(mount_d * 0.88, d * 0.46):.3f})
+                  .extrude({base_h * 0.32:.3f})
+                  .translate((0, 0, {base_h * 0.68:.3f})))
+        body = body.cut(hole).cut(pocket)
+    return body"""
+
+
+def _gen_lead_screw_support_block(dims: dict) -> str:
+    w = dims.get("w", 60)
+    d = dims.get("d", 25)
+    h = dims.get("h", 43)
+    bore_d = min(dims.get("bore_d", 12), min(w, h) * 0.55)
+    mount_d = min(dims.get("mount_d", 5), max(d * 0.28, 3.0))
+    top_h = max(h * 0.34, bore_d + 4.0)
+    base_h = h - top_h
+    mount_x = min(w * 0.33, w / 2 - mount_d)
+    return f"""    # Lead screw support block: rectangular BK/BF bearing block with shaft bore
+    base = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {base_h:.3f}, centered=(True, True, False))
+    tower = (cq.Workplane("XY")
+             .box({w * 0.68:.3f}, {d:.3f}, {top_h:.3f}, centered=(True, True, False))
+             .translate((0, 0, {base_h:.3f})))
+    body = base.union(tower)
+    bore = (cq.Workplane("YZ")
+            .circle({bore_d / 2:.3f})
+            .extrude({d + 0.4:.3f})
+            .translate(({-(d / 2 + 0.2):.3f}, 0, {base_h + top_h * 0.52:.3f})))
+    body = body.cut(bore)
+    for x in ({-mount_x:.3f}, {mount_x:.3f}):
+        hole = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({mount_d / 2:.3f})
+                .extrude({base_h + 0.4:.3f})
+                .translate((0, 0, -0.2)))
+        body = body.cut(hole)
+    return body"""
+
+
 def _gen_clamping_coupling_l070(dims: dict) -> str:
     d = dims.get("d", 25)
     l = dims.get("l", 30)
@@ -1287,6 +1358,151 @@ def _gen_pneumatic_push_fitting(dims: dict) -> str:
     return body"""
 
 
+def _gen_linear_motion_module(dims: dict) -> str:
+    w = dims.get("w", 300)
+    d = dims.get("d", 60)
+    h = dims.get("h", 45)
+    carriage_w = min(dims.get("carriage_w", 80), w * 0.46)
+    base_h = max(h * 0.32, 10.0)
+    rail_h = max(h * 0.12, 4.0)
+    carriage_h = min(h - base_h + rail_h, h * 0.54)
+    screw_d = max(min(d, h) * 0.10, 5.0)
+    rail_w = max(d * 0.18, 8.0)
+    return f"""    # Linear motion module: extruded base, twin rails, carriage and screw hint
+    base = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {base_h:.3f}, centered=(True, True, False))
+    body = base
+    for y in ({-d * 0.24:.3f}, {d * 0.24:.3f}):
+        rail = (cq.Workplane("XY")
+                .center(0, y)
+                .box({w * 0.92:.3f}, {rail_w:.3f}, {rail_h:.3f}, centered=(True, True, False))
+                .translate((0, 0, {base_h:.3f})))
+        body = body.union(rail)
+    screw = (cq.Workplane("YZ")
+             .center(0, {base_h + rail_h + screw_d / 2:.3f})
+             .circle({screw_d / 2:.3f})
+             .extrude({w * 0.86:.3f})
+             .translate(({ -w * 0.43:.3f}, 0, 0)))
+    carriage = (cq.Workplane("XY")
+                .box({carriage_w:.3f}, {d * 0.78:.3f}, {carriage_h:.3f}, centered=(True, True, False))
+                .translate((0, 0, {h - carriage_h:.3f})))
+    body = body.union(screw).union(carriage)
+    for x in ({-w * 0.45:.3f}, {w * 0.45:.3f}):
+        end = (cq.Workplane("XY")
+               .center(x, 0)
+               .box({w * 0.035:.3f}, {d:.3f}, {h * 0.78:.3f}, centered=(True, True, False)))
+        body = body.union(end)
+    return body"""
+
+
+def _gen_pneumatic_valve_manifold(dims: dict) -> str:
+    w = dims.get("w", 90)
+    d = dims.get("d", 32)
+    h = dims.get("h", 36)
+    stations = max(1, min(int(dims.get("stations", 4)), 12))
+    pitch = w / stations
+    base_h = h * 0.48
+    coil_h = h - base_h
+    port_d = max(min(d * 0.16, pitch * 0.28), 2.4)
+    return f"""    # Pneumatic valve manifold: station blocks, coil caps and port row
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {base_h:.3f}, centered=(True, True, False))
+    for i in range({stations}):
+        x = (i - ({stations} - 1) / 2.0) * {pitch:.3f}
+        coil = (cq.Workplane("XY")
+                .center(x, {d * 0.12:.3f})
+                .box({pitch * 0.72:.3f}, {d * 0.62:.3f}, {coil_h:.3f}, centered=(True, True, False))
+                .translate((0, 0, {base_h:.3f})))
+        body = body.union(coil)
+        for y in ({-d * 0.34:.3f}, {-d * 0.12:.3f}):
+            port = (cq.Workplane("XY")
+                    .center(x, y)
+                    .circle({port_d / 2:.3f})
+                    .extrude({base_h * 0.34:.3f})
+                    .translate((0, 0, {base_h * 0.66:.3f})))
+            body = body.cut(port)
+    return body"""
+
+
+def _gen_pneumatic_filter_regulator(dims: dict) -> str:
+    w = dims.get("w", 42)
+    d = dims.get("d", 42)
+    h = dims.get("h", 90)
+    bowl_h = h * 0.50
+    head_h = h * 0.28
+    knob_h = h - bowl_h - head_h
+    body_d = min(w, d) * 0.78
+    port_d = min(w, d) * 0.22
+    return f"""    # Pneumatic filter regulator: transparent bowl, head block, pressure knob
+    bowl = cq.Workplane("XY").circle({body_d / 2:.3f}).extrude({bowl_h:.3f})
+    head = (cq.Workplane("XY")
+            .box({w:.3f}, {d * 0.82:.3f}, {head_h:.3f}, centered=(True, True, False))
+            .translate((0, 0, {bowl_h:.3f})))
+    knob = (cq.Workplane("XY")
+            .circle({body_d * 0.32:.3f})
+            .extrude({knob_h:.3f})
+            .translate((0, 0, {bowl_h + head_h:.3f})))
+    body = bowl.union(head).union(knob)
+    for x in ({-w * 0.40:.3f}, {w * 0.40:.3f}):
+        port = (cq.Workplane("YZ")
+                .center(0, {bowl_h + head_h * 0.50:.3f})
+                .circle({port_d / 2:.3f})
+                .extrude({w * 0.18:.3f})
+                .translate((x - {w * 0.09:.3f}, 0, 0)))
+        body = body.union(port)
+    return body"""
+
+
+def _gen_din_rail_terminal_block(dims: dict) -> str:
+    w = dims.get("w", 5.2)
+    d = dims.get("d", 45)
+    h = dims.get("h", 35)
+    foot_h = h * 0.22
+    body_h = h - foot_h
+    slot_w = max(w * 0.38, 1.2)
+    return f"""    # DIN rail terminal block: narrow slice, rail foot and wire clamps
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {body_h:.3f}, centered=(True, True, False)).translate((0, 0, {foot_h:.3f}))
+    foot = cq.Workplane("XY").box({w:.3f}, {d * 0.58:.3f}, {foot_h:.3f}, centered=(True, True, False))
+    body = body.union(foot)
+    for y in ({-d * 0.30:.3f}, {d * 0.30:.3f}):
+        clamp = (cq.Workplane("XY")
+                 .center(0, y)
+                 .box({slot_w:.3f}, {d * 0.14:.3f}, {body_h * 0.22:.3f}, centered=(True, True, False))
+                 .translate((0, 0, {foot_h + body_h * 0.58:.3f})))
+        entry = (cq.Workplane("XY")
+                 .center(0, y)
+                 .circle({min(w * 0.28, 1.2):.3f})
+                 .extrude({body_h * 0.28:.3f})
+                 .translate((0, 0, {foot_h + body_h * 0.18:.3f})))
+        body = body.cut(clamp).cut(entry)
+    return body"""
+
+
+def _gen_din_rail_device(dims: dict) -> str:
+    w = dims.get("w", 90)
+    d = dims.get("d", 60)
+    h = dims.get("h", 55)
+    rail_slot_h = h * 0.18
+    vent_w = max(w * 0.035, 2.0)
+    return f"""    # DIN rail device: enclosure with rail latch, vents and terminal strip
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {h:.3f}, centered=(True, True, False))
+    rail_slot = (cq.Workplane("XY")
+                 .box({w * 0.72:.3f}, {d * 0.18:.3f}, {rail_slot_h:.3f}, centered=(True, True, False))
+                 .translate((0, {-d * 0.38:.3f}, {rail_slot_h * 0.35:.3f})))
+    body = body.cut(rail_slot)
+    for i in range(6):
+        x = {-w * 0.34:.3f} + i * {w * 0.12:.3f}
+        vent = (cq.Workplane("XY")
+                .center(x, {d * 0.22:.3f})
+                .box({vent_w:.3f}, {d * 0.42:.3f}, {h * 0.10:.3f}, centered=(True, True, False))
+                .translate((0, 0, {h * 0.88:.3f})))
+        body = body.cut(vent)
+    terminal = (cq.Workplane("XY")
+                .center({w * 0.32:.3f}, {-d * 0.26:.3f})
+                .box({w * 0.24:.3f}, {d * 0.18:.3f}, {h * 0.12:.3f}, centered=(True, True, False))
+                .translate((0, 0, {h * 0.86:.3f})))
+    body = body.union(terminal)
+    return body"""
+
+
 def _gen_gt2_timing_belt_loop(dims: dict) -> str:
     w = dims.get("w", 170)
     d = dims.get("d", 80)
@@ -1365,6 +1581,15 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
+    if category == "bearing" and _contains_any(text, ["KFL001"]):
+        tpl_dims = {"w": 60, "d": 36, "h": 16, "bore_d": 12, "mount_d": 5.5}
+        return {
+            "template": "pillow_block_bearing_kfl001",
+            "body_code": _gen_pillow_block_bearing_kfl001(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
     if category == "bearing":
         m = re.search(r"\bLM\s*(\d{1,2})\s*UU\b", text, re.IGNORECASE)
         if m:
@@ -1394,11 +1619,86 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
-    if category == "bearing" and _contains_any(text, ["KFL001"]):
-        tpl_dims = {"w": 60, "d": 36, "h": 16, "bore_d": 12, "mount_d": 5.5}
+    if category == "bearing" and _contains_any(
+        text, ["轴承座", "pillow block", "flange bearing", "UCP", "UCF", "KP08", "KFL"]
+    ):
+        text_upper = text.upper()
+        defaults = {
+            "UCP204": {"w": 127, "d": 38, "h": 65, "bore_d": 20, "mount_d": 12},
+            "KP08": {"w": 55, "d": 13, "h": 27, "bore_d": 8, "mount_d": 5},
+            "KFL": {"w": 60, "d": 36, "h": 16, "bore_d": 12, "mount_d": 5.5},
+        }
+        tpl_dims = dict(
+            next(
+                (value for key, value in defaults.items() if key in text_upper),
+                defaults["UCP204"],
+            )
+        )
+        tpl_dims.update({k: dims[k] for k in tpl_dims if k in dims})
         return {
-            "template": "pillow_block_bearing_kfl001",
-            "body_code": _gen_pillow_block_bearing_kfl001(tpl_dims),
+            "template": "mounted_bearing_support",
+            "body_code": _gen_mounted_bearing_support(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "transmission" and _contains_any(
+        text,
+        [
+            "BK12",
+            "BF12",
+            "丝杠支撑座",
+            "丝杆支撑座",
+            "lead screw support",
+            "support block",
+        ],
+    ):
+        text_upper = text.upper()
+        defaults = {
+            "BK12": {"w": 60, "d": 25, "h": 43, "bore_d": 12, "mount_d": 5},
+            "BF12": {"w": 60, "d": 20, "h": 35, "bore_d": 12, "mount_d": 5},
+        }
+        tpl_dims = dict(
+            next(
+                (value for key, value in defaults.items() if key in text_upper),
+                defaults["BK12"],
+            )
+        )
+        tpl_dims.update({k: dims[k] for k in tpl_dims if k in dims})
+        return {
+            "template": "lead_screw_support_block",
+            "body_code": _gen_lead_screw_support_block(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "transmission" and _contains_any(
+        text,
+        [
+            "直线模组",
+            "线性模组",
+            "滑台模组",
+            "linear module",
+            "linear actuator module",
+            "KK60",
+            "KK86",
+        ],
+    ):
+        text_upper = text.upper()
+        defaults = {
+            "KK60": {"w": 300, "d": 60, "h": 45, "carriage_w": 80},
+            "KK86": {"w": 400, "d": 86, "h": 65, "carriage_w": 110},
+        }
+        tpl_dims = dict(
+            next(
+                (value for key, value in defaults.items() if key in text_upper),
+                defaults["KK60"],
+            )
+        )
+        tpl_dims.update({k: dims[k] for k in tpl_dims if k in dims})
+        return {
+            "template": "linear_motion_module",
+            "body_code": _gen_linear_motion_module(tpl_dims),
             "dims": tpl_dims,
             "metadata": dict(reusable_parametric_template),
         }
@@ -1631,6 +1931,43 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
+    if category == "pneumatic" and _contains_any(text, ["阀岛", "valve manifold"]):
+        stations = _parse_first_int_after(r"(\d+)\s*(?:联|station|stations)", text, 4)
+        tpl_dims = {
+            "w": dims.get("w", max(22 * stations + 2, 45)),
+            "d": dims.get("d", 32),
+            "h": dims.get("h", 36),
+            "stations": dims.get("stations", stations),
+        }
+        return {
+            "template": "pneumatic_valve_manifold",
+            "body_code": _gen_pneumatic_valve_manifold(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "pneumatic" and _contains_any(
+        text,
+        [
+            "过滤减压阀",
+            "调压过滤器",
+            "filter regulator",
+            "air regulator",
+            "FRL",
+        ],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 42),
+            "d": dims.get("d", 42),
+            "h": dims.get("h", 90),
+        }
+        return {
+            "template": "pneumatic_filter_regulator",
+            "body_code": _gen_pneumatic_filter_regulator(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
     if category == "pneumatic" and _contains_any(text, ["电磁阀", "solenoid valve"]):
         tpl_dims = {
             "w": dims.get("w", 45),
@@ -1737,6 +2074,21 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         }
 
     if category == "connector" and _contains_any(
+        text, ["DIN导轨端子", "DIN rail terminal"]
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 5.2),
+            "d": dims.get("d", 45),
+            "h": dims.get("h", 35),
+        }
+        return {
+            "template": "din_rail_terminal_block",
+            "body_code": _gen_din_rail_terminal_block(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "connector" and _contains_any(
         text, ["端子", "terminal block", "KF301", "Phoenix"]
     ):
         pins = _parse_pin_count(text, default=dims.get("pins", 3))
@@ -1765,6 +2117,22 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "body_code": _gen_m12_connector({"d": 12, "l": 18}, pins),
             "dims": tpl_dims,
             "metadata": {**reusable_parametric_template, "pins": pins},
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 90),
+            "d": dims.get("d", 60),
+            "h": dims.get("h", 55),
+        }
+        return {
+            "template": "din_rail_device",
+            "body_code": _gen_din_rail_device(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
         }
 
     if (

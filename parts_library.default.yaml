@@ -353,6 +353,14 @@ mappings:
       name_contains: ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
     adapter: jinja_primitive
 
+  # ─── Common model library Batch 3 — mounted bearing supports ───────
+  # Explicit mounted-bearing context is required; normal ball bearings
+  # still fall through to Toolbox/bd_warehouse catalog routes below.
+  - match:
+      category: bearing
+      name_contains: ["轴承座", "pillow block", "flange bearing", "UCP", "UCF", "KP08", "KFL"]
+    adapter: jinja_primitive
+
   # ─── Specialized bearing classes (tried before generic) ─────────────
   # Rules are ordered most-specific to least-specific. The bd_warehouse
   # adapter itself picks the right class from catalogs/bd_warehouse_catalog.yaml
@@ -510,6 +518,14 @@ mappings:
       subcategories: ["compression_springs", "extension_springs"]
       part_category: elastic
 
+  # ─── Common model library Batch 3 — lead-screw support blocks ──────
+  # Placed before the generic lead-screw and transmission routes because
+  # support blocks often include "丝杠" in the name but are not screws.
+  - match:
+      category: transmission
+      keyword_contains: ["BK12", "BF12", "丝杠支撑座", "丝杆支撑座", "lead screw support", "support block"]
+    adapter: jinja_primitive
+
   # ─── 传动件 STANDARD_TRANSMISSION —— 梯形丝杠 / lead screw ─────────
   # 零配置默认：从 Tr16x4/T16/L350 与 §6.4 envelope 推导通用丝杠几何。
   # 项目专用轴端长度等细节放在项目 parts_library.yaml，不放进默认库。
@@ -529,6 +545,12 @@ mappings:
         upper_shaft_length_mm: 0.0
         visual_thread: true
         normalize_origin: center_xy_bottom_z
+
+  # ─── Common model library Batch 3 — standard linear modules ────────
+  - match:
+      category: transmission
+      keyword_contains: ["直线模组", "线性模组", "滑台模组", "linear module", "linear actuator module", "KK60", "KK86"]
+    adapter: jinja_primitive
 
   # ─── 传动件 STANDARD_TRANSMISSION —— 常用 B 级视觉族（Batch 2） ───
   # 显式传动上下文先命中可复用模板族；裸 category fallback 留给 Task 8
@@ -575,17 +597,27 @@ mappings:
 
   - match:
       category: connector
+      name_contains: ["DIN导轨端子", "DIN rail terminal"]
+    adapter: jinja_primitive
+
+  - match:
+      category: connector
       name_contains: ["端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头", "M12 connector", "M12 插头"]
     adapter: jinja_primitive
 
   - match:
       category: pneumatic
-      keyword_contains: ["电磁阀", "solenoid valve", "快插", "push fitting", "气管接头", "调压阀", "过滤减压阀"]
+      keyword_contains: ["电磁阀", "solenoid valve", "快插", "push fitting", "气管接头", "调压阀", "过滤减压阀", "阀岛", "valve manifold", "FRL", "filter regulator", "air regulator", "调压过滤器"]
     adapter: jinja_primitive
 
   - match:
       category: pneumatic
       keyword_contains: ["气缸", "pneumatic", "cylinder", "MGPM", "MGPL", "SDA", "CQ2", "SCJ"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"]
     adapter: jinja_primitive
 
   # ─── Everything else falls through to jinja_primitive ───────────────
