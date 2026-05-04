@@ -18,9 +18,10 @@
    - 按该意图的"动作详情"执行（能跑程序的直接跑，需引导的分步展开）
    - 如果匹配不到任何意图，回复"未能理解您的问题"并显示帮助面板
 
-3. **Photo3D / 照片级一键出图请求**（当用户说 photo3d、photo3d-run、photo3d-autopilot、photo3d-action、照片级、傻瓜式出图、pass/warning/blocked、accepted/preview/blocked、run_id、baseline、动作计划或让其他大模型继续时）：
+3. **Photo3D / 照片级一键出图请求**（当用户说 project-guide、photo3d、photo3d-run、photo3d-autopilot、photo3d-action、照片级、傻瓜式出图、pass/warning/blocked、accepted/preview/blocked、run_id、baseline、动作计划或让其他大模型继续时）：
 
-   - 普通用户推荐命令：`python cad_pipeline.py photo3d-run --subsystem <name>`；底层单轮报告：`python cad_pipeline.py photo3d-autopilot --subsystem <name>`；底层门禁命令：`python cad_pipeline.py photo3d --subsystem <name>`。
+   - 普通用户和大模型首选只读入口：`python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>`。它写 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令；read-only，does not scan directories，does not mutate pipeline state，不接受 baseline，不运行增强。
+   - 已有 active run 后推荐命令：`python cad_pipeline.py photo3d-run --subsystem <name>`；底层单轮报告：`python cad_pipeline.py photo3d-autopilot --subsystem <name>`；底层门禁命令：`python cad_pipeline.py photo3d --subsystem <name>`。
    - 运行前确认目标子系统；不要用产品名、目录名相似度或旧 PNG 猜测目标。
    - 这些命令只读取当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物，不能扫描目录猜最新文件。
    - `photo3d-run` 是傻瓜式多轮向导：它连续运行 `photo3d` gate + `photo3d-autopilot`，写 `PHOTO3D_RUN.json`，并停在 `needs_baseline_acceptance`、`ready_for_enhancement`、`needs_user_input`、`needs_manual_review`、`execution_failed` 或 `loop_limit_reached`。它不会静默接受 baseline，不会运行 enhance，不会切换 `active_run_id`。只有用户明确同意时，才运行 `python cad_pipeline.py photo3d-run --subsystem <name> --confirm-actions`，让向导通过 `photo3d-action` 执行 low-risk 恢复动作。
@@ -37,6 +38,7 @@
      - 当前门禁阶段的 `PHOTO3D_REPORT.json` 只会把 `enhancement_status` 写成 `not_run` 或 `blocked`；`accepted` / `preview` 属于后续增强交付层。
      - 增强完成后运行 `python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>`，只读取显式 render dir 的 `render_manifest.json` 和同目录 `*_enhanced.*`，写 `ENHANCEMENT_REPORT.json`。它要求每个 manifest 视角都有增强图，并检查轮廓相似度和基础图片 QA；不会扫描目录猜最新文件，也不会接受 render dir 外的增强图。
    - 阻断时读取并解释：
+     - `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接。
      - `PHOTO3D_REPORT.json`：普通用户中文阻断原因。
      - `PHOTO3D_AUTOPILOT.json`：普通用户本轮下一步报告。
      - `ACTION_PLAN.json`：允许大模型执行的下一步动作。

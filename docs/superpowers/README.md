@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：`6269e06 merge: 合并增强交付摘要` 已合并到 `main`；增强报告摘要现已接入 `photo3d-autopilot` / `photo3d-run`，详见 [项目看板](../PROGRESS.md) 和 [增强交付摘要接入向导计划](plans/2026-05-04-enhancement-summary-guide.md)。
+2026-05-04：`project-guide` 只读项目向导已在 `codex/photo3d-project-guide` 完成实现与验证；普通用户和大模型现在可先生成 `PROJECT_GUIDE.json` 获取 `init/spec/codegen/build-render/photo3d-run` 的下一条安全命令，详见 [项目看板](../PROGRESS.md) 和 [项目向导计划](plans/2026-05-04-project-guide.md)。
 
 ## 当前主入口
 
@@ -18,6 +18,7 @@
 | [`plans/2026-05-04-enhancement-consistency-acceptance.md`](plans/2026-05-04-enhancement-consistency-acceptance.md) | 增强一致性验收执行计划 |
 | [`plans/2026-05-04-build-artifact-backfill.md`](plans/2026-05-04-build-artifact-backfill.md) | build 恢复证据回填执行计划 |
 | [`plans/2026-05-04-enhancement-summary-guide.md`](plans/2026-05-04-enhancement-summary-guide.md) | 增强交付摘要接入向导计划 |
+| [`plans/2026-05-04-project-guide.md`](plans/2026-05-04-project-guide.md) | 新用户只读项目向导执行计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -47,7 +48,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| P0 | 更高层项目向导 | 把 init/spec/codegen/build/render/photo3d/enhance-check 的多阶段状态统一给普通用户和大模型 |
-| P1 | 常用模型库扩展 | 对更多机械类别复用模型库/参数化适配器，减少临时特判 |
+| Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
+| P0 | 常用模型库扩展 | 对更多机械类别复用模型库/参数化适配器，减少临时特判 |
 | P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |

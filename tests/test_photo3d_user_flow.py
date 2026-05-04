@@ -16,12 +16,14 @@ USER_FLOW_TERMS = {
     "photo3d-action",
     "photo3d-run",
     "photo3d-recover",
+    "project-guide",
     "enhance-check",
     "run_id",
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
     "PHOTO3D_ACTION_RUN.json",
     "PHOTO3D_RUN.json",
+    "PROJECT_GUIDE.json",
     "ENHANCEMENT_REPORT.json",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
@@ -201,6 +203,35 @@ def test_photo3d_run_help_explains_multi_round_user_flow():
     assert "不会运行 enhance" in help_text
 
 
+def test_project_guide_help_explains_read_only_user_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "project-guide", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "project-guide",
+        "PROJECT_GUIDE.json",
+        "普通用户",
+        "大模型",
+        "read-only",
+        "does not scan directories",
+        "does not mutate pipeline state",
+        "photo3d-run",
+        "enhance-check",
+        "accept-baseline",
+    ):
+        assert term in help_text
+
+
 def test_enhance_check_help_explains_delivery_acceptance_contract():
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "enhance-check", "--help"],
@@ -253,6 +284,8 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
+        assert "project-guide" in text, f"{rel} missing project guide"
+        assert "PROJECT_GUIDE.json" in text, f"{rel} missing project guide report"
         assert "photo3d-run" in text, f"{rel} missing multi-round guide"
         assert "PHOTO3D_RUN.json" in text, f"{rel} missing loop report"
         assert "--confirm-actions" in text, f"{rel} missing confirmed loop guidance"
@@ -279,6 +312,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d_action" in tools_by_name, rel
         assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
+        assert "project_guide" in tools_by_name, rel
         assert "enhance_check" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
@@ -302,6 +336,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             == "python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action render"
         )
         assert (
+            tools_by_name["project_guide"]["cli"]
+            == "python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>"
+        )
+        assert (
             tools_by_name["enhance_check"]["cli"]
             == "python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>"
         )
@@ -319,6 +357,9 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "--confirm-actions" in tools_by_name["photo3d_run"]["description"]
         assert "does not accept baseline" in tools_by_name["photo3d_run"]["description"]
         assert "does not run enhancement" in tools_by_name["photo3d_run"]["description"]
+        assert "PROJECT_GUIDE.json" in tools_by_name["project_guide"]["description"]
+        assert "does not scan directories" in tools_by_name["project_guide"]["description"]
+        assert "does not mutate pipeline state" in tools_by_name["project_guide"]["description"]
         assert "run-aware" in tools_by_name["photo3d_recover"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_recover"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_recover"]["description"]

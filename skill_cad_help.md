@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | photo3d, photo3d-run, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -432,7 +432,15 @@ First-time setup:
 
 **Trigger**: User asks for one-click photorealistic 3D output, photo3d, pass/warning/blocked gate status, accepted/preview/blocked delivery status, baseline drift, or LLM next actions.
 
-Recommended ordinary-user command:
+Recommended first command for ordinary users and LLM agents:
+
+```bash
+python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
+```
+
+`project-guide` is a read-only project guide. It writes `PROJECT_GUIDE.json`, checks the explicit subsystem, optional design document, fixed `CAD_SPEC.md` / codegen sentinels, and the explicitly resolved `ARTIFACT_INDEX.json` active run. It selects the next safe handoff across `init`, `spec`, `codegen`, `build --render`, and `photo3d-run`. It does not scan directories, does not mutate pipeline state, does not accept baseline, and does not run enhancement.
+
+When an active run already exists, the recommended Photo3D command is:
 
 ```bash
 python cad_pipeline.py photo3d-run --subsystem <name>
@@ -501,6 +509,7 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 Outputs for ordinary users and LLMs:
 
+- `PROJECT_GUIDE.json`: read-only project-level next-step report across init/spec/codegen/build-render/photo3d-run.
 - `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
 - `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.

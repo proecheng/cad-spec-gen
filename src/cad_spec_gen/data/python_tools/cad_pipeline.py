@@ -3631,6 +3631,28 @@ def cmd_product_graph(args):
     return 0
 
 
+def cmd_project_guide(args):
+    """生成普通用户/大模型只读项目下一步向导。"""
+    from tools.project_guide import (
+        command_return_code_for_project_guide,
+        write_project_guide,
+    )
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    report = write_project_guide(
+        PROJECT_ROOT,
+        args.subsystem,
+        design_doc=getattr(args, "design_doc", None),
+        artifact_index_path=getattr(args, "artifact_index", None),
+        output_path=getattr(args, "output", None),
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    log.info("PROJECT_GUIDE: %s", report.get("ordinary_user_message"))
+    return command_return_code_for_project_guide(report)
+
+
 def cmd_photo3d(args):
     """运行照片级 3D 契约门禁。"""
     from tools.photo3d_gate import run_photo3d_gate
@@ -4398,6 +4420,45 @@ def main():
         help="Output PRODUCT_GRAPH.json path (default: cad/<subsystem>/PRODUCT_GRAPH.json)",
     )
 
+    # project-guide：普通用户/大模型只读项目下一步向导
+    p_project_guide = sub.add_parser(
+        "project-guide",
+        help="Read-only ordinary-user project next-step guide",
+        description=(
+            "project-guide 普通用户/大模型向导：只读检查显式子系统、可选设计文档、"
+            "固定 CAD_SPEC/codegen 文件和 ARTIFACT_INDEX.json active_run_id，写出 "
+            "PROJECT_GUIDE.json 与下一条安全命令。该命令 read-only，does not "
+            "scan directories，does not mutate pipeline state；不会接受 baseline，"
+            "不会运行 enhance，也不会猜最新 run。"
+        ),
+        epilog=(
+            "Typical first step: python cad_pipeline.py project-guide --subsystem <name> "
+            "--design-doc <path>\n"
+            "Statuses: needs_init, needs_design_doc, needs_spec, needs_codegen, "
+            "needs_build_render, ready_for_photo3d_run. After ready_for_photo3d_run, "
+            "run the recommended photo3d-run command. Later user-confirmed handoffs "
+            "remain explicit: accept-baseline for baseline acceptance and enhance-check "
+            "with an explicit render dir for ENHANCEMENT_REPORT.json."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_project_guide.add_argument("--subsystem", "-s", required=True)
+    p_project_guide.add_argument(
+        "--design-doc",
+        default=None,
+        help="Explicit design document path; no fallback document search is performed",
+    )
+    p_project_guide.add_argument(
+        "--artifact-index",
+        default=None,
+        help="Explicit ARTIFACT_INDEX.json path; default is cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json if it exists",
+    )
+    p_project_guide.add_argument(
+        "--output",
+        default=None,
+        help="PROJECT_GUIDE.json output path (default: guide directory or current run directory)",
+    )
+
     # photo3d：运行照片级契约门禁
     p_photo3d = sub.add_parser(
         "photo3d",
@@ -4410,6 +4471,11 @@ def main():
         ),
         epilog=(
             "Typical: python cad_pipeline.py photo3d --subsystem <name>\n"
+            "Ordinary users and LLM agents can start one level higher with "
+            "project-guide: python cad_pipeline.py project-guide --subsystem "
+            "<name> --design-doc <path>. It writes PROJECT_GUIDE.json, is "
+            "read-only, does not mutate pipeline state, and does not scan "
+            "directories.\n"
             "Artifacts are resolved only through ARTIFACT_INDEX.json for the active "
             "run_id; the command does not scan directories for the newest PNG.\n"
             "Gate status: pass = CAD contract gate passed; warning = CAD gate passed "
@@ -4489,6 +4555,11 @@ def main():
         ),
         epilog=(
             "Typical: python cad_pipeline.py photo3d-autopilot --subsystem <name>\n"
+            "For a broader ordinary-user and LLM handoff across init/spec/codegen/"
+            "build-render/photo3d-run, start with: python cad_pipeline.py "
+            "project-guide --subsystem <name> --design-doc <path>. It writes "
+            "PROJECT_GUIDE.json, is read-only, does not mutate pipeline state, "
+            "and does not scan directories. "
             "Gate status remains pass/warning/blocked. Enhancement delivery status "
             "remains accepted/preview/blocked and is not produced by this command; "
             "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
@@ -4775,6 +4846,7 @@ def main():
         "model-audit": cmd_model_audit,
         "model-import": cmd_model_import,
         "product-graph": cmd_product_graph,
+        "project-guide": cmd_project_guide,
         "photo3d": cmd_photo3d,
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
