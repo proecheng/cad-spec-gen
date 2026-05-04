@@ -10,7 +10,7 @@
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
 | 最新功能基线 | `547239c feat(photo3d): 增加显式基线接受流程` |
-| 最新文档提交 | `8d76e75 docs(project): 归档通用传动件计划` |
+| 最新文档提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest -q` -> `1985 passed, 12 skipped, 14 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
