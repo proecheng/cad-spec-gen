@@ -47,7 +47,7 @@ from parts_resolver import PartQuery, default_resolver
 
 # Categories the pipeline never tries to generate geometry for.
 # Kept here (not in the adapter) because this is the enter-point filter.
-_SKIP_CATEGORIES = {"fastener", "cable"}
+_SKIP_CATEGORIES = {"fastener"}
 
 
 def _build_part_query(p: dict, category: str, env, project_root: str) -> PartQuery:

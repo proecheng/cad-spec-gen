@@ -35,6 +35,8 @@ _PART_CATEGORY_RULES = [
                    "LM16", "LM20", "LMU", "KFL", "KP0", "KP1", "UCP", "UCF", "法兰座"]),
     ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测", "接近开关",
                    "光电", "限位", "编码器", "encoder"]),
+    ("pneumatic", ["气缸", "pneumatic", "cylinder actuator", "air cylinder",
+                   "MGPM", "MGPL", "SDA", "CQ2", "SCJ"]),
     ("pump",      ["泵", "pump", "齿轮泵"]),
     ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头"]),
     ("seal",      ["O型圈", "O-ring", "FKM", "NBR", "缓冲垫", "PU垫"]),

@@ -724,7 +724,7 @@ def _gen_elastomer_cushion_pad(dims: dict) -> str:
     return body"""
 
 
-def _gen_linear_bearing_lm10uu(dims: dict) -> str:
+def _gen_linear_bearing_lmxxuu(dims: dict) -> str:
     od = dims.get("od", dims.get("d", 19))
     id_ = dims.get("id", 10)
     l = dims.get("w", dims.get("l", 29))
@@ -733,7 +733,7 @@ def _gen_linear_bearing_lm10uu(dims: dict) -> str:
     groove_inner_r = max(od / 2 - groove_depth, id_ / 2 + 0.5)
     z1 = max(l * 0.16, groove_w)
     z2 = min(l * 0.84 - groove_w, l - 2 * groove_w)
-    return f"""    # LM10UU linear bearing: long sleeve with bore and retaining grooves
+    return f"""    # LMxxUU linear bearing: long sleeve with bore and retaining grooves
     body = cq.Workplane("XY").circle({od/2}).circle({id_/2}).extrude({l})
     for z in ({z1:.3f}, {z2:.3f}):
         groove = (cq.Workplane("XY")
@@ -743,6 +743,10 @@ def _gen_linear_bearing_lm10uu(dims: dict) -> str:
                   .translate((0, 0, z)))
         body = body.cut(groove)
     return body"""
+
+
+def _gen_linear_bearing_lm10uu(dims: dict) -> str:
+    return _gen_linear_bearing_lmxxuu(dims)
 
 
 def _gen_pillow_block_bearing_kfl001(dims: dict) -> str:
@@ -831,7 +835,7 @@ def _gen_clamping_coupling_l070(dims: dict) -> str:
     return body"""
 
 
-def _gen_nema23_stepper_motor(dims: dict) -> str:
+def _gen_nema_stepper_motor(dims: dict) -> str:
     w = dims.get("w", 57)
     d = dims.get("d", 57)
     total_h = dims.get("h", 80)
@@ -840,7 +844,7 @@ def _gen_nema23_stepper_motor(dims: dict) -> str:
     shaft_d = dims.get("shaft_d", 6.35)
     boss_d = dims.get("boss_d", 38)
     relief_r = max(min(w, d) * 0.055, 2.5)
-    return f"""    # NEMA23 stepper motor: square frame, front boss, output shaft
+    return f"""    # NEMA stepper motor: square frame, front boss, output shaft
     body = cq.Workplane("XY").box({w}, {d}, {body_h}, centered=(True, True, False))
     for x in ({-w/2:.3f}, {w/2:.3f}):
         for y in ({-d/2:.3f}, {d/2:.3f}):
@@ -860,6 +864,10 @@ def _gen_nema23_stepper_motor(dims: dict) -> str:
              .translate((0, 0, {body_h})))
     body = body.union(boss).union(shaft)
     return body"""
+
+
+def _gen_nema23_stepper_motor(dims: dict) -> str:
+    return _gen_nema_stepper_motor(dims)
 
 
 def _gen_cl57t_stepper_driver(dims: dict) -> str:
@@ -926,12 +934,12 @@ def _gen_pu_buffer_pad(dims: dict) -> str:
     return body"""
 
 
-def _gen_m8_inductive_proximity_sensor(dims: dict) -> str:
+def _gen_cylindrical_proximity_sensor(dims: dict) -> str:
     d = dims.get("d", 8)
     l = dims.get("l", 45)
-    groove_w = 0.45
+    groove_w = max(min(d * 0.055, 0.65), 0.35)
     groove_inner_r = max(d / 2 - 0.18, d * 0.42)
-    return f"""    # M8 inductive proximity sensor: threaded barrel with sensing nose
+    return f"""    # Cylindrical proximity sensor: threaded barrel with sensing nose
     body = cq.Workplane("XY").circle({d/2}).extrude({l})
     for z in ({l * 0.18:.3f}, {l * 0.28:.3f}, {l * 0.38:.3f}, {l * 0.48:.3f}, {l * 0.58:.3f}):
         thread_groove = (cq.Workplane("XY")
@@ -942,6 +950,70 @@ def _gen_m8_inductive_proximity_sensor(dims: dict) -> str:
         body = body.cut(thread_groove)
     nose = cq.Workplane("XY").circle({d * 0.36:.3f}).extrude({min(l * 0.08, 3.0):.3f})
     body = body.union(nose)
+    return body"""
+
+
+def _gen_m8_inductive_proximity_sensor(dims: dict) -> str:
+    return _gen_cylindrical_proximity_sensor(dims)
+
+
+def _gen_cable_harness_stub(dims: dict) -> str:
+    w = dims.get("w", 10)
+    d = dims.get("d", dims.get("l", 50))
+    h = dims.get("h", 6)
+    jacket_h = max(h * 0.42, 1.2)
+    conductor_d = max(min(w / 6, h * 0.24), 0.6)
+    return f"""    # Cable harness stub: bounded cable segment with jacket and visible cores
+    jacket = cq.Workplane("XY").box({w}, {d}, {jacket_h}, centered=(True, True, False))
+    body = jacket
+    for x in ({-w * 0.30:.3f}, {-w * 0.10:.3f}, {w * 0.10:.3f}, {w * 0.30:.3f}):
+        core = (cq.Workplane("XZ")
+                .center(x, {jacket_h + conductor_d / 2:.3f})
+                .circle({conductor_d / 2:.3f})
+                .extrude({d:.3f})
+                .translate((0, {d / 2:.3f}, 0)))
+        body = body.union(core)
+    for y in ({-d / 2 + 3.0:.3f}, {d / 2 - 3.0:.3f}):
+        clamp = (cq.Workplane("XY")
+                 .center(0, y)
+                 .box({w:.3f}, {max(d * 0.06, 2.0):.3f}, {max(h - jacket_h, 1.2):.3f}, centered=(True, True, False))
+                 .translate((0, 0, {jacket_h:.3f})))
+        body = body.union(clamp)
+    return body"""
+
+
+def _gen_compact_pneumatic_cylinder(dims: dict) -> str:
+    w = dims.get("w", 42)
+    d = dims.get("d", 34)
+    h = dims.get("h", 70)
+    bore_d = dims.get("bore_d", min(w, d) * 0.55)
+    rod_d = max(bore_d * 0.32, 6.0)
+    cap_h = max(min(h * 0.08, 6.0), 4.0)
+    rod_l = max(min(h * 0.18, 12.0), 6.0)
+    body_h = max(h - 2 * cap_h - rod_l, h * 0.5)
+    port_d = max(min(w, d) * 0.10, 3.0)
+    return f"""    # Compact pneumatic cylinder: rectangular body, end caps, rod and air ports
+    body = (cq.Workplane("XY")
+            .box({w}, {d}, {body_h:.3f}, centered=(True, True, False))
+            .translate((0, 0, {cap_h:.3f})))
+    front_cap = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {cap_h:.3f}, centered=(True, True, False))
+    rear_cap = front_cap.translate((0, 0, {body_h + cap_h:.3f}))
+    body = body.union(front_cap).union(rear_cap)
+    rod = (cq.Workplane("XY")
+           .circle({rod_d / 2:.3f})
+           .extrude({rod_l:.3f})
+           .translate((0, 0, {body_h + 2 * cap_h:.3f})))
+    body = body.union(rod)
+    for x in ({-w * 0.28:.3f}, {w * 0.28:.3f}):
+        for y in ({-d * 0.28:.3f}, {d * 0.28:.3f}):
+            body = body.faces(">Z").workplane().center(x, y).hole({max(min(w, d) * 0.075, 2.6):.3f})
+    for z in ({cap_h + body_h * 0.25:.3f}, {cap_h + body_h * 0.75:.3f}):
+        port = (cq.Workplane("YZ")
+                .center({-d / 2 + port_d / 2:.3f}, z)
+                .circle({port_d / 2:.3f})
+                .extrude({w * 0.18:.3f})
+                .translate(({w / 2 - w * 0.18:.3f}, 0, 0)))
+        body = body.union(port)
     return body"""
 
 
@@ -1042,6 +1114,22 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         "template_scope": "reusable_part_family",
     }
 
+    if category == "bearing":
+        m = re.search(r"\bLM\s*(\d{1,2})\s*UU\b", text, re.IGNORECASE)
+        if m:
+            shaft_d = int(m.group(1))
+            tpl_dims = {
+                "od": dims.get("od", dims.get("d", shaft_d * 2 - 3)),
+                "id": dims.get("id", shaft_d),
+                "w": dims.get("w", dims.get("l", max(shaft_d * 2 + 6, 19))),
+            }
+            return {
+                "template": "linear_bearing_lmxxuu",
+                "body_code": _gen_linear_bearing_lmxxuu(tpl_dims),
+                "dims": tpl_dims,
+                "metadata": dict(reusable_parametric_template),
+            }
+
     if category == "bearing" and _contains_any(text, ["LM10UU"]):
         tpl_dims = {
             "od": dims.get("od", dims.get("d", 19)),
@@ -1110,6 +1198,31 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
+    if category == "motor":
+        m = re.search(r"\bNEMA\s*(17|23)\b", text, re.IGNORECASE)
+        if m:
+            size = m.group(1)
+            defaults = (
+                {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5}
+                if size == "17"
+                else {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35}
+            )
+            tpl_dims = dict(defaults)
+            for key in ("w", "d", "h", "body_h", "shaft_d"):
+                if key in dims:
+                    tpl_dims[key] = dims[key]
+            return {
+                "template": "nema_stepper_motor",
+                "body_code": _gen_nema_stepper_motor(tpl_dims),
+                "dims": tpl_dims,
+                "metadata": {
+                    **reusable_parametric_template,
+                    "frame": f"NEMA{size}",
+                    "body_height_mm": tpl_dims["body_h"],
+                    "shaft_length_mm": max(tpl_dims["h"] - tpl_dims["body_h"], 0),
+                },
+            }
+
     if category == "motor" and _contains_any(text, ["NEMA23", "NEMA 23"]):
         tpl_dims = {
             "w": 57,
@@ -1148,15 +1261,47 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
-    if (
-        category == "sensor"
-        and _contains_any(text, ["M8"])
-        and _contains_any(text, ["接近开关", "proximity"])
-    ):
-        tpl_dims = {"d": 8, "l": 45}
+    if category == "sensor" and _contains_any(text, ["接近开关", "proximity"]):
+        m = re.search(r"\bM\s*(8|12|18)\b", text, re.IGNORECASE)
+        d = int(m.group(1)) if m else dims.get("d", 8)
+        default_l = {8: 45, 12: 55, 18: 65}.get(d, 45)
+        tpl_dims = {"d": d, "l": default_l if m else dims.get("l", default_l)}
         return {
-            "template": "m8_inductive_proximity_sensor",
-            "body_code": _gen_m8_inductive_proximity_sensor(tpl_dims),
+            "template": "cylindrical_proximity_sensor",
+            "body_code": _gen_cylindrical_proximity_sensor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "cable" and _contains_any(
+        text, ["线束", "cable harness", "harness", "FFC"]
+    ):
+        visual_l = dims.get("l", dims.get("d", 50))
+        tpl_dims = {
+            "w": dims.get("w", 10),
+            "d": min(visual_l, 50),
+            "h": dims.get("h", 6),
+        }
+        return {
+            "template": "cable_harness_stub",
+            "body_code": _gen_cable_harness_stub(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "pneumatic" and _contains_any(
+        text, ["气缸", "pneumatic", "MGPM", "MGPL", "SDA", "CQ2"]
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 42),
+            "d": dims.get("d", 34),
+            "h": dims.get("h", 70),
+            "bore_d": dims.get("bore_d", 20),
+            "stroke": dims.get("stroke", 50),
+        }
+        return {
+            "template": "compact_pneumatic_cylinder",
+            "body_code": _gen_compact_pneumatic_cylinder(tpl_dims),
             "dims": tpl_dims,
             "metadata": dict(reusable_parametric_template),
         }
@@ -1540,11 +1685,13 @@ _GENERATORS = {
     "locating":     _gen_locating,
     "elastic":      _gen_elastic,
     "transmission": _gen_transmission,
+    "pneumatic":    _gen_generic,
+    "cable":        _gen_generic,
     "other":        _gen_generic,
 }
 
 # Categories to skip (too small or too complex for simplified geometry).
-_SKIP_CATEGORIES = {"fastener", "cable"}
+_SKIP_CATEGORIES = {"fastener"}
 
 
 def _resolve_dims_from_spec_envelope_or_lookup(query) -> Optional[dict]:
@@ -1663,6 +1810,11 @@ class JinjaPrimitiveAdapter(PartsAdapter):
                 metadata=metadata,
             )
 
+        if query.category == "cable":
+            return ResolveResult.skip(
+                reason="cable category: no reusable harness template matched"
+            )
+
         body_code = gen_func(dims)
         return ResolveResult(
             status="hit",
@@ -1689,6 +1841,8 @@ class JinjaPrimitiveAdapter(PartsAdapter):
         template = _specialized_template(query, dims)
         if template is not None:
             return self._dims_to_envelope(template["dims"])
+        if query.category == "cable":
+            return None
         return self._dims_to_envelope(dims)
 
     @staticmethod

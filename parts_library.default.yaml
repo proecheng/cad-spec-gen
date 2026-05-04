@@ -530,6 +530,29 @@ mappings:
       subcategories: ["spur_gears", "sprockets"]
       part_category: transmission
 
+  # ─── 常用机电件 COMMON_ELECTROMECHANICAL（通用零配置 B 级模板） ───
+  # 这些规则只把明确、可参数化、跨项目复用的常见类别送进
+  # jinja_primitive 的 reusable_part_family 模板。项目若有真实 STEP，
+  # 仍应在项目 parts_library.yaml 中以前置 step_pool 规则覆盖。
+  - match:
+      category: motor
+      keyword_contains: ["NEMA", "步进", "stepper"]
+    adapter: jinja_primitive
+
+  - match:
+      category: sensor
+      keyword_contains: ["接近开关", "proximity", "M8", "M12", "M18"]
+    adapter: jinja_primitive
+
+  - match:
+      category: cable
+      keyword_contains: ["线束", "cable harness", "harness", "FFC"]
+    adapter: jinja_primitive
+
+  - match:
+      category: pneumatic
+    adapter: jinja_primitive
+
   # ─── Everything else falls through to jinja_primitive ───────────────
   # This rule is the terminal fallback. Without it, parts that don't
   # match a library source would return "miss" and gen_std_parts.py

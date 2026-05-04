@@ -627,8 +627,8 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
         "bearing",
         "LM10UU",
         "",
-        "linear_bearing_lm10uu",
-        "LM10UU linear bearing",
+        "linear_bearing_lmxxuu",
+        "LMxxUU linear bearing",
         (19, 19, 29),
     ),
     (
@@ -675,8 +675,8 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
         "motor",
         "NEMA23 闭环步进 ≥1.0Nm",
         "",
-        "nema23_stepper_motor",
-        "NEMA23 stepper motor",
+        "nema_stepper_motor",
+        "NEMA stepper motor",
         (57, 57, 80),
     ),
     (
@@ -699,8 +699,8 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
         "sensor",
         "M8 电感接近开关 NPN-NO",
         "",
-        "m8_inductive_proximity_sensor",
-        "M8 inductive proximity sensor",
+        "cylindrical_proximity_sensor",
+        "Cylindrical proximity sensor",
         (8, 8, 45),
     ),
     (
@@ -812,7 +812,7 @@ def test_lifting_platform_spec_envelopes_match_template_dims() -> None:
             "NEMA17 步进电机",
             "",
             "nema23_stepper_motor",
-            "jinja_primitive:motor",
+            "parametric_template:nema_stepper_motor",
         ),
     ],
 )

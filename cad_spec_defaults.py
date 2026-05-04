@@ -158,6 +158,8 @@ STD_PART_DIMENSIONS = {
     "KWR42":        {"d": 42, "l": 20},
     "TWAE-03":      {"d": 28, "l": 26},
     "I300-UHF":     {"d": 45, "l": 60},
+    "M8 接近":      {"d": 8, "l": 45},
+    "M12 接近":     {"d": 12, "l": 55},
     # --- Connectors ---
     "LEMO FGG.0B":  {"d": 10, "l": 30},
     "LEMO EGG.0B":  {"d": 12, "l": 20},
@@ -180,8 +182,13 @@ STD_PART_DIMENSIONS = {
     "6200ZZ":  {"od": 30, "id": 10, "w": 9},
     "6201ZZ":  {"od": 32, "id": 12, "w": 10},
     # --- NEMA Stepper Motors ---
-    "NEMA 17": {"w": 42.3, "h": 42.3, "l": 48, "shaft_d": 5, "shaft_l": 24},
-    "NEMA 23": {"w": 57, "h": 57, "l": 56, "shaft_d": 6.35, "shaft_l": 24},
+    "NEMA17": {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5},
+    "NEMA 17": {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5},
+    "NEMA23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
+    "NEMA 23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
+    # --- Cable / pneumatic visual fallbacks ---
+    "_cable_harness": {"w": 10, "d": 50, "h": 6},
+    "MGPM20": {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
     # --- Additional Tanks ---
     "_tank_small": {"d": 25, "l": 110},
     "_tank_large": {"d": 38, "l": 280},
@@ -198,6 +205,8 @@ STD_PART_DIMENSIONS = {
     "_locating":     {"d": 3,  "l": 10},
     "_elastic":      {"d": 20, "l": 30},
     "_transmission": {"od": 30, "w": 8, "id": 6},
+    "_pneumatic":    {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
+    "_cable":        {"w": 10, "d": 50, "h": 6},
 }
 
 MATERIAL_PROPS = {

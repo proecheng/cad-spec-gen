@@ -131,7 +131,7 @@ class TestJinjaPrimitiveAdapter:
         assert result.status == "skip"
 
     def test_resolve_skip_cable(self):
-        """Cable 在 _SKIP_CATEGORIES → skip。"""
+        """Cable without reusable harness intent still skips instead of fallback boxes."""
         a = JinjaPrimitiveAdapter()
         q = PartQuery(
             part_no="GIS-EE-001-11",

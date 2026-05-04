@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：`project-guide` 只读项目向导已通过 `9c68559 merge: 合并只读项目向导` 合并到 `main`；普通用户和大模型现在可先生成 `PROJECT_GUIDE.json` 获取 `init/spec/codegen/build-render/photo3d-run` 的下一条安全命令，详见 [项目看板](../PROGRESS.md) 和 [项目向导计划](plans/2026-05-04-project-guide.md)。
+2026-05-04：常用模型库扩展第一批已在 `codex/common-model-library-expansion` 功能分支完成实现与相关验证；默认库现在显式路由 motor、sensor、cable、pneumatic 等可复用类别，并新增 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板，详见 [项目看板](../PROGRESS.md) 和 [常用模型库扩展计划](plans/2026-05-04-common-model-library-expansion.md)。
 
 ## 当前主入口
 
@@ -19,6 +19,7 @@
 | [`plans/2026-05-04-build-artifact-backfill.md`](plans/2026-05-04-build-artifact-backfill.md) | build 恢复证据回填执行计划 |
 | [`plans/2026-05-04-enhancement-summary-guide.md`](plans/2026-05-04-enhancement-summary-guide.md) | 增强交付摘要接入向导计划 |
 | [`plans/2026-05-04-project-guide.md`](plans/2026-05-04-project-guide.md) | 新用户只读项目向导执行计划 |
+| [`plans/2026-05-04-common-model-library-expansion.md`](plans/2026-05-04-common-model-library-expansion.md) | 常用模型库扩展第一批执行计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -48,7 +49,8 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
+| Done (branch) | 常用模型库扩展第一批 | 已完成默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
-| P0 | 常用模型库扩展 | 对更多机械类别复用模型库/参数化适配器，减少临时特判 |
+| P0 | 常用模型库后续类别 | 继续扩展 linear guide、更多轴承/联轴器/皮带轮/齿轮、端子/接插件、更多气动件，减少临时特判 |
 | P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
