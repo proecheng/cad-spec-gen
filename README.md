@@ -497,6 +497,8 @@ Create a JSON config file (see `config/gisbot.json` for a full 19-subsystem exam
 |----------|----------|-------------|
 | [System Prompt](system_prompt.md) | EN | Universal system prompt — paste into any LLM |
 | [Skill Manifest](skill.json) | — | Machine-readable skill definition |
+| [Project Progress Board](docs/PROGRESS.md) | 中文 | 当前看板、验证记录、下一步建议；每轮结束更新 |
+| [Superpowers Planning Index](docs/superpowers/README.md) | 中文 | plans/specs/reports/runbooks 入口和更新规则 |
 | [User Guide (English)](docs/cad-help-guide-en.md) | EN | Full feature walkthrough, 16 intents, workflows |
 | [User Guide (Chinese)](docs/cad-help-guide-zh.md) | 中文 | 完整功能说明、16种意图、典型工作流 |
 | [Agent Integration Guide](docs/cad_pipeline_agent_guide.md) | 中文 | LLM/Agent framework integration (GPT, GLM, LangChain, etc.) |
