@@ -10,9 +10,8 @@
 | [`../PROGRESS.md`](../PROGRESS.md) | 用户看板：当前走到哪、下一步做什么、哪些风险还在 |
 | [`decisions.md`](decisions.md) | 已做过的重要架构/流程决策 |
 | [`plans/2026-05-02-contract-driven-photo3d-pipeline.md`](plans/2026-05-02-contract-driven-photo3d-pipeline.md) | Photo3D 契约驱动管线方案 |
+| [`plans/2026-05-02-generic-threaded-parts-pipeline.md`](plans/2026-05-02-generic-threaded-parts-pipeline.md) | 通用传动件/丝杠类零件管线归档计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
-
-本地草案：`plans/2026-05-02-generic-threaded-parts-pipeline.md` 当前仍是未跟踪文件；确认后再纳入索引和版本库。
 
 ## 目录约定
 
