@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：`project-guide` 只读项目向导已在 `codex/photo3d-project-guide` 完成实现与验证；普通用户和大模型现在可先生成 `PROJECT_GUIDE.json` 获取 `init/spec/codegen/build-render/photo3d-run` 的下一条安全命令，详见 [项目看板](../PROGRESS.md) 和 [项目向导计划](plans/2026-05-04-project-guide.md)。
+2026-05-04：`project-guide` 只读项目向导已通过 `9c68559 merge: 合并只读项目向导` 合并到 `main`；普通用户和大模型现在可先生成 `PROJECT_GUIDE.json` 获取 `init/spec/codegen/build-render/photo3d-run` 的下一条安全命令，详见 [项目看板](../PROGRESS.md) 和 [项目向导计划](plans/2026-05-04-project-guide.md)。
 
 ## 当前主入口
 

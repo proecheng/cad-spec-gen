@@ -8,11 +8,11 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-04 |
-| 当前分支 | `codex/photo3d-project-guide` |
-| 最新功能基线 | `feat(project-guide): 增加只读项目向导` |
-| 最新合并提交 | 待合并；当前基于 `4a62b25 docs(progress): 更新增强摘要合并验证` |
+| 当前分支 | `main` |
+| 最新功能基线 | `977d5d7 feat(project-guide): 增加只读项目向导` |
+| 最新合并提交 | `9c68559 merge: 合并只读项目向导` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 本分支 `pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `151 passed` |
+| 最近验证 | 合并到 `main` 后 `pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `151 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
 
