@@ -10,11 +10,11 @@
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
 | 最新功能基线 | `feat(photo3d): build 恢复回填运行证据` |
-| 最新合并提交 | `36b651a merge: 合并增强一致性验收` |
+| 最新合并提交 | `b540400 merge: 合并 build 恢复证据回填` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 本分支 `python -m pytest -q` -> `2043 passed, 18 skipped, 10 warnings` |
+| 最近验证 | 合并到 `main` 后 `python -m pytest tests\test_photo3d_recover.py -q` -> `7 passed`；`python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `133 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | 无；本轮新增 `docs/superpowers/plans/2026-05-04-build-artifact-backfill.md` 将随代码提交 |
+| 当前未跟踪 | 无 |
 
 ## 一句话结论
 
@@ -76,6 +76,9 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py tests\test_photo3d_action_runner.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `181 passed` |
 | 2026-05-04 | `python -m pytest -q` | `2043 passed, 18 skipped, 10 warnings`；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `133 passed`；规划索引更新后复查 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_recover.py -q` | 合并到 `main` 后 `7 passed` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 合并到 `main` 后通过 |
+| 2026-05-04 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `133 passed` |
 | 2026-05-04 | `python -m pytest tests\test_enhance_consistency.py -q` | `11 passed`；覆盖批量验收、空 manifest 阻断、缺视角、轮廓漂移、路径越界、manifest 路径稳定、同视角多增强图不猜测、CLI accepted/blocked |
 | 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | `11 passed`；覆盖 `enhance-check` help、metadata、文档与工具镜像同步 |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；CLI、metadata、工具镜像无漂移 |
