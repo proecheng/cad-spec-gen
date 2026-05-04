@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | photo3d, photo3d-autopilot, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | photo3d, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -440,6 +440,15 @@ python cad_pipeline.py photo3d-autopilot --subsystem <name>
 
 `photo3d-autopilot` first runs the `photo3d` contract gate, then writes `PHOTO3D_AUTOPILOT.json`. The autopilot report is the fixed round-end report for ordinary users and LLMs: when gate status is `blocked`, it points to `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`; when gate status is `pass` / `warning` and there is no accepted baseline, it recommends the explicit user-confirmed command `python cad_pipeline.py accept-baseline --subsystem <name>`; when `accepted_baseline_run_id` already exists, it recommends enhancement. It does not accept the baseline silently, does not switch `active_run_id`, and does not scan directories for the newest file.
 
+Confirmed action runner:
+
+```bash
+python cad_pipeline.py photo3d-action --subsystem <name>
+python cad_pipeline.py photo3d-action --subsystem <name> --confirm
+```
+
+`photo3d-action` reads only the current active run's `PHOTO3D_AUTOPILOT.json` and `ACTION_PLAN.json`. Preview mode writes `PHOTO3D_ACTION_RUN.json` without executing. With `--confirm`, it executes only allowlisted low-risk CLI recovery actions (`product-graph`, `build`, `render`) for the same subsystem/run_id and no user input. User-input actions stay in the report for the user. It does not scan directories for latest artifacts, does not run enhancement, and does not accept baseline.
+
 Underlying gate command:
 
 ```bash
@@ -476,6 +485,7 @@ Outputs for ordinary users and LLMs:
 - `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
 - `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
+- `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run.
 
 路径隔离 and old artifact cleanup:
 
@@ -497,6 +507,7 @@ Outputs for ordinary users and LLMs:
 Agent rule:
 
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
+- Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。
 - Do not use AI enhancement to repair missing CAD geometry, missing instances, wrong positions, stale renders, or baseline mismatch.
 - If the action requires user input, ask for that input instead of inventing a file path or model choice.
@@ -610,7 +621,9 @@ Q: Photo3D / photo3d 输出 blocked，下一步怎么办？
 A: 打开当前 run 的 `PHOTO3D_REPORT.json` 看中文阻断原因，然后读取
    `ACTION_PLAN.json`。大模型只能执行该文件列出的动作，例如重新渲染、
    重新 build、请求用户提供 STEP 模型或进入人工审查。不要扫描目录猜最新
-   PNG，也不要让 AI 增强补齐 CAD 阶段缺失的结构。
+   PNG，也不要让 AI 增强补齐 CAD 阶段缺失的结构。低风险 CLI 动作先运行
+   `python cad_pipeline.py photo3d-action --subsystem <name>` 预览，用户确认后
+   再加 `--confirm` 执行；结果写入 `PHOTO3D_ACTION_RUN.json`。
 ```
 
 ### 12. file_struct — File Structure
@@ -663,6 +676,8 @@ cad/<subsystem>/.cad-spec-gen/              ← Photo3D contract state
     ├── MODEL_CONTRACT.json
     ├── ASSEMBLY_SIGNATURE.json
     ├── PHOTO3D_REPORT.json
+    ├── PHOTO3D_AUTOPILOT.json
+    ├── PHOTO3D_ACTION_RUN.json
     ├── ACTION_PLAN.json
     └── LLM_CONTEXT_PACK.json
 ```
