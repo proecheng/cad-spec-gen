@@ -136,3 +136,106 @@ def test_photo3d_recover_build_fails_when_runtime_signature_is_not_produced(tmp_
 
     assert report["returncode"] == 1
 
+
+def test_photo3d_recover_build_backfills_current_run_build_artifacts(tmp_path):
+    from tools.photo3d_recover import run_photo3d_recover
+
+    fixture = _contracts(tmp_path)
+    output_dir = tmp_path / "cad" / "output"
+    run_output_dir = output_dir / "runs" / "RUN001"
+    _write_json(run_output_dir / "ASSEMBLY_SIGNATURE.json", {"schema_version": 1, "source_mode": "runtime"})
+    _write_json(run_output_dir / "ASSEMBLY_REPORT.json", {"summary": "0 WARNING"})
+    _write_json(
+        tmp_path / "cad" / "demo" / ".cad-spec-gen" / "MODEL_CONTRACT.json",
+        {"schema_version": 1, "refreshed": True},
+    )
+    (tmp_path / "cad" / "demo" / "render_config.json").write_text(
+        json.dumps({"subsystem": {"glb_file": "DEMO-000_assembly.glb"}}),
+        encoding="utf-8",
+    )
+    (output_dir / "DEMO-000_assembly.glb").write_bytes(b"glb")
+    (output_dir / "DEMO-000_assembly.step").write_text("STEP", encoding="utf-8")
+
+    report = run_photo3d_recover(
+        tmp_path,
+        "demo",
+        "RUN001",
+        artifact_index_path=fixture["index_path"],
+        action="build",
+        build_runner=lambda args: 0,
+    )
+
+    assert report["returncode"] == 0
+    index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+    artifacts = index["runs"]["RUN001"]["artifacts"]
+    assert artifacts["assembly_signature"] == "cad/demo/.cad-spec-gen/runs/RUN001/ASSEMBLY_SIGNATURE.json"
+    assert artifacts["assembly_report"] == "cad/demo/.cad-spec-gen/runs/RUN001/ASSEMBLY_REPORT.json"
+    assert artifacts["model_contract"] == "cad/demo/.cad-spec-gen/runs/RUN001/MODEL_CONTRACT.json"
+    assert artifacts["assembly_glb"] == "cad/demo/.cad-spec-gen/runs/RUN001/DEMO-000_assembly.glb"
+    assert artifacts["assembly_step"] == "cad/demo/.cad-spec-gen/runs/RUN001/DEMO-000_assembly.step"
+    assert (fixture["run_dir"] / "ASSEMBLY_REPORT.json").is_file()
+    assert (fixture["run_dir"] / "MODEL_CONTRACT.json").is_file()
+    assert (fixture["run_dir"] / "DEMO-000_assembly.glb").read_bytes() == b"glb"
+    assert (fixture["run_dir"] / "DEMO-000_assembly.step").read_text(encoding="utf-8") == "STEP"
+
+
+def test_photo3d_recover_build_does_not_guess_ambiguous_assembly_deliverables(tmp_path):
+    from tools.photo3d_recover import run_photo3d_recover
+
+    fixture = _contracts(tmp_path)
+    output_dir = tmp_path / "cad" / "output"
+    run_output_dir = output_dir / "runs" / "RUN001"
+    _write_json(run_output_dir / "ASSEMBLY_SIGNATURE.json", {"schema_version": 1, "source_mode": "runtime"})
+    (output_dir / "A-000_assembly.glb").write_bytes(b"a")
+    (output_dir / "B-000_assembly.glb").write_bytes(b"b")
+    (output_dir / "A-000_assembly.step").write_text("A", encoding="utf-8")
+    (output_dir / "B-000_assembly.step").write_text("B", encoding="utf-8")
+
+    report = run_photo3d_recover(
+        tmp_path,
+        "demo",
+        "RUN001",
+        artifact_index_path=fixture["index_path"],
+        action="build",
+        build_runner=lambda args: 0,
+    )
+
+    assert report["returncode"] == 0
+    index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+    artifacts = index["runs"]["RUN001"]["artifacts"]
+    assert "assembly_glb" not in artifacts
+    assert "assembly_step" not in artifacts
+
+
+def test_photo3d_recover_build_accepts_configured_output_relative_glb_path(tmp_path):
+    from tools.photo3d_recover import run_photo3d_recover
+
+    fixture = _contracts(tmp_path)
+    output_dir = tmp_path / "cad" / "output"
+    run_output_dir = output_dir / "runs" / "RUN001"
+    _write_json(run_output_dir / "ASSEMBLY_SIGNATURE.json", {"schema_version": 1, "source_mode": "runtime"})
+    (tmp_path / "cad" / "demo" / "render_config.json").write_text(
+        json.dumps({"subsystem": {"glb_file": "assemblies/DEMO-000_assembly.glb"}}),
+        encoding="utf-8",
+    )
+    (output_dir / "assemblies").mkdir()
+    (output_dir / "assemblies" / "DEMO-000_assembly.glb").write_bytes(b"nested glb")
+    (output_dir / "assemblies" / "DEMO-000_assembly.step").write_text("nested STEP", encoding="utf-8")
+    (output_dir / "OTHER-000_assembly.glb").write_bytes(b"other")
+
+    report = run_photo3d_recover(
+        tmp_path,
+        "demo",
+        "RUN001",
+        artifact_index_path=fixture["index_path"],
+        action="build",
+        build_runner=lambda args: 0,
+    )
+
+    assert report["returncode"] == 0
+    index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+    artifacts = index["runs"]["RUN001"]["artifacts"]
+    assert artifacts["assembly_glb"] == "cad/demo/.cad-spec-gen/runs/RUN001/DEMO-000_assembly.glb"
+    assert artifacts["assembly_step"] == "cad/demo/.cad-spec-gen/runs/RUN001/DEMO-000_assembly.step"
+    assert (fixture["run_dir"] / "DEMO-000_assembly.glb").read_bytes() == b"nested glb"
+

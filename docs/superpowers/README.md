@@ -12,6 +12,7 @@
 | [`plans/2026-05-02-contract-driven-photo3d-pipeline.md`](plans/2026-05-02-contract-driven-photo3d-pipeline.md) | Photo3D 契约驱动管线方案 |
 | [`plans/2026-05-02-generic-threaded-parts-pipeline.md`](plans/2026-05-02-generic-threaded-parts-pipeline.md) | 通用传动件/丝杠类零件管线归档计划 |
 | [`plans/2026-05-04-enhancement-consistency-acceptance.md`](plans/2026-05-04-enhancement-consistency-acceptance.md) | 增强一致性验收执行计划 |
+| [`plans/2026-05-04-build-artifact-backfill.md`](plans/2026-05-04-build-artifact-backfill.md) | build 恢复证据回填执行计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -41,7 +42,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| P0 | Build artifact backfill | 把恢复动作后的 `ASSEMBLY_REPORT.json`、GLB/STEP、模型契约等证据纳入当前 run 登记 |
+| P0 | 增强报告接入向导 | 把 `ENHANCEMENT_REPORT.json` 的 accepted/preview/blocked 摘要纳入 `photo3d-run` 和项目向导 |
 | P1 | 常用模型库扩展 | 对更多机械类别复用模型库/参数化适配器，减少临时特判 |
 | P1 | 更高层项目向导 | 把 init/spec/codegen/build/render/photo3d/enhance-check 的多阶段状态统一给普通用户和大模型 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
