@@ -447,7 +447,7 @@ python cad_pipeline.py photo3d-action --subsystem <name>
 python cad_pipeline.py photo3d-action --subsystem <name> --confirm
 ```
 
-`photo3d-action` reads only the current active run's `PHOTO3D_AUTOPILOT.json` and `ACTION_PLAN.json`. Preview mode writes `PHOTO3D_ACTION_RUN.json` without executing. With `--confirm`, it executes only allowlisted low-risk CLI recovery actions (`product-graph`, `build`, `render`) for the same subsystem/run_id and no user input. User-input actions stay in the report for the user. It does not scan directories for latest artifacts, does not run enhancement, and does not accept baseline.
+`photo3d-action` reads only the current active run's `PHOTO3D_AUTOPILOT.json` and `ACTION_PLAN.json`. Preview mode writes `PHOTO3D_ACTION_RUN.json` without executing. With `--confirm`, it executes only allowlisted low-risk CLI recovery actions (`product-graph`, `build`, `render`) for the same subsystem/run_id and no user input. User-input actions stay in the report for the user. When every confirmed low-risk CLI action succeeds and no user-input, manual-review, or rejected action remains, it 自动重跑 `photo3d-autopilot` and writes the next-step summary to `post_action_autopilot` in `PHOTO3D_ACTION_RUN.json`; preview, failed execution, remaining user input, or rejected actions do not rerun autopilot. It does not scan directories for latest artifacts, does not run enhancement, and does not accept baseline.
 
 Underlying gate command:
 
@@ -485,7 +485,7 @@ Outputs for ordinary users and LLMs:
 - `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
 - `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
-- `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run.
+- `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run; `post_action_autopilot` records whether a successful confirmed run automatically reran autopilot and what next action it produced.
 
 路径隔离 and old artifact cleanup:
 
@@ -507,7 +507,7 @@ Outputs for ordinary users and LLMs:
 Agent rule:
 
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
-- Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand.
+- Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。
 - Do not use AI enhancement to repair missing CAD geometry, missing instances, wrong positions, stale renders, or baseline mismatch.
 - If the action requires user input, ask for that input instead of inventing a file path or model choice.

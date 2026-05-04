@@ -8,6 +8,8 @@ from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
+from tools.photo3d_autopilot import write_photo3d_autopilot_report
+from tools.photo3d_gate import run_photo3d_gate
 
 
 LOW_RISK_CLI_COMMANDS = {
@@ -99,13 +101,28 @@ def run_photo3d_action(
     if target.name != "PHOTO3D_ACTION_RUN.json":
         raise ValueError("photo3d action run output must be PHOTO3D_ACTION_RUN.json")
 
+    all_executable_actions: list[dict[str, Any]] = []
+    all_user_input_actions: list[dict[str, Any]] = []
+    all_rejected_actions: list[dict[str, Any]] = []
+    for raw_action in action_plan.get("actions") or []:
+        if not isinstance(raw_action, dict):
+            continue
+        classified = _classify_action(raw_action, subsystem, active_run_id)
+        kind = classified.pop("_classification")
+        if kind == "executable":
+            all_executable_actions.append(classified)
+        elif kind == "user_input":
+            all_user_input_actions.append(classified)
+        else:
+            all_rejected_actions.append(classified)
+
     executable_actions: list[dict[str, Any]] = []
     user_input_actions: list[dict[str, Any]] = []
     rejected_actions: list[dict[str, Any]] = []
     matching_actions = [
         action
-        for action in action_plan.get("actions") or []
-        if isinstance(action, dict) and (not action_id or action.get("action_id") == action_id)
+        for action in all_executable_actions + all_user_input_actions + all_rejected_actions
+        if not action_id or action.get("action_id") == action_id
     ]
     if action_id and len(matching_actions) > 1:
         rejected_actions.append(
@@ -115,15 +132,13 @@ def run_photo3d_action(
             }
         )
         matching_actions = []
-    for raw_action in matching_actions:
-        classified = _classify_action(raw_action, subsystem, active_run_id)
-        kind = classified.pop("_classification")
-        if kind == "executable":
-            executable_actions.append(classified)
-        elif kind == "user_input":
-            user_input_actions.append(classified)
+    for action in matching_actions:
+        if action in all_executable_actions:
+            executable_actions.append(action)
+        elif action in all_user_input_actions:
+            user_input_actions.append(action)
         else:
-            rejected_actions.append(classified)
+            rejected_actions.append(action)
 
     executed_actions: list[dict[str, Any]] = []
     skipped_actions: list[dict[str, Any]] = []
@@ -131,6 +146,7 @@ def run_photo3d_action(
         for index, action in enumerate(executable_actions):
             executed = _execute_action(root, action)
             executed_actions.append(executed)
+            _assert_active_run_id(index_path, active_run_id)
             if executed.get("returncode") != 0:
                 skipped_actions.extend(
                     {
@@ -140,6 +156,20 @@ def run_photo3d_action(
                     for skipped in executable_actions[index + 1 :]
                 )
                 break
+
+    post_action_autopilot = _post_action_autopilot_summary(
+        root,
+        subsystem,
+        artifact_index_path=index_path,
+        expected_active_run_id=active_run_id,
+        enabled=confirm
+        and bool(executed_actions)
+        and len(executed_actions) == len(all_executable_actions)
+        and not all_user_input_actions
+        and not all_rejected_actions
+        and not skipped_actions
+        and all(action.get("returncode") == 0 for action in executed_actions),
+    )
 
     status = _status(
         confirm=confirm,
@@ -155,7 +185,7 @@ def run_photo3d_action(
         "subsystem": subsystem,
         "confirmed": confirm,
         "status": status,
-        "ordinary_user_message": _ordinary_user_message(status),
+        "ordinary_user_message": _ordinary_user_message(status, post_action_autopilot),
         "selected_action_id": action_id,
         "autopilot_report": project_relative(autopilot_path, root),
         "action_plan": project_relative(action_plan_resolved, root),
@@ -164,10 +194,59 @@ def run_photo3d_action(
         "rejected_actions": rejected_actions,
         "executed_actions": executed_actions,
         "skipped_actions": skipped_actions,
+        "post_action_autopilot": post_action_autopilot,
         "photo3d_action_run": project_relative(target, root),
     }
     write_json_atomic(target, report)
     return report
+
+
+def _post_action_autopilot_summary(
+    project_root: Path,
+    subsystem: str,
+    *,
+    artifact_index_path: Path,
+    expected_active_run_id: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    if not enabled:
+        return {"rerun": False}
+    _assert_active_run_id(artifact_index_path, expected_active_run_id)
+    photo3d_report = run_photo3d_gate(
+        project_root,
+        subsystem,
+        artifact_index_path=artifact_index_path,
+    )
+    if str(photo3d_report.get("run_id") or "") != expected_active_run_id:
+        raise ValueError(
+            "PHOTO3D_REPORT.json run_id does not match initial active_run_id: "
+            f"{photo3d_report.get('run_id')} != {expected_active_run_id}"
+        )
+    _assert_active_run_id(artifact_index_path, expected_active_run_id)
+    autopilot = write_photo3d_autopilot_report(
+        project_root,
+        subsystem,
+        photo3d_report,
+        artifact_index_path=artifact_index_path,
+    )
+    if str(autopilot.get("run_id") or "") != expected_active_run_id:
+        raise ValueError(
+            "PHOTO3D_AUTOPILOT.json run_id does not match initial active_run_id: "
+            f"{autopilot.get('run_id')} != {expected_active_run_id}"
+        )
+    _assert_active_run_id(artifact_index_path, expected_active_run_id)
+    return {
+        "rerun": True,
+        "gate_status": autopilot.get("gate_status"),
+        "status": autopilot.get("status"),
+        "ordinary_user_message": autopilot.get("ordinary_user_message"),
+        "next_action": autopilot.get("next_action"),
+        "artifacts": {
+            key: value
+            for key, value in (autopilot.get("artifacts") or {}).items()
+            if key in {"photo3d_report", "photo3d_autopilot", "action_plan", "llm_context_pack"}
+        },
+    }
 
 
 def command_return_code(report: dict[str, Any]) -> int:
@@ -227,6 +306,16 @@ def _execute_action(project_root: Path, action: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _assert_active_run_id(artifact_index_path: Path, expected_active_run_id: str) -> None:
+    index = load_json_required(artifact_index_path, "artifact index")
+    actual = str(index.get("active_run_id") or "")
+    if actual != expected_active_run_id:
+        raise ValueError(
+            "active_run_id changed during Photo3D action execution: "
+            f"{actual} != {expected_active_run_id}"
+        )
+
+
 def _status(
     *,
     confirm: bool,
@@ -252,7 +341,9 @@ def _status(
     return "needs_manual_review"
 
 
-def _ordinary_user_message(status: str) -> str:
+def _ordinary_user_message(status: str, post_action_autopilot: dict[str, Any] | None = None) -> str:
+    if status == "executed" and (post_action_autopilot or {}).get("rerun") is True:
+        return "已执行低风险恢复动作，并自动重跑 photo3d-autopilot；请查看 post_action_autopilot。"
     messages = {
         "awaiting_confirmation": "已找到可安全执行的动作；加 --confirm 后才会执行。",
         "executed": "已执行低风险恢复动作；请重新运行 photo3d-autopilot 查看下一步。",

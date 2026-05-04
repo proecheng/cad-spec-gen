@@ -4361,7 +4361,12 @@ def main():
             "build, and render for the same subsystem/run_id. The command only "
             "resolves files through ARTIFACT_INDEX.json active_run_id and current "
             "run directory; it does not scan directories for latest artifacts and "
-            "does not run enhancement or baseline acceptance."
+            "does not run enhancement or baseline acceptance.\n"
+            "After all confirmed low-risk CLI actions succeed and no user-input "
+            "actions remain, it 自动重跑 photo3d-autopilot and records the next "
+            "ordinary-user summary under post_action_autopilot in "
+            "PHOTO3D_ACTION_RUN.json. Preview, failed execution, or remaining "
+            "用户输入 actions do not rerun autopilot."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

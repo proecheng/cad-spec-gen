@@ -147,6 +147,8 @@ def test_photo3d_action_help_explains_confirmed_execution_flow():
         "--confirm",
         "low-risk",
         "用户输入",
+        "自动重跑",
+        "post_action_autopilot",
     ):
         assert term in help_text
     assert "python cad_pipeline.py photo3d-action --subsystem <name>" in help_text
@@ -173,6 +175,8 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
+        assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
+        assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
 
 
 def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
@@ -209,6 +213,8 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "PHOTO3D_AUTOPILOT.json" in tools_by_name["photo3d_autopilot"]["description"]
         assert "PHOTO3D_ACTION_RUN.json" in tools_by_name["photo3d_action"]["description"]
         assert "--confirm" in tools_by_name["photo3d_action"]["description"]
+        assert "post_action_autopilot" in tools_by_name["photo3d_action"]["description"]
+        assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "普通用户" in tools_by_name["photo3d_autopilot"]["description"]
         assert "pass/warning/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted/preview/blocked" in tools_by_name["photo3d"]["description"]

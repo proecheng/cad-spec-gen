@@ -62,7 +62,7 @@
     },
     {
       "name": "photo3d_action",
-      "description": "Confirmed Photo3D action runner: reads the current active_run_id PHOTO3D_AUTOPILOT.json / ACTION_PLAN.json, previews by default, and only with --confirm executes allowlisted low-risk CLI recovery actions (product-graph/build/render) that need no user input. Writes PHOTO3D_ACTION_RUN.json, keeps user-input actions for the user, and never scans directories, runs enhancement, or accepts a baseline.",
+      "description": "Confirmed Photo3D action runner: reads the current active_run_id PHOTO3D_AUTOPILOT.json / ACTION_PLAN.json, previews by default, and only with --confirm executes allowlisted low-risk CLI recovery actions (product-graph/build/render) that need no user input. Writes PHOTO3D_ACTION_RUN.json, keeps user-input actions for the user, reruns photo3d-autopilot after all confirmed low-risk actions succeed, records the next summary under post_action_autopilot, and never scans directories, runs enhancement, or accepts a baseline.",
       "cli": "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
     },
     {
