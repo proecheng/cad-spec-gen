@@ -153,6 +153,16 @@ def _parse_pin_count(text: str, default: int = 4) -> int:
     return max(1, min(int(float(m.group(1))), 80))
 
 
+def _parse_first_int_after(pattern: str, text: str, default: int) -> int:
+    m = re.search(pattern, text, re.IGNORECASE)
+    return int(m.group(1)) if m else default
+
+
+def _parse_first_float_after(pattern: str, text: str, default: float) -> float:
+    m = re.search(pattern, text, re.IGNORECASE)
+    return float(m.group(1)) if m else default
+
+
 def _parse_trailing_length_mm(text: str, default: float) -> float:
     m = re.search(r"[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
     if not m:
@@ -835,6 +845,76 @@ def _gen_clamping_coupling_l070(dims: dict) -> str:
     return body"""
 
 
+def _gen_linear_guide_carriage(dims: dict) -> str:
+    w = dims.get("w", 45)
+    d = dims.get("d", 27)
+    h = dims.get("h", 15)
+    rail_w = min(dims.get("rail_w", 12), d * 0.72)
+    rail_h = min(dims.get("rail_h", 8), h * 0.58)
+    carriage_h = max(h - rail_h, h * 0.38)
+    bolt_d = max(min(w, d) * 0.10, 2.0)
+    bolt_x = min(max(w * 0.28, bolt_d), w / 2 - bolt_d)
+    bolt_y = min(max(d * 0.24, bolt_d), d / 2 - bolt_d)
+    rail_l = min(dims.get("rail_l", w), w)
+    return f"""    # Linear guide carriage: bounded rail stub, block, bolt counterbores, center groove
+    rail = (cq.Workplane("XY")
+            .box({rail_l:.3f}, {rail_w:.3f}, {rail_h:.3f}, centered=(True, True, False)))
+    block = (cq.Workplane("XY")
+             .box({w:.3f}, {d:.3f}, {carriage_h:.3f}, centered=(True, True, False))
+             .translate((0, 0, {rail_h:.3f})))
+    body = rail.union(block)
+    groove = (cq.Workplane("XY")
+              .box({w * 0.82:.3f}, {max(d * 0.08, 1.2):.3f}, {carriage_h + 0.2:.3f}, centered=(True, True, False))
+              .translate((0, 0, {rail_h + carriage_h * 0.12:.3f})))
+    body = body.cut(groove)
+    for x in ({-bolt_x:.3f}, {bolt_x:.3f}):
+        for y in ({-bolt_y:.3f}, {bolt_y:.3f}):
+            pocket = (cq.Workplane("XY")
+                      .center(x, y)
+                      .circle({bolt_d:.3f})
+                      .extrude({carriage_h * 0.35:.3f})
+                      .translate((0, 0, {rail_h + carriage_h * 0.65:.3f})))
+            body = body.cut(pocket)
+    return body"""
+
+
+def _gen_clamping_coupling_lxx(dims: dict) -> str:
+    d = dims.get("d", 25)
+    l = dims.get("l", 30)
+    bore_d = min(dims.get("bore_d", 6.35), d * 0.72)
+    groove_w = max(min(l * 0.06, 1.8), 1.0)
+    groove_inner_r = max(d / 2 - 0.8, bore_d / 2 + 1.0)
+    slot_w = max(d * 0.12, 2.0)
+    screw_d = max(bore_d * 0.55, 3.0)
+    return f"""    # Lxx clamping coupling: split cylindrical coupler with twin clamp grooves
+    body = cq.Workplane("XY").circle({d/2:.3f}).circle({bore_d/2:.3f}).extrude({l:.3f})
+    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+        groove = (cq.Workplane("XY")
+                  .circle({d/2 + 0.05:.3f})
+                  .circle({groove_inner_r:.3f})
+                  .extrude({groove_w:.3f})
+                  .translate((0, 0, z)))
+        body = body.cut(groove)
+    split = (cq.Workplane("XY")
+             .box({slot_w:.3f}, {d + 0.2:.3f}, {l + 0.2:.3f}, centered=(True, True, False))
+             .translate(({d * 0.32:.3f}, 0, -0.1)))
+    body = body.cut(split)
+    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+        screw_socket = (cq.Workplane("YZ")
+                        .center(0, z)
+                        .circle({screw_d/2:.3f})
+                        .extrude({d + 0.4:.3f})
+                        .translate(({-(d / 2 + 0.2):.3f}, 0, 0)))
+        body = body.cut(screw_socket)
+        clamp_band = (cq.Workplane("XY")
+                      .circle({d/2:.3f})
+                      .circle({max(d/2 - 1.15, bore_d/2 + 1.5):.3f})
+                      .extrude({groove_w * 0.65:.3f})
+                      .translate((0, 0, z + {groove_w:.3f})))
+        body = body.union(clamp_band)
+    return body"""
+
+
 def _gen_nema_stepper_motor(dims: dict) -> str:
     w = dims.get("w", 57)
     d = dims.get("d", 57)
@@ -1088,6 +1168,125 @@ def _gen_gt2_timing_pulley_20t(dims: dict) -> str:
     return body"""
 
 
+def _gen_gt2_timing_pulley(dims: dict) -> str:
+    od = dims.get("od", 16)
+    w = dims.get("w", 8)
+    bore_d = min(dims.get("id", 6.35), od * 0.72)
+    teeth = max(12, min(int(dims.get("teeth", 20)), 80))
+    hub_d = min(max(bore_d * 1.45, od * 0.48), od * 0.82)
+    tooth_depth = max(od * 0.045, 0.45)
+    tooth_w = max(min(od * 3.14159 / teeth * 0.50, od * 0.11), 0.8)
+    base_od = max(od - 2 * tooth_depth, bore_d + 2.0)
+    tooth_radius = max(base_od / 2 + tooth_depth / 2, bore_d / 2 + 1.0)
+    return f"""    # GT2 timing pulley: visual bounded teeth, bore, and center hub
+    body = cq.Workplane("XY").circle({base_od/2:.3f}).circle({bore_d/2:.3f}).extrude({w:.3f})
+    hub = cq.Workplane("XY").circle({hub_d/2:.3f}).circle({bore_d/2:.3f}).extrude({w:.3f})
+    body = body.union(hub)
+    for i in range({teeth}):
+        angle = i * {360.0 / teeth:.9f}
+        tooth = (cq.Workplane("XY")
+                 .box({tooth_depth:.3f}, {tooth_w:.3f}, {w:.3f}, centered=(True, True, False))
+                 .translate(({tooth_radius:.3f}, 0, 0))
+                 .rotate((0, 0, 0), (0, 0, 1), angle))
+        body = body.union(tooth)
+    return body"""
+
+
+def _gen_spur_gear(dims: dict) -> str:
+    od = dims.get("od", 22)
+    w = dims.get("w", 8)
+    bore_d = min(dims.get("id", 6), od * 0.60)
+    teeth = max(10, min(int(dims.get("teeth", 20)), 96))
+    root_od = max(od * 0.82, bore_d + 3.0)
+    tooth_depth = max((od - root_od) / 2, 0.6)
+    tooth_w = max(min(od * 3.14159 / teeth * 0.45, od * 0.10), 0.7)
+    tooth_radius = root_od / 2 + tooth_depth / 2
+    return f"""    # Spur gear: bounded visual teeth with bore and root disk
+    body = cq.Workplane("XY").circle({root_od/2:.3f}).circle({bore_d/2:.3f}).extrude({w:.3f})
+    for i in range({teeth}):
+        angle = i * {360.0 / teeth:.9f}
+        tooth = (cq.Workplane("XY")
+                 .box({tooth_depth:.3f}, {tooth_w:.3f}, {w:.3f}, centered=(True, True, False))
+                 .translate(({tooth_radius:.3f}, 0, 0))
+                 .rotate((0, 0, 0), (0, 0, 1), angle))
+        body = body.union(tooth)
+    return body"""
+
+
+def _gen_terminal_block(dims: dict, pins: int) -> str:
+    w = dims.get("w", pins * dims.get("pitch", 5.08))
+    d = dims.get("d", 8)
+    h = dims.get("h", 10)
+    pitch = w / max(pins, 1)
+    screw_d = min(pitch * 0.42, d * 0.46)
+    pocket_w = min(pitch * 0.62, pitch - 0.25)
+    return f"""    # Terminal block: plastic body, bounded screw pockets and wire entries
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {h:.3f}, centered=(True, True, False))
+    for i in range({pins}):
+        x = (i - ({pins} - 1) / 2.0) * {pitch:.3f}
+        screw = (cq.Workplane("XY")
+                 .center(x, {d * 0.18:.3f})
+                 .circle({screw_d/2:.3f})
+                 .extrude({h * 0.22:.3f})
+                 .translate((0, 0, {h * 0.74:.3f})))
+        entry = (cq.Workplane("XY")
+                 .center(x, {-d * 0.38:.3f})
+                 .box({pocket_w:.3f}, {d * 0.20:.3f}, {h * 0.30:.3f}, centered=(True, True, False))
+                 .translate((0, 0, {h * 0.18:.3f})))
+        body = body.cut(screw).cut(entry)
+    return body"""
+
+
+def _gen_pneumatic_solenoid_valve(dims: dict) -> str:
+    w = dims.get("w", 45)
+    d = dims.get("d", 22)
+    h = dims.get("h", 28)
+    coil_w = w * 0.34
+    body_w = w - coil_w
+    port_d = min(d * 0.24, h * 0.16)
+    return f"""    # Pneumatic solenoid valve: manifold, coil block, bounded port details
+    manifold = (cq.Workplane("XY")
+                .box({body_w:.3f}, {d:.3f}, {h * 0.62:.3f}, centered=(True, True, False))
+                .translate(({-(coil_w / 2):.3f}, 0, 0)))
+    coil = (cq.Workplane("XY")
+            .box({coil_w:.3f}, {d * 0.82:.3f}, {h:.3f}, centered=(True, True, False))
+            .translate(({body_w / 2:.3f}, 0, 0)))
+    body = manifold.union(coil)
+    for x in ({-body_w * 0.58:.3f}, {-body_w * 0.30:.3f}, {-body_w * 0.02:.3f}):
+        port = (cq.Workplane("XY")
+                .center(x, {-d * 0.40:.3f})
+                .circle({port_d/2:.3f})
+                .extrude({h * 0.20:.3f})
+                .translate((0, 0, {h * 0.36:.3f})))
+        body = body.cut(port)
+    return body"""
+
+
+def _gen_pneumatic_push_fitting(dims: dict) -> str:
+    d = dims.get("d", 12)
+    l = dims.get("l", 22)
+    tube_d = min(dims.get("tube_d", 6), d * 0.72)
+    hex_d = min(d * 0.96, max(tube_d * 1.6, d * 0.72))
+    collet_d = min(d, max(tube_d * 1.55, tube_d + 3.0))
+    hex_l = l * 0.34
+    collet_l = l * 0.32
+    thread_l = l - hex_l - collet_l
+    return f"""    # Pneumatic push fitting: hex body, threaded stub, push collet, tube bore
+    hex_body = cq.Workplane("XY").polygon(6, {hex_d:.3f}).extrude({hex_l:.3f})
+    thread = (cq.Workplane("XY")
+              .circle({max(tube_d * 0.62, 2.0):.3f})
+              .circle({tube_d/2:.3f})
+              .extrude({thread_l:.3f})
+              .translate((0, 0, {hex_l:.3f})))
+    collet = (cq.Workplane("XY")
+              .circle({collet_d/2:.3f})
+              .circle({tube_d/2:.3f})
+              .extrude({collet_l:.3f})
+              .translate((0, 0, {hex_l + thread_l:.3f})))
+    body = hex_body.union(thread).union(collet)
+    return body"""
+
+
 def _gen_gt2_timing_belt_loop(dims: dict) -> str:
     w = dims.get("w", 170)
     d = dims.get("d", 80)
@@ -1113,6 +1312,58 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         "requires_model_review": False,
         "template_scope": "reusable_part_family",
     }
+
+    if category == "bearing" and _contains_any(
+        text, ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
+    ):
+        text_upper = text.upper()
+        defaults = {
+            "MGN15H": {
+                "w": 55,
+                "d": 32,
+                "h": 20,
+                "rail_w": 15,
+                "rail_h": 10,
+                "rail_l": 100,
+            },
+            "MGN12H": {
+                "w": 45,
+                "d": 27,
+                "h": 15,
+                "rail_w": 12,
+                "rail_h": 8,
+                "rail_l": 80,
+            },
+            "HGW15": {
+                "w": 47,
+                "d": 34,
+                "h": 24,
+                "rail_w": 15,
+                "rail_h": 12,
+                "rail_l": 110,
+            },
+            "HGH15": {
+                "w": 34,
+                "d": 39,
+                "h": 28,
+                "rail_w": 15,
+                "rail_h": 12,
+                "rail_l": 110,
+            },
+        }
+        tpl_dims = dict(
+            next(
+                (value for key, value in defaults.items() if key in text_upper),
+                defaults["MGN12H"],
+            )
+        )
+        tpl_dims.update({k: dims[k] for k in tpl_dims if k in dims})
+        return {
+            "template": "linear_guide_carriage",
+            "body_code": _gen_linear_guide_carriage(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
 
     if category == "bearing":
         m = re.search(r"\bLM\s*(\d{1,2})\s*UU\b", text, re.IGNORECASE)
@@ -1159,6 +1410,97 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         return {
             "template": "t16_lead_screw_nut",
             "body_code": _gen_t16_lead_screw_nut(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if (
+        category == "transmission"
+        and _contains_any(text, ["L050", "L070", "联轴器", "coupling"])
+    ):
+        text_upper = text.upper()
+        default_d = 25 if "L070" in text_upper else 20
+        default_l = 30 if "L070" in text_upper else 25
+        d = dims.get("d", default_d)
+        l = dims.get("l", default_l)
+        bore_d = _parse_first_float_after(
+            r"(?:孔径|bore)\s*[Φφ]?\s*(\d+(?:\.\d+)?)",
+            text,
+            dims.get("bore_d", 6.35),
+        )
+        tpl_dims = {"d": d, "l": l, "bore_d": min(bore_d, d * 0.72)}
+        return {
+            "template": "clamping_coupling_lxx",
+            "body_code": _gen_clamping_coupling_lxx(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if (
+        category == "transmission"
+        and _contains_any(text, ["GT2"])
+        and _contains_any(text, ["带轮", "pulley"])
+    ):
+        teeth = _parse_first_int_after(r"(\d+)\s*T", text, dims.get("teeth", 20))
+        bore_d = _parse_first_float_after(
+            r"(?:孔径|bore)\s*[Φφ]?\s*(\d+(?:\.\d+)?)",
+            text,
+            dims.get("id", 6.35),
+        )
+        belt_w = _parse_first_float_after(
+            r"(\d+(?:\.\d+)?)\s*mm\s*(?:带宽|belt)",
+            text,
+            dims.get("belt_w", 6),
+        )
+        bore_d = _parse_first_float_after(
+            r"[Φφ]\s*(\d+(?:\.\d+)?)",
+            text,
+            bore_d,
+        )
+        od = (
+            dims["od"]
+            if "od" in dims and "teeth" in dims
+            else round(teeth * 2.0 / math.pi + 3.3, 1)
+        )
+        w = dims.get("w", max(belt_w + 4, 8))
+        tpl_dims = {
+            "od": od,
+            "w": w,
+            "id": min(bore_d, od * 0.72),
+            "teeth": teeth,
+            "belt_w": belt_w,
+        }
+        return {
+            "template": "gt2_timing_pulley",
+            "body_code": _gen_gt2_timing_pulley(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "transmission" and _contains_any(text, ["齿轮", "spur gear"]):
+        module_match = re.search(r"(?:m\s*=\s*)?(\d+(?:\.\d+)?)\s*模", text, re.IGNORECASE)
+        module = (
+            float(module_match.group(1))
+            if module_match
+            else _parse_first_float_after(r"\bm\s*=\s*(\d+(?:\.\d+)?)", text, 1.0)
+        )
+        teeth_match = re.search(r"(\d{2,3})\s*齿", text, re.IGNORECASE)
+        teeth = (
+            int(teeth_match.group(1))
+            if teeth_match
+            else _parse_first_int_after(r"z\s*=\s*(\d{2,3})", text, 20)
+        )
+        bore_d = _parse_first_float_after(
+            r"(?:孔径|bore)\s*[Φφ]?\s*(\d+(?:\.\d+)?)",
+            text,
+            dims.get("id", 6),
+        )
+        od = module * (teeth + 2)
+        w = dims.get("w", dims.get("h", max(module * 8, 6)))
+        tpl_dims = {"od": od, "w": w, "id": min(bore_d, od * 0.60), "teeth": teeth}
+        return {
+            "template": "spur_gear",
+            "body_code": _gen_spur_gear(tpl_dims),
             "dims": tpl_dims,
             "metadata": dict(reusable_parametric_template),
         }
@@ -1289,6 +1631,37 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": dict(reusable_parametric_template),
         }
 
+    if category == "pneumatic" and _contains_any(text, ["电磁阀", "solenoid valve"]):
+        tpl_dims = {
+            "w": dims.get("w", 45),
+            "d": dims.get("d", 22),
+            "h": dims.get("h", 28),
+        }
+        return {
+            "template": "pneumatic_solenoid_valve",
+            "body_code": _gen_pneumatic_solenoid_valve(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "pneumatic" and _contains_any(
+        text, ["快插", "气管接头", "push fitting"]
+    ):
+        tube_d = 8 if re.search(r"\bPC\s*8\b", text, re.IGNORECASE) else 6
+        default_d = 14 if tube_d == 8 else 12
+        default_l = 25 if tube_d == 8 else 22
+        tpl_dims = {
+            "d": dims.get("d", default_d),
+            "l": dims.get("l", default_l),
+            "tube_d": dims.get("tube_d", tube_d),
+        }
+        return {
+            "template": "pneumatic_push_fitting",
+            "body_code": _gen_pneumatic_push_fitting(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
     if category == "pneumatic" and _contains_any(
         text, ["气缸", "pneumatic", "MGPM", "MGPL", "SDA", "CQ2"]
     ):
@@ -1361,6 +1734,37 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "body_code": _gen_sma_bulkhead(tpl_dims),
             "dims": tpl_dims,
             "metadata": {},
+        }
+
+    if category == "connector" and _contains_any(
+        text, ["端子", "terminal block", "KF301", "Phoenix"]
+    ):
+        pins = _parse_pin_count(text, default=dims.get("pins", 3))
+        pitch = dims.get("pitch", 5.08)
+        tpl_dims = {
+            "w": dims.get("w", pins * pitch),
+            "d": dims.get("d", 8),
+            "h": dims.get("h", 10),
+            "pins": pins,
+            "pitch": pitch,
+        }
+        return {
+            "template": "terminal_block",
+            "body_code": _gen_terminal_block(tpl_dims, pins),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "connector" and _contains_any(
+        text, ["航空插头", "M12 connector", "M12 插头"]
+    ):
+        pins = _parse_pin_count(text, default=dims.get("pins", 4))
+        tpl_dims = {"d": 16.2, "l": 26.6, "shell_d": dims.get("d", 12)}
+        return {
+            "template": "m12_connector",
+            "body_code": _gen_m12_connector({"d": 12, "l": 18}, pins),
+            "dims": tpl_dims,
+            "metadata": {**reusable_parametric_template, "pins": pins},
         }
 
     if (

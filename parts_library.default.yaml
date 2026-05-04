@@ -343,6 +343,16 @@ mappings:
       file: "connectors/m12_4pin_bulkhead.step"
       synthesizer: "m12_4pin_bulkhead"
 
+  # ─── Common model library Batch 2 — linear guide carriage ──────────
+  # Placed after vendor/project STEP rules and before generic bearing
+  # routes. A linear guide is not a rolling bearing catalog item, so it
+  # should not be sent to Toolbox/bd_warehouse just because the BOM
+  # category is "bearing".
+  - match:
+      category: bearing
+      name_contains: ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
+    adapter: jinja_primitive
+
   # ─── Specialized bearing classes (tried before generic) ─────────────
   # Rules are ordered most-specific to least-specific. The bd_warehouse
   # adapter itself picks the right class from catalogs/bd_warehouse_catalog.yaml
@@ -520,8 +530,22 @@ mappings:
         visual_thread: true
         normalize_origin: center_xy_bottom_z
 
+  # ─── 传动件 STANDARD_TRANSMISSION —— 常用 B 级视觉族（Batch 2） ───
+  # 显式传动上下文先命中可复用模板族；裸 category fallback 留给 Task 8
+  # 兼容路径，避免把非传动语义的尺寸 token 当成齿轮/带轮。
+  - match:
+      category: transmission
+      keyword_contains: ["联轴器", "coupling", "GT2", "带轮", "pulley", "齿轮", "spur gear", "同步带"]
+    adapter: jinja_primitive
+    spec:
+      standard: [GB, GB/T]
+      subcategories: ["couplings", "timing_pulleys", "spur_gears",
+                      "sprockets", "timing_belts"]
+      part_category: transmission
+
   # ─── 传动件 STANDARD_TRANSMISSION —— 齿轮 / 链轮（Task 8） ───────────
-  # 命中条件：category=transmission；走 jinja_primitive（齿轮需按模数/齿数参数化生成）
+  # 兼容既有 category=transmission fallback；真实丝杠和显式 Batch 2
+  # 家族规则已经在上方优先处理。
   - match:
       category: transmission
     adapter: jinja_primitive
@@ -550,7 +574,18 @@ mappings:
     adapter: jinja_primitive
 
   - match:
+      category: connector
+      name_contains: ["端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头", "M12 connector", "M12 插头"]
+    adapter: jinja_primitive
+
+  - match:
       category: pneumatic
+      keyword_contains: ["电磁阀", "solenoid valve", "快插", "push fitting", "气管接头", "调压阀", "过滤减压阀"]
+    adapter: jinja_primitive
+
+  - match:
+      category: pneumatic
+      keyword_contains: ["气缸", "pneumatic", "cylinder", "MGPM", "MGPL", "SDA", "CQ2", "SCJ"]
     adapter: jinja_primitive
 
   # ─── Everything else falls through to jinja_primitive ───────────────

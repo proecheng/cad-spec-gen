@@ -153,6 +153,11 @@ STD_PART_DIMENSIONS = {
     "MR128ZZ":      {"od": 12, "id": 8, "w": 3.5},
     "688ZZ":        {"od": 16, "id": 8, "w": 5},
     "608ZZ":        {"od": 22, "id": 8, "w": 7},
+    # --- Linear guide families ---
+    "MGN12H": {"w": 45, "d": 27, "h": 15, "rail_w": 12, "rail_h": 8, "rail_l": 80},
+    "MGN15H": {"w": 55, "d": 32, "h": 20, "rail_w": 15, "rail_h": 10, "rail_l": 100},
+    "HGW15": {"w": 47, "d": 34, "h": 24, "rail_w": 15, "rail_h": 12, "rail_l": 110},
+    "HGH15": {"w": 34, "d": 39, "h": 28, "rail_w": 15, "rail_h": 12, "rail_l": 110},
     # --- Sensors ---
     "ATI Nano17":   {"d": 17, "l": 14.5},
     "KWR42":        {"d": 42, "l": 20},
@@ -167,10 +172,20 @@ STD_PART_DIMENSIONS = {
     "Molex ZIF":    {"w": 12, "h": 3, "l": 8},
     "Molex 5052":   {"w": 12, "h": 3, "l": 8},
     "Molex 15168":  {"w": 12, "h": 1, "l": 30},  # stub (connector portion only)
+    "KF301":        {"w": 15.24, "d": 8, "h": 10, "pins": 3, "pitch": 5.08},
+    "M12 5芯":      {"d": 12, "l": 18, "pins": 5},
+    "M12 4芯":      {"d": 12, "l": 18, "pins": 4},
+    # --- Pneumatic accessories ---
+    "二位五通": {"w": 45, "d": 22, "h": 28},
+    "电磁阀": {"w": 45, "d": 22, "h": 28},
+    "solenoid valve": {"w": 45, "d": 22, "h": 28},
+    # --- Transmission visual families ---
+    "L050":         {"d": 20, "l": 25, "bore_d": 6.35},
+    "L070":         {"d": 25, "l": 30, "bore_d": 6.35},
+    "GT2 30T":      {"od": 19.1, "w": 10, "id": 8, "teeth": 30, "belt_w": 6},
     # --- Pumps ---
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
-    "电磁阀":       {"w": 20, "h": 15, "l": 30},
     # --- Linear Bearings ---
     "LM6UU":   {"od": 12, "id": 6, "w": 19},
     "LM8UU":   {"od": 15, "id": 8, "w": 24},
@@ -189,6 +204,8 @@ STD_PART_DIMENSIONS = {
     # --- Cable / pneumatic visual fallbacks ---
     "_cable_harness": {"w": 10, "d": 50, "h": 6},
     "MGPM20": {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
+    "PC6": {"d": 12, "l": 22, "tube_d": 6},
+    "PC8": {"d": 14, "l": 25, "tube_d": 8},
     # --- Additional Tanks ---
     "_tank_small": {"d": 25, "l": 110},
     "_tank_large": {"d": 38, "l": 280},
@@ -207,6 +224,28 @@ STD_PART_DIMENSIONS = {
     "_transmission": {"od": 30, "w": 8, "id": 6},
     "_pneumatic":    {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
     "_cable":        {"w": 10, "d": 50, "h": 6},
+}
+
+STD_PART_DIMENSION_CATEGORIES = {
+    # Category-scoped keys prevent material descriptors in one family from
+    # stealing dimensions from another family with a more specific name match.
+    "MGN12H": {"bearing"},
+    "MGN15H": {"bearing"},
+    "HGW15": {"bearing"},
+    "HGH15": {"bearing"},
+    "L050": {"transmission"},
+    "L070": {"transmission"},
+    "GT2 30T": {"transmission"},
+    "KF301": {"connector"},
+    "M12 5芯": {"connector"},
+    "M12 4芯": {"connector"},
+    "二位五通": {"pneumatic"},
+    "电磁阀": {"pneumatic"},
+    "solenoid valve": {"pneumatic"},
+    "PC6": {"pneumatic"},
+    "PC8": {"pneumatic"},
+    "齿轮泵": {"pump"},
+    "微量泵": {"pump"},
 }
 
 MATERIAL_PROPS = {
@@ -278,6 +317,9 @@ def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> d
     for key, dims in STD_PART_DIMENSIONS.items():
         if key.startswith("_"):
             continue  # Skip generic fallbacks in first pass
+        allowed_categories = STD_PART_DIMENSION_CATEGORIES.get(key)
+        if category and allowed_categories and category not in allowed_categories:
+            continue
         if key.upper() in text.upper():
             return dict(dims)  # Return copy
 

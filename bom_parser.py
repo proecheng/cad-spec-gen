@@ -32,13 +32,16 @@ _PART_CATEGORY_RULES = [
                    "elastic coupling", "snap ring"]),
     ("spring",    ["弹簧", "spring", "DIN 2093", "碟簧", "弹性垫圈"]),
     ("bearing",   ["轴承", "bearing", "MR1", "ZZ", "688", "608", "滚珠", "LM10", "LM12",
-                   "LM16", "LM20", "LMU", "KFL", "KP0", "KP1", "UCP", "UCF", "法兰座"]),
+                   "LM16", "LM20", "LMU", "KFL", "KP0", "KP1", "UCP", "UCF", "法兰座",
+                   "直线导轨", "导轨滑块", "linear guide", "MGN", "HGW", "HGH"]),
     ("sensor",    ["传感器", "sensor", "AE", "UHF", "Nano17", "力矩", "检测", "接近开关",
                    "光电", "限位", "编码器", "encoder"]),
-    ("pneumatic", ["气缸", "pneumatic", "cylinder actuator", "air cylinder",
-                   "MGPM", "MGPL", "SDA", "CQ2", "SCJ"]),
     ("pump",      ["泵", "pump", "齿轮泵"]),
-    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头"]),
+    ("pneumatic", ["气缸", "pneumatic", "cylinder actuator", "air cylinder",
+                   "MGPM", "MGPL", "SDA", "CQ2", "SCJ", "电磁阀", "solenoid valve",
+                   "气管接头", "快插", "push fitting", "调压阀", "过滤减压阀"]),
+    ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头",
+                   "端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头"]),
     ("seal",      ["O型圈", "O-ring", "FKM", "NBR", "缓冲垫", "PU垫"]),
     ("tank",      ["储液罐", "储罐", "tank", "容器"]),
     ("other",     ["护罩", "防护罩", "guard", "cover"]),
@@ -109,7 +112,9 @@ def classify_part(name: str, material: str = "") -> str:
         return "transmission"
     if re.search(r"\btr\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\b", raw_text, re.I):
         return "transmission"
-    if re.search(r"\bt\s*\d+\b", raw_text, re.I) and ("螺母" in raw_text or "丝杠" in raw_text):
+    if re.search(r"\bt\s*\d+\b", raw_text, re.I) and (
+        "丝杠" in raw_text or "丝杆" in raw_text or "lead screw" in lower_text
+    ):
         return "transmission"
 
     text = raw_text.upper()

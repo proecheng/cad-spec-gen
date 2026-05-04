@@ -50,7 +50,7 @@ Out of scope for this batch:
 - Create: `tests/test_common_model_library_batch_2.py`
 - Modify: none
 
-- [ ] **Step 1: Write failing coverage tests**
+- [x] **Step 1: Write failing coverage tests**
 
 Create `tests/test_common_model_library_batch_2.py` with:
 
@@ -257,7 +257,7 @@ def test_m12_proximity_sensor_keeps_sensor_rule_before_connector_rule() -> None:
     assert matching[0]["match"].get("category") == "sensor"
 ```
 
-- [ ] **Step 2: Verify tests are red**
+- [x] **Step 2: Verify tests are red**
 
 Run:
 
@@ -275,7 +275,7 @@ Expected: FAIL because Batch 2 templates and default routes do not exist yet.
 - Modify: `bom_parser.py`
 - Modify: `cad_spec_defaults.py`
 
-- [ ] **Step 1: Add only reusable classifier keywords**
+- [x] **Step 1: Add only reusable classifier keywords**
 
 Update `bom_parser.py` by adding only context-bearing keywords. Keep ambiguous tokens such as bare `滑块`, `PC6`, `PC8`, and `M12` out of the classifier keyword lists:
 
@@ -296,7 +296,7 @@ Update `bom_parser.py` by adding only context-bearing keywords. Keep ambiguous t
 Do not add broad keywords like `阀` alone because they can misclassify fluid pumps or process valves.
 Do not add `M12` to connector classification because M12 is also a common sensor/thread/fastener size; M12 connector templates must be selected by connector context such as `插头`, `航空插头`, or `connector`.
 
-- [ ] **Step 2: Add default dimensions**
+- [x] **Step 2: Add default dimensions**
 
 Add to `STD_PART_DIMENSIONS`:
 
@@ -324,7 +324,7 @@ Add to `STD_PART_DIMENSIONS`:
 If an existing key overlaps, keep the more specific key first in dict order so Pass 1 matching remains deterministic.
 For M12 connectors, either make `_gen_m12_connector()` fit inside `(12, 12, 18)` by drawing details inward, or report the true visual envelope `(16.2, 16.2, 26.6)` from `_specialized_template()`. The tests above choose the second path to preserve the existing flange/gland visual detail without lying about `real_dims`.
 
-- [ ] **Step 3: Run red tests again**
+- [x] **Step 3: Run red tests again**
 
 Run:
 
@@ -342,7 +342,7 @@ Expected: PASS for classification, while template tests still fail.
 - Modify: `adapters/parts/jinja_primitive_adapter.py`
 - Modify: `tests/test_jinja_generators_new.py` only if old project-specific IDs need to become generic IDs.
 
-- [ ] **Step 1: Add helper parsers**
+- [x] **Step 1: Add helper parsers**
 
 Near the existing parser helpers, add bounded parsing helpers:
 
@@ -359,7 +359,7 @@ def _parse_first_float_after(pattern: str, text: str, default: float) -> float:
 
 Use exact patterns at call sites; do not infer from unrelated numbers such as part numbers unless the pattern is explicit.
 
-- [ ] **Step 2: Add bounded generator functions**
+- [x] **Step 2: Add bounded generator functions**
 
 Add reusable generator functions:
 
@@ -561,7 +561,7 @@ Rules for each generator:
 - For terminal blocks, use `w = pins * pitch`, with pin pockets and screw heads bounded inside `h`.
 - For valves and fittings, render ports/coils as bounded details inside the reported rectangular or cylindrical envelope.
 
-- [ ] **Step 3: Wire `_specialized_template()`**
+- [x] **Step 3: Wire `_specialized_template()`**
 
 Add cases before old specific cases:
 
@@ -597,7 +597,7 @@ Then generic cases for:
 
 Keep old wrappers such as `clamping_coupling_l070` if tests or downstream generated files expect them, but make new generic template names the preferred return value when a family pattern matches.
 
-- [ ] **Step 4: Run focused template tests**
+- [x] **Step 4: Run focused template tests**
 
 Run:
 
@@ -615,7 +615,7 @@ Expected: Batch 2 template tests pass; if old jinja tests fail only because a sp
 - Modify: `parts_library.default.yaml`
 - Modify: `tests/test_parts_library_standard_categories.py`
 
-- [ ] **Step 1: Add explicit default rules in the correct registry positions**
+- [x] **Step 1: Add explicit default rules in the correct registry positions**
 
 Do not append all Batch 2 rules after the first-batch block. Insert them in the positions below so first-hit-wins stays correct:
 
@@ -669,7 +669,7 @@ Important ordering:
 - For `pneumatic`, do not use bare `PC6` / `PC8` as route keywords. They are fitting size clues only after fitting context exists.
 - For `transmission`, leave the lead-screw rule above generic transmission routes and avoid duplicate broad `category: transmission` rules.
 
-- [ ] **Step 2: Add route-presence tests**
+- [x] **Step 2: Add route-presence tests**
 
 Extend `tests/test_parts_library_standard_categories.py`:
 
@@ -757,7 +757,7 @@ def test_batch_2_m12_sensor_route_is_not_stolen_by_connector_rule() -> None:
     assert rules[0]["match"].get("category") == "sensor"
 ```
 
-- [ ] **Step 3: Run route tests**
+- [x] **Step 3: Run route tests**
 
 Run:
 
@@ -776,7 +776,7 @@ Expected: PASS.
 - Modify: `docs/superpowers/README.md`
 - Mirror updates via `scripts/dev_sync.py`
 
-- [ ] **Step 1: Update progress docs**
+- [x] **Step 1: Update progress docs**
 
 Update `docs/PROGRESS.md`:
 
@@ -790,7 +790,7 @@ Update `docs/superpowers/README.md`:
 - Add this plan to the current documents table.
 - Mark Batch 2 as current branch work.
 
-- [ ] **Step 2: Sync mirrors**
+- [x] **Step 2: Sync mirrors**
 
 Run:
 
@@ -801,7 +801,7 @@ D:\Work\cad-spec-gen\.venv\Scripts\python.exe scripts\dev_sync.py --check
 
 `dev_sync.py` may return non-zero when it updates ignored mirrors; re-run `--check` must pass.
 
-- [ ] **Step 3: Final verification**
+- [x] **Step 3: Final verification**
 
 Run:
 
@@ -813,7 +813,7 @@ git diff --check
 
 Expected: all pass, no mirror drift, no whitespace errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 

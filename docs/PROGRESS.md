@@ -9,12 +9,12 @@
 | --- | --- |
 | 更新日期 | 2026-05-04 |
 | 当前分支 | `codex/common-model-library-batch-2` |
-| 最新功能基线 | `87c184a feat(parts-library): 扩展常用模型库通用类别`；第二批计划已完成通用性审查修订 |
+| 最新功能基线 | 当前分支最新提交 `feat(parts-library): 扩展常用模型库第二批` |
 | 最新合并提交 | `87c184a feat(parts-library): 扩展常用模型库通用类别` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 第二批计划审查修订后 `pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` -> `34 passed` |
-| 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | 无；本轮修改为第二批计划审查、看板和索引，待提交 |
+| 最近验证 | 第二批审查修正后范围回归 `pytest tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `352 passed, 2 skipped` |
+| 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过 |
+| 当前未跟踪 | 无；第二批实现已提交到当前分支 |
 
 ## 一句话结论
 
@@ -41,7 +41,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
 | Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
 | Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
-| Ready | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 计划已审查并修订：补齐无占位实现片段、误分类/误抢路由反例、真实模型优先顺序、M12 包络一致性、镜像提交边界 | 按计划从 red tests 开始 TDD 执行 |
+| Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已提交到当前分支；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；最终范围回归通过 | 选择下一批高复用类别或继续大模型交互动作 |
 
 ## 当前能力边界
 
@@ -62,20 +62,27 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 - `project-guide` 只读，除了写 `PROJECT_GUIDE.json` 不修改管线状态；它不扫描目录、不猜最新 run、不接受 baseline、不运行增强，只按显式输入和固定契约路径给出下一条安全命令。
 - 常用模型库扩展只把明确、可参数化、跨项目复用的类别放进 `parts_library.default.yaml`；项目真实 STEP、SolidWorks/Toolbox 或用户导入模型仍应通过项目前置规则覆盖默认 B 级模板。
 - 新增线束模板只覆盖明确“线束 / harness / FFC”意图；普通拖链段、柔性同轴等未命中可复用线束模板时继续 `skip`，防止退回无意义盒子。
+- 第二批常用模型库不使用裸 `滑块`、`M12`、`PC6/PC8` 等短 token 抢类别或路由；这些 token 只能在已有明确 family intent 后作为尺寸/针数/管径解析线索。
+- 默认尺寸查询支持 category-scoped key，防止 `material` 中的别族描述（例如泵的“电磁阀式”）覆盖 `name_cn` 中更具体的同类零件尺寸。
 - 新增可复用模板必须保持生成几何不超过 `real_dims`，否则会污染后续装配、渲染和照片级增强的契约证据。
 - `warning` 可以接受为 baseline，但应在看板或报告里明确剩余风险。
 - 被 `.gitignore` 忽略的 `src/cad_spec_gen/data/*` 镜像仍由 `dev_sync.py` 维护；每轮结束必须跑 `python scripts/dev_sync.py --check`。`skill.json` metadata 现在也纳入同步/检查范围，避免安装版 skill 描述漂移。
 
 ## 下一步建议
 
-1. 按已修订的 `docs/superpowers/plans/2026-05-04-common-model-library-batch-2.md` 执行第二批：先 red tests，再实现分类/尺寸/模板/路由。
-2. 实现时优先守住通用边界：不能用裸 `滑块`、`M12`、`PC6/PC8` 等短 token 抢类别；真实 STEP、SolidWorks/Toolbox、bd_warehouse 仍要优先于默认 B 级模板。
-3. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+1. 审查当前分支 `codex/common-model-library-batch-2` 的最新提交，确认后再决定合并或推 PR。
+2. 下一批建议优先扩展“轴承座/支撑座、标准线性模组、常见阀岛/调压过滤器、常见电气 DIN 导轨件”等跨产品高频类别。
+3. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 审查修正后 `352 passed, 2 skipped, 11 warnings`；补充覆盖泵 material 中“电磁阀式”不抢类别、英文气动附件优先于泛气动模板 |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 第二批最终范围回归 `349 passed, 2 skipped, 11 warnings` |
+| 2026-05-04 | `python scripts\dev_sync.py --check` | 第二批实现后通过；安装版镜像无漂移 |
+| 2026-05-04 | `git diff --check` | 第二批实现后通过 |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_2.py tests\test_jinja_generators_new.py tests\test_parts_library_standard_categories.py -q` | 第二批实现阶段回归 `147 passed, 7 warnings`；覆盖分类、默认路由、模板包络、M12/PC6/滑块误抢、category-scoped 尺寸防漂移 |
 | 2026-05-04 | `python -m pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` | 第二批计划审查修订后 `34 passed, 7 warnings` |
 | 2026-05-04 | `python scripts\dev_sync.py --check` | 第二批计划审查修订后通过 |
 | 2026-05-04 | `git diff --check` | 第二批计划审查修订后通过 |

@@ -643,8 +643,8 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
         "transmission",
         "L070 联轴器",
         "",
-        "clamping_coupling_l070",
-        "L070 clamping coupling",
+        "clamping_coupling_lxx",
+        "Lxx clamping coupling",
         (25, 25, 30),
     ),
     (
@@ -659,8 +659,8 @@ _LIFTING_PLATFORM_TEMPLATE_CASES = [
         "transmission",
         "GT2 20T 开式带轮 φ12",
         "",
-        "gt2_timing_pulley_20t",
-        "GT2 20T timing pulley",
+        "gt2_timing_pulley",
+        "GT2 timing pulley",
         (16, 16, 8),
     ),
     (
@@ -804,7 +804,7 @@ def test_lifting_platform_spec_envelopes_match_template_dims() -> None:
             "connector",
             "普通夹紧联轴器",
             "Φ20×25mm",
-            "clamping_coupling_l070",
+            "clamping_coupling_lxx",
             "jinja_primitive:connector",
         ),
         (

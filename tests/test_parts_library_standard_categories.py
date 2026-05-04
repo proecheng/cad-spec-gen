@@ -93,3 +93,90 @@ def test_common_electromechanical_rule_exists_before_terminal_fallback(
 
     assert rules
     assert rules[0]["match"].get("category") == category
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("bearing", "MGN12H 直线导轨滑块", ""),
+        ("transmission", "GT2 30T 同步带轮", "孔径8mm 6mm带宽"),
+        ("connector", "KF301 接线端子", "3P 5.08mm"),
+        ("pneumatic", "二位五通电磁阀", "DC24V"),
+    ],
+)
+def test_common_model_batch_2_rule_exists_before_terminal_fallback(
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    """第二批常用模型库应有显式规则，不能只靠终端 fallback。"""
+    query = PartQuery(
+        part_no="B2-DEFAULT-RULE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules
+    assert rules[0]["match"].get("category") == category
+
+
+def test_batch_2_linear_guide_route_precedes_generic_bearing_routes() -> None:
+    """线性导轨滑块应先走 B 级模板，不被通用轴承 catalog 抢走。"""
+    query = PartQuery(
+        part_no="B2-LINEAR-GUIDE",
+        name_cn="MGN12H 直线导轨滑块",
+        material="",
+        category="bearing",
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(query)
+
+    assert rules[0]["adapter"] == "jinja_primitive"
+    assert rules[0]["match"].get("name_contains") == [
+        "直线导轨",
+        "linear guide",
+        "MGN",
+        "HGW",
+        "HGH",
+        "导轨滑块",
+    ]
+
+
+def test_batch_2_normal_bearing_route_is_not_stolen_by_linear_guide() -> None:
+    """普通滚动轴承仍应优先使用标准件库。"""
+    query = PartQuery(
+        part_no="B2-BEARING",
+        name_cn="608ZZ 深沟球轴承",
+        material="",
+        category="bearing",
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(query)
+
+    assert rules[0]["adapter"] in {"sw_toolbox", "bd_warehouse"}
+
+
+def test_batch_2_m12_sensor_route_is_not_stolen_by_connector_rule() -> None:
+    """裸 M12 不能把接近开关误导到连接器模板。"""
+    query = PartQuery(
+        part_no="B2-SENSOR",
+        name_cn="M12 电感接近开关",
+        material="PNP NO",
+        category="sensor",
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules[0]["match"].get("category") == "sensor"
