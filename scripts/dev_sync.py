@@ -14,8 +14,10 @@ from __future__ import annotations
 import ast
 import argparse
 import hashlib
+import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +40,7 @@ _KNOWLEDGE_PAIRS = {
     "skill_cad_help.md": "knowledge/skill_cad_help_zh.md",
     "skill_mech_design.md": "knowledge/skill_mech_design_zh.md",
 }
+_SKILL_METADATA = "skill.json"
 
 
 def _md5(path: Path) -> str:
@@ -234,7 +237,6 @@ def _render_skill_row(skill: dict) -> str:
 
 def _render_agents_md(data_dir: Path) -> str:
     """从 data_dir/skill.json 渲染 AGENTS.md 内容。"""
-    import json
     skill_json = json.loads((data_dir / "skill.json").read_text(encoding="utf-8"))
     skill_rows = "\n".join(_render_skill_row(s) for s in skill_json["skills"])
     return _AGENTS_TEMPLATE.format(
@@ -244,6 +246,17 @@ def _render_agents_md(data_dir: Path) -> str:
         skill_count=len(skill_json["skills"]),
         skill_rows=skill_rows,
     )
+
+
+def _render_expected_agents_md(root: Path, data_dir: Path) -> str:
+    """渲染 sync 后应生成的 AGENTS.md，避免 --check 读取旧 metadata。"""
+    skill_source = root / _SKILL_METADATA
+    if not skill_source.exists():
+        return _render_agents_md(data_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        expected_data = Path(tmp)
+        shutil.copy2(skill_source, expected_data / _SKILL_METADATA)
+        return _render_agents_md(expected_data)
 
 
 def _sync_agents_md(root: Path, data_dir: Path) -> bool:
@@ -298,9 +311,16 @@ def sync(root: Path | None = None) -> list[Path]:
         updated.append(data_dir / "system_prompt.md")
 
     # 6. TOP_LEVEL_FILES
+    skill_metadata_dst = data_dir / _SKILL_METADATA
+    if (
+        _sync_file(root / _SKILL_METADATA, skill_metadata_dst)
+        and skill_metadata_dst not in updated
+    ):
+        updated.append(skill_metadata_dst)
+
     for src_name, dst_rel in top_level_files.items():
         dst = data_dir / dst_rel
-        if _sync_file(root / src_name, dst):
+        if _sync_file(root / src_name, dst) and dst not in updated:
             updated.append(dst)
 
     # 7. AGENTS.md（顶层，跨 LLM 兜底；纯从 skill.json 生成）
@@ -350,8 +370,15 @@ def check(root: Path | None = None) -> list[Path]:
         if _needs_file_sync(root / src_name, dst):
             changed.append(dst)
 
+    skill_metadata_dst = data_dir / _SKILL_METADATA
+    if (
+        _needs_file_sync(root / _SKILL_METADATA, skill_metadata_dst)
+        and skill_metadata_dst not in changed
+    ):
+        changed.append(skill_metadata_dst)
+
     agents_path = root / "AGENTS.md"
-    new_agents = _render_agents_md(data_dir)
+    new_agents = _render_expected_agents_md(root, data_dir)
     if not agents_path.exists() or agents_path.read_text(encoding="utf-8") != new_agents:
         changed.append(agents_path)
 

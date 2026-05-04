@@ -3571,6 +3571,33 @@ def cmd_photo3d(args):
     return 0 if status in {"pass", "warning"} else 1
 
 
+def cmd_photo3d_autopilot(args):
+    """运行 Photo3D 门禁并写出普通用户下一步报告。"""
+    from tools.photo3d_autopilot import write_photo3d_autopilot_report
+    from tools.photo3d_gate import run_photo3d_gate
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    report = run_photo3d_gate(
+        PROJECT_ROOT,
+        args.subsystem,
+        artifact_index_path=getattr(args, "artifact_index", None),
+        change_scope_path=getattr(args, "change_scope", None),
+        baseline_signature_path=getattr(args, "baseline_signature", None),
+        output_path=None,
+    )
+    autopilot_report = write_photo3d_autopilot_report(
+        PROJECT_ROOT,
+        args.subsystem,
+        report,
+        artifact_index_path=getattr(args, "artifact_index", None),
+        output_path=getattr(args, "output", None),
+    )
+    log.info("PHOTO3D_AUTOPILOT: %s", autopilot_report.get("ordinary_user_message"))
+    return 0 if report.get("status") in {"pass", "warning"} else 1
+
+
 def cmd_accept_baseline(args):
     """接受当前通过门禁的 Photo3D run 作为后续漂移基准。"""
     from pathlib import Path
@@ -4195,6 +4222,9 @@ def main():
             "with non-blocking warnings; blocked = CAD gate failed and enhancement "
             "must not run. PHOTO3D_REPORT.json enhancement_status is blocked or "
             "not_run at this gate stage.\n"
+            "Ordinary users can run: python cad_pipeline.py photo3d-autopilot "
+            "--subsystem <name>. It writes PHOTO3D_AUTOPILOT.json with the next "
+            "safe action and still never scans directories for the newest file.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
             "consistency is unverified or failed; blocked = CAD gate failed.\n"
@@ -4233,6 +4263,56 @@ def main():
             "PHOTO3D_REPORT.json output path; blocked runs also write "
             "ACTION_PLAN.json and LLM_CONTEXT_PACK.json beside the active run artifacts"
         ),
+    )
+
+    # photo3d-autopilot：普通用户下一步报告
+    p_photo3d_autopilot = sub.add_parser(
+        "photo3d-autopilot",
+        help="Run Photo3D gate and write the ordinary-user next-action report",
+        description=(
+            "Photo3D autopilot 普通用户流程：运行契约门禁，只通过 "
+            "ARTIFACT_INDEX.json 的 active run_id 找产物，写出 "
+            "PHOTO3D_REPORT.json 与 PHOTO3D_AUTOPILOT.json。阻断时沿用 "
+            "ACTION_PLAN.json / LLM_CONTEXT_PACK.json；通过时只给出下一步命令，"
+            "不会静默 accept-baseline 或扫描目录猜最新文件。"
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py photo3d-autopilot --subsystem <name>\n"
+            "Gate status remains pass/warning/blocked. Enhancement delivery status "
+            "remains accepted/preview/blocked and is not produced by this command; "
+            "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
+            "If the first pass/warning run has no accepted baseline, autopilot "
+            "recommends: python cad_pipeline.py accept-baseline --subsystem <name>. "
+            "That explicit command records accepted_baseline_run_id in "
+            "ARTIFACT_INDEX.json; this autopilot command only reports the next "
+            "action and never mutates the baseline."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_autopilot.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_autopilot.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only artifact discovery source for the current run_id."
+        ),
+    )
+    p_photo3d_autopilot.add_argument(
+        "--change-scope",
+        default=None,
+        help="Optional CHANGE_SCOPE.json for baseline drift checking",
+    )
+    p_photo3d_autopilot.add_argument(
+        "--baseline-signature",
+        default=None,
+        help="Optional baseline ASSEMBLY_SIGNATURE.json for accepted baseline comparison",
+    )
+    p_photo3d_autopilot.add_argument(
+        "--output",
+        default=None,
+        help="PHOTO3D_AUTOPILOT.json output path (default: current run directory)",
     )
 
     # accept-baseline：显式接受通过门禁的 Photo3D run
@@ -4323,6 +4403,7 @@ def main():
         "model-import": cmd_model_import,
         "product-graph": cmd_product_graph,
         "photo3d": cmd_photo3d,
+        "photo3d-autopilot": cmd_photo3d_autopilot,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,
     }

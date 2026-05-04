@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | photo3d, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | photo3d, photo3d-autopilot, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -432,7 +432,15 @@ First-time setup:
 
 **Trigger**: User asks for one-click photorealistic 3D output, photo3d, pass/warning/blocked gate status, accepted/preview/blocked delivery status, baseline drift, or LLM next actions.
 
-Recommended command:
+Recommended ordinary-user command:
+
+```bash
+python cad_pipeline.py photo3d-autopilot --subsystem <name>
+```
+
+`photo3d-autopilot` first runs the `photo3d` contract gate, then writes `PHOTO3D_AUTOPILOT.json`. The autopilot report is the fixed round-end report for ordinary users and LLMs: when gate status is `blocked`, it points to `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`; when gate status is `pass` / `warning` and there is no accepted baseline, it recommends the explicit user-confirmed command `python cad_pipeline.py accept-baseline --subsystem <name>`; when `accepted_baseline_run_id` already exists, it recommends enhancement. It does not accept the baseline silently, does not switch `active_run_id`, and does not scan directories for the newest file.
+
+Underlying gate command:
 
 ```bash
 python cad_pipeline.py photo3d --subsystem <name>
@@ -465,6 +473,7 @@ At this gate stage, `PHOTO3D_REPORT.json` may include `enhancement_status` as `n
 Outputs for ordinary users and LLMs:
 
 - `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
+- `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
 - `LLM_CONTEXT_PACK.json`: compact context pack for other LLMs; it must reference only current `run_id` artifacts registered in `ARTIFACT_INDEX.json`.
 

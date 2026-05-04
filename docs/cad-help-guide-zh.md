@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 运行 `python cad_pipeline.py photo3d --subsystem <name>`，验证当前 `run_id` 的契约链，生成普通用户报告和大模型动作计划 |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户运行 `python cad_pipeline.py photo3d-autopilot --subsystem <name>`，验证当前 `run_id` 的契约链，生成下一步报告；底层门禁命令为 `python cad_pipeline.py photo3d --subsystem <name>` |
 
 ### v2.3.0 新增能力
 
@@ -177,6 +177,14 @@ python gemini_gen.py \
 ### Photo3D 一键照片级契约门禁
 
 普通用户优先使用：
+
+```bash
+python cad_pipeline.py photo3d-autopilot --subsystem <name>
+```
+
+它会先运行 `photo3d` 契约门禁，再写出 `PHOTO3D_AUTOPILOT.json`。这个报告只给普通用户和大模型一个安全的下一步：`blocked` 时指向 `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`；`pass` / `warning` 且没有 accepted baseline 时，建议用户确认后显式运行 `python cad_pipeline.py accept-baseline --subsystem <name>`；已有 `accepted_baseline_run_id` 时，才建议进入增强阶段。`photo3d-autopilot` 不会静默接受 baseline，不会切换 `active_run_id`，也不会扫描目录猜最新文件。
+
+底层门禁命令：
 
 ```bash
 python cad_pipeline.py photo3d --subsystem <name>

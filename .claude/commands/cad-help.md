@@ -18,11 +18,12 @@
    - 按该意图的"动作详情"执行（能跑程序的直接跑，需引导的分步展开）
    - 如果匹配不到任何意图，回复"未能理解您的问题"并显示帮助面板
 
-3. **Photo3D / 照片级一键出图请求**（当用户说 photo3d、照片级、傻瓜式出图、pass/warning/blocked、accepted/preview/blocked、run_id、baseline、动作计划或让其他大模型继续时）：
+3. **Photo3D / 照片级一键出图请求**（当用户说 photo3d、photo3d-autopilot、照片级、傻瓜式出图、pass/warning/blocked、accepted/preview/blocked、run_id、baseline、动作计划或让其他大模型继续时）：
 
-   - 推荐命令：`python cad_pipeline.py photo3d --subsystem <name>`
+   - 普通用户推荐命令：`python cad_pipeline.py photo3d-autopilot --subsystem <name>`；底层门禁命令：`python cad_pipeline.py photo3d --subsystem <name>`。
    - 运行前确认目标子系统；不要用产品名、目录名相似度或旧 PNG 猜测目标。
-   - 该命令只读取当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物，不能扫描目录猜最新文件。
+   - 这些命令只读取当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物，不能扫描目录猜最新文件。
+   - `photo3d-autopilot` 会先运行 `photo3d` 门禁，再写 `PHOTO3D_AUTOPILOT.json`：`blocked` 时指向 `ACTION_PLAN.json` / `LLM_CONTEXT_PACK.json`；`pass` / `warning` 且没有 accepted baseline 时，只建议用户确认后显式运行 `python cad_pipeline.py accept-baseline --subsystem <name>`；已有 `accepted_baseline_run_id` 时，才建议进入增强。它不会静默接受 baseline，也不会切换 `active_run_id`。
    - 解释门禁状态（Gate status）：
      - `pass`：CAD 契约门禁通过，可以进入增强阶段。
      - `warning`：CAD 契约门禁通过但有非阻断警告，只能带着警告进入增强或先人工复核。
@@ -34,6 +35,7 @@
      - 当前门禁阶段的 `PHOTO3D_REPORT.json` 只会把 `enhancement_status` 写成 `not_run` 或 `blocked`；`accepted` / `preview` 属于后续增强交付层。
    - 阻断时读取并解释：
      - `PHOTO3D_REPORT.json`：普通用户中文阻断原因。
+     - `PHOTO3D_AUTOPILOT.json`：普通用户本轮下一步报告。
      - `ACTION_PLAN.json`：允许大模型执行的下一步动作。
      - `LLM_CONTEXT_PACK.json`：给其他大模型的当前 run 最小上下文。
    - 路径隔离：每次运行都有独立 `run_id`；契约在 `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/`，渲染图在 `cad/output/renders/<subsystem>/<run_id>/`。
@@ -127,7 +129,7 @@
 - **模型选择闭环**（v2.21.2+）：`DESIGN_REVIEW.json` 可携带 `geometry` 分组、`group_action`、`candidates`、A-E 质量等级和建议动作；用户提供 STEP 时，Agent 必须把结构化 `model_choices` 放入 supplements。管线会复制到 `std_parts/user_provided/`、写 `model_choices.json`、前置更新 `parts_library.yaml`，下一次 codegen 实际导入该 STEP。用户已直接给出可信 STEP 时，可运行 `python cad_pipeline.py model-import --subsystem <name> --part-no <id> --step <path.step>`，命令会复制 STEP、更新 `parts_library.yaml`、写 `model_imports.json` 并校验 resolver 会命中 `step_pool`。
 - **Registry inheritance + coverage / geometry report**（v2.8.1+ / v2.21.2+）：`parts_library.yaml` 加 `extends: default` 即可继承 skill 自带的 default 规则,project mappings prepend 到 default 之前。`gen_std_parts.py` 末尾打印 per-adapter 覆盖率表，并写 `cad/<subsystem>/.cad-spec-gen/geometry_report.json`；报告告诉用户哪些零件用了真实/参数化模型、哪些仍是 D/E 级简化 fallback，以及如何升级。需要只读复查时运行 `python cad_pipeline.py model-audit --subsystem <name>`；`--strict` 可用于 CI 中发现需审查模型或缺失 STEP 时返回 exit 1。
 - **SW export plan（v2.24.0+）**：当用户询问 SolidWorks/Toolbox 候选导出、缓存复用或导出前检查时，运行 `python cad_pipeline.py sw-export-plan --subsystem <name> [--json]`。该命令只写/读 `cad/<subsystem>/.cad-spec-gen/sw_export_plan.json` 候选计划，候选动作仅为 `reuse_cache` 或 `export`，不会启动 SolidWorks COM 导出；真正导出必须由用户确认后显式执行。
-- **Photo3D 契约门禁（v2.25+）**：照片级出图前运行 `python cad_pipeline.py photo3d --subsystem <name>`。它绑定 `run_id`、`ARTIFACT_INDEX.json`、产品图、模型契约、装配签名、渲染清单和 baseline；门禁状态是 `pass` / `warning` / `blocked`，增强交付状态才是 `accepted` / `preview` / `blocked`。用户确认 `pass` / `warning` 报告后运行 `python cad_pipeline.py accept-baseline --subsystem <name>` 写入 `accepted_baseline_run_id`，后续 `photo3d --change-scope` 自动复用该基线。`blocked` 时写 `PHOTO3D_REPORT.json`、`ACTION_PLAN.json`、`LLM_CONTEXT_PACK.json`。大模型必须按动作计划继续，不能扫描目录猜最新文件，也不能用 AI 增强补 CAD 阶段缺失结构。
+- **Photo3D 契约门禁（v2.25+）**：照片级出图前普通用户运行 `python cad_pipeline.py photo3d-autopilot --subsystem <name>`，它先运行底层 `python cad_pipeline.py photo3d --subsystem <name>`，再写 `PHOTO3D_AUTOPILOT.json` 下一步报告。它绑定 `run_id`、`ARTIFACT_INDEX.json`、产品图、模型契约、装配签名、渲染清单和 baseline；门禁状态是 `pass` / `warning` / `blocked`，增强交付状态才是 `accepted` / `preview` / `blocked`。用户确认 `pass` / `warning` 报告后运行 `python cad_pipeline.py accept-baseline --subsystem <name>` 写入 `accepted_baseline_run_id`，后续 `photo3d --change-scope` 自动复用该基线。`blocked` 时写 `PHOTO3D_REPORT.json`、`ACTION_PLAN.json`、`LLM_CONTEXT_PACK.json`，autopilot 报告只指向允许动作。大模型必须按动作计划继续，不能扫描目录猜最新文件，也不能用 AI 增强补 CAD 阶段缺失结构。
 - **法兰 F1+F3 + GLB consolidator**（v2.8.2+）：`disc_arms` 几何模板重写——arm + platform 贯通整个 disc 厚度,加 chamfer/fillet polish。`codegen/consolidate_glb.py` 在 build 后自动合并 CadQuery 的 per-face mesh 拆分,使每个 BOM part 在 GLB 里是单个 mesh node(GISBOT: 321 → 39 components)
 - **Phase B 多 vendor STEP**（v2.8.2+）：`tools/synthesize_demo_step_files.py` 生成 Maxon GP22C / LEMO FGG.0B / ATI Nano17 等参数化 stand-in STEP 文件,用于演示 step pool 路径。真实 vendor STEP 应替换这些占位符
 - **只读阶段零副作用**：审查、候选展示、报告诊断只能使用 `inspect` / `probe` 或既有决策日志；不得为展示选项启动 SolidWorks COM 导出、生成 STEP 缓存或改写模型库。注意 legacy `probe_dims()` 仍可能为 vendor stand-in 预热共享缓存；需要绝对只读时优先使用 `cad_pipeline.py model-audit`、`resolve(..., mode="probe")` 或既有 `geometry_report.json`。

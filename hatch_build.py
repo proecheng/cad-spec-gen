@@ -65,6 +65,7 @@ COPY_DIRS = {
 # Spec 1 Phase 5: top-level files shipped as data payload inside the wheel.
 # These land at src/cad_spec_gen/data/<basename> at build time.
 TOP_LEVEL_FILES = {
+    "skill.json": "skill.json",
     "parts_library.default.yaml": "parts_library.default.yaml",
 }
 
@@ -80,6 +81,7 @@ GENERATED_DATA_ARTIFACTS = [
     "src/cad_spec_gen/data/knowledge/skill_cad_help_zh.md",
     "src/cad_spec_gen/data/knowledge/skill_mech_design_zh.md",
     "src/cad_spec_gen/data/system_prompt.md",
+    "src/cad_spec_gen/data/skill.json",
     "src/cad_spec_gen/data/parts_library.default.yaml",
 ]
 
