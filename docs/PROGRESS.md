@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-04 |
-| 当前分支 | `codex/common-model-library-expansion` |
-| 最新功能基线 | 功能分支：常用模型库扩展第一批，待合并 |
-| 最新合并提交 | `9c68559 merge: 合并只读项目向导` |
+| 当前分支 | `main` |
+| 最新功能基线 | `87c184a feat(parts-library): 扩展常用模型库通用类别` |
+| 最新合并提交 | `87c184a feat(parts-library): 扩展常用模型库通用类别` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 功能分支 `pytest tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_resolve_report.py tests\test_parts_library_integration.py tests\test_parts_library_standard_categories.py tests\test_common_model_library_expansion.py -q` -> `208 passed, 2 skipped` |
+| 最近验证 | 合并到 `main` 后 `pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `298 passed, 2 skipped` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | 无；本轮新增测试和计划将随功能分支提交 |
+| 当前未跟踪 | 无 |
 
 ## 一句话结论
 
@@ -40,7 +40,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | Build artifact backfill | 恢复动作后把更多运行时证据登记回当前 run | `photo3d-recover build` 成功后回填当前 run 的 `ASSEMBLY_SIGNATURE.json`、`ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP；optional 产物只在精确路径、配置路径或唯一候选存在时登记 | 下一步把增强验收摘要接入 `photo3d-run` / 项目向导 |
 | Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
 | Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
-| Done (branch) | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 提交并合并后继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
+| Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
 
 ## 当前能力边界
 
@@ -67,14 +67,17 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 提交后把 `codex/common-model-library-expansion` 合回 `main`，并在合并后复跑 focused tests、`dev_sync.py --check`、`git diff --check`。
-2. 下一轮继续按类别扩展模型库：linear guide、更多轴承/联轴器/皮带轮/齿轮、端子/接插件、更多气动件，并坚持默认库通用规则加项目库覆盖的边界。
-3. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+1. 下一轮继续按类别扩展模型库：linear guide、更多轴承/联轴器/皮带轮/齿轮、端子/接插件、更多气动件，并坚持默认库通用规则加项目库覆盖的边界。
+2. 后续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+3. 把 `project-guide` 与模型质量报告、导入 STEP、SW export plan 的用户提示进一步整合。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-04 | `python -m pytest tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `298 passed, 2 skipped` |
+| 2026-05-04 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过 |
+| 2026-05-04 | `git diff --check` | 合并到 `main` 后通过 |
 | 2026-05-04 | `python -m pytest tests\test_common_model_library_expansion.py -q` | 先红后绿，最终 `26 passed`；覆盖分类、默认路由、可复用 B 级模板、线束 codegen 和新增模板包络不超 `real_dims` |
 | 2026-05-04 | `python -m pytest tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_resolve_report.py tests\test_parts_library_integration.py tests\test_parts_library_standard_categories.py tests\test_common_model_library_expansion.py -q` | `208 passed, 2 skipped`；覆盖适配器、默认库、报告和通用模型库扩展 |
 | 2026-05-04 | `python scripts\dev_sync.py` | 同步安装版镜像；跟踪镜像 `src/cad_spec_gen/data/codegen/gen_std_parts.py` 更新 |
