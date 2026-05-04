@@ -9,12 +9,12 @@
 | --- | --- |
 | 更新日期 | 2026-05-04 |
 | 主分支 | `main` |
-| 当前工作分支 | `codex/photo3d-enhance-consistency` |
-| 最新功能基线 | 进行中：`feat(photo3d): 增加增强一致性验收` |
+| 最新功能基线 | `feat(photo3d): 增加增强一致性验收` |
+| 最新合并提交 | `36b651a merge: 合并增强一致性验收` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `python -m pytest -q` -> `2039 passed, 18 skipped, 10 warnings`；最终聚焦矩阵 -> `152 passed` |
+| 最近验证 | 合并到 `main` 后 `python -m pytest -q` -> `2044 passed, 14 skipped, 8 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
-| 当前未跟踪 | `docs/superpowers/plans/2026-05-04-enhancement-consistency-acceptance.md`（本轮计划，待提交）；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
+| 当前未跟踪 | 无；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
 
 ## 一句话结论
 
@@ -72,7 +72,10 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | 2026-05-04 | `python -m pytest tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | `11 passed`；覆盖 `enhance-check` help、metadata、文档与工具镜像同步 |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；CLI、metadata、工具镜像无漂移 |
 | 2026-05-04 | `python -m pytest tests\test_enhance_consistency.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `152 passed` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 合并到 `main` 后通过 |
+| 2026-05-04 | `python -m pytest tests\test_enhance_consistency.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `152 passed` |
 | 2026-05-04 | `python -m pytest -q` | `2039 passed, 18 skipped, 10 warnings`；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
+| 2026-05-04 | `python -m pytest -q` | 合并到 `main` 后 `2044 passed, 14 skipped, 8 warnings`；全量测试生成的 `cad/lifting_platform/std_*.py` 噪音已清理 |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 全量测试后复查通过 |
 | 2026-05-04 | `python -m pytest tests\test_enhance_consistency.py -q` | 新增空 manifest 阻断回归后 `11 passed` |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 最终复查通过 |
