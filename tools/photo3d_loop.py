@@ -14,6 +14,9 @@ from tools.photo3d_gate import run_photo3d_gate
 TERMINAL_AUTOPILOT_STATUSES = {
     "needs_baseline_acceptance",
     "ready_for_enhancement",
+    "enhancement_accepted",
+    "enhancement_preview",
+    "enhancement_blocked",
 }
 
 
@@ -61,6 +64,7 @@ def run_photo3d_loop(
 
     rounds: list[dict[str, Any]] = []
     status = "loop_limit_reached"
+    enhancement_summary = None
     next_action: dict[str, Any] = {
         "kind": "rerun_photo3d_run",
         "requires_user_confirmation": False,
@@ -89,11 +93,13 @@ def run_photo3d_loop(
             "action_run_status": None,
             "post_action_autopilot": {"rerun": False},
             "artifacts": _round_artifacts(autopilot),
+            "enhancement_summary": autopilot.get("enhancement_summary"),
         }
 
         autopilot_status = str(autopilot.get("status") or "")
         if autopilot_status in TERMINAL_AUTOPILOT_STATUSES:
             status = autopilot_status
+            enhancement_summary = autopilot.get("enhancement_summary")
             next_action = dict(autopilot.get("next_action") or {})
             rounds.append(round_report)
             break
@@ -154,6 +160,7 @@ def run_photo3d_loop(
             post_status = str(post_action_autopilot.get("status") or "")
             if post_status in TERMINAL_AUTOPILOT_STATUSES:
                 status = post_status
+                enhancement_summary = post_action_autopilot.get("enhancement_summary")
                 next_action = dict(post_action_autopilot.get("next_action") or {})
                 break
             if post_status == "blocked":
@@ -194,7 +201,11 @@ def run_photo3d_loop(
         "run_id": active_run_id,
         "subsystem": subsystem,
         "status": status,
-        "ordinary_user_message": _ordinary_user_message(status),
+        "ordinary_user_message": _ordinary_user_message(
+            status,
+            enhancement_summary=enhancement_summary,
+        ),
+        "enhancement_summary": enhancement_summary,
         "confirmed_actions": confirm_actions,
         "max_rounds": max_rounds,
         "round_count": len(rounds),
@@ -213,16 +224,30 @@ def command_return_code_for_loop(report: dict[str, Any]) -> int:
     return 0 if report.get("status") in {
         "needs_baseline_acceptance",
         "ready_for_enhancement",
+        "enhancement_accepted",
+        "enhancement_preview",
+        "enhancement_blocked",
         "awaiting_action_confirmation",
         "needs_user_input",
         "needs_manual_review",
     } else 1
 
 
-def _ordinary_user_message(status: str) -> str:
+def _ordinary_user_message(
+    status: str,
+    *,
+    enhancement_summary: dict[str, Any] | None = None,
+) -> str:
+    if status in {"enhancement_accepted", "enhancement_preview", "enhancement_blocked"}:
+        message = (enhancement_summary or {}).get("ordinary_user_message")
+        if message:
+            return str(message)
     messages = {
         "needs_baseline_acceptance": "Photo3D 多轮向导已到达 baseline 确认点；请人工确认后运行 accept-baseline。",
         "ready_for_enhancement": "Photo3D 多轮向导已到达增强入口；请按当前 run 的增强命令继续。",
+        "enhancement_accepted": "增强一致性验收通过，可作为照片级交付。",
+        "enhancement_preview": "增强图已生成但仍有交付风险，只能作为预览。",
+        "enhancement_blocked": "增强验收阻断；请按 ENHANCEMENT_REPORT.json 修复后复查。",
         "awaiting_action_confirmation": "Photo3D 多轮向导发现低风险恢复动作；加 --confirm-actions 后才会执行。",
         "needs_user_input": "Photo3D 多轮向导需要用户提供资料或选择模型。",
         "needs_manual_review": "Photo3D 多轮向导遇到不能自动处理的动作；请人工复查报告。",
