@@ -11,7 +11,7 @@
 | 主分支 | `main` |
 | 最新功能基线 | `feat(photo3d): 增加多轮出图向导` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `python -m pytest -q` -> `2030 passed, 18 skipped, 10 warnings` |
+| 最近验证 | `python -m pytest -q` -> `2034 passed, 14 skipped, 8 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过 |
 | 当前未跟踪 | 无 |
 
@@ -103,6 +103,8 @@ Photo3D 契约驱动出图主线已进入“多轮向导 + 报告 + 确认执行
 | 2026-05-04 | `python -m pytest tests\test_photo3d_loop.py tests\test_photo3d_action_runner.py tests\test_photo3d_autopilot.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_photo3d_llm_action_plan.py tests\test_photo3d_recover.py tests\test_photo3d_gate_contract.py tests\test_photo3d_accept_baseline.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | `198 passed` |
 | 2026-05-04 | `python scripts/dev_sync.py --check` | 通过；`photo3d-run` CLI、metadata、工具镜像无漂移 |
 | 2026-05-04 | `python -m pytest -q` | `2030 passed, 18 skipped, 10 warnings` |
+| 2026-05-04 | `python scripts/dev_sync.py --check` | 合并到 `main` 后通过 |
+| 2026-05-04 | `python -m pytest -q` | 合并到 `main` 后 `2034 passed, 14 skipped, 8 warnings` |
 
 ## 每轮结束模板
 
