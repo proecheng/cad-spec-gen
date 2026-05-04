@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：常用模型库扩展第二批已在 `codex/common-model-library-batch-2` 实现并通过最终范围验证，新增 linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动阀和快插接头 B 级模板；路由、包络和 category-scoped 尺寸防漂移测试已落地，详见 [项目看板](../PROGRESS.md) 和 [第二批计划](plans/2026-05-04-common-model-library-batch-2.md)。
+2026-05-04：常用模型库扩展第二批已合并并推送到 `origin/main`，`codex/common-model-library-batch-2` worktree/分支已清理；新增 linear guide、通用联轴器/GT2/齿轮、端子/M12 接插件、气动阀和快插接头 B 级模板；路由、包络和 category-scoped 尺寸防漂移测试已落地，详见 [项目看板](../PROGRESS.md) 和 [第二批计划](plans/2026-05-04-common-model-library-batch-2.md)。
 
 ## 当前主入口
 
@@ -50,9 +50,10 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| Done | 常用模型库扩展第二批 | 已实现并通过最终范围验证；待提交 |
+| Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
+| P1 | 常用模型库扩展第三批 | 扩展轴承座/支撑座、标准线性模组、阀岛/调压过滤器、DIN 导轨件等跨产品高频类别 |
 | P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
