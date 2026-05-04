@@ -3619,6 +3619,34 @@ def cmd_photo3d_action(args):
     return command_return_code(report)
 
 
+def cmd_photo3d_recover(args):
+    """执行绑定当前 run_id 的 Photo3D 低风险恢复动作。"""
+    from tools.photo3d_recover import run_photo3d_recover
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = run_photo3d_recover(
+            PROJECT_ROOT,
+            args.subsystem,
+            getattr(args, "run_id", ""),
+            artifact_index_path=getattr(args, "artifact_index", None),
+            action=getattr(args, "action", ""),
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        log.error("PHOTO3D_RECOVER failed: %s", exc)
+        return 1
+    log.info(
+        "PHOTO3D_RECOVER %s for %s/%s returned %s",
+        report.get("action"),
+        report.get("subsystem"),
+        report.get("run_id"),
+        report.get("returncode"),
+    )
+    return int(report.get("returncode") or 0)
+
+
 def cmd_accept_baseline(args):
     """接受当前通过门禁的 Photo3D run 作为后续漂移基准。"""
     from pathlib import Path
@@ -4249,7 +4277,10 @@ def main():
             "When blocked actions are low-risk CLI recoveries, ordinary users can "
             "preview then explicitly confirm: python cad_pipeline.py photo3d-action "
             "--subsystem <name> --confirm. This writes PHOTO3D_ACTION_RUN.json and "
-            "does not run enhancement or baseline acceptance.\n"
+            "does not run enhancement or baseline acceptance. The underlying "
+            "ACTION_PLAN.json recovery commands must be run-aware photo3d-recover "
+            "commands with --run-id and --artifact-index; bare render/build/"
+            "product-graph commands are not automatic recoveries.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
             "consistency is unverified or failed; blocked = CAD gate failed.\n"
@@ -4314,7 +4345,10 @@ def main():
             "preview/execute allowlisted low-risk ACTION_PLAN.json recovery steps "
             "with: python cad_pipeline.py photo3d-action --subsystem <name> --confirm; "
             "that command writes PHOTO3D_ACTION_RUN.json and keeps user-input "
-            "actions for the user."
+            "actions for the user. ACTION_PLAN.json low-risk CLI recoveries must "
+            "be encoded as photo3d-recover --run-id <run_id> --artifact-index <path> "
+            "--action product-graph|build|render, never as bare render/build/"
+            "product-graph commands."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4358,7 +4392,11 @@ def main():
             "Typical preview: python cad_pipeline.py photo3d-action --subsystem <name>\n"
             "Typical execute: python cad_pipeline.py photo3d-action --subsystem <name> --confirm\n"
             "Allowed automatic CLI recovery commands are limited to product-graph, "
-            "build, and render for the same subsystem/run_id. The command only "
+            "build, and render for the same subsystem/run_id, and ACTION_PLAN.json "
+            "must encode them as the run-aware wrapper: python cad_pipeline.py "
+            "photo3d-recover --subsystem <name> --run-id <run_id> "
+            "--artifact-index cad/<name>/.cad-spec-gen/ARTIFACT_INDEX.json "
+            "--action product-graph|build|render. The command only "
             "resolves files through ARTIFACT_INDEX.json active_run_id and current "
             "run directory; it does not scan directories for latest artifacts and "
             "does not run enhancement or baseline acceptance.\n"
@@ -4404,6 +4442,39 @@ def main():
         "--output",
         default=None,
         help="PHOTO3D_ACTION_RUN.json output path (default: current run directory)",
+    )
+
+    # photo3d-recover：只由 action runner 调用的 run-aware 低风险恢复 wrapper
+    p_photo3d_recover = sub.add_parser(
+        "photo3d-recover",
+        help="Run one run-aware Photo3D low-risk recovery action",
+        description=(
+            "Photo3D recover wrapper：执行 product-graph / build / render 恢复动作，"
+            "但必须显式绑定 --run-id、--artifact-index 和当前 active run。该命令"
+            "不扫描目录猜最新产物、不新建 run、不切换 active_run_id；恢复产物写回"
+            "当前 run 的固定路径，并更新 ARTIFACT_INDEX.json。"
+        ),
+        epilog=(
+            "Typical internal use: python cad_pipeline.py photo3d-recover "
+            "--subsystem <name> --run-id <run_id> --artifact-index "
+            "cad/<name>/.cad-spec-gen/ARTIFACT_INDEX.json --action render\n"
+            "Ordinary users normally run photo3d-action --confirm instead; "
+            "ACTION_PLAN.json must contain this run-aware wrapper shape."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_recover.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_recover.add_argument("--run-id", required=True)
+    p_photo3d_recover.add_argument(
+        "--artifact-index",
+        required=True,
+        help="ARTIFACT_INDEX.json path for the current active run",
+    )
+    p_photo3d_recover.add_argument(
+        "--action",
+        required=True,
+        choices=["product-graph", "build", "render"],
+        help="Low-risk recovery action to run inside the current run scope",
     )
 
     # accept-baseline：显式接受通过门禁的 Photo3D run
@@ -4496,6 +4567,7 @@ def main():
         "photo3d": cmd_photo3d,
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
+        "photo3d-recover": cmd_photo3d_recover,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,
     }

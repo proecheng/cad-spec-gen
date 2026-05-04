@@ -14,6 +14,7 @@ USER_FLOW_TERMS = {
     "photo3d",
     "photo3d-autopilot",
     "photo3d-action",
+    "photo3d-recover",
     "run_id",
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
@@ -149,6 +150,9 @@ def test_photo3d_action_help_explains_confirmed_execution_flow():
         "用户输入",
         "自动重跑",
         "post_action_autopilot",
+        "photo3d-recover",
+        "--run-id",
+        "--artifact-index",
     ):
         assert term in help_text
     assert "python cad_pipeline.py photo3d-action --subsystem <name>" in help_text
@@ -177,6 +181,10 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
+        assert "photo3d-recover" in text, f"{rel} missing run-aware recovery wrapper"
+        assert "--run-id" in text, f"{rel} missing run-aware run_id binding"
+        assert "--artifact-index" in text, f"{rel} missing artifact-index binding"
+        assert "禁止" in text or "must" in text, f"{rel} missing hard recovery rule"
 
 
 def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
@@ -192,6 +200,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d" in tools_by_name, rel
         assert "photo3d_autopilot" in tools_by_name, rel
         assert "photo3d_action" in tools_by_name, rel
+        assert "photo3d_recover" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
             tools_by_name["photo3d"]["cli"]
@@ -206,6 +215,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             == "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
         )
         assert (
+            tools_by_name["photo3d_recover"]["cli"]
+            == "python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action render"
+        )
+        assert (
             tools_by_name["accept_baseline"]["cli"]
             == "python cad_pipeline.py accept-baseline --subsystem <name>"
         )
@@ -215,6 +228,9 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "--confirm" in tools_by_name["photo3d_action"]["description"]
         assert "post_action_autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
+        assert "run-aware" in tools_by_name["photo3d_recover"]["description"]
+        assert "active_run_id" in tools_by_name["photo3d_recover"]["description"]
+        assert "does not scan directories" in tools_by_name["photo3d_recover"]["description"]
         assert "普通用户" in tools_by_name["photo3d_autopilot"]["description"]
         assert "pass/warning/blocked" in tools_by_name["photo3d"]["description"]
         assert "accepted/preview/blocked" in tools_by_name["photo3d"]["description"]

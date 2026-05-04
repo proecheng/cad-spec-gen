@@ -196,7 +196,7 @@ python cad_pipeline.py photo3d-action --subsystem <name>
 python cad_pipeline.py photo3d-action --subsystem <name> --confirm
 ```
 
-`photo3d-action` 只读取当前 `active_run_id` 的 `PHOTO3D_AUTOPILOT.json` / `ACTION_PLAN.json`，默认只写 `PHOTO3D_ACTION_RUN.json` 预览报告；带 `--confirm` 时也只执行白名单内、无需用户输入、low-risk 的 `product-graph` / `build` / `render` 恢复命令。需要用户输入的动作继续询问用户；它不会扫描目录猜最新文件，不会运行增强，也不会接受 baseline。当 `--confirm` 执行的 low-risk CLI 全部成功，且没有用户输入、人工复查或 rejected actions 时，命令会自动重跑 `photo3d-autopilot`，并把下一步摘要写入 `PHOTO3D_ACTION_RUN.json` 的 `post_action_autopilot`；preview、执行失败、仍有用户输入或 rejected actions 时不会自动重跑。
+`photo3d-action` 只读取当前 `active_run_id` 的 `PHOTO3D_AUTOPILOT.json` / `ACTION_PLAN.json`，默认只写 `PHOTO3D_ACTION_RUN.json` 预览报告；带 `--confirm` 时也只执行白名单内、无需用户输入、low-risk 的 `product-graph` / `build` / `render` 恢复命令。`ACTION_PLAN.json` 中这些 CLI 必须是 run-aware wrapper：`python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index cad/<name>/.cad-spec-gen/ARTIFACT_INDEX.json --action product-graph|build|render`；禁止把裸 `product-graph` / `build` / `render --subsystem <name>` 当作自动恢复动作。需要用户输入的动作继续询问用户；它不会扫描目录猜最新文件，不会运行增强，也不会接受 baseline。当 `--confirm` 执行的 low-risk CLI 全部成功，且没有用户输入、人工复查或 rejected actions 时，命令会自动重跑 `photo3d-autopilot`，并把下一步摘要写入 `PHOTO3D_ACTION_RUN.json` 的 `post_action_autopilot`；preview、执行失败、仍有用户输入或 rejected actions 时不会自动重跑。
 
 底层门禁命令：
 
@@ -228,7 +228,7 @@ python cad_pipeline.py photo3d --subsystem <name>
 - `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
 - `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行结果，只记录当前 run 的动作分类、执行结果和后续人工输入项；成功确认执行后，`post_action_autopilot` 固定记录是否自动重跑以及重跑后的 gate/status/next_action 摘要。
 
-大模型必须依据 `ACTION_PLAN.json` 中的动作继续；可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。
+大模型必须依据 `ACTION_PLAN.json` 中的动作继续；可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作，不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
 路径隔离与旧产物清理：
 

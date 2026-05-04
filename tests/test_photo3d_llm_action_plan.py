@@ -25,15 +25,22 @@ def test_render_stale_reason_generates_rerun_render_action(tmp_path):
     assert plan["status"] == "blocked"
     assert plan["actions"][0]["action_id"] == "rerun_render"
     assert plan["actions"][0]["kind"] == "cli"
-    assert "cad_pipeline.py render --subsystem demo" in plan["actions"][0]["command"]
+    assert "cad_pipeline.py photo3d-recover --subsystem demo --run-id RUN001" in plan["actions"][0]["command"]
     assert plan["actions"][0]["argv"] == [
         "python",
         "cad_pipeline.py",
-        "render",
+        "photo3d-recover",
         "--subsystem",
         "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+        "--action",
+        "render",
     ]
     assert plan["actions"][0]["run_id"] == "RUN001"
+    assert plan["actions"][0]["recovery_action"] == "render"
 
 
 def test_missing_model_reason_generates_user_request_action(tmp_path):
@@ -130,6 +137,50 @@ def test_missing_render_manifest_artifact_generates_rerun_render_action(tmp_path
 
     action_plan = json.loads((fixture["run_dir"] / "ACTION_PLAN.json").read_text(encoding="utf-8"))
     assert "rerun_render" in {action["action_id"] for action in action_plan["actions"]}
+    render_action = next(action for action in action_plan["actions"] if action["action_id"] == "rerun_render")
+    assert render_action["argv"] == [
+        "python",
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+        "--action",
+        "render",
+    ]
+
+
+def test_action_plan_uses_report_artifact_index_for_run_aware_recovery(tmp_path):
+    from tools.photo3d_actions import build_action_plan
+
+    report = {
+        "schema_version": 1,
+        "run_id": "RUN001",
+        "subsystem": "demo",
+        "artifact_index": "artifacts/custom/ARTIFACT_INDEX.json",
+        "status": "blocked",
+        "blocking_reasons": [{"code": "render_file_hash_mismatch"}],
+        "artifacts": {},
+    }
+
+    plan = build_action_plan(tmp_path, report)
+
+    assert plan["actions"][0]["argv"] == [
+        "python",
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "artifacts/custom/ARTIFACT_INDEX.json",
+        "--action",
+        "render",
+    ]
 
 
 def test_llm_context_pack_rejects_unregistered_absolute_artifact_paths(tmp_path):

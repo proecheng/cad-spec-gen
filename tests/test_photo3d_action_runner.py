@@ -56,12 +56,44 @@ def _rerun_render_action():
         "action_id": "rerun_render",
         "kind": "cli",
         "label_cn": "重新构建并渲染当前装配",
-        "command": "python cad_pipeline.py render --subsystem demo",
-        "argv": ["python", "cad_pipeline.py", "render", "--subsystem", "demo"],
+        "command": "python cad_pipeline.py photo3d-recover --subsystem demo --run-id RUN001 --artifact-index cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json --action render",
+        "argv": [
+            "python",
+            "cad_pipeline.py",
+            "photo3d-recover",
+            "--subsystem",
+            "demo",
+            "--run-id",
+            "RUN001",
+            "--artifact-index",
+            "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+            "--action",
+            "render",
+        ],
         "requires_user_input": False,
         "risk": "low",
         "run_id": "RUN001",
+        "recovery_action": "render",
     }
+
+
+def _rerun_render_action_with_artifact_index(artifact_index):
+    action = _rerun_render_action()
+    action["argv"] = [
+        "python",
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        artifact_index,
+        "--action",
+        "render",
+    ]
+    action["command"] = " ".join(action["argv"])
+    return action
 
 
 def _rerun_build_action():
@@ -69,11 +101,24 @@ def _rerun_build_action():
         "action_id": "rerun_build",
         "kind": "cli",
         "label_cn": "重新构建当前装配并生成运行时签名",
-        "command": "python cad_pipeline.py build --subsystem demo",
-        "argv": ["python", "cad_pipeline.py", "build", "--subsystem", "demo"],
+        "command": "python cad_pipeline.py photo3d-recover --subsystem demo --run-id RUN001 --artifact-index cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json --action build",
+        "argv": [
+            "python",
+            "cad_pipeline.py",
+            "photo3d-recover",
+            "--subsystem",
+            "demo",
+            "--run-id",
+            "RUN001",
+            "--artifact-index",
+            "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+            "--action",
+            "build",
+        ],
         "requires_user_input": False,
         "risk": "low",
         "run_id": "RUN001",
+        "recovery_action": "build",
     }
 
 
@@ -143,7 +188,19 @@ def test_photo3d_action_confirm_executes_low_risk_cli_with_current_interpreter(
     assert rc == 0
     assert calls == [
         (
-            [sys.executable, "cad_pipeline.py", "render", "--subsystem", "demo"],
+            [
+                sys.executable,
+                "cad_pipeline.py",
+                "photo3d-recover",
+                "--subsystem",
+                "demo",
+                "--run-id",
+                "RUN001",
+                "--artifact-index",
+                "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+                "--action",
+                "render",
+            ],
             {
                 "cwd": str(tmp_path),
                 "capture_output": True,
@@ -161,10 +218,60 @@ def test_photo3d_action_confirm_executes_low_risk_cli_with_current_interpreter(
     assert report["executed_actions"][0]["argv"] == [
         sys.executable,
         "cad_pipeline.py",
-        "render",
+        "photo3d-recover",
         "--subsystem",
         "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+        "--action",
+        "render",
     ]
+
+
+def test_photo3d_action_allows_recovery_wrapper_with_custom_artifact_index_path(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    fixture = _write_action_inputs(
+        tmp_path,
+        action=_rerun_render_action_with_artifact_index("indexes/demo/ARTIFACT_INDEX.json"),
+    )
+    custom_index = tmp_path / "indexes" / "demo" / "ARTIFACT_INDEX.json"
+    custom_index.parent.mkdir(parents=True)
+    custom_index.write_text(fixture["index_path"].read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="render ok", stderr="")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    args = _cmd_args(fixture, confirm=True)
+    args.artifact_index = str(custom_index)
+
+    rc = cad_pipeline.cmd_photo3d_action(args)
+
+    assert rc == 0
+    assert calls == [[
+        sys.executable,
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "indexes/demo/ARTIFACT_INDEX.json",
+        "--action",
+        "render",
+    ]]
 
 
 def test_photo3d_action_confirm_reruns_autopilot_after_success(
@@ -559,7 +666,19 @@ def test_photo3d_action_confirm_stops_after_first_cli_failure(tmp_path, monkeypa
     rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
 
     assert rc == 1
-    assert calls == [[sys.executable, "cad_pipeline.py", "build", "--subsystem", "demo"]]
+    assert calls == [[
+        sys.executable,
+        "cad_pipeline.py",
+        "photo3d-recover",
+        "--subsystem",
+        "demo",
+        "--run-id",
+        "RUN001",
+        "--artifact-index",
+        "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+        "--action",
+        "build",
+    ]]
     report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
     assert report["status"] == "execution_failed"
     assert report["executed_actions"][0]["action_id"] == "rerun_build"
@@ -704,4 +823,34 @@ def test_photo3d_action_rejects_non_allowlisted_cli_action(tmp_path, monkeypatch
     report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
     assert report["status"] == "needs_manual_review"
     assert report["rejected_actions"][0]["action_id"] == "malicious_enhance"
+    assert "not an allowed Photo3D recovery command" in report["rejected_actions"][0]["reason"]
+
+
+def test_photo3d_action_rejects_legacy_recovery_cli_without_run_scope(tmp_path, monkeypatch):
+    import cad_pipeline
+    import tools.photo3d_action_runner as runner
+
+    legacy = {
+        "action_id": "legacy_render",
+        "kind": "cli",
+        "label_cn": "旧式默认目录渲染",
+        "argv": ["python", "cad_pipeline.py", "render", "--subsystem", "demo"],
+        "requires_user_input": False,
+        "risk": "low",
+        "run_id": "RUN001",
+    }
+    fixture = _write_action_inputs(tmp_path, action=legacy)
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+
+    rc = cad_pipeline.cmd_photo3d_action(_cmd_args(fixture, confirm=True))
+
+    assert rc == 1
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_ACTION_RUN.json").read_text(encoding="utf-8"))
+    assert report["status"] == "needs_manual_review"
+    assert report["rejected_actions"][0]["action_id"] == "legacy_render"
     assert "not an allowed Photo3D recovery command" in report["rejected_actions"][0]["reason"]
