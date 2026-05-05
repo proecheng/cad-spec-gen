@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已快进合并 `codex/photo3d-interactive-actions`，待推送/清理 |
+| 当前分支 | `main`，已推送到 `origin/main`；`codex/photo3d-interactive-actions` worktree/分支已清理 |
 | 最新功能基线 | `92347c6 feat(photo3d): 增加确认式下一步交接入口` |
-| 最新合并/进度提交 | `92347c6 feat(photo3d): 增加确认式下一步交接入口` |
+| 最新合并/进度提交 | `66f6fda docs(progress): 记录 handoff 合并验证` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `pytest tests\test_photo3d_handoff.py tests\test_photo3d_loop.py tests\test_photo3d_autopilot.py tests\test_photo3d_action_runner.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `202 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；`codex/photo3d-interactive-actions` worktree/分支待推送后清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；本轮 handoff worktree/分支已清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -32,7 +32,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 普通用户 Photo3D autopilot | 把门禁结果转成固定 round-end 下一步报告 | 新增 `photo3d-autopilot`，写 `PHOTO3D_AUTOPILOT.json`；blocked 指向动作计划；pass/warning 无 baseline 时只建议显式接受；已有 baseline 时建议带 `--dir` 的当前 run 增强命令 | 已在帮助中说明增强后运行 `enhance-check` |
 | Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
-| Verified | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main` 并通过合并后回归 | 推送 `main`，清理已完成 worktree/分支 |
+| Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -77,8 +77,8 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 推送 `photo3d-handoff` 合并结果到 `origin/main`，然后清理已完成的 `photo3d-interactive-actions` worktree/分支。
-2. 把四批模型库沉淀为“添加新族模板的准入清单”：显式分类、默认路由顺序、category-scoped 尺寸、专用模板优先、包络不超界、真实模型优先。
+1. 把四批模型库沉淀为“添加新族模板的准入清单”：显式分类、默认路由顺序、category-scoped 尺寸、专用模板优先、包络不超界、真实模型优先。
+2. 设计 `photo3d-handoff` 的更上层入口，例如 provider-specific enhancement presets 或 UI wizard，让非编程用户只确认“接受基线/运行增强/复查增强/执行修复”。
 3. 需要继续扩模型库时，下一批优先从真实跨产品 BOM 中抽高频族，仍按“红测 -> 显式分类 -> category-scoped 尺寸 -> 默认路由顺序 -> 包络测试 -> sync/check”的通用流程进入。
 
 ## 验证记录
@@ -98,6 +98,9 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_loop.py tests\test_photo3d_autopilot.py tests\test_photo3d_action_runner.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `202 passed` |
 | 2026-05-05 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过；安装版镜像无漂移 |
 | 2026-05-05 | `git diff --check` | 合并到 `main` 后通过 |
+| 2026-05-05 | `git commit -m "docs(progress): 记录 handoff 合并验证"` | 已提交合并验证记录 `66f6fda` |
+| 2026-05-05 | `git push origin main` | 已推送 `main` 到远端，`c74f56d..66f6fda` |
+| 2026-05-05 | `git worktree remove .worktrees\photo3d-interactive-actions`；`git branch -d codex/photo3d-interactive-actions` | 已清理 handoff worktree/分支；保留另一个含未提交改动的独立 worktree |
 | 2026-05-05 | `git worktree add .worktrees\common-model-library-batch-4 -b codex/common-model-library-batch-4` | 已创建第四批计划 worktree |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` | 第四批 worktree 基线 `141 passed, 7 warnings` |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_4.py tests\test_parts_library_standard_categories.py -q` | 先红后绿，最终 `73 passed, 7 warnings`；覆盖第四批分类、模板、负例、默认路由和包络不超 `real_dims` |

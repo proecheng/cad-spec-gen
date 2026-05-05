@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Photo3D 确认式 handoff 已提交 `92347c6` 并快进合并到 `main`，合并后范围回归/同步/空白检查通过，待推送和清理 worktree/分支。新增 `photo3d-handoff` 方案、红绿测试、CLI/metadata/docs 接入和 `PHOTO3D_HANDOFF.json`，让普通用户或大模型在用户说“按建议执行”时只走预览/确认边界，不手拼 shell、不扫描最新目录、不信任旧 JSON argv。详见 [项目看板](../PROGRESS.md) 和 [确认式 handoff 计划](plans/2026-05-05-photo3d-interactive-handoff.md)。
+2026-05-05：Photo3D 确认式 handoff 已提交 `92347c6`、快进合并到 `main`、通过合并后范围回归/同步/空白检查，并随进度提交 `66f6fda` 推送到 `origin/main`；handoff worktree/分支已清理。新增 `photo3d-handoff` 方案、红绿测试、CLI/metadata/docs 接入和 `PHOTO3D_HANDOFF.json`，让普通用户或大模型在用户说“按建议执行”时只走预览/确认边界，不手拼 shell、不扫描最新目录、不信任旧 JSON argv。详见 [项目看板](../PROGRESS.md) 和 [确认式 handoff 计划](plans/2026-05-05-photo3d-interactive-handoff.md)。
 
 ## 当前主入口
 
@@ -59,5 +59,5 @@
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
-| Verified | Photo3D 确认式 handoff | 已合并到 `main` 并通过合并后验证，待推送和清理 worktree/分支 |
+| Done | Photo3D 确认式 handoff | 已合并、验证、推送并清理 worktree/分支 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
