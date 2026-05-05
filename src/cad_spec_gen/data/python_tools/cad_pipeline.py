@@ -3286,6 +3286,35 @@ def cmd_enhance_check(args):
     return 1 if report["status"] == "blocked" else 0
 
 
+def cmd_enhance_review(args):
+    """Ingest explicit human/LLM semantic material review evidence."""
+    from tools.enhancement_semantic_review import (
+        command_return_code_for_enhancement_review,
+        write_enhancement_review_report,
+    )
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = write_enhancement_review_report(
+            PROJECT_ROOT,
+            args.subsystem,
+            review_input_path=getattr(args, "review_input", None),
+            artifact_index_path=getattr(args, "artifact_index", None),
+            output_path=getattr(args, "output", None),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("ENHANCEMENT_REVIEW_REPORT failed: %s", exc)
+        return 1
+    log.info(
+        "Enhancement semantic/material review: %s (%s)",
+        report.get("status"),
+        report.get("enhancement_review_report"),
+    )
+    return command_return_code_for_enhancement_review(report)
+
+
 def cmd_annotate(args):
     """Add component labels to enhanced images."""
     from tools.render_qa import require_render_manifest
@@ -3833,6 +3862,9 @@ def cmd_photo3d_deliver(args):
             artifact_index_path=getattr(args, "artifact_index", None),
             output_path=getattr(args, "output", None),
             include_preview=bool(getattr(args, "include_preview", False)),
+            require_semantic_review=bool(
+                getattr(args, "require_semantic_review", False)
+            ),
         )
     except (FileNotFoundError, OSError, ValueError) as exc:
         log.error("PHOTO3D_DELIVERY_PACKAGE failed: %s", exc)
@@ -4257,6 +4289,56 @@ def main():
         help="Minimum source/enhanced shape similarity for accepted status",
     )
 
+    # enhance-review
+    p_enhance_review = sub.add_parser(
+        "enhance-review",
+        help="Ingest explicit semantic/material review evidence",
+        description=(
+            "Enhancement semantic/material review: reads explicit human or LLM "
+            "review evidence from --review-input, binds it to ARTIFACT_INDEX.json "
+            "active_run_id, same-run render_manifest.json, and same-run "
+            "ENHANCEMENT_REPORT.json, then writes ENHANCEMENT_REVIEW_REPORT.json. "
+            "This command does not call AI, does not accept backend/model/key/url "
+            "settings, and does not scan directories."
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py enhance-review --subsystem <name> "
+            "--review-input <json>\n"
+            "Status semantics: accepted = every expected view has explicit true "
+            "semantic/material checks; preview = bound evidence exists but "
+            "material, geometry, part-count, or photorealism checks failed; "
+            "needs_review = checks are incomplete or non-boolean; blocked = "
+            "run_id/subsystem/source report path/hash/view identity drift. "
+            "The report is optional unless photo3d-deliver --require-semantic-review "
+            "is used, or a same-run ENHANCEMENT_REVIEW_REPORT.json already records "
+            "non-accepted evidence."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_enhance_review.add_argument("--subsystem", "-s", required=True)
+    p_enhance_review.add_argument(
+        "--review-input",
+        required=True,
+        help="Explicit human/LLM review JSON; no directory discovery is performed",
+    )
+    p_enhance_review.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active_run_id source."
+        ),
+    )
+    p_enhance_review.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "ENHANCEMENT_REVIEW_REPORT.json output path "
+            "(default: current active run directory)"
+        ),
+    )
+
     # annotate
     p_annotate = sub.add_parser("annotate", help="Add component labels")
     p_annotate.add_argument("--subsystem", "-s", default=None)
@@ -4551,13 +4633,20 @@ def main():
             "enhance-check --subsystem <name> --dir <render_dir> to write "
             "ENHANCEMENT_REPORT.json with quality_summary; it does not scan "
             "directories for the newest file and only accepts enhanced images "
-            "inside the explicit render dir. "
+            "inside the explicit render dir. For optional human/LLM semantic "
+            "and material review, run python cad_pipeline.py enhance-review "
+            "--subsystem <name> --review-input <json>; it writes "
+            "ENHANCEMENT_REVIEW_REPORT.json with semantic_material_review, "
+            "binds source report paths/hashes to active_run_id, does not call AI, "
+            "and does not scan directories. "
             "When accepted, run python cad_pipeline.py photo3d-deliver --subsystem "
             "<name> to write DELIVERY_PACKAGE.json and README.md under the current "
             "run delivery directory. photo3d-deliver only uses ARTIFACT_INDEX.json "
             "active_run_id and same-run evidence, does not scan directories, and "
             "marks final_deliverable true only for accepted enhancement evidence "
-            "with accepted quality_summary; otherwise it records "
+            "with accepted quality_summary and, when --require-semantic-review is "
+            "used or same-run review evidence exists, accepted semantic_material_review; "
+            "otherwise it records "
             "photo_quality_not_accepted.\n"
             "The first pass is only a candidate baseline; after user confirmation, "
             "run: python cad_pipeline.py accept-baseline --subsystem <name>. "
@@ -4719,10 +4808,16 @@ def main():
             "After ready_for_enhancement, run enhance, then run enhance-check with "
             "the explicit render dir to write ENHANCEMENT_REPORT.json with "
             "quality_summary; it does not scan directories for the newest file. "
+            "Optional human/LLM semantic material evidence is ingested with "
+            "python cad_pipeline.py enhance-review --subsystem <name> "
+            "--review-input <json>, which writes ENHANCEMENT_REVIEW_REPORT.json "
+            "and semantic_material_review without calling AI or scanning directories. "
             "After accepted enhancement and accepted quality_summary, run "
             "python cad_pipeline.py photo3d-deliver --subsystem <name> to write "
             "DELIVERY_PACKAGE.json with final_deliverable only for accepted "
-            "active_run_id evidence; unaccepted quality writes "
+            "active_run_id evidence; pass --require-semantic-review when final "
+            "delivery must also require accepted semantic_material_review; "
+            "unaccepted quality writes "
             "photo_quality_not_accepted. "
             "If the first pass/warning run has no accepted baseline, autopilot "
             "recommends: python cad_pipeline.py accept-baseline --subsystem <name>. "
@@ -4965,11 +5060,12 @@ def main():
         description=(
             "Photo3D deliver：读取当前 ARTIFACT_INDEX.json active_run_id 的 "
             "render_manifest.json、ENHANCEMENT_REPORT.json、PHOTO3D_RUN.json "
-            "和契约证据，写 cad/<name>/.cad-spec-gen/runs/<run_id>/delivery/"
+            "ENHANCEMENT_REVIEW_REPORT.json（如存在）和契约证据，写 cad/<name>/.cad-spec-gen/runs/<run_id>/delivery/"
             "DELIVERY_PACKAGE.json 与 README.md。默认只有 enhancement delivery "
             "status 与 quality_summary 都为 accepted 才复制最终 enhanced/source/"
-            "labeled 图片；preview/blocked 或 photo_quality_not_accepted 只写证据"
-            "报告，不作为照片级最终交付。"
+            "labeled 图片；如同一 run 已有 semantic_material_review 且不是 accepted，"
+            "或传 --require-semantic-review 但缺少 accepted 复核，也只写证据报告，"
+            "不作为照片级最终交付。"
         ),
         epilog=(
             "Typical: python cad_pipeline.py photo3d-deliver --subsystem <name>\n"
@@ -4979,7 +5075,10 @@ def main():
             "images only from the active render dir and copies evidence reports "
             "beside DELIVERY_PACKAGE.json. Use --include-preview only when an "
             "explicit preview package is desired; it is still not marked as a "
-            "final_deliverable."
+            "final_deliverable. Use --require-semantic-review to require same-run "
+            "ENHANCEMENT_REVIEW_REPORT.json accepted semantic_material_review before "
+            "copying final deliverables. preview or blocked evidence remains an "
+            "evidence-only package."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -5002,6 +5101,14 @@ def main():
         "--include-preview",
         action="store_true",
         help="Copy preview enhanced images into a preview package; final_deliverable stays false",
+    )
+    p_photo3d_deliver.add_argument(
+        "--require-semantic-review",
+        action="store_true",
+        help=(
+            "Require same-run ENHANCEMENT_REVIEW_REPORT.json accepted semantic_material_review "
+            "before copying final deliverables"
+        ),
     )
 
     # photo3d-recover：只由 action runner 调用的 run-aware 低风险恢复 wrapper
@@ -5114,6 +5221,7 @@ def main():
         "render": cmd_render,
         "enhance": cmd_enhance,
         "enhance-check": cmd_enhance_check,
+        "enhance-review": cmd_enhance_review,
         "annotate": cmd_annotate,
         "full": cmd_full,
         "init": cmd_init,

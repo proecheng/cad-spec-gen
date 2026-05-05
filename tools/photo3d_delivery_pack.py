@@ -19,6 +19,7 @@ RUN_REPORTS = {
     "photo3d_report": "PHOTO3D_REPORT.json",
     "photo3d_run": "PHOTO3D_RUN.json",
     "photo3d_handoff": "PHOTO3D_HANDOFF.json",
+    "enhancement_review": "ENHANCEMENT_REVIEW_REPORT.json",
 }
 
 
@@ -29,6 +30,7 @@ def run_photo3d_delivery_pack(
     artifact_index_path: str | Path | None = None,
     output_path: str | Path | None = None,
     include_preview: bool = False,
+    require_semantic_review: bool = False,
 ) -> dict[str, Any]:
     """Build an auditable Photo3D delivery package for the active run."""
     root = Path(project_root).resolve()
@@ -120,6 +122,31 @@ def run_photo3d_delivery_pack(
             "message": "最终交付要求增强图质量验收为 accepted。",
         })
 
+    semantic_material_review = _semantic_material_review_summary(
+        root,
+        run_dir,
+        subsystem,
+        active_run_id,
+        manifest_path,
+        enhancement_path,
+    )
+    semantic_material_review["required"] = bool(require_semantic_review)
+    if semantic_material_review["status"] == "not_run":
+        if require_semantic_review:
+            final_deliverable = False
+            blocking_reasons.append({
+                "code": "semantic_review_required",
+                "message": "最终交付要求 ENHANCEMENT_REVIEW_REPORT.json 语义/材质复核为 accepted。",
+            })
+    elif semantic_material_review["status"] != "accepted":
+        final_deliverable = False
+        blocking_reasons.append({
+            "code": "semantic_review_not_accepted",
+            "review_status": semantic_material_review["status"],
+            "review_report": semantic_material_review.get("review_report"),
+            "message": "已有同一 run 的语义/材质复核未 accepted，不能作为最终照片级交付。",
+        })
+
     deliverables = {
         "source_images": [],
         "enhanced_images": [],
@@ -153,6 +180,7 @@ def run_photo3d_delivery_pack(
         "ordinary_user_message": _ordinary_user_message(status),
         "enhancement_status": enhancement_status,
         "quality_summary": quality_summary,
+        "semantic_material_review": semantic_material_review,
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
         "deliverables": deliverables,
@@ -219,6 +247,16 @@ def _source_reports(
             continue
         payload = load_json_required(path, key)
         _assert_current_run_payload(payload, subsystem, active_run_id, filename)
+        if key == "enhancement_review":
+            _assert_enhancement_review_binding(
+                payload,
+                subsystem,
+                active_run_id,
+                project_relative(manifest_path, root),
+                project_relative(enhancement_path, root),
+                manifest_path=manifest_path,
+                enhancement_path=enhancement_path,
+            )
         reports[key] = project_relative(path, root)
     return reports
 
@@ -254,6 +292,59 @@ def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
         "status": "accepted" if enhancement_report.get("delivery_status") == "accepted" else "unknown",
         "view_count": enhancement_report.get("enhanced_view_count") or 0,
         "warnings": [],
+    }
+
+
+def _semantic_material_review_summary(
+    root: Path,
+    run_dir: Path,
+    subsystem: str,
+    active_run_id: str,
+    manifest_path: Path,
+    enhancement_path: Path,
+) -> dict[str, Any]:
+    review_path = run_dir / "ENHANCEMENT_REVIEW_REPORT.json"
+    if not review_path.is_file():
+        return {
+            "schema_version": 1,
+            "status": "not_run",
+            "review_report": None,
+            "required": False,
+        }
+    review = load_json_required(review_path, "enhancement review report")
+    _assert_current_run_payload(review, subsystem, active_run_id, review_path.name)
+    _assert_enhancement_review_binding(
+        review,
+        subsystem,
+        active_run_id,
+        project_relative(manifest_path, root),
+        project_relative(enhancement_path, root),
+        manifest_path=manifest_path,
+        enhancement_path=enhancement_path,
+    )
+    summary = review.get("semantic_material_review")
+    if not isinstance(summary, dict):
+        status = str(review.get("status") or "blocked")
+        return {
+            "schema_version": 1,
+            "status": status,
+            "review_report": project_relative(review_path, root),
+            "required": False,
+            "warnings": [],
+            "blocking_reasons": [{
+                "code": "semantic_material_review_missing",
+                "message": "ENHANCEMENT_REVIEW_REPORT.json 缺少 semantic_material_review。",
+            }],
+        }
+    return {
+        "schema_version": int(summary.get("schema_version") or 1),
+        "status": str(summary.get("status") or review.get("status") or "blocked"),
+        "review_report": project_relative(review_path, root),
+        "required": False,
+        "view_count": int(summary.get("view_count") or review.get("view_count") or 0),
+        "required_checks": list(summary.get("required_checks") or []),
+        "warnings": list(review.get("warnings") or []),
+        "blocking_reasons": list(review.get("blocking_reasons") or []),
     }
 
 
@@ -450,6 +541,56 @@ def _assert_enhancement_report_binding(
             "ENHANCEMENT_REPORT.json render_dir does not match active run: "
             f"{raw_render_dir} != {expected_render_dir}"
         )
+
+
+def _assert_enhancement_review_binding(
+    report: dict[str, Any],
+    subsystem: str,
+    active_run_id: str,
+    render_manifest_rel: str,
+    enhancement_report_rel: str,
+    *,
+    manifest_path: Path | None = None,
+    enhancement_path: Path | None = None,
+) -> None:
+    _assert_current_run_payload(report, subsystem, active_run_id, "ENHANCEMENT_REVIEW_REPORT.json")
+    source_reports = report.get("source_reports")
+    if not isinstance(source_reports, dict):
+        raise ValueError("ENHANCEMENT_REVIEW_REPORT.json missing source_reports")
+    if str(source_reports.get("render_manifest") or "").replace("\\", "/") != render_manifest_rel:
+        raise ValueError(
+            "ENHANCEMENT_REVIEW_REPORT.json render_manifest does not match active run: "
+            f"{source_reports.get('render_manifest')} != {render_manifest_rel}"
+        )
+    if str(source_reports.get("enhancement_report") or "").replace("\\", "/") != enhancement_report_rel:
+        raise ValueError(
+            "ENHANCEMENT_REVIEW_REPORT.json enhancement_report does not match active run: "
+            f"{source_reports.get('enhancement_report')} != {enhancement_report_rel}"
+        )
+    if manifest_path is not None:
+        _assert_report_hash(
+            manifest_path,
+            source_reports.get("render_manifest_sha256"),
+            "ENHANCEMENT_REVIEW_REPORT.json render_manifest",
+        )
+    if enhancement_path is not None:
+        _assert_report_hash(
+            enhancement_path,
+            source_reports.get("enhancement_report_sha256"),
+            "ENHANCEMENT_REVIEW_REPORT.json enhancement_report",
+        )
+    raw_report_path = str(report.get("enhancement_review_report") or "")
+    if raw_report_path and not raw_report_path.endswith("/ENHANCEMENT_REVIEW_REPORT.json"):
+        raise ValueError(
+            "ENHANCEMENT_REVIEW_REPORT.json self path must end with ENHANCEMENT_REVIEW_REPORT.json"
+        )
+    if raw_report_path:
+        expected_prefix = f"cad/{subsystem}/.cad-spec-gen/runs/{active_run_id}/"
+        if not raw_report_path.replace("\\", "/").startswith(expected_prefix):
+            raise ValueError(
+                "ENHANCEMENT_REVIEW_REPORT.json self path does not match active run: "
+                f"{raw_report_path}"
+            )
 
 
 def _assert_current_run_payload(

@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, render-visual-check, render-quality-check, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, render-visual-check, render-quality-check, enhance-review, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -536,13 +536,21 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 `enhance-check` reads only the explicit render directory's `render_manifest.json` and same-directory `*_enhanced.*` files, then writes `ENHANCEMENT_REPORT.json`. Every manifest view must have a matching enhanced image; source/enhanced shape similarity, basic image QA, and deterministic multi-view quality metrics determine `accepted` / `preview` / `blocked`. The report includes `quality_summary` with canvas consistency, contrast, luminance, saturation, occupancy, and warnings such as low contrast or inconsistent view canvas. This is quality evidence, not semantic AI judgment. It does not scan directories for newest files and does not accept enhanced images outside `--dir`.
 
+Optional semantic/material review evidence can be ingested after accepted enhancement:
+
+```bash
+python cad_pipeline.py enhance-review --subsystem <name> --review-input <json>
+```
+
+`enhance-review` reads an explicit human/LLM review JSON and writes `ENHANCEMENT_REVIEW_REPORT.json` in the current active run directory. It verifies `ARTIFACT_INDEX.json.active_run_id`, `run_id`, `subsystem`, same-run `render_manifest.json` and `ENHANCEMENT_REPORT.json` paths plus sha256 hashes, then records `semantic_material_review` with per-view checks such as `geometry_preserved`, `material_consistent`, `photorealistic`, `no_extra_parts`, and `no_missing_parts`. Status values are `accepted`, `preview`, `needs_review`, and `blocked`. It does not call AI, does not accept backend/model/key/url settings, does not scan directories, and does not use review output to repair CAD geometry.
+
 After `ENHANCEMENT_REPORT.json` is `accepted`, build the final delivery package:
 
 ```bash
 python cad_pipeline.py photo3d-deliver --subsystem <name>
 ```
 
-`photo3d-deliver` reads only the current `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/DELIVERY_PACKAGE.json` plus `README.md`. By default it copies final enhanced images, source renders, and unambiguous labeled images only when delivery status is `accepted` and `quality_summary.status` is `accepted`; `preview` / `blocked` or unaccepted quality produce an evidence report but are not marked `final_deliverable`. When quality is not accepted, it records `photo_quality_not_accepted`. It does not scan directories for newest files, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
+`photo3d-deliver` reads only the current `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, optional `ENHANCEMENT_REVIEW_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/DELIVERY_PACKAGE.json` plus `README.md`. By default it copies final enhanced images, source renders, and unambiguous labeled images only when delivery status is `accepted` and `quality_summary.status` is `accepted`; `preview` / `blocked` or unaccepted quality produce an evidence report but are not marked `final_deliverable`. When quality is not accepted, it records `photo_quality_not_accepted`. If same-run `semantic_material_review` exists and is not `accepted`, final delivery is blocked with `semantic_review_not_accepted`. Use `--require-semantic-review` when final delivery must require accepted `semantic_material_review`; missing review then records `semantic_review_required`. It does not scan directories for newest files, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
 
 Outputs for ordinary users and LLMs:
 
@@ -557,7 +565,8 @@ Outputs for ordinary users and LLMs:
 - `PHOTO3D_HANDOFF.json`: preview/execution report from `photo3d-handoff`, including the current source report, rebuilt safe argv, execution result, `followup_action`, `post_handoff_photo3d_run`, `executed_with_followup`, or manual-review reason for the current next action.
 - `PHOTO3D_RUN.json`: multi-round report from `photo3d-run`, including each gate/autopilot/action round, final stop reason, and next safe action.
 - `ENHANCEMENT_REPORT.json`: enhancement delivery acceptance report with per-view source image, enhanced image, similarity, QA, `quality_summary`, and `accepted` / `preview` / `blocked` status.
-- `DELIVERY_PACKAGE.json`: final delivery manifest from `photo3d-deliver`, including source reports, source renders, enhanced images, labeled images, copied evidence files, quality summary, blocking reasons such as `photo_quality_not_accepted`, and `final_deliverable` status.
+- `ENHANCEMENT_REVIEW_REPORT.json`: explicit human/LLM semantic and material review evidence, including `semantic_material_review`, source report paths/hashes, per-view checks, and `accepted` / `preview` / `needs_review` / `blocked` status.
+- `DELIVERY_PACKAGE.json`: final delivery manifest from `photo3d-deliver`, including source reports, source renders, enhanced images, labeled images, copied evidence files, quality summary, optional `semantic_material_review`, blocking reasons such as `photo_quality_not_accepted`, and `final_deliverable` status.
 
 路径隔离 and old artifact cleanup:
 
@@ -581,7 +590,7 @@ Agent rule:
 - Prefer `photo3d-run` / `PHOTO3D_RUN.json` for ordinary users and LLM-facing next-step loops.
 - Keep Phase 4 gates distinct: `render-visual-check` proves active-run view/component contract consistency, while `render-quality-check` proves Blender availability and screenshot pixel quality. Both must stay bound to `ARTIFACT_INDEX.json.active_run_id`.
 - When the user says to execute the recommendation, prefer `photo3d-handoff` so baseline acceptance, enhancement, enhance-check, and action-plan confirmation all go through one confirmed active-run handoff instead of hand-written shell commands. If the user wants a provider, pass only an allowlisted `--provider-preset` such as `engineering`; do not hand-write `--backend` or copy arbitrary JSON argv.
-- When `post_handoff_photo3d_run.status` is `enhancement_accepted`, run `photo3d-deliver` to produce `DELIVERY_PACKAGE.json`; do not manually copy files out of the render directory.
+- When `post_handoff_photo3d_run.status` is `enhancement_accepted`, run `photo3d-deliver` to produce `DELIVERY_PACKAGE.json`; do not manually copy files out of the render directory. If the user or workflow requires semantic/material-level photoreal review, first create explicit review JSON, run `enhance-review`, then use `photo3d-deliver --require-semantic-review`.
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
 - Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. Allowed recovery shell commands must be `photo3d-recover` with explicit `--run-id` and `--artifact-index`, so product-graph/build/render outputs stay bound to the current run. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。

@@ -21,6 +21,7 @@ USER_FLOW_TERMS = {
     "render-visual-check",
     "project-guide",
     "enhance-check",
+    "enhance-review",
     "run_id",
     "RENDER_VISUAL_REGRESSION.json",
     "PHOTO3D_REPORT.json",
@@ -31,7 +32,9 @@ USER_FLOW_TERMS = {
     "DELIVERY_PACKAGE.json",
     "PROJECT_GUIDE.json",
     "ENHANCEMENT_REPORT.json",
+    "ENHANCEMENT_REVIEW_REPORT.json",
     "quality_summary",
+    "semantic_material_review",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
     "ARTIFACT_INDEX.json",
@@ -241,6 +244,9 @@ def test_photo3d_deliver_help_explains_final_delivery_package():
         "blocked",
         "final_deliverable",
         "--include-preview",
+        "--require-semantic-review",
+        "ENHANCEMENT_REVIEW_REPORT.json",
+        "semantic_material_review",
         "does not scan directories",
         "run_id",
         "subsystem",
@@ -411,6 +417,45 @@ def test_enhance_check_help_explains_delivery_acceptance_contract():
     assert "python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>" in help_text
 
 
+def test_enhance_review_help_explains_semantic_material_contract():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "enhance-review", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "enhance-review",
+        "ENHANCEMENT_REVIEW_REPORT.json",
+        "ENHANCEMENT_REPORT.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "--review-input",
+        "--artifact-index",
+        "--output",
+        "human",
+        "LLM",
+        "does not call AI",
+        "does not scan directories",
+        "accepted",
+        "preview",
+        "needs_review",
+        "blocked",
+    ):
+        assert term in help_text
+    assert (
+        "python cad_pipeline.py enhance-review --subsystem <name> --review-input <json>"
+        in help_text
+    )
+
+
 def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
     for rel in (
         "docs/cad-help-guide-zh.md",
@@ -444,6 +489,16 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "quality_summary" in text, f"{rel} missing enhancement quality summary"
         assert "photo_quality_not_accepted" in text, (
             f"{rel} missing final delivery quality blocker"
+        )
+        assert "ENHANCEMENT_REVIEW_REPORT.json" in text, (
+            f"{rel} missing semantic material review report"
+        )
+        assert "semantic_material_review" in text, (
+            f"{rel} missing semantic material review summary"
+        )
+        assert "enhance-review" in text, f"{rel} missing enhance-review command"
+        assert "--require-semantic-review" in text, (
+            f"{rel} missing semantic review delivery gate"
         )
         assert "followup_action" in text, f"{rel} missing handoff follow-up report"
         assert "post_handoff_photo3d_run" in text, (
@@ -512,6 +567,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "render_quality_check" in tools_by_name, rel
         assert "project_guide" in tools_by_name, rel
         assert "enhance_check" in tools_by_name, rel
+        assert "enhancement_review" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
         assert (
             tools_by_name["photo3d"]["cli"]
@@ -558,6 +614,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             == "python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>"
         )
         assert (
+            tools_by_name["enhancement_review"]["cli"]
+            == "python cad_pipeline.py enhance-review --subsystem <name> --review-input <json>"
+        )
+        assert (
             tools_by_name["accept_baseline"]["cli"]
             == "python cad_pipeline.py accept-baseline --subsystem <name>"
         )
@@ -588,6 +648,24 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "does not scan directories" in tools_by_name["photo3d_deliver"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_deliver"]["description"]
         assert "quality_summary" in tools_by_name["enhance_check"]["description"]
+        assert "ENHANCEMENT_REVIEW_REPORT.json" in tools_by_name["enhancement_review"][
+            "description"
+        ]
+        assert "semantic_material_review" in tools_by_name["enhancement_review"][
+            "description"
+        ]
+        assert "does not scan directories" in tools_by_name["enhancement_review"][
+            "description"
+        ]
+        assert "does not call AI" in tools_by_name["enhancement_review"]["description"]
+        assert "active_run_id" in tools_by_name["enhancement_review"]["description"]
+        assert "--review-input" in tools_by_name["enhancement_review"]["description"]
+        assert "--require-semantic-review" in tools_by_name["photo3d_deliver"][
+            "description"
+        ]
+        assert "semantic_material_review" in tools_by_name["photo3d_deliver"][
+            "description"
+        ]
         assert "RENDER_VISUAL_REGRESSION.json" in tools_by_name["render_visual_check"][
             "description"
         ]

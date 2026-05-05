@@ -14,6 +14,7 @@ PHOTO3D_CONTRACT_TOOL_FILES = {
     "change_scope.py",
     "contract_io.py",
     "enhance_consistency.py",
+    "enhancement_semantic_review.py",
     "import_policy.py",
     "layout_contract.py",
     "model_contract.py",
