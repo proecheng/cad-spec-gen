@@ -7,6 +7,7 @@ from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
+from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provider_presets
 
 
 CODEGEN_SENTINELS = ("params.py", "build_all.py", "assembly.py")
@@ -57,6 +58,13 @@ def write_project_guide(
         index_path=index_path,
         active_run_id=active_run_id,
     )
+    provider_choice = _provider_choice(
+        root,
+        subsystem,
+        run_dir,
+        index_path,
+        active_run_id,
+    )
 
     report = {
         "schema_version": 1,
@@ -79,6 +87,8 @@ def write_project_guide(
             "project_guide": project_relative(target, root),
         },
     }
+    if provider_choice:
+        report["provider_choice"] = provider_choice
     if index_path:
         report["artifacts"]["artifact_index"] = project_relative(index_path, root)
     write_json_atomic(target, report)
@@ -201,6 +211,77 @@ def _stage_status(
             "active_run_id": active_run_id,
         },
     }
+
+
+def _provider_choice(
+    root: Path,
+    subsystem: str,
+    run_dir: Path | None,
+    index_path: Path | None,
+    active_run_id: str | None,
+) -> dict[str, Any] | None:
+    if not run_dir or not index_path or not active_run_id:
+        return None
+    source_path, source = _current_photo3d_source(root, run_dir)
+    if not source_path or not source:
+        return None
+    if source.get("subsystem") != subsystem or str(source.get("run_id") or "") != active_run_id:
+        return None
+    next_action = source.get("next_action") or {}
+    if source.get("status") != "ready_for_enhancement":
+        return None
+    if next_action.get("kind") != "run_enhancement":
+        return None
+
+    index_rel = project_relative(index_path, root)
+    presets = public_provider_presets()
+    handoff_actions = []
+    for preset in presets:
+        preset_id = str(preset["id"])
+        argv = [
+            "python",
+            "cad_pipeline.py",
+            "photo3d-handoff",
+            "--subsystem",
+            subsystem,
+            "--artifact-index",
+            index_rel,
+            "--provider-preset",
+            preset_id,
+        ]
+        action: dict[str, Any] = {
+            "provider_preset": preset_id,
+            "ordinary_user_label": preset.get("ordinary_user_label") or preset.get("label"),
+            "requires_user_confirmation": True,
+            "argv": argv,
+        }
+        if _safe_cli_token(subsystem):
+            action["cli"] = " ".join(argv)
+        handoff_actions.append(action)
+    return {
+        "kind": "select_enhancement_provider",
+        "requires_user_confirmation": True,
+        "source_report": project_relative(source_path, root),
+        "default_provider_preset": DEFAULT_PROVIDER_PRESET,
+        "provider_presets": presets,
+        "handoff_actions": handoff_actions,
+    }
+
+
+def _current_photo3d_source(
+    root: Path,
+    run_dir: Path,
+) -> tuple[Path | None, dict[str, Any] | None]:
+    for filename in ("PHOTO3D_RUN.json", "PHOTO3D_AUTOPILOT.json"):
+        path = (run_dir / filename).resolve()
+        try:
+            path.relative_to(run_dir.resolve())
+        except ValueError:
+            continue
+        assert_within_project(path, root, filename)
+        if path.is_file():
+            return path, load_json_required(path, filename)
+    return None, None
 
 
 def _ordinary_user_message(status: str) -> str:

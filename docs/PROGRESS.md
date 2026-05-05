@@ -8,17 +8,17 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已推送到 `origin/main`；provider preset worktree/分支已清理 |
-| 最新功能基线 | `bdf4c26 feat(photo3d): 增加增强 provider preset 交接` |
-| 最新合并/进度提交 | `55be4af docs(progress): 记录 provider preset 合并验证` |
+| 当前分支 | `codex/project-guide-provider-presets`（worktree: `.worktrees/project-guide-provider-presets`），功能已实现并通过范围验证，待提交/合并 |
+| 最新功能基线 | 待提交：project-guide provider preset 选择 |
+| 最新合并/进度提交 | `e955905 docs(progress): 修正 provider preset 收尾状态` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `179 passed` |
+| 最近验证 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `157 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 本 worktree 新增 `docs/superpowers/plans/2026-05-05-project-guide-provider-presets.md`；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库准入 + 确认式 handoff + 增强 provider preset 白名单”阶段：普通用户和大模型不需要手拼增强后端参数，`photo3d-autopilot` 会在增强入口给出可选 preset，`photo3d-handoff` 只把白名单 preset 映射成已支持的 `enhance --backend/--model` 参数，并继续绑定当前 `active_run_id` 和当前 render dir，避免 JSON argv、旧路径或临时后端配置漂移。
+Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库准入 + 确认式 handoff + 增强 provider preset 白名单”阶段：普通用户和大模型不需要手拼增强后端参数；`project-guide` 现在会在当前 active run 已到增强入口时，把同一份白名单 provider preset 选择附到 `PROJECT_GUIDE.json`，并给出预览版 `photo3d-handoff --provider-preset <id>` 命令，仍不运行增强、不接受任意 JSON argv，也不猜旧路径。
 
 ## 看板
 
@@ -34,6 +34,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
 | Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
 | Done | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 | 下一步接入 UI wizard / project-guide provider 选择 |
+| In Progress | Project-guide provider preset 选择 | 让普通用户/大模型从项目级只读报告中看到增强 provider 选项，而不是记 CLI 参数 | `PROJECT_GUIDE.json` 在当前 run `ready_for_enhancement` 且 `next_action.kind=run_enhancement` 时附带 `provider_choice`；只读取当前 run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json`，校验 subsystem/run_id/status/action，所有选项来自 `public_provider_presets()`；预览 argv 不带 `--confirm` | 提交功能分支、合并到 `main`、推送并清理 worktree/分支 |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -68,6 +69,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 - `ENHANCEMENT_REPORT.json` 的 `accepted` 才能作为交付；`preview` 只能预览，`blocked` 表示缺视角、路径越界、同视角多候选或输入不完整。
 - `photo3d-run` 不运行增强、不运行 `enhance-check`、不扫描增强图；它只把已存在且 run/subsystem/render_manifest 都匹配的 `ENHANCEMENT_REPORT.json` 摘要写进 `PHOTO3D_RUN.json`。
 - `project-guide` 只读，除了写 `PROJECT_GUIDE.json` 不修改管线状态；它不扫描目录、不猜最新 run、不接受 baseline、不运行增强，只按显式输入和固定契约路径给出下一条安全命令。
+- `project-guide` 只有在当前 active run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json` 与 subsystem、`active_run_id` 匹配，且状态为 `ready_for_enhancement`、`next_action.kind` 为 `run_enhancement` 时，才附带 `provider_choice`；选项来自 provider preset 白名单，handoff 示例是预览命令，不带 `--confirm`。
 - 常用模型库扩展只把明确、可参数化、跨项目复用的类别放进 `parts_library.default.yaml`；项目真实 STEP、SolidWorks/Toolbox 或用户导入模型仍应通过项目前置规则覆盖默认 B 级模板。
 - 新增线束模板只覆盖明确“线束 / harness / FFC”意图；普通拖链段、柔性同轴等未命中可复用线束模板时继续 `skip`，防止退回无意义盒子。
 - 第二批常用模型库不使用裸 `滑块`、`M12`、`PC6/PC8` 等短 token 抢类别或路由；这些 token 只能在已有明确 family intent 后作为尺寸/针数/管径解析线索。
@@ -83,14 +85,22 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 新开 `codex/project-guide-provider-presets` 分支，把 provider preset 选择接入 `project-guide` 或普通用户向导输出。
-2. 把 provider preset 包装成普通用户可读的“默认/离线工程预览/云增强”选项，而不是要求用户记 CLI 参数。
-3. 若要接入 `gpt-image-2-pro` 或 OpenClaude 之类后端，应先设计真实 `enhance` provider adapter、密钥配置边界、输出一致性验收和多视角测试，再把它加入 preset 白名单；不要把 URL/key/模型名直接写进 handoff JSON。
+1. 提交 `codex/project-guide-provider-presets` 功能分支。
+2. 快进合并到 `main` 后复跑范围验证、同步检查和空白检查，再推送并清理 worktree/分支。
+3. 后续再把 provider preset label 做成更面向普通用户的“默认/离线工程预览/云增强”文案；若要接入 `gpt-image-2-pro` 或 OpenClaude 之类后端，先做真实 `enhance` provider adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-05 | `git worktree add .worktrees\project-guide-provider-presets -b codex/project-guide-provider-presets` | 已创建 project-guide provider preset worktree |
+| 2026-05-05 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | 新 worktree ignored mirror 填充后基线 `21 passed` |
+| 2026-05-05 | `python -m pytest tests\test_project_guide.py -q` | 先红后绿，最终 `10 passed`；覆盖 `provider_choice` 只在当前 run 增强入口出现，且过期 run 报告不会污染项目向导 |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_user_flow.py::test_cad_help_docs_describe_photo3d_foolproof_user_flow tests\test_photo3d_user_flow.py::test_skill_metadata_advertises_photo3d_and_llm_action_reports -q` | 文档/metadata provider preset 指引 `2 passed` |
+| 2026-05-05 | `python scripts\dev_sync.py` | 已同步 `project_guide.py`、`cad_pipeline.py`、cad-help 文档和 skill metadata 的安装版镜像 |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | project-guide provider preset 分支同步检查通过；安装版镜像无漂移 |
+| 2026-05-05 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | project-guide provider preset 分支范围回归 `157 passed` |
+| 2026-05-05 | `git diff --check` | project-guide provider preset 分支空白检查通过；仅 Windows 行尾提示 |
 | 2026-05-05 | `git worktree add .worktrees\model-family-admission -b codex/model-family-admission` | 已创建通用模型族准入 worktree |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 本轮 worktree 基线 `411 passed, 7 warnings` |
 | 2026-05-05 | `python -m pytest tests\test_common_model_family_admission.py -q` | 红测阶段因缺少 admission manifest/runbook 失败；补齐后 `8 passed, 7 warnings` |

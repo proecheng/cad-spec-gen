@@ -103,6 +103,107 @@ def test_project_guide_routes_active_run_to_photo3d_run_without_switching_run(tm
     assert (run_dir / "PROJECT_GUIDE.json").is_file()
 
 
+def test_project_guide_exposes_provider_choices_when_ready_for_enhancement(tmp_path):
+    from tools.project_guide import write_project_guide
+
+    run_dir = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "runs" / "RUN001"
+    run_dir.mkdir(parents=True)
+    index_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "ARTIFACT_INDEX.json"
+    _write_json(
+        index_path,
+        {
+            "schema_version": 1,
+            "subsystem": "demo",
+            "active_run_id": "RUN001",
+            "accepted_baseline_run_id": "RUN001",
+            "runs": {"RUN001": {"run_id": "RUN001", "active": True, "artifacts": {}}},
+        },
+    )
+    _write_json(
+        run_dir / "PHOTO3D_RUN.json",
+        {
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "status": "ready_for_enhancement",
+            "next_action": {
+                "kind": "run_enhancement",
+                "requires_user_confirmation": False,
+            },
+        },
+    )
+    for name in ("CAD_SPEC.md", "params.py", "build_all.py", "assembly.py"):
+        (tmp_path / "cad" / "demo" / name).write_text("ok", encoding="utf-8")
+
+    report = write_project_guide(tmp_path, "demo")
+
+    assert report["status"] == "ready_for_photo3d_run"
+    assert report["next_action"]["kind"] == "run_photo3d_guide"
+    choice = report["provider_choice"]
+    assert choice["kind"] == "select_enhancement_provider"
+    assert choice["source_report"] == "cad/demo/.cad-spec-gen/runs/RUN001/PHOTO3D_RUN.json"
+    assert choice["default_provider_preset"] == "default"
+    assert [preset["id"] for preset in choice["provider_presets"]] == [
+        "default",
+        "engineering",
+        "gemini",
+        "fal",
+        "fal_comfy",
+        "comfyui",
+    ]
+    engineering = next(
+        action for action in choice["handoff_actions"]
+        if action["provider_preset"] == "engineering"
+    )
+    assert engineering["argv"] == [
+        "python",
+        "cad_pipeline.py",
+        "photo3d-handoff",
+        "--subsystem",
+        "demo",
+        "--artifact-index",
+        "cad/demo/.cad-spec-gen/ARTIFACT_INDEX.json",
+        "--provider-preset",
+        "engineering",
+    ]
+    assert "--confirm" not in engineering["argv"]
+
+
+def test_project_guide_ignores_stale_provider_choice_report(tmp_path):
+    from tools.project_guide import write_project_guide
+
+    run_dir = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "runs" / "RUN001"
+    run_dir.mkdir(parents=True)
+    index_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "ARTIFACT_INDEX.json"
+    _write_json(
+        index_path,
+        {
+            "schema_version": 1,
+            "subsystem": "demo",
+            "active_run_id": "RUN001",
+            "accepted_baseline_run_id": "RUN001",
+            "runs": {"RUN001": {"run_id": "RUN001", "active": True, "artifacts": {}}},
+        },
+    )
+    _write_json(
+        run_dir / "PHOTO3D_RUN.json",
+        {
+            "schema_version": 1,
+            "run_id": "OLD001",
+            "subsystem": "demo",
+            "status": "ready_for_enhancement",
+            "next_action": {"kind": "run_enhancement"},
+        },
+    )
+    for name in ("CAD_SPEC.md", "params.py", "build_all.py", "assembly.py"):
+        (tmp_path / "cad" / "demo" / name).write_text("ok", encoding="utf-8")
+
+    report = write_project_guide(tmp_path, "demo")
+
+    assert report["status"] == "ready_for_photo3d_run"
+    assert "provider_choice" not in report
+
+
 def test_project_guide_cli_writes_report(tmp_path, monkeypatch):
     import cad_pipeline
 

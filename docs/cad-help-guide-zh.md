@@ -182,7 +182,7 @@ python gemini_gen.py \
 python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
 ```
 
-`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。
+`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。当前 active run 已到 `ready_for_enhancement` 时，`PROJECT_GUIDE.json` 可附带只读 provider 选择：从白名单 provider preset 生成 `photo3d-handoff --provider-preset <id>` 预览命令，供普通用户或大模型选择增强后端；它不会接受任意 backend、URL、API key、模型名或 JSON argv 注入。
 
 已有 active run 后，使用多轮向导：
 
@@ -263,7 +263,7 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 阻断时会写出：
 
-- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接。
+- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择和 `photo3d-handoff --provider-preset <id>` 预览命令。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
 - `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
