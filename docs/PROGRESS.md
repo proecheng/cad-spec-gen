@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `codex/provider-choice-user-copy`（worktree: `.worktrees/provider-choice-user-copy`），功能已实现并通过范围验证，待提交/合并 |
-| 最新功能基线 | 待提交：provider preset 普通用户可读选项 |
-| 最新合并/进度提交 | `5cc48fe docs(progress): 记录 project-guide provider preset 清理状态` |
+| 当前分支 | `main`，已合并 provider preset 普通用户可读选项；待推送后清理 worktree/分支 |
+| 最新功能基线 | `bfae729 feat(photo3d): 增加 provider 普通用户选项` |
+| 最新合并/进度提交 | 待提交：provider 普通用户选项合并验证记录 |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest tests\test_photo3d_provider_presets.py tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `159 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 本 worktree 新增 `docs/superpowers/plans/2026-05-05-provider-choice-user-copy.md`、`tests/test_photo3d_provider_presets.py`；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；本轮 worktree `.worktrees/provider-choice-user-copy` 待清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -35,7 +35,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
 | Done | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 | 下一步接入 UI wizard / project-guide provider 选择 |
 | Done | Project-guide provider preset 选择 | 让普通用户/大模型从项目级只读报告中看到增强 provider 选项，而不是记 CLI 参数 | 已提交 `1ce807a`、快进合并到 `main`、推送并清理本轮 worktree/分支；`PROJECT_GUIDE.json` 在当前 run `ready_for_enhancement` 且 `next_action.kind=run_enhancement` 时附带 `provider_choice`；只读取当前 run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json`，校验 subsystem/run_id/status/action，所有选项来自 `public_provider_presets()`；预览 argv 不带 `--confirm`；合并后范围回归 `157 passed`、同步/空白检查通过 | 后续可做 provider preset 普通用户文案 / UI wizard |
-| In Progress | Provider preset 普通用户可读选项 | 让非编程用户看到“默认 / 本地工程预览 / 云增强”等稳定选项，而不是只看 provider id 或 CLI 参数 | `public_provider_presets()` 新增 `ordinary_user_title`、`ordinary_user_summary`、`recommended_when`、`requires_setup`；`PROJECT_GUIDE.json` 新增 `provider_choice.ordinary_user_options`，每项包含展示文案、是否需配置、预览 argv/cli；测试阻止 preset 暴露 key/url/secret 字段；范围回归 `159 passed` | 提交功能分支、合并到 `main`、推送并清理 worktree/分支 |
+| Done | Provider preset 普通用户可读选项 | 让非编程用户看到“默认 / 本地工程预览 / 云增强”等稳定选项，而不是只看 provider id 或 CLI 参数 | 已提交 `bfae729` 并快进合并到 `main`；`public_provider_presets()` 新增 `ordinary_user_title`、`ordinary_user_summary`、`recommended_when`、`requires_setup`；`PROJECT_GUIDE.json` 新增 `provider_choice.ordinary_user_options`，每项包含展示文案、是否需配置、预览 argv/cli；测试阻止 preset 暴露 key/url/secret 字段；合并后范围回归 `159 passed`、同步/空白检查通过 | 推送 `main` 后清理本轮 worktree/分支 |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -88,9 +88,9 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 提交 `codex/provider-choice-user-copy` 功能分支。
-2. 快进合并到 `main` 后复跑范围验证、同步检查和空白检查，再推送并清理 worktree/分支。
-3. 后续可以把 `ordinary_user_options` 接到 UI wizard；若要接入 `gpt-image-2-pro` 或 OpenClaude 后端，仍需先做真实 adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
+1. 推送 `main` 到 `origin/main`，并清理 `.worktrees/provider-choice-user-copy` 与 `codex/provider-choice-user-copy`。
+2. 后续可以把 `ordinary_user_options` 接到 UI wizard，形成更傻瓜式的增强后端选择界面。
+3. 若要接入 `gpt-image-2-pro` 或 OpenClaude 后端，仍需先做真实 adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
 
 ## 验证记录
 
@@ -105,6 +105,11 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python scripts\dev_sync.py --check` | provider 选项文案分支同步检查通过；安装版镜像无漂移 |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_provider_presets.py tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | provider 选项文案分支范围回归 `159 passed` |
 | 2026-05-05 | `git diff --check` | provider 选项文案分支空白检查通过；仅 Windows 行尾提示 |
+| 2026-05-05 | `git commit -m "feat(photo3d): 增加 provider 普通用户选项"` | 已提交功能分支实现 `bfae729` |
+| 2026-05-05 | `git merge --ff-only codex/provider-choice-user-copy` | 已快进合并到 `main` |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_provider_presets.py tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `159 passed` |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过；安装版镜像无漂移 |
+| 2026-05-05 | `git diff --check` | 合并到 `main` 后通过 |
 | 2026-05-05 | `git worktree add .worktrees\project-guide-provider-presets -b codex/project-guide-provider-presets` | 已创建 project-guide provider preset worktree |
 | 2026-05-05 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | 新 worktree ignored mirror 填充后基线 `21 passed` |
 | 2026-05-05 | `python -m pytest tests\test_project_guide.py -q` | 先红后绿，最终 `10 passed`；覆盖 `provider_choice` 只在当前 run 增强入口出现，且过期 run 报告不会污染项目向导 |
