@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已合并 project-guide provider preset 选择；待推送后清理 worktree/分支 |
+| 当前分支 | `main`，已推送到 `origin/main`；project-guide provider preset worktree/分支已清理 |
 | 最新功能基线 | `1ce807a feat(project-guide): 增加增强 provider preset 选择` |
-| 最新合并/进度提交 | 待提交：project-guide provider preset 合并验证记录 |
+| 最新合并/进度提交 | `431edb2 docs(progress): 记录 project-guide provider preset 合并验证` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `157 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；本轮 worktree `.worktrees/project-guide-provider-presets` 待清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；本轮 worktree `.worktrees/project-guide-provider-presets` 和分支已清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -34,7 +34,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
 | Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
 | Done | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 | 下一步接入 UI wizard / project-guide provider 选择 |
-| Done | Project-guide provider preset 选择 | 让普通用户/大模型从项目级只读报告中看到增强 provider 选项，而不是记 CLI 参数 | 已提交 `1ce807a` 并快进合并到 `main`；`PROJECT_GUIDE.json` 在当前 run `ready_for_enhancement` 且 `next_action.kind=run_enhancement` 时附带 `provider_choice`；只读取当前 run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json`，校验 subsystem/run_id/status/action，所有选项来自 `public_provider_presets()`；预览 argv 不带 `--confirm`；合并后范围回归 `157 passed`、同步/空白检查通过 | 推送 `main` 后清理本轮 worktree/分支 |
+| Done | Project-guide provider preset 选择 | 让普通用户/大模型从项目级只读报告中看到增强 provider 选项，而不是记 CLI 参数 | 已提交 `1ce807a`、快进合并到 `main`、推送并清理本轮 worktree/分支；`PROJECT_GUIDE.json` 在当前 run `ready_for_enhancement` 且 `next_action.kind=run_enhancement` 时附带 `provider_choice`；只读取当前 run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json`，校验 subsystem/run_id/status/action，所有选项来自 `public_provider_presets()`；预览 argv 不带 `--confirm`；合并后范围回归 `157 passed`、同步/空白检查通过 | 后续可做 provider preset 普通用户文案 / UI wizard |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -85,9 +85,9 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 推送 `main` 到 `origin/main`，并清理 `.worktrees/project-guide-provider-presets` 与 `codex/project-guide-provider-presets`。
-2. 后续把 provider preset label 做成更面向普通用户的“默认/离线工程预览/云增强”文案，必要时再接 UI wizard。
-3. 若要接入 `gpt-image-2-pro` 或 OpenClaude 之类后端，先做真实 `enhance` provider adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
+1. 把 provider preset label 做成更面向普通用户的“默认/离线工程预览/云增强”文案，必要时再接 UI wizard。
+2. 若要接入 `gpt-image-2-pro` 或 OpenClaude 之类后端，先做真实 `enhance` provider adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
+3. 继续清理历史长计划，把当前状态集中在 `docs/PROGRESS.md`，减少用户查看进度时的噪音。
 
 ## 验证记录
 
@@ -106,6 +106,10 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `157 passed` |
 | 2026-05-05 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过；安装版镜像无漂移 |
 | 2026-05-05 | `git diff --check` | 合并到 `main` 后通过 |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 进度文档收尾后 `137 passed` |
+| 2026-05-05 | `git commit -m "docs(progress): 记录 project-guide provider preset 合并验证"` | 已提交合并验证记录 `431edb2` |
+| 2026-05-05 | `git push origin main` | 已推送 `main` 到远端，`e955905..431edb2` |
+| 2026-05-05 | `git worktree remove .worktrees\project-guide-provider-presets`；`git branch -d codex/project-guide-provider-presets`；`git worktree prune` | 已清理 project-guide provider preset worktree/分支；保留另一个含未提交改动的独立 worktree |
 | 2026-05-05 | `git worktree add .worktrees\model-family-admission -b codex/model-family-admission` | 已创建通用模型族准入 worktree |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 本轮 worktree 基线 `411 passed, 7 warnings` |
 | 2026-05-05 | `python -m pytest tests\test_common_model_family_admission.py -q` | 红测阶段因缺少 admission manifest/runbook 失败；补齐后 `8 passed, 7 warnings` |
