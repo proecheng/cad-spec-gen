@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已快进合并并验证 `codex/common-model-library-batch-4`，本地 ahead `origin/main` 1 个实现提交 |
+| 当前分支 | `main`，已推送到 `origin/main`；`codex/common-model-library-batch-4` worktree/分支已清理 |
 | 最新功能基线 | `c4226a3 feat(parts-library): 扩展常用模型库第四批` |
-| 最新合并/进度提交 | `c4226a3 feat(parts-library): 扩展常用模型库第四批` |
+| 最新合并/进度提交 | `c515536 docs(progress): 记录第四批模型库合并验证` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `main` 合并后第四批范围回归 `pytest tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `454 passed, 2 skipped` |
 | 同步检查 | `main` 合并后 `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；第四批 worktree/分支已清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -43,7 +43,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
 | Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已合并并推送到 `origin/main`；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；范围回归通过；已清理 `codex/common-model-library-batch-2` worktree/分支 | 已进入第三批跨产品高频模型库扩展 |
 | Done | 常用模型库扩展第三批 | 扩展更多跨产品高频外购件，继续减少单设备临时调参 | 已实现 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；新增分类、category-scoped 尺寸、默认库显式顺序规则和负例；回归中恢复 `KFL001` 精确模板优先，形成“精确成熟模板优先于通用族模板”的通用规则；已推送到 `origin/main` 并清理 worktree/分支 | 进入下一批跨产品高频模型库或大模型交互动作 |
-| In Progress | 常用模型库扩展第四批 | 覆盖小型电气箱/面板控件、传感器安装附件、真空元件、铝型材/角码 | 已实现 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；新增显式分类、category-scoped 尺寸、默认库显式路由和宽词负例；已提交 `c4226a3`、快进合并到 `main`，合并后回归/同步/空白检查通过 | 推送 `main` 并清理第四批 worktree/分支 |
+| Done | 常用模型库扩展第四批 | 覆盖小型电气箱/面板控件、传感器安装附件、真空元件、铝型材/角码 | 已实现 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；新增显式分类、category-scoped 尺寸、默认库显式路由和宽词负例；已提交 `c4226a3`、快进合并到 `main`，合并后回归/同步/空白检查通过；已推送并清理第四批 worktree/分支 | 进入大模型交互动作或新一批通用模型族 |
 
 ## 当前能力边界
 
@@ -75,9 +75,9 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 推送 `main`，清理 `codex/common-model-library-batch-4` worktree/分支，并更新看板记录清理结果。
-2. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
-3. 把四批模型库沉淀为“添加新族模板的准入清单”：显式分类、默认路由顺序、category-scoped 尺寸、专用模板优先、包络不超界、真实模型优先。
+1. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+2. 把四批模型库沉淀为“添加新族模板的准入清单”：显式分类、默认路由顺序、category-scoped 尺寸、专用模板优先、包络不超界、真实模型优先。
+3. 需要继续扩模型库时，下一批优先从真实跨产品 BOM 中抽高频族，仍按“红测 -> 显式分类 -> category-scoped 尺寸 -> 默认路由顺序 -> 包络测试 -> sync/check”的通用流程进入。
 
 ## 验证记录
 
@@ -96,6 +96,9 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 第四批合并到 `main` 后 `454 passed, 2 skipped, 11 warnings` |
 | 2026-05-05 | `python scripts\dev_sync.py --check` | 第四批合并到 `main` 后通过 |
 | 2026-05-05 | `git diff --check` | 第四批合并到 `main` 后通过；仅 Windows 行尾提示 |
+| 2026-05-05 | `git commit -m "docs(progress): 记录第四批模型库合并验证"` | 已提交合并验证记录 `c515536` |
+| 2026-05-05 | `git push origin main` | 已推送 `main` 到远端，`d07c30c..c515536` |
+| 2026-05-05 | `git worktree remove .worktrees\common-model-library-batch-4`；`git branch -d codex/common-model-library-batch-4` | 已清理第四批已合并 worktree/分支；保留另一个含未提交改动的独立 worktree |
 | 2026-05-04 | `git push origin main` | 已推送 `main` 到远端，`cea6e1b..b6555ce` |
 | 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py -q` | 第三批实现后 `44 passed, 7 warnings`；覆盖分类、模板、负例、包络不超 `real_dims` |
 | 2026-05-04 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_parts_library_standard_categories.py -q` | 第三批默认库顺序补测后 `68 passed, 7 warnings` |

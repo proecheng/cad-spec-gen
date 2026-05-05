@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：常用模型库扩展第四批已提交 `c4226a3`、快进合并到 `main`，并通过合并后范围回归、同步检查和空白检查；下一步推送并清理第四批 worktree/分支。新增 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和宽词负例。详见 [项目看板](../PROGRESS.md) 和 [第四批计划](plans/2026-05-05-common-model-library-batch-4.md)。
+2026-05-05：常用模型库扩展第四批已提交 `c4226a3`、快进合并到 `main`、通过合并后范围回归/同步/空白检查，并推送到 `origin/main`；第四批 worktree/分支已清理。新增 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和宽词负例。详见 [项目看板](../PROGRESS.md) 和 [第四批计划](plans/2026-05-05-common-model-library-batch-4.md)。
 
 ## 当前主入口
 
@@ -52,7 +52,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| In Progress | 常用模型库扩展第四批 | 已提交并快进合并到 `main`，合并后验证通过；下一步推送和清理 worktree/分支 |
+| Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
 | Done | 常用模型库扩展第三批 | 已合并并推送到 `origin/main`；已清理第三批 worktree/分支 |
 | Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
