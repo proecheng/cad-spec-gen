@@ -162,6 +162,43 @@ def test_photo3d_delivery_pack_packages_accepted_run_evidence(tmp_path):
     assert (tmp_path / report["artifacts"]["delivery_readme"]).is_file()
 
 
+def test_photo3d_delivery_pack_includes_active_run_model_quality_summary(tmp_path):
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    summary = report["model_quality_summary"]
+    assert summary["source"] == "model_contract"
+    assert summary["binding_status"] == "active_run_model_contract"
+    assert summary["source_report"] == "cad/demo/.cad-spec-gen/runs/RUN001/MODEL_CONTRACT.json"
+    assert summary["readiness_status"] == "needs_review"
+    assert summary["photoreal_risk"] == "high"
+    assert summary["quality_counts"] == {"B": 1, "C": 1}
+    assert summary["source_counts"] == {"parametric_template": 2}
+    assert summary["recommended_next_action"]["kind"] == "review_models"
+    assert report["source_reports"]["model_contract"] == (
+        "cad/demo/.cad-spec-gen/runs/RUN001/MODEL_CONTRACT.json"
+    )
+    evidence_names = {
+        Path(item["package_path"]).name for item in report["evidence_files"]
+    }
+    assert "MODEL_CONTRACT.json" in evidence_names
+
+    readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(
+        encoding="utf-8"
+    )
+    assert "model_quality_summary" in readme
+    assert "needs_review" in readme
+
+
 def test_photo3d_delivery_pack_rejects_report_from_non_active_run(tmp_path):
     from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
 

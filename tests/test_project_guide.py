@@ -114,6 +114,71 @@ def test_project_guide_routes_active_run_to_photo3d_run_without_switching_run(tm
     assert (run_dir / "PROJECT_GUIDE.json").is_file()
 
 
+def test_project_guide_embeds_model_quality_summary_when_geometry_report_exists(tmp_path):
+    from tools.project_guide import write_project_guide
+
+    subsystem_dir = tmp_path / "cad" / "demo"
+    subsystem_dir.mkdir(parents=True)
+    for name in ("CAD_SPEC.md", "params.py", "build_all.py", "assembly.py"):
+        (subsystem_dir / name).write_text("ok", encoding="utf-8")
+    _write_json(
+        subsystem_dir / ".cad-spec-gen" / "geometry_report.json",
+        {
+            "schema_version": 1,
+            "total": 2,
+            "quality_counts": {"A": 1, "C": 1},
+            "decisions": [
+                {
+                    "part_no": "A-001",
+                    "name_cn": "可信电机",
+                    "geometry_quality": "A",
+                    "geometry_source": "REAL_STEP",
+                    "adapter": "step_pool",
+                    "requires_model_review": False,
+                    "step_path": None,
+                    "validated": True,
+                },
+                {
+                    "part_no": "C-001",
+                    "name_cn": "简化接头",
+                    "geometry_quality": "C",
+                    "geometry_source": "JINJA_TEMPLATE",
+                    "adapter": "jinja_primitive",
+                    "requires_model_review": True,
+                    "step_path": None,
+                    "validated": False,
+                },
+            ],
+        },
+    )
+
+    report = write_project_guide(tmp_path, "demo")
+
+    summary = report["model_quality_summary"]
+    assert summary["source"] == "geometry_report"
+    assert summary["source_report"] == "cad/demo/.cad-spec-gen/geometry_report.json"
+    assert summary["binding_status"] == "project_report"
+    assert summary["readiness_status"] == "needs_review"
+    assert summary["photoreal_risk"] == "high"
+    assert summary["source_counts"] == {
+        "real_step": 1,
+        "simplified_template": 1,
+    }
+    assert summary["recommended_next_action"]["kind"] == "review_models"
+    assert report["stage_status"]["model_quality"] == {
+        "exists": True,
+        "path": "cad/demo/.cad-spec-gen/geometry_report.json",
+        "readiness_status": "needs_review",
+        "photoreal_risk": "high",
+    }
+    written = json.loads(
+        (subsystem_dir / ".cad-spec-gen" / "PROJECT_GUIDE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert written["model_quality_summary"] == summary
+
+
 def test_project_guide_exposes_provider_choices_when_ready_for_enhancement(tmp_path):
     from tools.project_guide import write_project_guide
 

@@ -247,6 +247,9 @@ def test_photo3d_deliver_help_explains_final_delivery_package():
         "--require-semantic-review",
         "ENHANCEMENT_REVIEW_REPORT.json",
         "semantic_material_review",
+        "MODEL_CONTRACT.json",
+        "model_quality_summary",
+        "active-run model quality",
         "does not scan directories",
         "run_id",
         "subsystem",
@@ -380,6 +383,9 @@ def test_project_guide_help_explains_read_only_user_flow():
         "accept-baseline",
         "provider_wizard",
         "provider_health",
+        "geometry_report.json",
+        "model_quality_summary",
+        "model source",
     ):
         assert term in help_text
 
@@ -495,6 +501,15 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         )
         assert "semantic_material_review" in text, (
             f"{rel} missing semantic material review summary"
+        )
+        assert "model_quality_summary" in text, (
+            f"{rel} missing model quality summary"
+        )
+        assert "geometry_report.json" in text, (
+            f"{rel} missing geometry report model source"
+        )
+        assert "MODEL_CONTRACT.json" in text, (
+            f"{rel} missing active run model contract"
         )
         assert "enhance-review" in text, f"{rel} missing enhance-review command"
         assert "--require-semantic-review" in text, (
@@ -644,6 +659,8 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "DELIVERY_PACKAGE.json" in tools_by_name["photo3d_deliver"]["description"]
         assert "final_deliverable" in tools_by_name["photo3d_deliver"]["description"]
         assert "photo_quality_not_accepted" in tools_by_name["photo3d_deliver"]["description"]
+        assert "model_quality_summary" in tools_by_name["photo3d_deliver"]["description"]
+        assert "MODEL_CONTRACT.json" in tools_by_name["photo3d_deliver"]["description"]
         assert "accepted" in tools_by_name["photo3d_deliver"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_deliver"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_deliver"]["description"]
@@ -695,6 +712,8 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "ordinary_user_options" in tools_by_name["project_guide"]["description"]
         assert "provider_wizard" in tools_by_name["project_guide"]["description"]
         assert "provider_health" in tools_by_name["project_guide"]["description"]
+        assert "model_quality_summary" in tools_by_name["project_guide"]["description"]
+        assert "geometry_report.json" in tools_by_name["project_guide"]["description"]
         assert "does not scan directories" in tools_by_name["project_guide"]["description"]
         assert "does not mutate pipeline state" in tools_by_name["project_guide"]["description"]
         assert "run-aware" in tools_by_name["photo3d_recover"]["description"]

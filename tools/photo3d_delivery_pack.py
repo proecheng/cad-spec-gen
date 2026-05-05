@@ -6,6 +6,7 @@ import shutil
 from typing import Any
 
 from tools.contract_io import file_sha256, load_json_required, write_json_atomic
+from tools.model_audit import build_model_quality_summary
 from tools.path_policy import assert_within_project, project_relative
 
 
@@ -103,6 +104,10 @@ def run_photo3d_delivery_pack(
         subsystem,
         active_run_id,
     )
+    model_quality_summary = _model_quality_summary_from_source_reports(
+        root,
+        source_reports,
+    )
     evidence_files = _copy_evidence_files(root, delivery_dir, source_reports)
 
     enhancement_status = str(
@@ -180,6 +185,7 @@ def run_photo3d_delivery_pack(
         "ordinary_user_message": _ordinary_user_message(status),
         "enhancement_status": enhancement_status,
         "quality_summary": quality_summary,
+        "model_quality_summary": model_quality_summary,
         "semantic_material_review": semantic_material_review,
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
@@ -281,6 +287,24 @@ def _copy_evidence_files(
             }
         )
     return evidence
+
+
+def _model_quality_summary_from_source_reports(
+    root: Path,
+    source_reports: dict[str, str],
+) -> dict[str, Any] | None:
+    rel_path = source_reports.get("model_contract")
+    if not rel_path:
+        return None
+    model_contract_path = _resolve_project_path(root, rel_path, "model contract")
+    model_contract = load_json_required(model_contract_path, "model contract")
+    return build_model_quality_summary(
+        model_contract,
+        report_path=model_contract_path,
+        source="model_contract",
+        binding_status="active_run_model_contract",
+        project_root=root,
+    )
 
 
 def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
@@ -713,4 +737,14 @@ def _write_readme(path: Path, report: dict[str, Any]) -> None:
             code = reason.get("code", "unknown")
             message = reason.get("message", "")
             lines.append(f"- {code}: {message}")
+    model_quality = report.get("model_quality_summary")
+    if model_quality:
+        lines.extend([
+            "",
+            "## Model Quality",
+            f"- model_quality_summary: {model_quality.get('readiness_status')}",
+            f"- photoreal_risk: {model_quality.get('photoreal_risk')}",
+            f"- review_recommended_count: {model_quality.get('review_recommended_count')}",
+            f"- blocking_count: {model_quality.get('blocking_count')}",
+        ])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

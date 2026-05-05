@@ -119,6 +119,118 @@ def test_model_audit_json_reads_project_root_geometry_report(tmp_path):
     assert [item["part_no"] for item in doc["review_required"]] == ["C-001"]
 
 
+def test_model_audit_json_includes_user_model_quality_summary(tmp_path):
+    report_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "geometry_report.json"
+    _write_geometry_report(report_path)
+
+    env = {
+        **os.environ,
+        "CAD_PROJECT_ROOT": str(tmp_path),
+        "PYTHONIOENCODING": "utf-8",
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "model-audit",
+            "--subsystem",
+            "demo",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(result.stdout)
+    summary = doc["model_quality_summary"]
+    assert summary["schema_version"] == 1
+    assert summary["source"] == "geometry_report"
+    assert summary["source_report"] == "cad/demo/.cad-spec-gen/geometry_report.json"
+    assert summary["binding_status"] == "project_report"
+    assert summary["readiness_status"] == "blocked"
+    assert summary["photoreal_risk"] == "blocked"
+    assert summary["total"] == 3
+    assert summary["quality_counts"] == {"A": 1, "C": 2}
+    assert summary["source_counts"] == {
+        "real_step": 1,
+        "simplified_template": 1,
+        "user_step": 1,
+    }
+    assert summary["review_recommended_count"] == 2
+    assert summary["blocking_count"] == 1
+    assert summary["recommended_next_action"]["kind"] == "import_missing_models"
+    assert summary["quality_scale"]["A"]["photoreal_risk"] == "low"
+
+    parts = {item["part_no"]: item for item in summary["part_summaries"]}
+    assert parts["A-001"]["user_status"] == "ready"
+    assert parts["A-001"]["source_kind"] == "real_step"
+    assert parts["A-001"]["public_step_path"].endswith("a001.step")
+    assert parts["C-001"]["user_status"] == "needs_review"
+    assert parts["C-001"]["source_kind"] == "simplified_template"
+    assert parts["C-002"]["user_status"] == "blocked"
+    assert parts["C-002"]["source_kind"] == "user_step"
+    assert parts["C-002"]["missing_step"] is True
+
+
+def test_model_audit_summary_normalizes_unknown_quality_counts(tmp_path):
+    report_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "geometry_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "total": 1,
+                "quality_counts": {"Z": 1},
+                "decisions": [
+                    {
+                        "part_no": "Z-001",
+                        "name_cn": "未知模型等级",
+                        "geometry_quality": "Z",
+                        "geometry_source": "CUSTOM_BACKEND",
+                        "adapter": "custom",
+                        "requires_model_review": False,
+                        "step_path": None,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    env = {
+        **os.environ,
+        "CAD_PROJECT_ROOT": str(tmp_path),
+        "PYTHONIOENCODING": "utf-8",
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "model-audit",
+            "--subsystem",
+            "demo",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads(result.stdout)["model_quality_summary"]
+    assert summary["quality_counts"] == {"unknown": 1}
+    assert summary["part_summaries"][0]["geometry_quality"] == "unknown"
+    assert summary["readiness_status"] == "needs_review"
+
+
 def test_model_audit_json_resolves_shared_cache_uri(tmp_path):
     report_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "geometry_report.json"
     _write_cache_uri_geometry_report(report_path)

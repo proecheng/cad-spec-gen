@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
+from tools.model_audit import build_model_quality_summary
 from tools.path_policy import assert_within_project, project_relative
 from tools.photo3d_provider_health import (
     provider_health_for_presets,
@@ -69,6 +70,7 @@ def write_project_guide(
         index_path,
         active_run_id,
     )
+    model_quality_summary = _model_quality_summary(root, subsystem_dir)
 
     report = {
         "schema_version": 1,
@@ -85,6 +87,7 @@ def write_project_guide(
             design_doc_rel=design_doc_rel,
             index_path=index_path,
             active_run_id=active_run_id,
+            model_quality_summary=model_quality_summary,
         ),
         "next_action": next_action,
         "artifacts": {
@@ -94,6 +97,8 @@ def write_project_guide(
     if provider_choice:
         report["provider_choice"] = provider_choice
         report["provider_wizard"] = _provider_wizard(provider_choice)
+    if model_quality_summary:
+        report["model_quality_summary"] = model_quality_summary
     if index_path:
         report["artifacts"]["artifact_index"] = project_relative(index_path, root)
     write_json_atomic(target, report)
@@ -189,6 +194,7 @@ def _stage_status(
     design_doc_rel: str | None,
     index_path: Path | None,
     active_run_id: str | None,
+    model_quality_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     codegen_files = {
         name: (subsystem_dir / name).is_file() for name in CODEGEN_SENTINELS
@@ -215,6 +221,49 @@ def _stage_status(
             "path": project_relative(index_path, root) if index_path else None,
             "active_run_id": active_run_id,
         },
+        "model_quality": _model_quality_stage_status(
+            root,
+            subsystem_dir,
+            model_quality_summary,
+        ),
+    }
+
+
+def _model_quality_summary(
+    root: Path,
+    subsystem_dir: Path,
+) -> dict[str, Any] | None:
+    report_path = subsystem_dir / ".cad-spec-gen" / "geometry_report.json"
+    if not report_path.is_file():
+        return None
+    geometry_report = load_json_required(report_path, "geometry report")
+    return build_model_quality_summary(
+        geometry_report,
+        report_path=report_path,
+        source="geometry_report",
+        binding_status="project_report",
+        project_root=root,
+    )
+
+
+def _model_quality_stage_status(
+    root: Path,
+    subsystem_dir: Path,
+    model_quality_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    report_path = subsystem_dir / ".cad-spec-gen" / "geometry_report.json"
+    if not model_quality_summary:
+        return {
+            "exists": False,
+            "path": project_relative(report_path, root),
+            "readiness_status": "not_available",
+            "photoreal_risk": "unknown",
+        }
+    return {
+        "exists": True,
+        "path": project_relative(report_path, root),
+        "readiness_status": model_quality_summary["readiness_status"],
+        "photoreal_risk": model_quality_summary["photoreal_risk"],
     }
 
 
