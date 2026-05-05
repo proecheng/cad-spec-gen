@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Photo3D 增强 provider preset 安全交接进入功能分支验证：新增 [provider preset 执行计划](plans/2026-05-05-photo3d-provider-presets.md) 和 `tools/photo3d_provider_presets.py`，`photo3d-autopilot` 公开 `provider_presets/default_provider_preset`，`photo3d-handoff --provider-preset` 只允许 `default`、`engineering`、`gemini`、`fal`、`fal_comfy`、`comfyui` 白名单，并继续从 `ARTIFACT_INDEX.json`、当前 `active_run_id` 和当前 render dir 重建 argv，不信任 JSON 任意 argv。功能分支范围回归 `179 passed`，同步/空白检查通过；待提交、合并、推送和清理 worktree。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Photo3D 增强 provider preset 安全交接已合并验证：新增 [provider preset 执行计划](plans/2026-05-05-photo3d-provider-presets.md) 和 `tools/photo3d_provider_presets.py`，`photo3d-autopilot` 公开 `provider_presets/default_provider_preset`，`photo3d-handoff --provider-preset` 只允许 `default`、`engineering`、`gemini`、`fal`、`fal_comfy`、`comfyui` 白名单，并继续从 `ARTIFACT_INDEX.json`、当前 `active_run_id` 和当前 render dir 重建 argv，不信任 JSON 任意 argv。合并到 `main` 后范围回归 `179 passed`，同步/空白检查通过；待推送和清理 worktree/分支。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -57,7 +57,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| In Progress | Photo3D 增强 provider preset 安全交接 | 功能分支已通过 `179 passed`、同步/空白检查；下一步提交、快进合并、main 复验、推送并清理 worktree/分支 |
+| Done | Photo3D 增强 provider preset 安全交接 | 已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；待推送并清理 worktree/分支 |
 | Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
 | Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
 | Done | 常用模型库扩展第三批 | 已合并并推送到 `origin/main`；已清理第三批 worktree/分支 |

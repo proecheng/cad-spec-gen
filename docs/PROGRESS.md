@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `codex/photo3d-provider-presets`，功能分支已通过范围验证；待提交、合并、推送、清理 |
-| 最新功能基线 | 待提交：Photo3D 增强 provider preset 安全交接 |
-| 最新合并/进度提交 | `ac9168f docs(progress): 记录通用模型族准入合并验证` |
+| 当前分支 | `main`，已快进合并 `codex/photo3d-provider-presets` 并通过合并后验证；待推送和清理 worktree/分支 |
+| 最新功能基线 | `bdf4c26 feat(photo3d): 增加增强 provider preset 交接` |
+| 最新合并/进度提交 | 待提交：记录 provider preset 合并验证 |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `179 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 本功能分支新增 `tools/photo3d_provider_presets.py` 和执行计划，待提交；主工作树干净；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；provider preset worktree/分支待清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -33,7 +33,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
 | Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
-| In Progress | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；范围验证 `179 passed`、同步/空白检查通过 | 提交、快进合并到 `main`、合并后复验、推送并清理 worktree/分支 |
+| Done | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过 | 推送并清理 worktree/分支 |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -83,7 +83,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 提交并快进合并 `codex/photo3d-provider-presets`，在 `main` 上复跑本轮 Photo3D 范围验证、同步检查和空白检查，然后推送并清理 worktree/分支。
+1. 推送 `main` 并清理 `codex/photo3d-provider-presets` worktree/分支。
 2. 下一轮可以做更上层 UI wizard / project-guide 集成，把 provider preset 选择做成普通用户可读的“默认/离线工程预览/云增强”选项，而不是要求用户记 CLI 参数。
 3. 若要接入 `gpt-image-2-pro` 或 OpenClaude 之类后端，应先设计真实 `enhance` provider adapter、密钥配置边界、输出一致性验收和多视角测试，再把它加入 preset 白名单；不要把 URL/key/模型名直接写进 handoff JSON。
 
@@ -110,6 +110,11 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python scripts\dev_sync.py --check` | provider preset 分支同步检查通过；安装版镜像无漂移 |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | provider preset 分支范围回归 `179 passed` |
 | 2026-05-05 | `git diff --check` | provider preset 分支空白检查通过；仅 Windows 行尾提示 |
+| 2026-05-05 | `git commit -m "feat(photo3d): 增加增强 provider preset 交接"` | 已提交 provider preset 功能分支实现 `bdf4c26` |
+| 2026-05-05 | `git merge --ff-only codex/photo3d-provider-presets` | 已快进合并到 `main` |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 合并到 `main` 后 `179 passed` |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过；安装版镜像无漂移 |
+| 2026-05-05 | `git diff --check` | 合并到 `main` 后通过 |
 | 2026-05-05 | `git worktree add .worktrees\photo3d-interactive-actions -b codex/photo3d-interactive-actions` | 已创建确认式 handoff worktree |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 新 worktree 初始化前因 ignored mirror 缺失出现 dev_sync mirror 失败；运行 `python scripts\dev_sync.py` 填充后同命令 `149 passed` |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_user_flow.py::test_photo3d_handoff_help_explains_confirmed_handoff_flow tests\test_photo3d_packaging_sync.py::test_photo3d_contract_tools_have_packaged_mirrors -q` | 红测阶段 `10 failed`；实现后当前 `10 passed` |
