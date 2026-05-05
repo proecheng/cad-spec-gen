@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Provider preset 普通用户可读选项已合并到 `main`，待推送后清理 worktree/分支：新增 [provider 选项文案执行计划](plans/2026-05-05-provider-choice-user-copy.md)，`public_provider_presets()` 公开稳定的标题、说明、推荐场景和配置需求，`PROJECT_GUIDE.json` 在增强入口输出 `provider_choice.ordinary_user_options`，让普通用户/UI/大模型选择“默认 / 本地工程预览 / 云增强”等选项，而不是手写 backend 参数。合并后范围回归 `159 passed`，同步/空白检查通过。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Provider preset 普通用户可读选项已合并、验证、推送并清理：新增 [provider 选项文案执行计划](plans/2026-05-05-provider-choice-user-copy.md)，`public_provider_presets()` 公开稳定的标题、说明、推荐场景和配置需求，`PROJECT_GUIDE.json` 在增强入口输出 `provider_choice.ordinary_user_options`，让普通用户/UI/大模型选择“默认 / 本地工程预览 / 云增强”等选项，而不是手写 backend 参数。合并后范围回归 `159 passed`，同步/空白检查通过；本轮 worktree/分支已清理。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -59,7 +59,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| Done | Provider preset 普通用户可读选项 | 已提交 `bfae729` 并合并到 `main`；合并后 `159 passed`、同步/空白检查通过；待推送后清理 worktree/分支 |
+| Done | Provider preset 普通用户可读选项 | 已提交 `bfae729` 并合并到 `main`；合并后 `159 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | Project-guide provider preset 选择 | 已提交 `1ce807a` 并合并到 `main`；合并后 `157 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | Photo3D 增强 provider preset 安全交接 | 已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
