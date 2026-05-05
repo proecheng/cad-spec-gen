@@ -238,6 +238,23 @@ def test_photo3d_handoff_confirm_enhancement_executes_current_run_command(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
+        if argv[2] == "enhance-check":
+            _write_json(
+                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+                {
+                    "schema_version": 1,
+                    "run_id": fixture["run_id"],
+                    "subsystem": "demo",
+                    "status": "accepted",
+                    "delivery_status": "accepted",
+                    "ordinary_user_message": "enhancement accepted",
+                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+                    "view_count": 1,
+                    "enhanced_view_count": 1,
+                    "blocking_reasons": [],
+                },
+            )
         return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
 
     monkeypatch.setattr(handoff.subprocess, "run", fake_run)
@@ -245,31 +262,230 @@ def test_photo3d_handoff_confirm_enhancement_executes_current_run_command(
     rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
 
     assert rc == 0
-    assert calls == [
-        (
-            [
-                sys.executable,
-                "cad_pipeline.py",
-                "enhance",
-                "--subsystem",
-                "demo",
-                "--dir",
-                "cad/output/renders/demo/RUN001",
-            ],
-            {
-                "cwd": str(tmp_path),
-                "capture_output": True,
-                "text": True,
-                "encoding": "utf-8",
-                "errors": "replace",
-                "check": False,
-                "shell": False,
-            },
-        )
+    assert [call[0] for call in calls] == [
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "enhance",
+            "--subsystem",
+            "demo",
+            "--dir",
+            "cad/output/renders/demo/RUN001",
+        ],
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "enhance-check",
+            "--subsystem",
+            "demo",
+            "--dir",
+            "cad/output/renders/demo/RUN001",
+        ],
     ]
+    for _, kwargs in calls:
+        assert kwargs == {
+            "cwd": str(tmp_path),
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "check": False,
+            "shell": False,
+        }
     report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
-    assert report["status"] == "executed"
+    assert report["status"] == "executed_with_followup"
     assert report["executed_action"]["stdout"] == "enhance ok"
+    assert report["followup_action"]["kind"] == "run_enhance_check"
+
+
+def test_photo3d_handoff_confirm_enhancement_runs_enhance_check_and_loop(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[2] == "enhance":
+            (fixture["render_dir"] / "V1_front_20260505_1200_enhanced.jpg").write_bytes(
+                (fixture["render_dir"] / "V1_front.png").read_bytes()
+            )
+            return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
+        if argv[2] == "enhance-check":
+            _write_json(
+                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+                {
+                    "schema_version": 1,
+                    "run_id": fixture["run_id"],
+                    "subsystem": "demo",
+                    "status": "accepted",
+                    "delivery_status": "accepted",
+                    "ordinary_user_message": "enhancement accepted",
+                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+                    "view_count": 1,
+                    "enhanced_view_count": 1,
+                    "blocking_reasons": [],
+                },
+            )
+            return SimpleNamespace(returncode=0, stdout="check ok", stderr="")
+        raise AssertionError(f"unexpected subprocess: {argv}")
+
+    monkeypatch.setattr(handoff.subprocess, "run", fake_run)
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 0
+    assert [call[0][2] for call in calls] == ["enhance", "enhance-check"]
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed_with_followup"
+    assert report["executed_action"]["kind"] == "run_enhancement"
+    assert report["followup_action"]["kind"] == "run_enhance_check"
+    assert report["followup_action"]["returncode"] == 0
+    assert report["post_handoff_photo3d_run"]["status"] == "enhancement_accepted"
+    assert report["post_handoff_photo3d_run"]["enhancement_summary"]["status"] == "accepted"
+    assert report["post_handoff_photo3d_run"]["next_action"]["kind"] == "delivery_complete"
+
+
+def test_photo3d_handoff_confirm_enhancement_skips_check_when_enhance_fails(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=1, stdout="", stderr="enhance failed")
+
+    monkeypatch.setattr(handoff.subprocess, "run", fake_run)
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 1
+    assert [call[2] for call in calls] == ["enhance"]
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "execution_failed"
+    assert report["followup_action"] is None
+    assert report["post_handoff_photo3d_run"] is None
+
+
+def test_photo3d_handoff_confirm_enhancement_surfaces_blocked_enhance_check(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv[2] == "enhance":
+            return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
+        if argv[2] == "enhance-check":
+            _write_json(
+                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+                {
+                    "schema_version": 1,
+                    "run_id": fixture["run_id"],
+                    "subsystem": "demo",
+                    "status": "blocked",
+                    "delivery_status": "blocked",
+                    "ordinary_user_message": "enhancement blocked",
+                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+                    "view_count": 1,
+                    "enhanced_view_count": 0,
+                    "blocking_reasons": [{"code": "enhanced_view_missing"}],
+                },
+            )
+            return SimpleNamespace(returncode=1, stdout="", stderr="blocked")
+        raise AssertionError(f"unexpected subprocess: {argv}")
+
+    monkeypatch.setattr(handoff.subprocess, "run", fake_run)
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 0
+    assert [call[2] for call in calls] == ["enhance", "enhance-check"]
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "executed_with_followup"
+    assert report["followup_action"]["returncode"] == 1
+    assert report["post_handoff_photo3d_run"]["status"] == "enhancement_blocked"
+    assert report["post_handoff_photo3d_run"]["enhancement_summary"]["status"] == "blocked"
+    assert report["post_handoff_photo3d_run"]["next_action"]["kind"] == "fix_enhancement_blockers"
+
+
+def test_photo3d_handoff_confirm_enhancement_reports_followup_active_run_drift(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        index = json.loads(fixture["index_path"].read_text(encoding="utf-8"))
+        index["active_run_id"] = "RUN999"
+        fixture["index_path"].write_text(
+            json.dumps(index, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
+
+    monkeypatch.setattr(handoff.subprocess, "run", fake_run)
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 1
+    assert [call[2] for call in calls] == ["enhance"]
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "execution_failed"
+    assert report["executed_action"]["returncode"] == 0
+    assert report["followup_action"]["kind"] == "run_enhance_check"
+    assert report["followup_action"]["returncode"] == 1
+    assert "active_run_id changed" in report["followup_action"]["stderr"]
+    assert report["post_handoff_photo3d_run"] is None
 
 
 def test_photo3d_handoff_confirm_enhancement_uses_json_provider_preset_not_json_argv(
@@ -306,6 +522,23 @@ def test_photo3d_handoff_confirm_enhancement_uses_json_provider_preset_not_json_
 
     def fake_run(argv, **kwargs):
         calls.append(argv)
+        if argv[2] == "enhance-check":
+            _write_json(
+                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+                {
+                    "schema_version": 1,
+                    "run_id": fixture["run_id"],
+                    "subsystem": "demo",
+                    "status": "accepted",
+                    "delivery_status": "accepted",
+                    "ordinary_user_message": "enhancement accepted",
+                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+                    "view_count": 1,
+                    "enhanced_view_count": 1,
+                    "blocking_reasons": [],
+                },
+            )
         return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
 
     monkeypatch.setattr(handoff.subprocess, "run", fake_run)
@@ -313,19 +546,31 @@ def test_photo3d_handoff_confirm_enhancement_uses_json_provider_preset_not_json_
     rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
 
     assert rc == 0
-    assert calls == [[
-        sys.executable,
-        "cad_pipeline.py",
-        "enhance",
-        "--subsystem",
-        "demo",
-        "--dir",
-        "cad/output/renders/demo/RUN001",
-        "--backend",
-        "engineering",
-    ]]
+    assert calls == [
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "enhance",
+            "--subsystem",
+            "demo",
+            "--dir",
+            "cad/output/renders/demo/RUN001",
+            "--backend",
+            "engineering",
+        ],
+        [
+            sys.executable,
+            "cad_pipeline.py",
+            "enhance-check",
+            "--subsystem",
+            "demo",
+            "--dir",
+            "cad/output/renders/demo/RUN001",
+        ],
+    ]
     report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
     assert report["executed_action"]["argv"] == calls[0]
+    assert report["followup_action"]["argv"] == calls[1]
 
 
 def test_photo3d_handoff_rejects_unknown_provider_preset(tmp_path, monkeypatch):

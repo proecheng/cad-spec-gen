@@ -4704,6 +4704,14 @@ def main():
             "never trusts arbitrary argv from JSON reports, and rebuilds argv from "
             "ARTIFACT_INDEX.json active_run_id plus the current run/render paths "
             "and allowlisted provider preset. "
+            "After a confirmed enhance succeeds, it runs enhance-check for the same "
+            "active run, records that result in followup_action, then reruns "
+            "photo3d-run once without confirmation so post_handoff_photo3d_run "
+            "surfaces accepted/preview/blocked delivery state. Status "
+            "executed_with_followup means enhancement execution and the same-run "
+            "acceptance follow-up completed; a blocked enhance-check report is "
+            "still surfaced through PHOTO3D_RUN.json instead of being hidden as a "
+            "raw subprocess failure. "
             "All output stays inside cad/<name>/.cad-spec-gen/runs/<run_id>/."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -199,6 +199,11 @@ def test_photo3d_handoff_help_explains_confirmed_handoff_flow():
         "photo3d-run --confirm-actions",
         "does not scan directories",
         "never trusts arbitrary argv",
+        "followup_action",
+        "post_handoff_photo3d_run",
+        "executed_with_followup",
+        "runs enhance-check",
+        "accepted/preview/blocked",
     ):
         assert term in help_text
     assert "python cad_pipeline.py photo3d-handoff --subsystem <name>" in help_text
@@ -322,6 +327,13 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
         assert "photo3d-handoff" in text, f"{rel} missing confirmed handoff runner"
+        assert "followup_action" in text, f"{rel} missing handoff follow-up report"
+        assert "post_handoff_photo3d_run" in text, (
+            f"{rel} missing post-handoff loop summary"
+        )
+        assert "executed_with_followup" in text, (
+            f"{rel} missing executed-with-followup status"
+        )
         assert "--provider-preset" in text, f"{rel} missing provider preset option"
         assert "engineering" in text, f"{rel} missing engineering provider preset"
         assert "白名单" in text or "allowlisted" in text, (
@@ -349,6 +361,9 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "--confirm-actions" in text, f"{rel} missing confirmed loop guidance"
         assert "photo3d-recover" in text, f"{rel} missing run-aware recovery wrapper"
         assert "enhance-check" in text, f"{rel} missing enhancement acceptance"
+        assert (
+            "自动运行" in text or "automatically runs" in text
+        ), f"{rel} missing automatic enhance-check follow-up"
         assert "ENHANCEMENT_REPORT.json" in text, f"{rel} missing enhancement report"
         assert "--run-id" in text, f"{rel} missing run-aware run_id binding"
         assert "--artifact-index" in text, f"{rel} missing artifact-index binding"
@@ -417,6 +432,13 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "post_action_autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "PHOTO3D_HANDOFF.json" in tools_by_name["photo3d_handoff"]["description"]
+        assert "followup_action" in tools_by_name["photo3d_handoff"]["description"]
+        assert (
+            "post_handoff_photo3d_run"
+            in tools_by_name["photo3d_handoff"]["description"]
+        )
+        assert "executed_with_followup" in tools_by_name["photo3d_handoff"]["description"]
+        assert "accepted/preview/blocked" in tools_by_name["photo3d_handoff"]["description"]
         assert "--confirm" in tools_by_name["photo3d_handoff"]["description"]
         assert "--provider-preset" in tools_by_name["photo3d_handoff"]["description"]
         assert "engineering" in tools_by_name["photo3d_handoff"]["description"]

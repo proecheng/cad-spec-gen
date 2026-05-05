@@ -261,6 +261,8 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 `enhance-check` 只读取显式 `--dir` 内的 `render_manifest.json` 和同目录的 `*_enhanced.*` 文件，写出 `ENHANCEMENT_REPORT.json`。它要求 manifest 中每个视角都有对应增强图，并检查源渲染/增强图的轮廓相似度和基础图片 QA；状态为 `accepted` 才可交付，`preview` 只能预览，`blocked` 表示缺少视角或输入不完整。该命令不会扫描目录猜最新文件，也不会接受 render dir 外的增强图。
 
+普通用户不需要手动把增强和验收两条命令拼起来：当 `PHOTO3D_RUN.json` 的下一步是增强，且用户确认执行 `python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm` 后，handoff 会先执行同一 active run 的 `enhance`，成功后自动运行同一 render dir 的 `enhance-check`，把复查 subprocess 写入 `PHOTO3D_HANDOFF.json.followup_action`，再无确认重跑一次 `photo3d-run`，把 accepted/preview/blocked 状态写入 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`。`executed_with_followup` 表示增强和同 run 验收闭环已完成；即使 `enhance-check` 因 blocked 返回非零，只要写出了有效 `ENHANCEMENT_REPORT.json`，也会通过 `PHOTO3D_RUN.json` 暴露下一步，而不是变成不可读的 subprocess 失败。
+
 阻断时会写出：
 
 - `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
@@ -269,11 +271,11 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
 - `LLM_CONTEXT_PACK.json`：给其他大模型读取的最小上下文包，只引用当前 `run_id` 的已登记产物。
 - `PHOTO3D_ACTION_RUN.json`：`photo3d-action` 的预览/执行结果，只记录当前 run 的动作分类、执行结果和后续人工输入项；成功确认执行后，`post_action_autopilot` 固定记录是否自动重跑以及重跑后的 gate/status/next_action 摘要。
-- `PHOTO3D_HANDOFF.json`：`photo3d-handoff` 的预览/执行结果，只针对当前 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json` 的 `next_action`，记录重构后的安全 argv、执行结果和必要的人工处理原因。
+- `PHOTO3D_HANDOFF.json`：`photo3d-handoff` 的预览/执行结果，只针对当前 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json` 的 `next_action`，记录重构后的安全 argv、执行结果、增强后的 `followup_action`、`post_handoff_photo3d_run`、`executed_with_followup` 和必要的人工处理原因。
 - `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，记录每轮 gate/autopilot/action 状态、最终 `next_action` 和停止原因。
 - `ENHANCEMENT_REPORT.json`：增强完成后的交付验收报告，记录每个视角的源图、增强图、相似度、QA 和 `accepted` / `preview` / `blocked` 状态。
 
-大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
+大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。增强确认执行后读取 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`，不要再扫描 render 目录猜增强是否成功。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
 路径隔离与旧产物清理：
 

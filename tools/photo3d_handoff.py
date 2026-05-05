@@ -88,6 +88,7 @@ def run_photo3d_handoff(
     )
     manual_action: dict[str, Any] | None = None
     executed_action: dict[str, Any] | None = None
+    followup_action: dict[str, Any] | None = None
     post_handoff_photo3d_run: dict[str, Any] | None = None
 
     if selected_action["classification"] != "executable":
@@ -116,6 +117,23 @@ def run_photo3d_handoff(
                     index_path,
                     active_run_id,
                 )
+            elif selected_action["kind"] == "run_enhancement":
+                followup_action, post_handoff_photo3d_run = _run_enhancement_followup(
+                    root, subsystem, active_run_id, index_path
+                )
+                if (
+                    post_handoff_photo3d_run is not None
+                    and post_handoff_photo3d_run.get("enhancement_summary")
+                ):
+                    status = "executed_with_followup"
+                    ordinary_user_message = (
+                        "已执行增强，并完成同一 run 的增强验收复查。"
+                    )
+                else:
+                    status = "execution_failed"
+                    ordinary_user_message = (
+                        "增强已执行，但增强验收复查失败；请查看 followup_action。"
+                    )
         else:
             status = "execution_failed"
             ordinary_user_message = "Photo3D 下一步交接执行失败；请查看 executed_action。"
@@ -133,6 +151,7 @@ def run_photo3d_handoff(
         "selected_action": _public_selected_action(selected_action),
         "manual_action": manual_action,
         "executed_action": executed_action,
+        "followup_action": followup_action,
         "post_handoff_photo3d_run": post_handoff_photo3d_run,
         "artifacts": {
             "artifact_index": project_relative(index_path, root),
@@ -373,6 +392,96 @@ def _execute_selected_action(
     }
 
 
+def _run_enhancement_followup(
+    project_root: Path,
+    subsystem: str,
+    active_run_id: str,
+    artifact_index_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        followup_action = _execute_enhance_check_followup(
+            project_root,
+            subsystem,
+            active_run_id,
+            artifact_index_path,
+        )
+        post_handoff_photo3d_run = _post_handoff_loop(
+            project_root,
+            subsystem,
+            artifact_index_path,
+            active_run_id,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        return (
+            _failed_followup_action(
+                project_root,
+                subsystem,
+                active_run_id,
+                artifact_index_path,
+                exc,
+            ),
+            None,
+        )
+    return followup_action, post_handoff_photo3d_run
+
+
+def _failed_followup_action(
+    project_root: Path,
+    subsystem: str,
+    active_run_id: str,
+    artifact_index_path: Path,
+    exc: Exception,
+) -> dict[str, Any]:
+    return {
+        "kind": "run_enhance_check",
+        "argv": _trusted_argv(
+            project_root,
+            subsystem,
+            active_run_id,
+            artifact_index_path,
+            "run_enhance_check",
+            None,
+        ),
+        "returncode": 1,
+        "stdout": "",
+        "stderr": str(exc),
+    }
+
+
+def _execute_enhance_check_followup(
+    project_root: Path,
+    subsystem: str,
+    active_run_id: str,
+    artifact_index_path: Path,
+) -> dict[str, Any]:
+    _assert_active_run_id(artifact_index_path, active_run_id)
+    argv = _trusted_argv(
+        project_root,
+        subsystem,
+        active_run_id,
+        artifact_index_path,
+        "run_enhance_check",
+        None,
+    )
+    completed = subprocess.run(
+        argv,
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        shell=False,
+    )
+    return {
+        "kind": "run_enhance_check",
+        "argv": argv,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
 def _post_handoff_loop(
     project_root: Path,
     subsystem: str,
@@ -393,6 +502,7 @@ def _post_handoff_loop(
         "subsystem": report.get("subsystem"),
         "status": report.get("status"),
         "ordinary_user_message": report.get("ordinary_user_message"),
+        "enhancement_summary": report.get("enhancement_summary"),
         "next_action": report.get("next_action"),
         "artifacts": report.get("artifacts"),
     }
