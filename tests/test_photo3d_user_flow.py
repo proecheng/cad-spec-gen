@@ -267,6 +267,7 @@ def test_project_guide_help_explains_read_only_user_flow():
         "enhance-check",
         "accept-baseline",
         "provider_wizard",
+        "provider_health",
     ):
         assert term in help_text
 
@@ -342,6 +343,7 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
             f"{rel} missing ordinary-user provider option guidance"
         )
         assert "provider_wizard" in text, f"{rel} missing provider wizard guidance"
+        assert "provider_health" in text, f"{rel} missing provider health guidance"
         assert "photo3d-run" in text, f"{rel} missing multi-round guide"
         assert "PHOTO3D_RUN.json" in text, f"{rel} missing loop report"
         assert "--confirm-actions" in text, f"{rel} missing confirmed loop guidance"
@@ -430,6 +432,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d-handoff --provider-preset" in tools_by_name["project_guide"]["description"]
         assert "ordinary_user_options" in tools_by_name["project_guide"]["description"]
         assert "provider_wizard" in tools_by_name["project_guide"]["description"]
+        assert "provider_health" in tools_by_name["project_guide"]["description"]
         assert "does not scan directories" in tools_by_name["project_guide"]["description"]
         assert "does not mutate pipeline state" in tools_by_name["project_guide"]["description"]
         assert "run-aware" in tools_by_name["photo3d_recover"]["description"]

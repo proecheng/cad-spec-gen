@@ -10,6 +10,17 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _assert_no_forbidden_fields(value):
+    forbidden = {"api_key", "key", "secret", "url", "base_url", "endpoint"}
+    if isinstance(value, dict):
+        assert forbidden.isdisjoint(value), value
+        for child in value.values():
+            _assert_no_forbidden_fields(child)
+    elif isinstance(value, list):
+        for child in value:
+            _assert_no_forbidden_fields(child)
+
+
 def test_project_guide_recommends_init_when_subsystem_is_missing(tmp_path):
     from tools.project_guide import write_project_guide
 
@@ -232,6 +243,56 @@ def test_project_guide_exposes_provider_choices_when_ready_for_enhancement(tmp_p
     for option in wizard["options"]:
         assert forbidden.isdisjoint(option), option["provider_preset"]
         assert forbidden.isdisjoint(option["preview_action"]), option["provider_preset"]
+
+
+def test_project_guide_provider_wizard_embeds_safe_provider_health(tmp_path, monkeypatch):
+    from tools.project_guide import write_project_guide
+
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.delenv("COMFYUI_ROOT", raising=False)
+
+    run_dir = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "runs" / "RUN001"
+    run_dir.mkdir(parents=True)
+    index_path = tmp_path / "cad" / "demo" / ".cad-spec-gen" / "ARTIFACT_INDEX.json"
+    _write_json(
+        index_path,
+        {
+            "schema_version": 1,
+            "subsystem": "demo",
+            "active_run_id": "RUN001",
+            "accepted_baseline_run_id": "RUN001",
+            "runs": {"RUN001": {"run_id": "RUN001", "active": True, "artifacts": {}}},
+        },
+    )
+    _write_json(
+        run_dir / "PHOTO3D_RUN.json",
+        {
+            "schema_version": 1,
+            "run_id": "RUN001",
+            "subsystem": "demo",
+            "status": "ready_for_enhancement",
+            "next_action": {"kind": "run_enhancement"},
+        },
+    )
+    for name in ("CAD_SPEC.md", "params.py", "build_all.py", "assembly.py"):
+        (tmp_path / "cad" / "demo" / name).write_text("ok", encoding="utf-8")
+
+    report = write_project_guide(tmp_path, "demo")
+
+    wizard = report["provider_wizard"]
+    assert wizard["health_summary"]["source"] == "provider_health"
+    assert wizard["health_summary"]["mutates_pipeline_state"] is False
+    assert wizard["health_summary"]["executes_enhancement"] is False
+    assert wizard["health_summary"]["does_not_scan_directories"] is True
+    by_id = {option["provider_preset"]: option for option in wizard["options"]}
+    assert by_id["engineering"]["health"]["status"] == "available"
+    assert by_id["gemini"]["health"]["status"] == "needs_setup"
+    assert by_id["fal"]["health"]["status"] == "needs_setup"
+    assert by_id["fal_comfy"]["health"]["status"] == "needs_setup"
+    assert by_id["comfyui"]["health"]["status"] == "needs_setup"
+    for option in wizard["options"]:
+        assert option["health"]["provider_preset"] == option["provider_preset"]
+        _assert_no_forbidden_fields(option["health"])
 
 
 def test_project_guide_ignores_stale_provider_choice_report(tmp_path):

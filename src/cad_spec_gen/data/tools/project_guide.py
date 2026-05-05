@@ -7,6 +7,10 @@ from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
+from tools.photo3d_provider_health import (
+    provider_health_for_presets,
+    summarize_provider_health,
+)
 from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provider_presets
 
 
@@ -236,6 +240,7 @@ def _provider_choice(
 
     index_rel = project_relative(index_path, root)
     presets = public_provider_presets()
+    provider_health = provider_health_for_presets(presets, root)
     handoff_actions = []
     for preset in presets:
         preset_id = str(preset["id"])
@@ -262,6 +267,7 @@ def _provider_choice(
     ordinary_user_options = _ordinary_user_provider_options(
         presets,
         handoff_actions,
+        provider_health,
     )
     return {
         "kind": "select_enhancement_provider",
@@ -269,6 +275,8 @@ def _provider_choice(
         "source_report": project_relative(source_path, root),
         "default_provider_preset": DEFAULT_PROVIDER_PRESET,
         "provider_presets": presets,
+        "provider_health": provider_health,
+        "provider_health_summary": summarize_provider_health(provider_health),
         "ordinary_user_options": ordinary_user_options,
         "handoff_actions": handoff_actions,
     }
@@ -277,9 +285,13 @@ def _provider_choice(
 def _ordinary_user_provider_options(
     presets: list[dict[str, Any]],
     handoff_actions: list[dict[str, Any]],
+    provider_health: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     actions_by_preset = {
         str(action["provider_preset"]): action for action in handoff_actions
+    }
+    health_by_preset = {
+        str(item["provider_preset"]): item for item in provider_health
     }
     options = []
     for preset in presets:
@@ -293,6 +305,7 @@ def _ordinary_user_provider_options(
             "requires_setup": bool(preset["requires_setup"]),
             "requires_user_confirmation": True,
             "argv": action["argv"],
+            "health": health_by_preset[preset_id],
         }
         if "cli" in action:
             option["cli"] = action["cli"]
@@ -320,6 +333,7 @@ def _provider_wizard(provider_choice: dict[str, Any]) -> dict[str, Any]:
                 "requires_setup": bool(option["requires_setup"]),
                 "requires_user_confirmation": True,
                 "is_default": option["provider_preset"] == default_provider,
+                "health": option["health"],
                 "preview_action": preview_action,
             }
         )
@@ -330,6 +344,7 @@ def _provider_wizard(provider_choice: dict[str, Any]) -> dict[str, Any]:
         "executes_enhancement": False,
         "does_not_scan_directories": True,
         "default_provider_preset": default_provider,
+        "health_summary": provider_choice["provider_health_summary"],
         "steps": [
             {
                 "id": "choose_provider",

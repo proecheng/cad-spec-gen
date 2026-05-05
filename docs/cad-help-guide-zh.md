@@ -182,7 +182,7 @@ python gemini_gen.py \
 python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
 ```
 
-`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。当前 active run 已到 `ready_for_enhancement` 时，`PROJECT_GUIDE.json` 可附带只读 provider 选择：`ordinary_user_options` 是普通用户可读选项，包含“默认 / 本地工程预览 / 云增强”等标题、说明、适用场景、是否需要配置，以及 `photo3d-handoff --provider-preset <id>` 预览命令；`provider_wizard` 则把这些选项组织成 UI/大模型可直接展示的步骤、默认项和预览动作。所有选项来自白名单 provider preset，它不会接受任意 backend、URL、API key、模型名或 JSON argv 注入，wizard 本身也不会追加 `--confirm` 或执行增强。
+`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。当前 active run 已到 `ready_for_enhancement` 时，`PROJECT_GUIDE.json` 可附带只读 provider 选择：`ordinary_user_options` 是普通用户可读选项，包含“默认 / 本地工程预览 / 云增强”等标题、说明、适用场景、是否需要配置、`provider_health` 健康状态，以及 `photo3d-handoff --provider-preset <id>` 预览命令；`provider_wizard` 则把这些选项组织成 UI/大模型可直接展示的步骤、默认项、预览动作和健康摘要。所有选项来自白名单 provider preset；`provider_health` 只检查本地配置/依赖存在性，不运行增强、不扫描输出目录、不改状态，也不会暴露环境变量名、key 值、URL、endpoint 或 secret。它不会接受任意 backend、URL、API key、模型名或 JSON argv 注入，wizard 本身也不会追加 `--confirm` 或执行增强。
 
 已有 active run 后，使用多轮向导：
 
@@ -263,7 +263,7 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 阻断时会写出：
 
-- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
+- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
 - `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
