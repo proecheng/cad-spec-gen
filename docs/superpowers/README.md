@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Phase 5/6 语义/材质级增强质量复核已接入：新增 [Semantic Material Quality Review 执行计划](plans/2026-05-05-semantic-material-quality-review.md)，`enhance-review` 现在读取显式人工/大模型 `--review-input`，写 `ENHANCEMENT_REVIEW_REPORT.json.semantic_material_review`，并绑定 `ARTIFACT_INDEX.json.active_run_id`、同 run `render_manifest.json`、同 run `ENHANCEMENT_REPORT.json` 的路径和 sha256。`photo3d-deliver --require-semantic-review` 可要求该复核 accepted 后才复制最终图片；命令不调用 AI、不接受 backend/model/key/url、不扫描目录。当前总体能力进展约 83%，下一步转入 Phase 2 常用模型库下一批。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Phase 2 常用模型库第五批已完成审查修正：新增 [Common Model Library Batch 5 执行计划](plans/2026-05-05-common-model-library-batch-5.md)，按通用模型族准入清单加入方形法兰伺服电机、行星减速机、拖链段、DIN 导轨继电器模块、按钮/操作盒。合并前审查发现 route 别名可能拿到错误 fallback 尺寸、`interface relay` 路由和 adapter 模板 gate 不一致；现已修复，并把 route 别名的 template、real_dims、lookup dims 一致性纳入准入测试。当前总体能力进展约 84%，下一步是复跑最终门禁、提交、快进合并、推送和清理 worktree。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -23,6 +23,7 @@
 | [`plans/2026-05-04-common-model-library-batch-2.md`](plans/2026-05-04-common-model-library-batch-2.md) | 常用模型库扩展第二批计划 |
 | [`plans/2026-05-04-common-model-library-batch-3.md`](plans/2026-05-04-common-model-library-batch-3.md) | 常用模型库扩展第三批计划 |
 | [`plans/2026-05-05-common-model-library-batch-4.md`](plans/2026-05-05-common-model-library-batch-4.md) | 常用模型库扩展第四批计划 |
+| [`plans/2026-05-05-common-model-library-batch-5.md`](plans/2026-05-05-common-model-library-batch-5.md) | 常用模型库扩展第五批计划 |
 | [`plans/2026-05-05-common-model-family-admission.md`](plans/2026-05-05-common-model-family-admission.md) | 通用模型族准入清单执行计划 |
 | [`plans/2026-05-05-photo3d-interactive-handoff.md`](plans/2026-05-05-photo3d-interactive-handoff.md) | Photo3D 确认式 handoff 执行计划 |
 | [`plans/2026-05-05-photo3d-provider-presets.md`](plans/2026-05-05-photo3d-provider-presets.md) | Photo3D 增强 provider preset 安全交接计划 |
@@ -75,7 +76,10 @@
 | Done | Phase 5 -> Phase 6 | 多视角照片级质量验收（确定性契约层） | 已新增 `quality_summary`、逐视角 `quality_metrics` 和 `photo_quality_not_accepted`，防止低质量增强图进入最终交付 |
 | Done | Phase 4 RENDER | Blender 环境预检和截图级回归（确定性像素层） | 已新增 `render-quality-check`，用 `RENDER_QUALITY_REPORT.json` 证明 Blender 预检、路径/hash/QA 和逐视角像素质量 |
 | Done | Phase 5 -> Phase 6 | 语义/材质级增强质量复核 | 已新增 `enhance-review`、`ENHANCEMENT_REVIEW_REPORT.json.semantic_material_review` 和 `photo3d-deliver --require-semantic-review`，显式复核证据仍绑定 active run 和 source report hash |
-| 1 | Phase 2 CODEGEN | 常用模型库下一批 | 按准入清单扩展更多跨产品高频件，不做单设备临时收紧 |
-| 2 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
+| Done | Phase 2 CODEGEN | 常用模型库第五批 | 已按准入清单扩展五个跨产品高频外购件族，并通过第五批范围门禁 |
+| 1 | Phase 2 CODEGEN | 提交/合并/推送第五批 | 把第五批进入主线，并清理本轮临时 worktree/分支 |
+| 2 | Phase 2 -> Phase 6 | 模型质量报告用户化 | 让普通用户知道每个零件是真 STEP、库模板还是 fallback，并知道哪些需要复核 |
+| 3 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
+| 4 | Phase 5 ENHANCE | 真实 AI backend adapter 准入 | `gpt-image-2-pro` 等新后端进入白名单前，先补配置隔离、同 run 验收和多视角一致性测试 |
 
 历史已完成项保留在 [项目看板](../PROGRESS.md) 的验证记录和对应 `plans/` 文档中；本 README 只展示当前入口和后续队列，避免把进度读成流水账。

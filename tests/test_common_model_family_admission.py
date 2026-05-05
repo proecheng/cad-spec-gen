@@ -136,6 +136,49 @@ def test_admission_route_cases_use_explicit_nonterminal_default_rules() -> None:
         _assert_dict_contains(rules[0]["match"], case.get("expected_match", {}))
 
 
+def test_admission_route_aliases_keep_template_and_dims_consistent() -> None:
+    resolver = default_resolver(project_root="__missing_project__")
+
+    for case in _manifest()["route_cases"]:
+        expected_template = case.get("expected_template")
+        expected_dims = case.get("expected_dims")
+        expected_real_dims = case.get("expected_real_dims")
+        keywords = case.get("expected_match", {}).get("keyword_contains", [])
+        if not (expected_template and keywords):
+            continue
+
+        for alias in keywords:
+            alias_case = {
+                **case,
+                "id": f"{case['id']}::{alias}",
+                "name": alias,
+                "material": "",
+            }
+            query = _query(alias_case)
+            rules = resolver.matching_rules(
+                query,
+                adapter_name=case["expected_adapter"],
+            )
+            result = JinjaPrimitiveAdapter().resolve(query, {})
+
+            assert rules, alias_case["id"]
+            assert rules[0]["match"] != {"any": True}, alias_case["id"]
+            assert result.source_tag == (
+                f"parametric_template:{expected_template}"
+            ), alias_case["id"]
+            if expected_real_dims:
+                assert tuple(result.real_dims or ()) == tuple(
+                    expected_real_dims
+                ), alias_case["id"]
+            if expected_dims:
+                dims = lookup_std_part_dims(
+                    alias,
+                    "",
+                    category=case["category"],
+                )
+                assert dims == expected_dims, alias_case["id"]
+
+
 def test_admission_precedence_cases_keep_specific_routes_first() -> None:
     for case in _manifest()["precedence_cases"]:
         result = JinjaPrimitiveAdapter().resolve(_query(case), {})

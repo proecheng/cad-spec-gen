@@ -82,6 +82,22 @@ _MATERIAL_ABSENT_TOKENS = frozenset(
     {"", "-", "—", "——", "/", "n/a", "na", "无", "无材质"}
 )
 
+_NON_MODEL_ROW_KEYWORDS = [
+    "标签",
+    "标贴",
+    "铭牌贴纸",
+    "图纸",
+    "说明",
+    "手册",
+    "文档",
+    "label",
+    "sticker",
+    "drawing",
+    "manual",
+    "datasheet",
+    "pdf",
+]
+
 
 def _normalize_material(raw: str | None) -> str:
     """把 BOM 里的"无材质"惯用写法统一为空字符串。
@@ -117,6 +133,8 @@ def classify_part(name: str, material: str = "") -> str:
     """
     raw_text = f"{name} {material}"
     lower_text = raw_text.lower()
+    if any(keyword in lower_text for keyword in _NON_MODEL_ROW_KEYWORDS):
+        return "other"
     threaded_transmission_keywords = [
         "丝杠",
         "丝杆",

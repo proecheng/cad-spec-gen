@@ -402,3 +402,138 @@ def test_batch_4_broad_tokens_do_not_activate_new_default_routes(
     )
 
     assert rules[0]["match"] == {"any": True}
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "match_key", "match_value"),
+    [
+        (
+            "motor",
+            "60法兰伺服电机",
+            "400W 3000rpm",
+            "keyword_contains",
+            ["60法兰伺服电机", "AC servo motor", "servo motor 60mm", "servo motor 60"],
+        ),
+        (
+            "reducer",
+            "PLE60 行星减速机",
+            "速比10:1",
+            "keyword_contains",
+            ["PLE60", "行星减速机", "行星减速器", "planetary gearbox", "planetary reducer"],
+        ),
+        (
+            "cable",
+            "Igus 拖链段",
+            "内宽18mm",
+            "keyword_contains",
+            ["Igus 拖链段", "塑料拖链段", "drag chain segment", "cable carrier"],
+        ),
+        (
+            "other",
+            "DIN导轨继电器模块",
+            "24V 1CO",
+            "keyword_contains",
+            ["DIN导轨继电器模块", "DIN rail relay module", "interface relay"],
+        ),
+        (
+            "other",
+            "按钮盒",
+            "2孔 22mm",
+            "keyword_contains",
+            ["按钮盒", "操作盒", "control station", "operator box"],
+        ),
+    ],
+)
+def test_batch_5_default_routes_precede_generic_fallbacks(
+    category: str,
+    name: str,
+    material: str,
+    match_key: str,
+    match_value: list[str],
+) -> None:
+    """第五批常用模型必须先命中显式族规则，不能靠 any:true 终端兜底。"""
+    query = PartQuery(
+        part_no="B5-DEFAULT-RULE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules
+    assert rules[0]["match"].get("category") == category
+    assert rules[0]["match"].get(match_key) == match_value
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "template"),
+    [
+        ("motor", "AC servo motor", "square_flange_servo_motor"),
+        ("motor", "servo motor 60mm", "square_flange_servo_motor"),
+        ("reducer", "行星减速器", "planetary_gearbox"),
+        ("reducer", "planetary reducer", "planetary_gearbox"),
+        ("cable", "塑料拖链段", "drag_chain_segment"),
+        ("cable", "cable carrier", "drag_chain_segment"),
+        ("other", "interface relay", "din_rail_relay_module"),
+        ("other", "control station", "operator_control_box"),
+        ("other", "operator box", "operator_control_box"),
+    ],
+)
+def test_batch_5_route_aliases_match_registry_and_adapter_template(
+    category: str,
+    name: str,
+    template: str,
+) -> None:
+    query = PartQuery(
+        part_no="B5-ALIAS",
+        name_cn=name,
+        material="",
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+    result = JinjaPrimitiveAdapter().resolve(query, {})
+
+    assert rules[0]["match"] != {"any": True}
+    assert result.source_tag == f"parametric_template:{template}"
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("other", "伺服标签", "不干胶"),
+        ("other", "行星轮图纸", "A4"),
+        ("other", "拖链润滑说明", "PDF"),
+        ("other", "继电器标签", "PVC"),
+        ("other", "按钮标签", "PVC"),
+    ],
+)
+def test_batch_5_broad_tokens_do_not_activate_new_default_routes(
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    """裸 伺服/行星/拖链/继电器/按钮 等宽泛词不能触发第五批 B 级模板族。"""
+    query = PartQuery(
+        part_no="B5-NEGATIVE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules[0]["match"] == {"any": True}

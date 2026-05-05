@@ -1021,6 +1021,71 @@ def _gen_nema23_stepper_motor(dims: dict) -> str:
     return _gen_nema_stepper_motor(dims)
 
 
+def _gen_square_flange_servo_motor(dims: dict) -> str:
+    w = dims.get("w", 60)
+    d = dims.get("d", 60)
+    total_h = dims.get("h", 115)
+    body_h = min(dims.get("body_h", 85), total_h)
+    shaft_d = dims.get("shaft_d", 14)
+    flange_h = min(max(total_h * 0.07, 6.0), max(total_h - body_h, 8.0))
+    shaft_l = max(total_h - body_h - flange_h, 0.0)
+    boss_d = min(w, d) * 0.42
+    corner_hole_d = min(w, d) * 0.09
+    return f"""    # Square-flange servo motor: square body, front flange, boss and shaft
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {body_h:.3f}, centered=(True, True, False))
+    flange = (cq.Workplane("XY")
+              .box({w:.3f}, {d:.3f}, {flange_h:.3f}, centered=(True, True, False))
+              .translate((0, 0, {body_h:.3f})))
+    body = body.union(flange)
+    for x in ({-w * 0.34:.3f}, {w * 0.34:.3f}):
+        for y in ({-d * 0.34:.3f}, {d * 0.34:.3f}):
+            body = body.faces(">Z").workplane().center(x, y).hole({corner_hole_d:.3f})
+    boss = (cq.Workplane("XY")
+            .circle({boss_d / 2:.3f})
+            .extrude({max(flange_h * 0.55, 3.0):.3f})
+            .translate((0, 0, {body_h + flange_h:.3f})))
+    shaft = (cq.Workplane("XY")
+             .circle({shaft_d / 2:.3f})
+             .extrude({shaft_l:.3f})
+             .translate((0, 0, {body_h + flange_h:.3f})))
+    cable_gland = (cq.Workplane("YZ")
+                   .circle({min(w, d) * 0.055:.3f})
+                   .extrude({w * 0.18:.3f})
+                   .translate(({w / 2 - w * 0.18:.3f}, 0, {body_h * 0.42:.3f})))
+    body = body.union(boss).union(shaft).union(cable_gland)
+    return body"""
+
+
+def _gen_planetary_gearbox(dims: dict) -> str:
+    w = dims.get("w", 60)
+    d = dims.get("d", 60)
+    h = dims.get("h", 70)
+    shaft_d = dims.get("shaft_d", 14)
+    front_h = max(min(h * 0.12, 9.0), 5.0)
+    shaft_l = max(min(h * 0.16, 11.0), 8.0)
+    body_h = h - front_h - shaft_l
+    ring_d = min(w, d) * 0.72
+    bolt_d = min(w, d) * 0.08
+    return f"""    # Planetary gearbox: square housing, circular output flange and shaft
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {body_h:.3f}, centered=(True, True, False))
+    front = (cq.Workplane("XY")
+             .box({w:.3f}, {d:.3f}, {front_h:.3f}, centered=(True, True, False))
+             .translate((0, 0, {body_h:.3f})))
+    register = (cq.Workplane("XY")
+                .circle({ring_d / 2:.3f})
+                .extrude({min(max(front_h * 0.55, 3.0), shaft_l):.3f})
+                .translate((0, 0, {body_h + front_h:.3f})))
+    shaft = (cq.Workplane("XY")
+             .circle({shaft_d / 2:.3f})
+             .extrude({shaft_l:.3f})
+             .translate((0, 0, {body_h + front_h:.3f})))
+    body = body.union(front).union(register).union(shaft)
+    for x in ({-w * 0.32:.3f}, {w * 0.32:.3f}):
+        for y in ({-d * 0.32:.3f}, {d * 0.32:.3f}):
+            body = body.faces(">Z").workplane().center(x, y).hole({bolt_d:.3f})
+    return body"""
+
+
 def _gen_cl57t_stepper_driver(dims: dict) -> str:
     w = dims.get("w", 118)
     d = dims.get("d", 75)
@@ -1130,6 +1195,36 @@ def _gen_cable_harness_stub(dims: dict) -> str:
                  .box({w:.3f}, {max(d * 0.06, 2.0):.3f}, {max(h - jacket_h, 1.2):.3f}, centered=(True, True, False))
                  .translate((0, 0, {jacket_h:.3f})))
         body = body.union(clamp)
+    return body"""
+
+
+def _gen_drag_chain_segment(dims: dict) -> str:
+    w = dims.get("w", 120)
+    d = dims.get("d", 30)
+    h = dims.get("h", 18)
+    link_count = max(3, int(dims.get("link_count", 8)))
+    link_w = w / link_count
+    wall_t = max(min(d, h) * 0.14, 2.0)
+    pin_r = max(min(d, h) * 0.08, 1.2)
+    return f"""    # Drag-chain segment: repeated cable-carrier links with side plates
+    body = cq.Workplane("XY")
+    for i in range({link_count}):
+        x = {-w / 2:.3f} + (i + 0.5) * {link_w:.3f}
+        side_a = (cq.Workplane("XY")
+                  .center(x, {-d / 2 + wall_t / 2:.3f})
+                  .box({link_w * 0.78:.3f}, {wall_t:.3f}, {h:.3f}, centered=(True, True, False)))
+        side_b = side_a.translate((0, {d - wall_t:.3f}, 0))
+        bridge = (cq.Workplane("XY")
+                  .center(x, 0)
+                  .box({link_w * 0.64:.3f}, {d - 2 * wall_t:.3f}, {wall_t:.3f}, centered=(True, True, False))
+                  .translate((0, 0, {h - wall_t:.3f})))
+        pin = (cq.Workplane("YZ")
+               .center(0, {h * 0.52:.3f})
+               .circle({pin_r:.3f})
+               .extrude({link_w * 0.14:.3f})
+               .translate((x - {link_w * 0.07:.3f}, 0, 0)))
+        link = side_a.union(side_b).union(bridge).union(pin)
+        body = link if i == 0 else body.union(link)
     return body"""
 
 
@@ -1503,6 +1598,37 @@ def _gen_din_rail_device(dims: dict) -> str:
     return body"""
 
 
+def _gen_din_rail_relay_module(dims: dict) -> str:
+    w = dims.get("w", 6.2)
+    d = dims.get("d", 78)
+    h = dims.get("h", 90)
+    latch_h = h * 0.14
+    relay_h = h * 0.34
+    terminal_h = h * 0.11
+    return f"""    # Slim DIN-rail relay module: slice body, relay cap, latch and terminals
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {h:.3f}, centered=(True, True, False))
+    relay_cap = (cq.Workplane("XY")
+                 .center(0, {d * 0.03:.3f})
+                 .box({w:.3f}, {d * 0.52:.3f}, {relay_h:.3f}, centered=(True, True, False))
+                 .translate((0, 0, {h * 0.42:.3f})))
+    latch = (cq.Workplane("XY")
+             .center(0, {-d * 0.39:.3f})
+             .box({w:.3f}, {d * 0.20:.3f}, {latch_h:.3f}, centered=(True, True, False)))
+    body = body.union(relay_cap).cut(latch)
+    for y in ({-d * 0.34:.3f}, {d * 0.34:.3f}):
+        terminal = (cq.Workplane("XY")
+                    .center(0, y)
+                    .box({w:.3f}, {d * 0.14:.3f}, {terminal_h:.3f}, centered=(True, True, False))
+                    .translate((0, 0, {h - terminal_h:.3f})))
+        screw = (cq.Workplane("XY")
+                 .center(0, y)
+                 .circle({w * 0.22:.3f})
+                 .extrude({terminal_h + 0.4:.3f})
+                 .translate((0, 0, {h - terminal_h - 0.2:.3f})))
+        body = body.union(terminal).cut(screw)
+    return body"""
+
+
 def _gen_gt2_timing_belt_loop(dims: dict) -> str:
     w = dims.get("w", 170)
     d = dims.get("d", 80)
@@ -1569,6 +1695,44 @@ def _gen_panel_pushbutton_22mm(dims: dict) -> str:
            .translate((0, 0, {body_h + collar_h:.3f})))
     contact = cq.Workplane("XY").box({w * 0.48:.3f}, {d * 0.34:.3f}, {body_h * 0.46:.3f}, centered=(True, True, False))
     return body.union(collar).union(cap).union(contact)"""
+
+
+def _gen_operator_control_box(dims: dict) -> str:
+    w = dims.get("w", 80)
+    d = dims.get("d", 70)
+    h = dims.get("h", 65)
+    button_count = max(1, min(int(dims.get("button_count", 2)), 4))
+    lid_h = max(min(h * 0.16, 10.0), 5.0)
+    button_d = min(22.0, min(w, d) * 0.30)
+    pitch = min(w * 0.32, (w - button_d * 1.3) / max(button_count, 1))
+    button_stack_h = lid_h * 0.90
+    base_h = max(h - button_stack_h, h * 0.72)
+    return f"""    # Operator control box: enclosure with {button_count} panel operators
+    box = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {base_h - lid_h:.3f}, centered=(True, True, False))
+    lid = (cq.Workplane("XY")
+           .box({w:.3f}, {d:.3f}, {lid_h:.3f}, centered=(True, True, False))
+           .translate((0, 0, {base_h - lid_h:.3f})))
+    body = box.union(lid)
+    for i in range({button_count}):
+        x = (i - ({button_count} - 1) / 2.0) * {pitch:.3f}
+        bezel = (cq.Workplane("XY")
+                 .center(x, {d * 0.10:.3f})
+                 .circle({button_d * 0.58:.3f})
+                 .extrude({lid_h * 0.42:.3f})
+                 .translate((0, 0, {base_h:.3f})))
+        cap = (cq.Workplane("XY")
+               .center(x, {d * 0.10:.3f})
+               .circle({button_d * 0.42:.3f})
+               .extrude({lid_h * 0.58:.3f})
+               .translate((0, 0, {base_h + lid_h * 0.30:.3f})))
+        body = body.union(bezel).union(cap)
+    cable_gland = (cq.Workplane("YZ")
+                   .center(0, {base_h * 0.45:.3f})
+                   .circle({min(w, d) * 0.06:.3f})
+                   .extrude({w * 0.14:.3f})
+                   .translate(({w / 2 - w * 0.14:.3f}, 0, 0)))
+    body = body.union(cable_gland)
+    return body"""
 
 
 def _gen_sensor_mounting_bracket(dims: dict) -> str:
@@ -1740,6 +1904,28 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         return {
             "template": "panel_pushbutton_22mm",
             "body_code": _gen_panel_pushbutton_22mm(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["按钮盒", "操作盒", "control station", "operator box"],
+    ):
+        button_count = _parse_first_int_after(
+            r"(\d+)\s*(?:孔|button|buttons)",
+            text,
+            dims.get("button_count", 2),
+        )
+        tpl_dims = {
+            "w": dims.get("w", 80),
+            "d": dims.get("d", 70),
+            "h": dims.get("h", 65),
+            "button_count": dims.get("button_count", button_count),
+        }
+        return {
+            "template": "operator_control_box",
+            "body_code": _gen_operator_control_box(tpl_dims),
             "dims": tpl_dims,
             "metadata": dict(reusable_parametric_template),
         }
@@ -2158,6 +2344,24 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
                 },
             }
 
+    if category == "motor" and _contains_any(
+        text,
+        ["60法兰伺服电机", "AC servo motor", "servo motor 60mm", "servo motor 60"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 60),
+            "d": dims.get("d", 60),
+            "h": dims.get("h", 115),
+            "body_h": dims.get("body_h", 85),
+            "shaft_d": dims.get("shaft_d", 14),
+        }
+        return {
+            "template": "square_flange_servo_motor",
+            "body_code": _gen_square_flange_servo_motor(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
     if category == "motor" and _contains_any(text, ["NEMA23", "NEMA 23"]):
         tpl_dims = {
             "w": 57,
@@ -2175,6 +2379,23 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
                 "body_height_mm": 56,
                 "shaft_length_mm": 24,
             },
+        }
+
+    if category == "reducer" and _contains_any(
+        text,
+        ["PLE60", "行星减速机", "行星减速器", "planetary gearbox", "planetary reducer"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 60),
+            "d": dims.get("d", 60),
+            "h": dims.get("h", 70),
+            "shaft_d": dims.get("shaft_d", 14),
+        }
+        return {
+            "template": "planetary_gearbox",
+            "body_code": _gen_planetary_gearbox(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
         }
 
     if category == "other" and _contains_any(text, ["CL57T"]):
@@ -2220,6 +2441,23 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         return {
             "template": "cable_harness_stub",
             "body_code": _gen_cable_harness_stub(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "cable" and _contains_any(
+        text,
+        ["Igus 拖链段", "塑料拖链段", "drag chain segment", "cable carrier"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 120),
+            "d": dims.get("d", 30),
+            "h": dims.get("h", 18),
+            "link_count": dims.get("link_count", 8),
+        }
+        return {
+            "template": "drag_chain_segment",
+            "body_code": _gen_drag_chain_segment(tpl_dims),
             "dims": tpl_dims,
             "metadata": dict(reusable_parametric_template),
         }
@@ -2414,8 +2652,30 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
 
     if category == "other" and _contains_any(
         text,
-        ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"],
+        [
+            "DIN导轨",
+            "DIN rail",
+            "35mm导轨",
+            "导轨电源",
+            "导轨继电器",
+            "interface relay",
+        ],
     ):
+        if _contains_any(
+            text,
+            ["DIN导轨继电器模块", "DIN rail relay module", "interface relay"],
+        ):
+            tpl_dims = {
+                "w": dims.get("w", 6.2),
+                "d": dims.get("d", 78),
+                "h": dims.get("h", 90),
+            }
+            return {
+                "template": "din_rail_relay_module",
+                "body_code": _gen_din_rail_relay_module(tpl_dims),
+                "dims": tpl_dims,
+                "metadata": dict(reusable_parametric_template),
+            }
         tpl_dims = {
             "w": dims.get("w", 90),
             "d": dims.get("d", 60),

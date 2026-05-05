@@ -586,6 +586,16 @@ mappings:
     adapter: jinja_primitive
 
   - match:
+      category: motor
+      keyword_contains: ["60法兰伺服电机", "AC servo motor", "servo motor 60mm", "servo motor 60"]
+    adapter: jinja_primitive
+
+  - match:
+      category: reducer
+      keyword_contains: ["PLE60", "行星减速机", "行星减速器", "planetary gearbox", "planetary reducer"]
+    adapter: jinja_primitive
+
+  - match:
       category: sensor
       keyword_contains: ["接近开关", "proximity", "M8", "M12", "M18"]
     adapter: jinja_primitive
@@ -593,6 +603,11 @@ mappings:
   - match:
       category: cable
       keyword_contains: ["线束", "cable harness", "harness", "FFC"]
+    adapter: jinja_primitive
+
+  - match:
+      category: cable
+      keyword_contains: ["Igus 拖链段", "塑料拖链段", "drag chain segment", "cable carrier"]
     adapter: jinja_primitive
 
   - match:
@@ -622,6 +637,11 @@ mappings:
 
   - match:
       category: other
+      keyword_contains: ["DIN导轨继电器模块", "DIN rail relay module", "interface relay"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
       keyword_contains: ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"]
     adapter: jinja_primitive
 
@@ -633,6 +653,11 @@ mappings:
   - match:
       category: other
       keyword_contains: ["22mm 急停按钮", "急停按钮", "22mm push button", "panel pushbutton", "indicator light", "指示灯"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["按钮盒", "操作盒", "control station", "operator box"]
     adapter: jinja_primitive
 
   - match:

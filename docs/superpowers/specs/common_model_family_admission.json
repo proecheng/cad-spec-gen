@@ -18,7 +18,11 @@
       "name": "LM12UU 直线轴承",
       "material": "",
       "template": "linear_bearing_lmxxuu",
-      "real_dims": [21, 21, 30]
+      "real_dims": [
+        21,
+        21,
+        30
+      ]
     },
     {
       "id": "batch1_nema_stepper",
@@ -26,7 +30,11 @@
       "name": "NEMA17 步进电机",
       "material": "",
       "template": "nema_stepper_motor",
-      "real_dims": [42.3, 42.3, 72]
+      "real_dims": [
+        42.3,
+        42.3,
+        72
+      ]
     },
     {
       "id": "batch1_proximity_sensor",
@@ -34,7 +42,11 @@
       "name": "M12 电感接近开关",
       "material": "PNP NO",
       "template": "cylindrical_proximity_sensor",
-      "real_dims": [12, 12, 55]
+      "real_dims": [
+        12,
+        12,
+        55
+      ]
     },
     {
       "id": "batch1_compact_cylinder",
@@ -42,7 +54,11 @@
       "name": "薄型气缸",
       "material": "MGPM20-50",
       "template": "compact_pneumatic_cylinder",
-      "real_dims": [42, 34, 70]
+      "real_dims": [
+        42,
+        34,
+        70
+      ]
     },
     {
       "id": "batch1_cable_harness",
@@ -50,7 +66,11 @@
       "name": "拖链线束",
       "material": "4芯×1200mm",
       "template": "cable_harness_stub",
-      "real_dims": [10, 50, 6]
+      "real_dims": [
+        10,
+        50,
+        6
+      ]
     },
     {
       "id": "batch2_linear_guide",
@@ -58,7 +78,11 @@
       "name": "MGN12H 直线导轨滑块",
       "material": "",
       "template": "linear_guide_carriage",
-      "real_dims": [45, 27, 15]
+      "real_dims": [
+        45,
+        27,
+        15
+      ]
     },
     {
       "id": "batch2_gt2_pulley",
@@ -66,7 +90,11 @@
       "name": "GT2 30T 同步带轮",
       "material": "孔径8mm 6mm带宽",
       "template": "gt2_timing_pulley",
-      "real_dims": [19.1, 19.1, 10]
+      "real_dims": [
+        19.1,
+        19.1,
+        10
+      ]
     },
     {
       "id": "batch2_terminal_block",
@@ -74,7 +102,11 @@
       "name": "KF301 接线端子",
       "material": "3P 5.08mm",
       "template": "terminal_block",
-      "real_dims": [15.24, 8, 10]
+      "real_dims": [
+        15.24,
+        8,
+        10
+      ]
     },
     {
       "id": "batch2_solenoid_valve",
@@ -82,7 +114,11 @@
       "name": "二位五通电磁阀",
       "material": "DC24V",
       "template": "pneumatic_solenoid_valve",
-      "real_dims": [45, 22, 28]
+      "real_dims": [
+        45,
+        22,
+        28
+      ]
     },
     {
       "id": "batch3_mounted_bearing",
@@ -90,7 +126,11 @@
       "name": "UCP204 轴承座",
       "material": "",
       "template": "mounted_bearing_support",
-      "real_dims": [127, 38, 65]
+      "real_dims": [
+        127,
+        38,
+        65
+      ]
     },
     {
       "id": "batch3_linear_module",
@@ -98,7 +138,11 @@
       "name": "KK60 直线模组",
       "material": "行程300mm",
       "template": "linear_motion_module",
-      "real_dims": [300, 60, 45]
+      "real_dims": [
+        300,
+        60,
+        45
+      ]
     },
     {
       "id": "batch3_din_terminal",
@@ -106,7 +150,11 @@
       "name": "DIN导轨端子",
       "material": "2.5mm2",
       "template": "din_rail_terminal_block",
-      "real_dims": [5.2, 45, 35]
+      "real_dims": [
+        5.2,
+        45,
+        35
+      ]
     },
     {
       "id": "batch4_enclosure",
@@ -114,7 +162,11 @@
       "name": "IP65 控制箱",
       "material": "160×120×80mm",
       "template": "electrical_enclosure_box",
-      "real_dims": [160, 120, 80]
+      "real_dims": [
+        160,
+        120,
+        80
+      ]
     },
     {
       "id": "batch4_pushbutton",
@@ -122,7 +174,11 @@
       "name": "22mm 急停按钮",
       "material": "红色",
       "template": "panel_pushbutton_22mm",
-      "real_dims": [30, 30, 45]
+      "real_dims": [
+        30,
+        30,
+        45
+      ]
     },
     {
       "id": "batch4_vacuum_cup",
@@ -130,7 +186,11 @@
       "name": "真空吸盘",
       "material": "Φ30 硅胶",
       "template": "vacuum_suction_cup",
-      "real_dims": [30, 30, 25]
+      "real_dims": [
+        30,
+        30,
+        25
+      ]
     },
     {
       "id": "batch4_tslot_profile",
@@ -138,7 +198,71 @@
       "name": "2020铝型材",
       "material": "L=200mm",
       "template": "aluminum_tslot_extrusion",
-      "real_dims": [200, 20, 20]
+      "real_dims": [
+        200,
+        20,
+        20
+      ]
+    },
+    {
+      "id": "batch5_square_flange_servo",
+      "category": "motor",
+      "name": "60法兰伺服电机",
+      "material": "400W 3000rpm",
+      "template": "square_flange_servo_motor",
+      "real_dims": [
+        60,
+        60,
+        115
+      ]
+    },
+    {
+      "id": "batch5_planetary_gearbox",
+      "category": "reducer",
+      "name": "PLE60 行星减速机",
+      "material": "速比10:1",
+      "template": "planetary_gearbox",
+      "real_dims": [
+        60,
+        60,
+        70
+      ]
+    },
+    {
+      "id": "batch5_drag_chain_segment",
+      "category": "cable",
+      "name": "Igus 拖链段",
+      "material": "内宽18mm",
+      "template": "drag_chain_segment",
+      "real_dims": [
+        120,
+        30,
+        18
+      ]
+    },
+    {
+      "id": "batch5_din_relay_module",
+      "category": "other",
+      "name": "DIN导轨继电器模块",
+      "material": "24V 1CO",
+      "template": "din_rail_relay_module",
+      "real_dims": [
+        6.2,
+        78,
+        90
+      ]
+    },
+    {
+      "id": "batch5_operator_control_box",
+      "category": "other",
+      "name": "按钮盒",
+      "material": "2孔 22mm",
+      "template": "operator_control_box",
+      "real_dims": [
+        80,
+        70,
+        65
+      ]
     }
   ],
   "negative_cases": [
@@ -197,6 +321,38 @@
       "material": "A4",
       "expected_category": "other",
       "forbidden_template": "aluminum_tslot_extrusion"
+    },
+    {
+      "id": "servo_label_not_servo_motor",
+      "category": "other",
+      "name": "伺服标签",
+      "material": "不干胶",
+      "expected_category": "other",
+      "forbidden_template": "square_flange_servo_motor"
+    },
+    {
+      "id": "planetary_drawing_not_gearbox",
+      "category": "other",
+      "name": "行星轮图纸",
+      "material": "A4",
+      "expected_category": "other",
+      "forbidden_template": "planetary_gearbox"
+    },
+    {
+      "id": "drag_chain_manual_not_chain_segment",
+      "category": "other",
+      "name": "拖链润滑说明",
+      "material": "PDF",
+      "expected_category": "other",
+      "forbidden_template": "drag_chain_segment"
+    },
+    {
+      "id": "relay_label_not_relay_module",
+      "category": "other",
+      "name": "继电器标签",
+      "material": "PVC",
+      "expected_category": "other",
+      "forbidden_template": "din_rail_relay_module"
     }
   ],
   "route_cases": [
@@ -207,7 +363,11 @@
       "material": "",
       "expected_adapter": "jinja_primitive",
       "expected_match": {
-        "keyword_contains": ["NEMA", "步进", "stepper"]
+        "keyword_contains": [
+          "NEMA",
+          "步进",
+          "stepper"
+        ]
       }
     },
     {
@@ -217,7 +377,14 @@
       "material": "",
       "expected_adapter": "jinja_primitive",
       "expected_match": {
-        "name_contains": ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
+        "name_contains": [
+          "直线导轨",
+          "linear guide",
+          "MGN",
+          "HGW",
+          "HGH",
+          "导轨滑块"
+        ]
       }
     },
     {
@@ -227,7 +394,16 @@
       "material": "3P 5.08mm",
       "expected_adapter": "jinja_primitive",
       "expected_match": {
-        "name_contains": ["端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头", "M12 connector", "M12 插头"]
+        "name_contains": [
+          "端子",
+          "接线端子",
+          "terminal block",
+          "KF301",
+          "Phoenix",
+          "航空插头",
+          "M12 connector",
+          "M12 插头"
+        ]
       }
     },
     {
@@ -237,7 +413,10 @@
       "material": "2.5mm2",
       "expected_adapter": "jinja_primitive",
       "expected_match": {
-        "name_contains": ["DIN导轨端子", "DIN rail terminal"]
+        "name_contains": [
+          "DIN导轨端子",
+          "DIN rail terminal"
+        ]
       }
     },
     {
@@ -247,7 +426,149 @@
       "material": "160×120×80mm",
       "expected_adapter": "jinja_primitive",
       "expected_match": {
-        "keyword_contains": ["IP65 控制箱", "电气控制箱", "control enclosure", "electrical enclosure", "junction box", "接线盒"]
+        "keyword_contains": [
+          "IP65 控制箱",
+          "电气控制箱",
+          "control enclosure",
+          "electrical enclosure",
+          "junction box",
+          "接线盒"
+        ]
+      }
+    },
+    {
+      "id": "route_square_flange_servo",
+      "category": "motor",
+      "name": "60法兰伺服电机",
+      "material": "400W 3000rpm",
+      "expected_adapter": "jinja_primitive",
+      "expected_template": "square_flange_servo_motor",
+      "expected_real_dims": [
+        60,
+        60,
+        115
+      ],
+      "expected_dims": {
+        "w": 60,
+        "d": 60,
+        "h": 115,
+        "body_h": 85,
+        "shaft_d": 14
+      },
+      "expected_match": {
+        "keyword_contains": [
+          "60法兰伺服电机",
+          "AC servo motor",
+          "servo motor 60mm",
+          "servo motor 60"
+        ]
+      }
+    },
+    {
+      "id": "route_planetary_gearbox",
+      "category": "reducer",
+      "name": "PLE60 行星减速机",
+      "material": "速比10:1",
+      "expected_adapter": "jinja_primitive",
+      "expected_template": "planetary_gearbox",
+      "expected_real_dims": [
+        60,
+        60,
+        70
+      ],
+      "expected_dims": {
+        "w": 60,
+        "d": 60,
+        "h": 70,
+        "shaft_d": 14
+      },
+      "expected_match": {
+        "keyword_contains": [
+          "PLE60",
+          "行星减速机",
+          "行星减速器",
+          "planetary gearbox",
+          "planetary reducer"
+        ]
+      }
+    },
+    {
+      "id": "route_drag_chain_segment",
+      "category": "cable",
+      "name": "Igus 拖链段",
+      "material": "内宽18mm",
+      "expected_adapter": "jinja_primitive",
+      "expected_template": "drag_chain_segment",
+      "expected_real_dims": [
+        120,
+        30,
+        18
+      ],
+      "expected_dims": {
+        "w": 120,
+        "d": 30,
+        "h": 18,
+        "link_count": 8
+      },
+      "expected_match": {
+        "keyword_contains": [
+          "Igus 拖链段",
+          "塑料拖链段",
+          "drag chain segment",
+          "cable carrier"
+        ]
+      }
+    },
+    {
+      "id": "route_din_relay_module",
+      "category": "other",
+      "name": "DIN导轨继电器模块",
+      "material": "24V 1CO",
+      "expected_adapter": "jinja_primitive",
+      "expected_template": "din_rail_relay_module",
+      "expected_real_dims": [
+        6.2,
+        78,
+        90
+      ],
+      "expected_dims": {
+        "w": 6.2,
+        "d": 78,
+        "h": 90
+      },
+      "expected_match": {
+        "keyword_contains": [
+          "DIN导轨继电器模块",
+          "DIN rail relay module",
+          "interface relay"
+        ]
+      }
+    },
+    {
+      "id": "route_operator_control_box",
+      "category": "other",
+      "name": "按钮盒",
+      "material": "2孔 22mm",
+      "expected_adapter": "jinja_primitive",
+      "expected_template": "operator_control_box",
+      "expected_real_dims": [
+        80,
+        70,
+        65
+      ],
+      "expected_dims": {
+        "w": 80,
+        "d": 70,
+        "h": 65,
+        "button_count": 2
+      },
+      "expected_match": {
+        "keyword_contains": [
+          "按钮盒",
+          "操作盒",
+          "control station",
+          "operator box"
+        ]
       }
     }
   ],
@@ -273,6 +594,20 @@
       "material": "",
       "first_adapter": "sw_toolbox",
       "forbidden_first_adapter": "jinja_primitive"
+    },
+    {
+      "id": "nema_stepper_keeps_stepper_template",
+      "category": "motor",
+      "name": "NEMA17 步进电机",
+      "material": "",
+      "expected_template": "nema_stepper_motor"
+    },
+    {
+      "id": "din_power_keeps_din_device_template",
+      "category": "other",
+      "name": "DIN导轨电源",
+      "material": "24V 60W",
+      "expected_template": "din_rail_device"
     }
   ],
   "dimension_cases": [
@@ -281,7 +616,11 @@
       "category": "pump",
       "name": "微量泵（溶剂喷射）",
       "material": "电磁阀式",
-      "expected_dims": {"w": 20, "h": 15, "l": 30}
+      "expected_dims": {
+        "w": 20,
+        "h": 15,
+        "l": 30
+      }
     },
     {
       "id": "vacuum_bag_other_has_no_vacuum_dims",
@@ -295,14 +634,55 @@
       "category": "pneumatic",
       "name": "真空吸盘",
       "material": "Φ30 硅胶",
-      "expected_dims": {"w": 30, "d": 30, "h": 25}
+      "expected_dims": {
+        "w": 30,
+        "d": 30,
+        "h": 25
+      }
     },
     {
       "id": "profile_other_keeps_profile_dims",
       "category": "other",
       "name": "2020铝型材",
       "material": "L=200mm",
-      "expected_dims": {"w": 200, "d": 20, "h": 20, "slot_w": 6}
+      "expected_dims": {
+        "w": 200,
+        "d": 20,
+        "h": 20,
+        "slot_w": 6
+      }
+    },
+    {
+      "id": "servo_label_other_has_no_servo_dims",
+      "category": "other",
+      "name": "伺服标签",
+      "material": "不干胶",
+      "expected_dims": {}
+    },
+    {
+      "id": "square_flange_servo_motor_dims",
+      "category": "motor",
+      "name": "60法兰伺服电机",
+      "material": "400W 3000rpm",
+      "expected_dims": {
+        "w": 60,
+        "d": 60,
+        "h": 115,
+        "body_h": 85,
+        "shaft_d": 14
+      }
+    },
+    {
+      "id": "planetary_gearbox_dims",
+      "category": "reducer",
+      "name": "PLE60 行星减速机",
+      "material": "速比10:1",
+      "expected_dims": {
+        "w": 60,
+        "d": 60,
+        "h": 70,
+        "shaft_d": 14
+      }
     }
   ],
   "geometry_cases": [
@@ -340,6 +720,41 @@
       "name": "2020铝型材",
       "material": "L=200mm",
       "template": "aluminum_tslot_extrusion"
+    },
+    {
+      "id": "geometry_square_flange_servo",
+      "category": "motor",
+      "name": "60法兰伺服电机",
+      "material": "400W 3000rpm",
+      "template": "square_flange_servo_motor"
+    },
+    {
+      "id": "geometry_planetary_gearbox",
+      "category": "reducer",
+      "name": "PLE60 行星减速机",
+      "material": "速比10:1",
+      "template": "planetary_gearbox"
+    },
+    {
+      "id": "geometry_drag_chain_segment",
+      "category": "cable",
+      "name": "Igus 拖链段",
+      "material": "内宽18mm",
+      "template": "drag_chain_segment"
+    },
+    {
+      "id": "geometry_din_relay_module",
+      "category": "other",
+      "name": "DIN导轨继电器模块",
+      "material": "24V 1CO",
+      "template": "din_rail_relay_module"
+    },
+    {
+      "id": "geometry_operator_control_box",
+      "category": "other",
+      "name": "按钮盒",
+      "material": "2孔 22mm",
+      "template": "operator_control_box"
     }
   ]
 }

@@ -131,6 +131,33 @@ PARAM_UNIT_PATTERNS = {
 # 格式: "型号关键词" → {"d": 直径mm, "l": 长度mm, ...}
 # 对于方形件: {"w": 宽, "h": 高, "l": 长}
 
+_BATCH_5_SQUARE_FLANGE_SERVO_DIMS = {
+    "w": 60,
+    "d": 60,
+    "h": 115,
+    "body_h": 85,
+    "shaft_d": 14,
+}
+_BATCH_5_PLANETARY_GEARBOX_DIMS = {
+    "w": 60,
+    "d": 60,
+    "h": 70,
+    "shaft_d": 14,
+}
+_BATCH_5_DRAG_CHAIN_SEGMENT_DIMS = {
+    "w": 120,
+    "d": 30,
+    "h": 18,
+    "link_count": 8,
+}
+_BATCH_5_DIN_RELAY_MODULE_DIMS = {"w": 6.2, "d": 78, "h": 90}
+_BATCH_5_OPERATOR_CONTROL_BOX_DIMS = {
+    "w": 80,
+    "d": 70,
+    "h": 65,
+    "button_count": 2,
+}
+
 STD_PART_DIMENSIONS = {
     # --- Motors ---
     "ECX SPEED 22": {"d": 22, "l": 68, "shaft_d": 4, "shaft_l": 14},
@@ -226,6 +253,27 @@ STD_PART_DIMENSIONS = {
     "NEMA 17": {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5},
     "NEMA23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
     "NEMA 23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
+    # --- Batch 5 automation families ---
+    "60法兰伺服电机": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "AC servo motor": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "servo motor 60mm": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "servo motor 60": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "PLE60": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "行星减速机": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "行星减速器": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "planetary gearbox": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "planetary reducer": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "Igus 拖链段": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "塑料拖链段": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "drag chain segment": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "cable carrier": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "DIN导轨继电器模块": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "DIN rail relay module": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "interface relay": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "按钮盒": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "操作盒": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "control station": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "operator box": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
     # --- Cable / pneumatic visual fallbacks ---
     "_cable_harness": {"w": 10, "d": 50, "h": 6},
     "MGPM20": {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
@@ -290,6 +338,26 @@ STD_PART_DIMENSION_CATEGORIES = {
     "2020角码": {"other"},
     "齿轮泵": {"pump"},
     "微量泵": {"pump"},
+    "60法兰伺服电机": {"motor"},
+    "AC servo motor": {"motor"},
+    "servo motor 60mm": {"motor"},
+    "servo motor 60": {"motor"},
+    "PLE60": {"reducer"},
+    "行星减速机": {"reducer"},
+    "行星减速器": {"reducer"},
+    "planetary gearbox": {"reducer"},
+    "planetary reducer": {"reducer"},
+    "Igus 拖链段": {"cable"},
+    "塑料拖链段": {"cable"},
+    "drag chain segment": {"cable"},
+    "cable carrier": {"cable"},
+    "DIN导轨继电器模块": {"other"},
+    "DIN rail relay module": {"other"},
+    "interface relay": {"other"},
+    "按钮盒": {"other"},
+    "操作盒": {"other"},
+    "control station": {"other"},
+    "operator box": {"other"},
 }
 
 MATERIAL_PROPS = {
