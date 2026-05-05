@@ -3700,6 +3700,31 @@ def cmd_render_visual_check(args):
     return command_return_code_for_render_visual_regression(report)
 
 
+def cmd_render_quality_check(args):
+    """运行 Phase 4 Blender 预检和截图像素质量检查。"""
+    from tools.render_quality_check import (
+        command_return_code_for_render_quality_check,
+        run_render_quality_check,
+    )
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = run_render_quality_check(
+            PROJECT_ROOT,
+            args.subsystem,
+            artifact_index_path=getattr(args, "artifact_index", None),
+            blender_path=getattr(args, "blender", None),
+            output_path=getattr(args, "output", None),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("RENDER_QUALITY_REPORT failed: %s", exc)
+        return 1
+    log.info("RENDER_QUALITY_REPORT: %s", report.get("ordinary_user_message"))
+    return command_return_code_for_render_quality_check(report)
+
+
 def cmd_photo3d_autopilot(args):
     """运行 Photo3D 门禁并写出普通用户下一步报告。"""
     from tools.photo3d_autopilot import write_photo3d_autopilot_report
@@ -4489,6 +4514,10 @@ def main():
             "writes RENDER_VISUAL_REGRESSION.json, compares active-run views, "
             "render files, assembly instances, optional per-view instance evidence, "
             "and accepted baseline evidence without scanning render directories.\n"
+            "For Blender environment and screenshot/pixel evidence, run python "
+            "cad_pipeline.py render-quality-check --subsystem <name>. It writes "
+            "RENDER_QUALITY_REPORT.json with blender_preflight and pixel_metrics "
+            "from the same active run without scanning render directories.\n"
             "Gate status: pass = CAD contract gate passed; warning = CAD gate passed "
             "with non-blocking warnings; blocked = CAD gate failed and enhancement "
             "must not run. PHOTO3D_REPORT.json enhancement_status is blocked or "
@@ -4617,6 +4646,49 @@ def main():
         help="RENDER_VISUAL_REGRESSION.json output path (default: current run directory)",
     )
 
+    # render-quality-check：Phase 4 Blender 预检和截图像素质量检查
+    p_render_quality_check = sub.add_parser(
+        "render-quality-check",
+        help="Check active-run Blender preflight and render pixel quality",
+        description=(
+            "Phase 4 render quality check：只通过 ARTIFACT_INDEX.json active_run_id "
+            "读取当前 render_manifest.json；执行 Blender preflight，并检查当前 run "
+            "渲染截图的 pixel quality。报告包含 blender_preflight、"
+            "render_quality_summary 和逐视角 pixel_metrics。"
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py render-quality-check --subsystem <name>\n"
+            "The command writes RENDER_QUALITY_REPORT.json inside the active run "
+            "directory. It does not scan render folders for newest images and does "
+            "not infer another run. Hard failures such as missing Blender, bad "
+            "render file hash, missing render image, or render QA failure are "
+            "blocked. Low contrast, low edge density, or inconsistent canvas are "
+            "warnings. Use --blender only to point at an explicit Blender executable "
+            "for this preflight."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_render_quality_check.add_argument("--subsystem", "-s", required=True)
+    p_render_quality_check.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active_run_id source."
+        ),
+    )
+    p_render_quality_check.add_argument(
+        "--blender",
+        default=None,
+        help="Explicit Blender executable path for Blender preflight",
+    )
+    p_render_quality_check.add_argument(
+        "--output",
+        default=None,
+        help="RENDER_QUALITY_REPORT.json output path (default: current run directory)",
+    )
+
     # photo3d-autopilot：普通用户下一步报告
     p_photo3d_autopilot = sub.add_parser(
         "photo3d-autopilot",
@@ -4639,6 +4711,8 @@ def main():
             "--subsystem <name> if you need Phase 4 view/component consistency "
             "evidence; it writes RENDER_VISUAL_REGRESSION.json from active_run_id "
             "contracts and accepted baseline evidence without scanning directories. "
+            "Run python cad_pipeline.py render-quality-check --subsystem <name> "
+            "for Blender preflight and pixel_metrics in RENDER_QUALITY_REPORT.json. "
             "Gate status remains pass/warning/blocked. Enhancement delivery status "
             "remains accepted/preview/blocked and is not produced by this command; "
             "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
@@ -5054,6 +5128,7 @@ def main():
         "project-guide": cmd_project_guide,
         "photo3d": cmd_photo3d,
         "render-visual-check": cmd_render_visual_check,
+        "render-quality-check": cmd_render_quality_check,
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
         "photo3d-run": cmd_photo3d_run,

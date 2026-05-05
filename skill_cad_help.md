@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, render-visual-check, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, render-visual-check, render-quality-check, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -456,6 +456,14 @@ python cad_pipeline.py render-visual-check --subsystem <name>
 
 `render-visual-check` writes `RENDER_VISUAL_REGRESSION.json` in the current active run directory. It reads only `ARTIFACT_INDEX.json.active_run_id` and current `PRODUCT_GRAPH.json`, `ASSEMBLY_SIGNATURE.json`, and `render_manifest.json`; it validates subsystem/run_id/path_context/hash bindings, active render_dir, render file hashes, duplicate views, product required instances in the runtime assembly, and optional per-view instance evidence. If `accepted baseline` exists, it compares current views, render files, assembly instances, and optional per-view `visible_instance_ids` evidence against the accepted baseline. If no accepted baseline exists, it still checks the current run and reports warning when per-view instance evidence is unavailable; it must not claim component identity inside each rendered image without that evidence. It does not scan directories, guess newest PNGs, switch runs, or use AI enhancement as proof of missing CAD geometry.
 
+Phase 4 Blender environment and screenshot/pixel quality check:
+
+```bash
+python cad_pipeline.py render-quality-check --subsystem <name>
+```
+
+`render-quality-check` writes `RENDER_QUALITY_REPORT.json` in the current active run directory. It reads only `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`; it verifies Blender preflight, render file path/hash/basic QA, and per-view `pixel_metrics` such as canvas size, object occupancy, luminance, contrast, saturation, and edge density. Missing Blender, missing render images, path drift, hash drift, or render QA failures are `blocked`; low contrast, low edge density, or inconsistent multi-view canvas are `warning`. This is deterministic pixel evidence, not semantic AI recognition. It does not scan directories, guess newest PNGs, switch runs, or let `render_manifest.json.run_id` override `active_run_id`.
+
 If the `photo3d-run` report says low-risk recovery is available, the user can explicitly confirm:
 
 ```bash
@@ -540,6 +548,7 @@ Outputs for ordinary users and LLMs:
 
 - `PROJECT_GUIDE.json`: read-only project-level next-step report across init/spec/codegen/build-render/photo3d-run; when the active run is ready for enhancement, it may include allowlisted provider preset choices, display-ready `ordinary_user_options`, `provider_wizard`, safe `provider_health`, and preview `photo3d-handoff --provider-preset <id>` commands.
 - `RENDER_VISUAL_REGRESSION.json`: Phase 4 render visual/component consistency report from `render-visual-check`, comparing active-run views, render files, assembly instances, optional per-view instance evidence, and accepted baseline evidence.
+- `RENDER_QUALITY_REPORT.json`: Phase 4 Blender and screenshot quality report from `render-quality-check`, including `blender_preflight`, `render_quality_summary`, and per-view `pixel_metrics`.
 - `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
 - `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
@@ -570,6 +579,7 @@ Outputs for ordinary users and LLMs:
 Agent rule:
 
 - Prefer `photo3d-run` / `PHOTO3D_RUN.json` for ordinary users and LLM-facing next-step loops.
+- Keep Phase 4 gates distinct: `render-visual-check` proves active-run view/component contract consistency, while `render-quality-check` proves Blender availability and screenshot pixel quality. Both must stay bound to `ARTIFACT_INDEX.json.active_run_id`.
 - When the user says to execute the recommendation, prefer `photo3d-handoff` so baseline acceptance, enhancement, enhance-check, and action-plan confirmation all go through one confirmed active-run handoff instead of hand-written shell commands. If the user wants a provider, pass only an allowlisted `--provider-preset` such as `engineering`; do not hand-write `--backend` or copy arbitrary JSON argv.
 - When `post_handoff_photo3d_run.status` is `enhancement_accepted`, run `photo3d-deliver` to produce `DELIVERY_PACKAGE.json`; do not manually copy files out of the render directory.
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
@@ -743,6 +753,8 @@ cad/<subsystem>/.cad-spec-gen/              ← Photo3D contract state
     ├── PRODUCT_GRAPH.json
     ├── MODEL_CONTRACT.json
     ├── ASSEMBLY_SIGNATURE.json
+    ├── RENDER_VISUAL_REGRESSION.json
+    ├── RENDER_QUALITY_REPORT.json
     ├── PHOTO3D_REPORT.json
     ├── PHOTO3D_AUTOPILOT.json
     ├── PHOTO3D_ACTION_RUN.json

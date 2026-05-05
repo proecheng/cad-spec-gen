@@ -30,6 +30,7 @@ PHOTO3D_CONTRACT_TOOL_FILES = {
     "project_guide.py",
     "product_graph.py",
     "render_qa.py",
+    "render_quality_check.py",
     "render_visual_regression.py",
     "run_manifest.py",
 }

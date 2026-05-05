@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后可运行 `render-visual-check` 写 `RENDER_VISUAL_REGRESSION.json`，再进入 `photo3d-run` 验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后可运行 `render-visual-check` 写 `RENDER_VISUAL_REGRESSION.json`，运行 `render-quality-check` 写 `RENDER_QUALITY_REPORT.json`，再进入 `photo3d-run` 验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
 
 ### v2.3.0 新增能力
 
@@ -200,6 +200,14 @@ python cad_pipeline.py render-visual-check --subsystem <name>
 
 `render-visual-check` 只读取 `ARTIFACT_INDEX.json.active_run_id` 绑定的 `PRODUCT_GRAPH.json`、`ASSEMBLY_SIGNATURE.json` 和 `render_manifest.json`，写出当前 run 目录下的 `RENDER_VISUAL_REGRESSION.json`。它检查 render manifest 的 subsystem/run_id/path/hash 链、active render_dir、渲染文件 hash、重复视角、产品图必需实例是否进入运行时装配签名；有 `accepted baseline` 时还会比较 baseline 的视角、渲染文件、装配实例和可选逐视角实例证据。没有 accepted baseline 时仍检查当前 run 自身；如果缺少 per-view instance evidence，只能给 warning，不能声称图片内每个元件身份已被证明。该命令 does not scan directories，不猜最新 PNG，不换 run；如需显式历史对比，必须同时传 `--baseline-manifest` 和 `--baseline-signature`。
 
+Phase 4 还可运行 Blender 环境预检和截图/像素级质量检查：
+
+```bash
+python cad_pipeline.py render-quality-check --subsystem <name>
+```
+
+`render-quality-check` 只读取 `ARTIFACT_INDEX.json.active_run_id` 绑定的当前 `render_manifest.json`，写出当前 run 目录下的 `RENDER_QUALITY_REPORT.json`。报告包含 `blender_preflight`、`render_quality_summary` 和逐视角 `pixel_metrics`：它会检查 Blender 可执行文件和版本预检、渲染文件路径/哈希/基础 QA，并计算画布尺寸、主体占比、亮度、对比度、饱和度、边缘密度等截图质量证据。缺 Blender、缺图、路径越界、hash 漂移或基础 QA 失败会 `blocked`；低对比度、边缘密度低或多视角画布不一致是 `warning`。它是确定性像素证据，不是语义 AI 识别；does not scan directories，不猜最新 PNG，不换 run。
+
 如果 `PHOTO3D_RUN.json` 提示存在低风险恢复动作，用户确认后运行：
 
 ```bash
@@ -283,6 +291,7 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 
 - `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
 - `RENDER_VISUAL_REGRESSION.json`：`render-visual-check` 的 Phase 4 报告，记录当前 run 与 accepted baseline 的视角、渲染文件、装配实例和逐视角实例证据差异。
+- `RENDER_QUALITY_REPORT.json`：`render-quality-check` 的 Phase 4 报告，记录 `blender_preflight`、`render_quality_summary` 和逐视角 `pixel_metrics`，用于证明 Blender 环境和截图像素质量。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
 - `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。
@@ -293,7 +302,7 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 - `ENHANCEMENT_REPORT.json`：增强完成后的交付验收报告，记录每个视角的源图、增强图、相似度、QA、`quality_summary` 和 `accepted` / `preview` / `blocked` 状态。
 - `DELIVERY_PACKAGE.json`：`photo3d-deliver` 的最终交付包清单，记录源报告、源渲染图、增强图、标注图、证据文件、质量摘要、`photo_quality_not_accepted` 等阻断原因和 `final_deliverable` 状态。
 
-大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。增强确认执行后读取 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`，不要再扫描 render 目录猜增强是否成功；当状态为 `enhancement_accepted` 时，再运行 `photo3d-deliver` 生成 `DELIVERY_PACKAGE.json`，而不是手工复制图片。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
+大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；Phase 4 证据需要分清：`render-visual-check` 证明视角/元件契约，`render-quality-check` 证明 Blender 环境和截图像素质量，二者都只读当前 active run。用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。增强确认执行后读取 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`，不要再扫描 render 目录猜增强是否成功；当状态为 `enhancement_accepted` 时，再运行 `photo3d-deliver` 生成 `DELIVERY_PACKAGE.json`，而不是手工复制图片。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
 路径隔离与旧产物清理：
 

@@ -279,6 +279,37 @@ def test_render_visual_check_help_explains_phase4_consistency_gate():
     assert "python cad_pipeline.py render-visual-check --subsystem <name>" in help_text
 
 
+def test_render_quality_check_help_explains_blender_and_pixel_quality_gate():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "render-quality-check", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "render-quality-check",
+        "RENDER_QUALITY_REPORT.json",
+        "Blender preflight",
+        "pixel quality",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "render_manifest.json",
+        "blender_preflight",
+        "pixel_metrics",
+        "--blender",
+        "does not scan",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py render-quality-check --subsystem <name>" in help_text
+
+
 def test_photo3d_run_help_explains_multi_round_user_flow():
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "photo3d-run", "--help"],
@@ -404,6 +435,12 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "RENDER_VISUAL_REGRESSION.json" in text, (
             f"{rel} missing render visual regression report"
         )
+        assert "render-quality-check" in text, f"{rel} missing render quality check"
+        assert "RENDER_QUALITY_REPORT.json" in text, (
+            f"{rel} missing render quality report"
+        )
+        assert "blender_preflight" in text, f"{rel} missing blender preflight evidence"
+        assert "pixel_metrics" in text, f"{rel} missing pixel metrics evidence"
         assert "quality_summary" in text, f"{rel} missing enhancement quality summary"
         assert "photo_quality_not_accepted" in text, (
             f"{rel} missing final delivery quality blocker"
@@ -472,6 +509,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
         assert "render_visual_check" in tools_by_name, rel
+        assert "render_quality_check" in tools_by_name, rel
         assert "project_guide" in tools_by_name, rel
         assert "enhance_check" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
@@ -506,6 +544,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert (
             tools_by_name["render_visual_check"]["cli"]
             == "python cad_pipeline.py render-visual-check --subsystem <name>"
+        )
+        assert (
+            tools_by_name["render_quality_check"]["cli"]
+            == "python cad_pipeline.py render-quality-check --subsystem <name>"
         )
         assert (
             tools_by_name["project_guide"]["cli"]
@@ -553,6 +595,16 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
             "description"
         ]
         assert "accepted baseline" in tools_by_name["render_visual_check"][
+            "description"
+        ]
+        assert "RENDER_QUALITY_REPORT.json" in tools_by_name["render_quality_check"][
+            "description"
+        ]
+        assert "Blender preflight" in tools_by_name["render_quality_check"][
+            "description"
+        ]
+        assert "pixel_metrics" in tools_by_name["render_quality_check"]["description"]
+        assert "does not scan directories" in tools_by_name["render_quality_check"][
             "description"
         ]
         assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]
