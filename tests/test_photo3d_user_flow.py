@@ -191,6 +191,9 @@ def test_photo3d_handoff_help_explains_confirmed_handoff_flow():
         "active_run_id",
         "--confirm",
         "--source",
+        "--provider-preset",
+        "provider preset",
+        "engineering",
         "accept-baseline",
         "enhance-check",
         "photo3d-run --confirm-actions",
@@ -317,6 +320,11 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
         assert "photo3d-handoff" in text, f"{rel} missing confirmed handoff runner"
+        assert "--provider-preset" in text, f"{rel} missing provider preset option"
+        assert "engineering" in text, f"{rel} missing engineering provider preset"
+        assert "白名单" in text or "allowlisted" in text, (
+            f"{rel} missing provider allowlist rule"
+        )
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
         assert "PHOTO3D_HANDOFF.json" in text, f"{rel} missing handoff report"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
@@ -397,6 +405,9 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "PHOTO3D_HANDOFF.json" in tools_by_name["photo3d_handoff"]["description"]
         assert "--confirm" in tools_by_name["photo3d_handoff"]["description"]
+        assert "--provider-preset" in tools_by_name["photo3d_handoff"]["description"]
+        assert "engineering" in tools_by_name["photo3d_handoff"]["description"]
+        assert "allowlisted provider preset" in tools_by_name["photo3d_handoff"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_handoff"]["description"]
         assert "never trusts arbitrary argv" in tools_by_name["photo3d_handoff"]["description"]
         assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]

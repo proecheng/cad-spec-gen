@@ -144,6 +144,18 @@ def test_cmd_photo3d_autopilot_with_accepted_baseline_recommends_enhancement(
     assert report["status"] == "ready_for_enhancement"
     assert report["accepted_baseline_run_id"] == "RUN001"
     assert report["next_action"]["kind"] == "run_enhancement"
+    presets = report["next_action"]["provider_presets"]
+    assert report["next_action"]["default_provider_preset"] == "default"
+    assert [preset["id"] for preset in presets] == [
+        "default",
+        "engineering",
+        "gemini",
+        "fal",
+        "fal_comfy",
+        "comfyui",
+    ]
+    assert presets[0]["backend"] is None
+    assert presets[1]["argv_suffix"] == ["--backend", "engineering"]
     assert (
         report["next_action"]["cli"]
         == "python cad_pipeline.py enhance --subsystem demo --dir cad/output/renders/demo/RUN001"
@@ -423,6 +435,7 @@ def test_cmd_photo3d_autopilot_enhance_action_binds_active_render_dir(
 
     action = report["next_action"]
     assert action["kind"] == "run_enhancement"
+    assert action["default_provider_preset"] == "default"
     assert action["argv"] == [
         "python",
         "cad_pipeline.py",

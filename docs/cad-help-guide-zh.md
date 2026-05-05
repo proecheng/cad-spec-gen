@@ -225,9 +225,11 @@ python cad_pipeline.py photo3d-action --subsystem <name> --confirm
 ```bash
 python cad_pipeline.py photo3d-handoff --subsystem <name>
 python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm
+python cad_pipeline.py photo3d-handoff --subsystem <name> --provider-preset engineering
+python cad_pipeline.py photo3d-handoff --subsystem <name> --provider-preset engineering --confirm
 ```
 
-`photo3d-handoff` 会读取当前 `active_run_id` 的 `PHOTO3D_RUN.json`（没有时读 `PHOTO3D_AUTOPILOT.json`），写出 `PHOTO3D_HANDOFF.json`。默认只预览；只有带 `--confirm` 才执行识别到的当前下一步。它支持 `accept-baseline`、`enhance`、`enhance-check` 和 `photo3d-run --confirm-actions` 这几类交接；不会扫描目录猜最新文件，不会信任 JSON 报告里的任意 argv，而是用 `ARTIFACT_INDEX.json`、当前 `run_id` 和当前 render dir 重新构造命令。交付完成、增强预览复查、用户输入和人工复查类动作不会自动执行，会保留在 `PHOTO3D_HANDOFF.json` 里让用户处理。
+`photo3d-handoff` 会读取当前 `active_run_id` 的 `PHOTO3D_RUN.json`（没有时读 `PHOTO3D_AUTOPILOT.json`），写出 `PHOTO3D_HANDOFF.json`。默认只预览；只有带 `--confirm` 才执行识别到的当前下一步。它支持 `accept-baseline`、`enhance`、`enhance-check` 和 `photo3d-run --confirm-actions` 这几类交接；不会扫描目录猜最新文件，不会信任 JSON 报告里的任意 argv，而是用 `ARTIFACT_INDEX.json`、当前 `run_id` 和当前 render dir 重新构造命令。增强动作可带 `--provider-preset default|engineering|gemini|fal|fal_comfy|comfyui`；preset 是白名单，只能映射到已支持的 `enhance --backend/--model` 参数，不能把任意后端、URL、API key 或未来模型名塞进 JSON 后直接执行。交付完成、增强预览复查、用户输入和人工复查类动作不会自动执行，会保留在 `PHOTO3D_HANDOFF.json` 里让用户处理。
 
 底层门禁命令：
 
@@ -271,7 +273,7 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 - `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，记录每轮 gate/autopilot/action 状态、最终 `next_action` 和停止原因。
 - `ENHANCEMENT_REPORT.json`：增强完成后的交付验收报告，记录每个视角的源图、增强图、相似度、QA 和 `accepted` / `preview` / `blocked` 状态。
 
-大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
+大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
 路径隔离与旧产物清理：
 

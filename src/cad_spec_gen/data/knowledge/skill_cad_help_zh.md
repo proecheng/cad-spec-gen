@@ -474,9 +474,11 @@ Confirmed next-action handoff:
 ```bash
 python cad_pipeline.py photo3d-handoff --subsystem <name>
 python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm
+python cad_pipeline.py photo3d-handoff --subsystem <name> --provider-preset engineering
+python cad_pipeline.py photo3d-handoff --subsystem <name> --provider-preset engineering --confirm
 ```
 
-`photo3d-handoff` reads the current active run's `PHOTO3D_RUN.json` or `PHOTO3D_AUTOPILOT.json` and writes `PHOTO3D_HANDOFF.json`. Preview mode is the default. With `--confirm`, it executes only recognized current next actions: `accept-baseline`, `enhance`, `enhance-check`, or `photo3d-run --confirm-actions`. It does not scan directories, never trusts arbitrary argv from JSON reports, and rebuilds argv from `ARTIFACT_INDEX.json`, the current `active_run_id`, and the current run/render paths. Delivery-complete, preview-review, user-input, manual-review, and unknown actions remain manual and are recorded in `PHOTO3D_HANDOFF.json`.
+`photo3d-handoff` reads the current active run's `PHOTO3D_RUN.json` or `PHOTO3D_AUTOPILOT.json` and writes `PHOTO3D_HANDOFF.json`. Preview mode is the default. With `--confirm`, it executes only recognized current next actions: `accept-baseline`, `enhance`, `enhance-check`, or `photo3d-run --confirm-actions`. It does not scan directories, never trusts arbitrary argv from JSON reports, and rebuilds argv from `ARTIFACT_INDEX.json`, the current `active_run_id`, and the current run/render paths. For enhancement, `--provider-preset default|engineering|gemini|fal|fal_comfy|comfyui` is an allowlisted provider preset mapped only to supported `enhance --backend/--model` flags; do not pass arbitrary backend strings, URLs, API keys, or future model names through JSON argv. Delivery-complete, preview-review, user-input, manual-review, and unknown actions remain manual and are recorded in `PHOTO3D_HANDOFF.json`.
 
 Underlying gate command:
 
@@ -548,7 +550,7 @@ Outputs for ordinary users and LLMs:
 Agent rule:
 
 - Prefer `photo3d-run` / `PHOTO3D_RUN.json` for ordinary users and LLM-facing next-step loops.
-- When the user says to execute the recommendation, prefer `photo3d-handoff` so baseline acceptance, enhancement, enhance-check, and action-plan confirmation all go through one confirmed active-run handoff instead of hand-written shell commands.
+- When the user says to execute the recommendation, prefer `photo3d-handoff` so baseline acceptance, enhancement, enhance-check, and action-plan confirmation all go through one confirmed active-run handoff instead of hand-written shell commands. If the user wants a provider, pass only an allowlisted `--provider-preset` such as `engineering`; do not hand-write `--backend` or copy arbitrary JSON argv.
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
 - Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. Allowed recovery shell commands must be `photo3d-recover` with explicit `--run-id` and `--artifact-index`, so product-graph/build/render outputs stay bound to the current run. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。

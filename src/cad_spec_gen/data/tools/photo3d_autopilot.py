@@ -8,6 +8,7 @@ from typing import Any
 from tools.artifact_index import get_accepted_baseline
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
+from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provider_presets
 
 
 def write_photo3d_autopilot_report(
@@ -206,6 +207,8 @@ def _next_action(
         "kind": "run_enhancement",
         "requires_user_confirmation": False,
         "argv": argv,
+        "default_provider_preset": DEFAULT_PROVIDER_PRESET,
+        "provider_presets": public_provider_presets(),
     }
     if _safe_cli_token(subsystem) and render_dir:
         action["cli"] = " ".join(argv)

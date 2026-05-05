@@ -3755,6 +3755,7 @@ def cmd_photo3d_handoff(args):
             artifact_index_path=getattr(args, "artifact_index", None),
             source=getattr(args, "source", None),
             confirm=bool(getattr(args, "confirm", False)),
+            provider_preset=getattr(args, "provider_preset", None),
             output_path=getattr(args, "output", None),
         )
     except (FileNotFoundError, OSError, ValueError) as exc:
@@ -4684,9 +4685,12 @@ def main():
             "Typical preview: python cad_pipeline.py photo3d-handoff --subsystem <name>\n"
             "Typical execute: python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm\n"
             "Recognized handoffs are accept-baseline, enhance, enhance-check, "
-            "and photo3d-run --confirm-actions. The command does not scan directories, "
+            "and photo3d-run --confirm-actions. For enhance, --provider-preset "
+            "selects a known provider preset such as default, engineering, gemini, "
+            "fal, fal_comfy, or comfyui. The command does not scan directories, "
             "never trusts arbitrary argv from JSON reports, and rebuilds argv from "
-            "ARTIFACT_INDEX.json active_run_id plus the current run/render paths. "
+            "ARTIFACT_INDEX.json active_run_id plus the current run/render paths "
+            "and allowlisted provider preset. "
             "All output stays inside cad/<name>/.cad-spec-gen/runs/<run_id>/."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4711,6 +4715,14 @@ def main():
         "--confirm",
         action="store_true",
         help="Actually execute the recognized current next action; omitted means preview only",
+    )
+    p_photo3d_handoff.add_argument(
+        "--provider-preset",
+        default=None,
+        help=(
+            "Enhancement provider preset for run_enhancement: default, engineering, "
+            "gemini, fal, fal_comfy, comfyui. Unknown presets are blocked."
+        ),
     )
     p_photo3d_handoff.add_argument(
         "--output",

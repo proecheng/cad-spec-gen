@@ -10,6 +10,11 @@ from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
 from tools.photo3d_baseline import accept_photo3d_baseline
 from tools.photo3d_loop import run_photo3d_loop
+from tools.photo3d_provider_presets import (
+    DEFAULT_PROVIDER_PRESET,
+    public_provider_preset,
+    trusted_provider_argv_suffix,
+)
 
 
 EXECUTABLE_HANDOFFS = {
@@ -35,6 +40,7 @@ def run_photo3d_handoff(
     artifact_index_path: str | Path | None = None,
     source: str | None = None,
     confirm: bool = False,
+    provider_preset: str | None = None,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Preview or execute the current Photo3D next-action handoff."""
@@ -78,6 +84,7 @@ def run_photo3d_handoff(
         active_run_id,
         index_path,
         next_action,
+        provider_preset,
     )
     manual_action: dict[str, Any] | None = None
     executed_action: dict[str, Any] | None = None
@@ -176,6 +183,7 @@ def _classify_next_action(
     active_run_id: str,
     artifact_index_path: Path,
     next_action: dict[str, Any],
+    provider_preset: str | None,
 ) -> dict[str, Any]:
     kind = str(next_action.get("kind") or "")
     if kind not in EXECUTABLE_HANDOFFS:
@@ -197,12 +205,33 @@ def _classify_next_action(
             "kind": kind,
             "reason": validation_error,
         }
-    argv = _trusted_argv(project_root, subsystem, active_run_id, artifact_index_path, kind)
-    return {
+    selected_provider_preset = _selected_provider_preset(kind, next_action, provider_preset)
+    if selected_provider_preset:
+        public_preset = public_provider_preset(selected_provider_preset)
+        if public_preset is None:
+            return {
+                "classification": "manual",
+                "kind": kind,
+                "reason": f"unknown provider preset: {selected_provider_preset}",
+            }
+    else:
+        public_preset = None
+    argv = _trusted_argv(
+        project_root,
+        subsystem,
+        active_run_id,
+        artifact_index_path,
+        kind,
+        selected_provider_preset,
+    )
+    selected = {
         "classification": "executable",
         "kind": kind,
         "argv": argv,
     }
+    if public_preset is not None:
+        selected["provider_preset"] = public_preset
+    return selected
 
 
 def _trusted_argv(
@@ -211,6 +240,7 @@ def _trusted_argv(
     active_run_id: str,
     artifact_index_path: Path,
     kind: str,
+    provider_preset: str | None,
 ) -> list[str]:
     index_rel = project_relative(artifact_index_path, project_root)
     render_dir_rel = _active_render_dir_rel(subsystem, active_run_id)
@@ -227,7 +257,7 @@ def _trusted_argv(
             active_run_id,
         ]
     if kind == "run_enhancement":
-        return [
+        argv = [
             sys.executable,
             "cad_pipeline.py",
             "enhance",
@@ -236,6 +266,8 @@ def _trusted_argv(
             "--dir",
             render_dir_rel,
         ]
+        argv.extend(trusted_provider_argv_suffix(provider_preset))
+        return argv
     if kind == "run_enhance_check":
         return [
             sys.executable,
@@ -258,6 +290,17 @@ def _trusted_argv(
             "--confirm-actions",
         ]
     raise ValueError(f"Unsupported Photo3D handoff kind: {kind}")
+
+
+def _selected_provider_preset(
+    kind: str,
+    next_action: dict[str, Any],
+    provider_preset: str | None,
+) -> str | None:
+    if kind != "run_enhancement":
+        return None
+    selected = provider_preset or next_action.get("provider_preset") or DEFAULT_PROVIDER_PRESET
+    return str(selected)
 
 
 def _validate_next_action_binding(
@@ -359,7 +402,7 @@ def _public_selected_action(selected_action: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in selected_action.items()
-        if key in {"classification", "kind", "argv", "reason"}
+        if key in {"classification", "kind", "argv", "reason", "provider_preset"}
     }
 
 

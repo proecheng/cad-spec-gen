@@ -34,13 +34,14 @@ def _write_photo3d_run(fixture, next_action, *, status="needs_baseline_acceptanc
     )
 
 
-def _cmd_args(fixture, *, confirm=False, source=None, output=None):
+def _cmd_args(fixture, *, confirm=False, source=None, output=None, provider_preset=None):
     return SimpleNamespace(
         subsystem="demo",
         artifact_index=str(fixture["index_path"]),
         source=source,
         confirm=confirm,
         output=output,
+        provider_preset=provider_preset,
     )
 
 
@@ -169,6 +170,53 @@ def test_photo3d_handoff_preview_enhancement_binds_active_render_dir(tmp_path, m
         "--dir",
         "cad/output/renders/demo/RUN001",
     ]
+    assert report["selected_action"]["provider_preset"]["id"] == "default"
+
+
+def test_photo3d_handoff_preview_enhancement_appends_trusted_provider_preset(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        handoff.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+
+    rc = cad_pipeline.cmd_photo3d_handoff(
+        _cmd_args(fixture, source="run", provider_preset="engineering")
+    )
+
+    assert rc == 0
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "awaiting_confirmation"
+    assert report["selected_action"]["provider_preset"]["id"] == "engineering"
+    assert report["selected_action"]["provider_preset"]["argv_suffix"] == [
+        "--backend",
+        "engineering",
+    ]
+    assert report["selected_action"]["argv"] == [
+        sys.executable,
+        "cad_pipeline.py",
+        "enhance",
+        "--subsystem",
+        "demo",
+        "--dir",
+        "cad/output/renders/demo/RUN001",
+        "--backend",
+        "engineering",
+    ]
 
 
 def test_photo3d_handoff_confirm_enhancement_executes_current_run_command(
@@ -222,6 +270,121 @@ def test_photo3d_handoff_confirm_enhancement_executes_current_run_command(
     report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
     assert report["status"] == "executed"
     assert report["executed_action"]["stdout"] == "enhance ok"
+
+
+def test_photo3d_handoff_confirm_enhancement_uses_json_provider_preset_not_json_argv(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {
+            "kind": "run_enhancement",
+            "requires_user_confirmation": False,
+            "provider_preset": "engineering",
+            "argv": [
+                "python",
+                "cad_pipeline.py",
+                "enhance",
+                "--subsystem",
+                "demo",
+                "--dir",
+                "wrong",
+                "--backend",
+                "gemini",
+            ],
+        },
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
+
+    monkeypatch.setattr(handoff.subprocess, "run", fake_run)
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 0
+    assert calls == [[
+        sys.executable,
+        "cad_pipeline.py",
+        "enhance",
+        "--subsystem",
+        "demo",
+        "--dir",
+        "cad/output/renders/demo/RUN001",
+        "--backend",
+        "engineering",
+    ]]
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["executed_action"]["argv"] == calls[0]
+
+
+def test_photo3d_handoff_rejects_unknown_provider_preset(tmp_path, monkeypatch):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {"kind": "run_enhancement", "requires_user_confirmation": False},
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        handoff.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+
+    rc = cad_pipeline.cmd_photo3d_handoff(
+        _cmd_args(fixture, confirm=True, source="run", provider_preset="gpt-image-2-pro")
+    )
+
+    assert rc == 1
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "needs_manual_review"
+    assert report["selected_action"]["kind"] == "run_enhancement"
+    assert "unknown provider preset" in report["selected_action"]["reason"]
+
+
+def test_photo3d_handoff_rejects_unknown_json_provider_preset(tmp_path, monkeypatch):
+    import cad_pipeline
+    import tools.photo3d_handoff as handoff
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_photo3d_run(
+        fixture,
+        {
+            "kind": "run_enhancement",
+            "requires_user_confirmation": False,
+            "provider_preset": "gpt-image-2-pro",
+        },
+        status="ready_for_enhancement",
+    )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        handoff.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not execute")),
+    )
+
+    rc = cad_pipeline.cmd_photo3d_handoff(_cmd_args(fixture, confirm=True, source="run"))
+
+    assert rc == 1
+    report = json.loads((fixture["run_dir"] / "PHOTO3D_HANDOFF.json").read_text(encoding="utf-8"))
+    assert report["status"] == "needs_manual_review"
+    assert "unknown provider preset: gpt-image-2-pro" in report["selected_action"]["reason"]
 
 
 def test_photo3d_handoff_confirm_enhance_check_uses_active_render_dir(

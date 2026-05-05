@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：通用模型族准入清单已合并验证：新增 [准入执行计划](plans/2026-05-05-common-model-family-admission.md)、[准入 runbook](runbooks/common-model-family-admission.md)、[机读 admission manifest](specs/common_model_family_admission.json) 和 `tests/test_common_model_family_admission.py`。准入测试已按 TDD 红绿跑通，合并到 `main` 后范围回归 `286 passed`；后续新增默认模型族必须把显式分类、宽词负例、默认路由顺序、专用模板优先、category-scoped 尺寸、几何包络和 B 级元数据写入 manifest，防止再次出现项目级临时收紧。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Photo3D 增强 provider preset 安全交接进入功能分支验证：新增 [provider preset 执行计划](plans/2026-05-05-photo3d-provider-presets.md) 和 `tools/photo3d_provider_presets.py`，`photo3d-autopilot` 公开 `provider_presets/default_provider_preset`，`photo3d-handoff --provider-preset` 只允许 `default`、`engineering`、`gemini`、`fal`、`fal_comfy`、`comfyui` 白名单，并继续从 `ARTIFACT_INDEX.json`、当前 `active_run_id` 和当前 render dir 重建 argv，不信任 JSON 任意 argv。功能分支范围回归 `179 passed`，同步/空白检查通过；待提交、合并、推送和清理 worktree。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -25,6 +25,7 @@
 | [`plans/2026-05-05-common-model-library-batch-4.md`](plans/2026-05-05-common-model-library-batch-4.md) | 常用模型库扩展第四批计划 |
 | [`plans/2026-05-05-common-model-family-admission.md`](plans/2026-05-05-common-model-family-admission.md) | 通用模型族准入清单执行计划 |
 | [`plans/2026-05-05-photo3d-interactive-handoff.md`](plans/2026-05-05-photo3d-interactive-handoff.md) | Photo3D 确认式 handoff 执行计划 |
+| [`plans/2026-05-05-photo3d-provider-presets.md`](plans/2026-05-05-photo3d-provider-presets.md) | Photo3D 增强 provider preset 安全交接计划 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
@@ -56,6 +57,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
+| In Progress | Photo3D 增强 provider preset 安全交接 | 功能分支已通过 `179 passed`、同步/空白检查；下一步提交、快进合并、main 复验、推送并清理 worktree/分支 |
 | Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
 | Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
 | Done | 常用模型库扩展第三批 | 已合并并推送到 `origin/main`；已清理第三批 worktree/分支 |
@@ -64,4 +66,5 @@
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
 | Done | Photo3D 确认式 handoff | 已合并、验证、推送并清理 worktree/分支 |
+| P2 | UI wizard / project-guide provider 选择 | 把 provider preset 包装成普通用户可读选项；如需新增 gpt-image-2-pro，先做真实后端 adapter 和一致性测试，再进入白名单 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |
