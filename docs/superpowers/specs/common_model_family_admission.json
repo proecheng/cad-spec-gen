@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "required_gates": [
+    "explicit_category_and_family_intent",
+    "broad_token_negative_examples",
+    "nonterminal_default_route",
+    "specific_template_precedence",
+    "category_scoped_dimensions",
+    "geometry_within_real_dims",
+    "b_grade_reusable_metadata",
+    "real_model_sources_before_default_templates",
+    "no_project_exact_part_no_in_default_family_routes"
+  ],
+  "positive_cases": [
+    {
+      "id": "batch1_linear_bearing",
+      "category": "bearing",
+      "name": "LM12UU 直线轴承",
+      "material": "",
+      "template": "linear_bearing_lmxxuu",
+      "real_dims": [21, 21, 30]
+    },
+    {
+      "id": "batch1_nema_stepper",
+      "category": "motor",
+      "name": "NEMA17 步进电机",
+      "material": "",
+      "template": "nema_stepper_motor",
+      "real_dims": [42.3, 42.3, 72]
+    },
+    {
+      "id": "batch1_proximity_sensor",
+      "category": "sensor",
+      "name": "M12 电感接近开关",
+      "material": "PNP NO",
+      "template": "cylindrical_proximity_sensor",
+      "real_dims": [12, 12, 55]
+    },
+    {
+      "id": "batch1_compact_cylinder",
+      "category": "pneumatic",
+      "name": "薄型气缸",
+      "material": "MGPM20-50",
+      "template": "compact_pneumatic_cylinder",
+      "real_dims": [42, 34, 70]
+    },
+    {
+      "id": "batch1_cable_harness",
+      "category": "cable",
+      "name": "拖链线束",
+      "material": "4芯×1200mm",
+      "template": "cable_harness_stub",
+      "real_dims": [10, 50, 6]
+    },
+    {
+      "id": "batch2_linear_guide",
+      "category": "bearing",
+      "name": "MGN12H 直线导轨滑块",
+      "material": "",
+      "template": "linear_guide_carriage",
+      "real_dims": [45, 27, 15]
+    },
+    {
+      "id": "batch2_gt2_pulley",
+      "category": "transmission",
+      "name": "GT2 30T 同步带轮",
+      "material": "孔径8mm 6mm带宽",
+      "template": "gt2_timing_pulley",
+      "real_dims": [19.1, 19.1, 10]
+    },
+    {
+      "id": "batch2_terminal_block",
+      "category": "connector",
+      "name": "KF301 接线端子",
+      "material": "3P 5.08mm",
+      "template": "terminal_block",
+      "real_dims": [15.24, 8, 10]
+    },
+    {
+      "id": "batch2_solenoid_valve",
+      "category": "pneumatic",
+      "name": "二位五通电磁阀",
+      "material": "DC24V",
+      "template": "pneumatic_solenoid_valve",
+      "real_dims": [45, 22, 28]
+    },
+    {
+      "id": "batch3_mounted_bearing",
+      "category": "bearing",
+      "name": "UCP204 轴承座",
+      "material": "",
+      "template": "mounted_bearing_support",
+      "real_dims": [127, 38, 65]
+    },
+    {
+      "id": "batch3_linear_module",
+      "category": "transmission",
+      "name": "KK60 直线模组",
+      "material": "行程300mm",
+      "template": "linear_motion_module",
+      "real_dims": [300, 60, 45]
+    },
+    {
+      "id": "batch3_din_terminal",
+      "category": "connector",
+      "name": "DIN导轨端子",
+      "material": "2.5mm2",
+      "template": "din_rail_terminal_block",
+      "real_dims": [5.2, 45, 35]
+    },
+    {
+      "id": "batch4_enclosure",
+      "category": "other",
+      "name": "IP65 控制箱",
+      "material": "160×120×80mm",
+      "template": "electrical_enclosure_box",
+      "real_dims": [160, 120, 80]
+    },
+    {
+      "id": "batch4_pushbutton",
+      "category": "other",
+      "name": "22mm 急停按钮",
+      "material": "红色",
+      "template": "panel_pushbutton_22mm",
+      "real_dims": [30, 30, 45]
+    },
+    {
+      "id": "batch4_vacuum_cup",
+      "category": "pneumatic",
+      "name": "真空吸盘",
+      "material": "Φ30 硅胶",
+      "template": "vacuum_suction_cup",
+      "real_dims": [30, 30, 25]
+    },
+    {
+      "id": "batch4_tslot_profile",
+      "category": "other",
+      "name": "2020铝型材",
+      "material": "L=200mm",
+      "template": "aluminum_tslot_extrusion",
+      "real_dims": [200, 20, 20]
+    }
+  ],
+  "negative_cases": [
+    {
+      "id": "plain_slider_not_linear_guide",
+      "category": "other",
+      "name": "普通滑块",
+      "material": "POM 20×10×6mm",
+      "expected_category": "other",
+      "forbidden_template": "linear_guide_carriage"
+    },
+    {
+      "id": "m12_nut_not_connector",
+      "category": "fastener",
+      "name": "M12 六角螺母",
+      "material": "GB/T 6170",
+      "expected_category": "fastener",
+      "forbidden_template": "m12_connector"
+    },
+    {
+      "id": "pc6_control_board_not_pneumatic",
+      "category": "other",
+      "name": "PC6 控制板",
+      "material": "PCB 20×30mm",
+      "expected_category": "other",
+      "forbidden_template": "pneumatic_push_fitting"
+    },
+    {
+      "id": "din_screw_not_din_device",
+      "category": "fastener",
+      "name": "DIN912 内六角螺钉",
+      "material": "M5×16",
+      "expected_category": "fastener",
+      "forbidden_template": "din_rail_device"
+    },
+    {
+      "id": "button_label_not_pushbutton",
+      "category": "other",
+      "name": "按钮标签",
+      "material": "PVC",
+      "expected_category": "other",
+      "forbidden_template": "panel_pushbutton_22mm"
+    },
+    {
+      "id": "vacuum_bag_not_vacuum_part",
+      "category": "other",
+      "name": "真空包装袋",
+      "material": "PE",
+      "expected_category": "other",
+      "forbidden_template": "vacuum_ejector"
+    },
+    {
+      "id": "profile_manual_not_profile",
+      "category": "other",
+      "name": "铝型材手册",
+      "material": "A4",
+      "expected_category": "other",
+      "forbidden_template": "aluminum_tslot_extrusion"
+    }
+  ],
+  "route_cases": [
+    {
+      "id": "route_nema_stepper",
+      "category": "motor",
+      "name": "NEMA17 步进电机",
+      "material": "",
+      "expected_adapter": "jinja_primitive",
+      "expected_match": {
+        "keyword_contains": ["NEMA", "步进", "stepper"]
+      }
+    },
+    {
+      "id": "route_linear_guide",
+      "category": "bearing",
+      "name": "MGN12H 直线导轨滑块",
+      "material": "",
+      "expected_adapter": "jinja_primitive",
+      "expected_match": {
+        "name_contains": ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
+      }
+    },
+    {
+      "id": "route_terminal_block",
+      "category": "connector",
+      "name": "KF301 接线端子",
+      "material": "3P 5.08mm",
+      "expected_adapter": "jinja_primitive",
+      "expected_match": {
+        "name_contains": ["端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头", "M12 connector", "M12 插头"]
+      }
+    },
+    {
+      "id": "route_din_terminal",
+      "category": "connector",
+      "name": "DIN导轨端子",
+      "material": "2.5mm2",
+      "expected_adapter": "jinja_primitive",
+      "expected_match": {
+        "name_contains": ["DIN导轨端子", "DIN rail terminal"]
+      }
+    },
+    {
+      "id": "route_enclosure",
+      "category": "other",
+      "name": "IP65 控制箱",
+      "material": "160×120×80mm",
+      "expected_adapter": "jinja_primitive",
+      "expected_match": {
+        "keyword_contains": ["IP65 控制箱", "电气控制箱", "control enclosure", "electrical enclosure", "junction box", "接线盒"]
+      }
+    }
+  ],
+  "precedence_cases": [
+    {
+      "id": "m12_sensor_keeps_sensor_template",
+      "category": "sensor",
+      "name": "M12 电感接近开关",
+      "material": "PNP NO",
+      "expected_template": "cylindrical_proximity_sensor"
+    },
+    {
+      "id": "kf301_keeps_terminal_template",
+      "category": "connector",
+      "name": "KF301 接线端子",
+      "material": "3P 5.08mm",
+      "expected_template": "terminal_block"
+    },
+    {
+      "id": "normal_ball_bearing_uses_catalog_before_jinja",
+      "category": "bearing",
+      "name": "608ZZ 深沟球轴承",
+      "material": "",
+      "first_adapter": "sw_toolbox",
+      "forbidden_first_adapter": "jinja_primitive"
+    }
+  ],
+  "dimension_cases": [
+    {
+      "id": "pump_material_solenoid_does_not_steal_pneumatic_dims",
+      "category": "pump",
+      "name": "微量泵（溶剂喷射）",
+      "material": "电磁阀式",
+      "expected_dims": {"w": 20, "h": 15, "l": 30}
+    },
+    {
+      "id": "vacuum_bag_other_has_no_vacuum_dims",
+      "category": "other",
+      "name": "真空包装袋",
+      "material": "PE",
+      "expected_dims": {}
+    },
+    {
+      "id": "vacuum_cup_pneumatic_has_vacuum_dims",
+      "category": "pneumatic",
+      "name": "真空吸盘",
+      "material": "Φ30 硅胶",
+      "expected_dims": {"w": 30, "d": 30, "h": 25}
+    },
+    {
+      "id": "profile_other_keeps_profile_dims",
+      "category": "other",
+      "name": "2020铝型材",
+      "material": "L=200mm",
+      "expected_dims": {"w": 200, "d": 20, "h": 20, "slot_w": 6}
+    }
+  ],
+  "geometry_cases": [
+    {
+      "id": "geometry_linear_bearing",
+      "category": "bearing",
+      "name": "LM12UU 直线轴承",
+      "material": "",
+      "template": "linear_bearing_lmxxuu"
+    },
+    {
+      "id": "geometry_linear_guide",
+      "category": "bearing",
+      "name": "MGN12H 直线导轨滑块",
+      "material": "",
+      "template": "linear_guide_carriage"
+    },
+    {
+      "id": "geometry_din_terminal",
+      "category": "connector",
+      "name": "DIN导轨端子",
+      "material": "2.5mm2",
+      "template": "din_rail_terminal_block"
+    },
+    {
+      "id": "geometry_enclosure",
+      "category": "other",
+      "name": "IP65 控制箱",
+      "material": "160×120×80mm",
+      "template": "electrical_enclosure_box"
+    },
+    {
+      "id": "geometry_tslot_profile",
+      "category": "other",
+      "name": "2020铝型材",
+      "material": "L=200mm",
+      "template": "aluminum_tslot_extrusion"
+    }
+  ]
+}

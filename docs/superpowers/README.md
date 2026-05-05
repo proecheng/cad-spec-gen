@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Photo3D 确认式 handoff 已提交 `92347c6`、快进合并到 `main`、通过合并后范围回归/同步/空白检查，并随进度提交 `66f6fda` 推送到 `origin/main`；handoff worktree/分支已清理。新增 `photo3d-handoff` 方案、红绿测试、CLI/metadata/docs 接入和 `PHOTO3D_HANDOFF.json`，让普通用户或大模型在用户说“按建议执行”时只走预览/确认边界，不手拼 shell、不扫描最新目录、不信任旧 JSON argv。详见 [项目看板](../PROGRESS.md) 和 [确认式 handoff 计划](plans/2026-05-05-photo3d-interactive-handoff.md)。
+2026-05-05：通用模型族准入清单进入实现验证：新增 [准入执行计划](plans/2026-05-05-common-model-family-admission.md)、[准入 runbook](runbooks/common-model-family-admission.md)、[机读 admission manifest](specs/common_model_family_admission.json) 和 `tests/test_common_model_family_admission.py`。准入测试已按 TDD 红绿跑通，后续新增默认模型族必须把显式分类、宽词负例、默认路由顺序、专用模板优先、category-scoped 尺寸、几何包络和 B 级元数据写入 manifest，防止再次出现项目级临时收紧。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -23,7 +23,10 @@
 | [`plans/2026-05-04-common-model-library-batch-2.md`](plans/2026-05-04-common-model-library-batch-2.md) | 常用模型库扩展第二批计划 |
 | [`plans/2026-05-04-common-model-library-batch-3.md`](plans/2026-05-04-common-model-library-batch-3.md) | 常用模型库扩展第三批计划 |
 | [`plans/2026-05-05-common-model-library-batch-4.md`](plans/2026-05-05-common-model-library-batch-4.md) | 常用模型库扩展第四批计划 |
+| [`plans/2026-05-05-common-model-family-admission.md`](plans/2026-05-05-common-model-family-admission.md) | 通用模型族准入清单执行计划 |
 | [`plans/2026-05-05-photo3d-interactive-handoff.md`](plans/2026-05-05-photo3d-interactive-handoff.md) | Photo3D 确认式 handoff 执行计划 |
+| [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
+| [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -53,6 +56,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
+| In Progress | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；范围回归 `286 passed`，同步/空白检查通过，正在提交合并收口 |
 | Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
 | Done | 常用模型库扩展第三批 | 已合并并推送到 `origin/main`；已清理第三批 worktree/分支 |
 | Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |
