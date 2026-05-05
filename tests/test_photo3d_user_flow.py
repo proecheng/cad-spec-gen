@@ -337,6 +337,9 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "photo3d-handoff --provider-preset" in text, (
             f"{rel} missing provider handoff guidance"
         )
+        assert "ordinary_user_options" in text or "普通用户可读选项" in text, (
+            f"{rel} missing ordinary-user provider option guidance"
+        )
         assert "photo3d-run" in text, f"{rel} missing multi-round guide"
         assert "PHOTO3D_RUN.json" in text, f"{rel} missing loop report"
         assert "--confirm-actions" in text, f"{rel} missing confirmed loop guidance"
@@ -423,6 +426,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "PROJECT_GUIDE.json" in tools_by_name["project_guide"]["description"]
         assert "provider preset" in tools_by_name["project_guide"]["description"]
         assert "photo3d-handoff --provider-preset" in tools_by_name["project_guide"]["description"]
+        assert "ordinary_user_options" in tools_by_name["project_guide"]["description"]
         assert "does not scan directories" in tools_by_name["project_guide"]["description"]
         assert "does not mutate pipeline state" in tools_by_name["project_guide"]["description"]
         assert "run-aware" in tools_by_name["photo3d_recover"]["description"]

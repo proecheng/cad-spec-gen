@@ -151,10 +151,34 @@ def test_project_guide_exposes_provider_choices_when_ready_for_enhancement(tmp_p
         "fal_comfy",
         "comfyui",
     ]
+    options = choice["ordinary_user_options"]
+    assert [option["provider_preset"] for option in options] == [
+        "default",
+        "engineering",
+        "gemini",
+        "fal",
+        "fal_comfy",
+        "comfyui",
+    ]
     engineering = next(
         action for action in choice["handoff_actions"]
         if action["provider_preset"] == "engineering"
     )
+    engineering_option = next(
+        option for option in options
+        if option["provider_preset"] == "engineering"
+    )
+    assert "工程" in engineering_option["ordinary_user_title"]
+    assert "离线" in engineering_option["ordinary_user_summary"]
+    assert "工程" in engineering_option["recommended_when"]
+    assert engineering_option["requires_setup"] is False
+    assert engineering_option["argv"] == engineering["argv"]
+    assert "--confirm" not in engineering_option["argv"]
+    cloud_option = next(
+        option for option in options
+        if option["provider_preset"] == "gemini"
+    )
+    assert cloud_option["requires_setup"] is True
     assert engineering["argv"] == [
         "python",
         "cad_pipeline.py",

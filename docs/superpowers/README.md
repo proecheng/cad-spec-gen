@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Project-guide provider preset 选择已合并、验证、推送并清理：新增 [project-guide provider preset 执行计划](plans/2026-05-05-project-guide-provider-presets.md)，`PROJECT_GUIDE.json` 在当前 active run 到 `ready_for_enhancement` 且 run/subsystem/action 匹配时，附带白名单 `provider_choice` 和预览版 `photo3d-handoff --provider-preset <id>` 命令；`project-guide` 仍只读，不运行增强、不接受 baseline、不信任 JSON 任意 argv。合并后范围回归 `157 passed`，同步/空白检查通过；本轮 worktree/分支已清理。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Provider preset 普通用户可读选项已在 `codex/provider-choice-user-copy` worktree 实现并验证，待提交/合并/清理：新增 [provider 选项文案执行计划](plans/2026-05-05-provider-choice-user-copy.md)，`public_provider_presets()` 公开稳定的标题、说明、推荐场景和配置需求，`PROJECT_GUIDE.json` 在增强入口输出 `provider_choice.ordinary_user_options`，让普通用户/UI/大模型选择“默认 / 本地工程预览 / 云增强”等选项，而不是手写 backend 参数。范围回归 `159 passed`，同步/空白检查通过。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -27,6 +27,7 @@
 | [`plans/2026-05-05-photo3d-interactive-handoff.md`](plans/2026-05-05-photo3d-interactive-handoff.md) | Photo3D 确认式 handoff 执行计划 |
 | [`plans/2026-05-05-photo3d-provider-presets.md`](plans/2026-05-05-photo3d-provider-presets.md) | Photo3D 增强 provider preset 安全交接计划 |
 | [`plans/2026-05-05-project-guide-provider-presets.md`](plans/2026-05-05-project-guide-provider-presets.md) | Project-guide provider preset 选择执行计划 |
+| [`plans/2026-05-05-provider-choice-user-copy.md`](plans/2026-05-05-provider-choice-user-copy.md) | Provider preset 普通用户可读选项执行计划 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
@@ -58,6 +59,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
+| In Progress | Provider preset 普通用户可读选项 | 已实现并通过 `159 passed`、同步/空白检查；待提交、合并、推送并清理 worktree/分支 |
 | Done | Project-guide provider preset 选择 | 已提交 `1ce807a` 并合并到 `main`；合并后 `157 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | Photo3D 增强 provider preset 安全交接 | 已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
@@ -68,5 +70,5 @@
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
 | Done | Photo3D 确认式 handoff | 已合并、验证、推送并清理 worktree/分支 |
-| P2 | Provider preset 用户文案 / UI wizard | 把 provider preset 包装成普通用户可读选项；如需新增 gpt-image-2-pro，先做真实后端 adapter 和一致性测试，再进入白名单 |
+| P2 | Provider preset UI wizard | 把 `ordinary_user_options` 接入更傻瓜式交互；如需新增 gpt-image-2-pro，先做真实后端 adapter 和一致性测试，再进入白名单 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |

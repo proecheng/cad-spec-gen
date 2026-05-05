@@ -52,7 +52,7 @@
     },
     {
       "name": "project_guide",
-      "description": "Read-only ordinary-user and LLM project guide: writes PROJECT_GUIDE.json, selects the next safe command across init/spec/codegen/build-render/photo3d-run/enhance-check/accept-baseline handoff, and when the active run is ready for enhancement exposes allowlisted provider preset choices with preview photo3d-handoff --provider-preset commands. It uses explicit subsystem/design-doc/artifact-index inputs, does not scan directories, does not mutate pipeline state, does not run enhancement, and does not accept arbitrary backend, URL, API key, model, or JSON argv injection.",
+      "description": "Read-only ordinary-user and LLM project guide: writes PROJECT_GUIDE.json, selects the next safe command across init/spec/codegen/build-render/photo3d-run/enhance-check/accept-baseline handoff, and when the active run is ready for enhancement exposes allowlisted provider preset choices, ordinary_user_options with display-ready titles/summaries/setup hints, and preview photo3d-handoff --provider-preset commands. It uses explicit subsystem/design-doc/artifact-index inputs, does not scan directories, does not mutate pipeline state, does not run enhancement, and does not accept arbitrary backend, URL, API key, model, or JSON argv injection.",
       "cli": "python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>"
     },
     {

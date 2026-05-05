@@ -258,14 +258,45 @@ def _provider_choice(
         if _safe_cli_token(subsystem):
             action["cli"] = " ".join(argv)
         handoff_actions.append(action)
+    ordinary_user_options = _ordinary_user_provider_options(
+        presets,
+        handoff_actions,
+    )
     return {
         "kind": "select_enhancement_provider",
         "requires_user_confirmation": True,
         "source_report": project_relative(source_path, root),
         "default_provider_preset": DEFAULT_PROVIDER_PRESET,
         "provider_presets": presets,
+        "ordinary_user_options": ordinary_user_options,
         "handoff_actions": handoff_actions,
     }
+
+
+def _ordinary_user_provider_options(
+    presets: list[dict[str, Any]],
+    handoff_actions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    actions_by_preset = {
+        str(action["provider_preset"]): action for action in handoff_actions
+    }
+    options = []
+    for preset in presets:
+        preset_id = str(preset["id"])
+        action = actions_by_preset[preset_id]
+        option = {
+            "provider_preset": preset_id,
+            "ordinary_user_title": preset["ordinary_user_title"],
+            "ordinary_user_summary": preset["ordinary_user_summary"],
+            "recommended_when": preset["recommended_when"],
+            "requires_setup": bool(preset["requires_setup"]),
+            "requires_user_confirmation": True,
+            "argv": action["argv"],
+        }
+        if "cli" in action:
+            option["cli"] = action["cli"]
+        options.append(option)
+    return options
 
 
 def _current_photo3d_source(
