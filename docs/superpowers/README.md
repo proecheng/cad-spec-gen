@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：通用模型族准入清单进入实现验证：新增 [准入执行计划](plans/2026-05-05-common-model-family-admission.md)、[准入 runbook](runbooks/common-model-family-admission.md)、[机读 admission manifest](specs/common_model_family_admission.json) 和 `tests/test_common_model_family_admission.py`。准入测试已按 TDD 红绿跑通，后续新增默认模型族必须把显式分类、宽词负例、默认路由顺序、专用模板优先、category-scoped 尺寸、几何包络和 B 级元数据写入 manifest，防止再次出现项目级临时收紧。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：通用模型族准入清单已合并验证：新增 [准入执行计划](plans/2026-05-05-common-model-family-admission.md)、[准入 runbook](runbooks/common-model-family-admission.md)、[机读 admission manifest](specs/common_model_family_admission.json) 和 `tests/test_common_model_family_admission.py`。准入测试已按 TDD 红绿跑通，合并到 `main` 后范围回归 `286 passed`；后续新增默认模型族必须把显式分类、宽词负例、默认路由顺序、专用模板优先、category-scoped 尺寸、几何包络和 B 级元数据写入 manifest，防止再次出现项目级临时收紧。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -56,7 +56,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| In Progress | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；范围回归 `286 passed`，同步/空白检查通过，正在提交合并收口 |
+| Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
 | Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
 | Done | 常用模型库扩展第三批 | 已合并并推送到 `origin/main`；已清理第三批 worktree/分支 |
 | Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |

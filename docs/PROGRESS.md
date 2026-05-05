@@ -8,13 +8,13 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `codex/model-family-admission` worktree 验证中；主线基线 `0403d2e` |
-| 最新功能基线 | 待提交：通用模型族准入 runbook + manifest + 测试 |
-| 最新合并/进度提交 | `0403d2e docs(progress): 记录 handoff 推送清理` |
+| 当前分支 | `main`，已快进合并 `codex/model-family-admission` 并通过合并后验证；待推送 |
+| 最新功能基线 | `b29f3a0 test(parts-library): 固化通用模型族准入清单` |
+| 最新合并/进度提交 | 待提交：记录通用模型族准入合并验证 |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest tests\test_common_model_family_admission.py tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_jinja_generators_new.py -q` -> `286 passed, 7 warnings` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 本轮新增准入计划、runbook、manifest、测试；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；本轮准入 worktree 待清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
@@ -45,7 +45,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已合并并推送到 `origin/main`；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；范围回归通过；已清理 `codex/common-model-library-batch-2` worktree/分支 | 已进入第三批跨产品高频模型库扩展 |
 | Done | 常用模型库扩展第三批 | 扩展更多跨产品高频外购件，继续减少单设备临时调参 | 已实现 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；新增分类、category-scoped 尺寸、默认库显式顺序规则和负例；回归中恢复 `KFL001` 精确模板优先，形成“精确成熟模板优先于通用族模板”的通用规则；已推送到 `origin/main` 并清理 worktree/分支 | 进入下一批跨产品高频模型库或大模型交互动作 |
 | Done | 常用模型库扩展第四批 | 覆盖小型电气箱/面板控件、传感器安装附件、真空元件、铝型材/角码 | 已实现 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；新增显式分类、category-scoped 尺寸、默认库显式路由和宽词负例；已提交 `c4226a3`、快进合并到 `main`，合并后回归/同步/空白检查通过；已推送并清理第四批 worktree/分支 | 进入大模型交互动作或新一批通用模型族 |
-| In Progress | 通用模型族准入清单 | 把四批模型库经验变成通用、可测试、可审查的准入制度 | 已新增执行计划、runbook、`common_model_family_admission.json` manifest 和 `tests/test_common_model_family_admission.py`；准入测试已先红后绿，范围回归 `286 passed`，同步/空白检查通过 | 提交、合并、推送并清理本轮 worktree |
+| Done | 通用模型族准入清单 | 把四批模型库经验变成通用、可测试、可审查的准入制度 | 已新增执行计划、runbook、`common_model_family_admission.json` manifest 和 `tests/test_common_model_family_admission.py`；已快进合并到 `main`，合并后范围回归 `286 passed`，同步/空白检查通过 | 推送并清理本轮 worktree |
 
 ## 当前能力边界
 
@@ -80,7 +80,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 完成本轮准入清单范围回归、同步检查、提交、合并、推送和 worktree 清理。
+1. 推送本轮准入清单合并结果，并清理 `codex/model-family-admission` worktree/分支。
 2. 设计 `photo3d-handoff` 的更上层入口，例如 provider-specific enhancement presets 或 UI wizard，让非编程用户只确认“接受基线/运行增强/复查增强/执行修复”。
 3. 继续扩模型库时，从真实跨产品 BOM 中抽高频族，先补 `common_model_family_admission.json` 的代表性 case，再按红测和准入 runbook 进入默认库。
 
@@ -94,6 +94,10 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | 2026-05-05 | `python -m pytest tests\test_common_model_family_admission.py tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_jinja_generators_new.py -q` | 准入清单范围回归 `286 passed, 7 warnings` |
 | 2026-05-05 | `python scripts\dev_sync.py --check` | 准入清单同步检查通过；安装版镜像无漂移 |
 | 2026-05-05 | `git diff --check` | 准入清单空白检查通过；仅 Windows 行尾提示 |
+| 2026-05-05 | `git merge --ff-only codex/model-family-admission` | 准入清单已快进合并到 `main` |
+| 2026-05-05 | `python -m pytest tests\test_common_model_family_admission.py tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_jinja_generators_new.py -q` | 合并到 `main` 后 `286 passed, 7 warnings` |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | 合并到 `main` 后通过；安装版镜像无漂移 |
+| 2026-05-05 | `git diff --check` | 合并到 `main` 后通过 |
 | 2026-05-05 | `git worktree add .worktrees\photo3d-interactive-actions -b codex/photo3d-interactive-actions` | 已创建确认式 handoff worktree |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 新 worktree 初始化前因 ignored mirror 缺失出现 dev_sync mirror 失败；运行 `python scripts\dev_sync.py` 填充后同命令 `149 passed` |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_user_flow.py::test_photo3d_handoff_help_explains_confirmed_handoff_flow tests\test_photo3d_packaging_sync.py::test_photo3d_contract_tools_have_packaged_mirrors -q` | 红测阶段 `10 failed`；实现后当前 `10 passed` |
