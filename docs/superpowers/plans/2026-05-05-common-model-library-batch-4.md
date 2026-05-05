@@ -196,13 +196,15 @@ D:\Work\cad-spec-gen\.venv\Scripts\python.exe scripts\dev_sync.py --check
 git diff --check
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit with:
 
 ```powershell
 git commit -m "feat(parts-library): 扩展常用模型库第四批"
 ```
+
+Result: committed as `c4226a3 feat(parts-library): 扩展常用模型库第四批`, fast-forward merged to `main`, and verified on `main` with `454 passed, 2 skipped`.
 
 ---
 
