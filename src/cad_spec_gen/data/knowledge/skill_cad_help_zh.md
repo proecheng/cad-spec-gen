@@ -526,7 +526,7 @@ After enhancement, run delivery acceptance:
 python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 ```
 
-`enhance-check` reads only the explicit render directory's `render_manifest.json` and same-directory `*_enhanced.*` files, then writes `ENHANCEMENT_REPORT.json`. Every manifest view must have a matching enhanced image; source/enhanced shape similarity and basic image QA determine `accepted` / `preview` / `blocked`. It does not scan directories for newest files and does not accept enhanced images outside `--dir`.
+`enhance-check` reads only the explicit render directory's `render_manifest.json` and same-directory `*_enhanced.*` files, then writes `ENHANCEMENT_REPORT.json`. Every manifest view must have a matching enhanced image; source/enhanced shape similarity, basic image QA, and deterministic multi-view quality metrics determine `accepted` / `preview` / `blocked`. The report includes `quality_summary` with canvas consistency, contrast, luminance, saturation, occupancy, and warnings such as low contrast or inconsistent view canvas. This is quality evidence, not semantic AI judgment. It does not scan directories for newest files and does not accept enhanced images outside `--dir`.
 
 After `ENHANCEMENT_REPORT.json` is `accepted`, build the final delivery package:
 
@@ -534,7 +534,7 @@ After `ENHANCEMENT_REPORT.json` is `accepted`, build the final delivery package:
 python cad_pipeline.py photo3d-deliver --subsystem <name>
 ```
 
-`photo3d-deliver` reads only the current `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/DELIVERY_PACKAGE.json` plus `README.md`. By default it copies final enhanced images, source renders, and unambiguous labeled images only when delivery status is `accepted`; `preview` / `blocked` produce an evidence report but are not marked `final_deliverable`. It does not scan directories for newest files, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
+`photo3d-deliver` reads only the current `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/DELIVERY_PACKAGE.json` plus `README.md`. By default it copies final enhanced images, source renders, and unambiguous labeled images only when delivery status is `accepted` and `quality_summary.status` is `accepted`; `preview` / `blocked` or unaccepted quality produce an evidence report but are not marked `final_deliverable`. When quality is not accepted, it records `photo_quality_not_accepted`. It does not scan directories for newest files, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
 
 Outputs for ordinary users and LLMs:
 
@@ -547,8 +547,8 @@ Outputs for ordinary users and LLMs:
 - `PHOTO3D_ACTION_RUN.json`: preview/execution report from `photo3d-action`, including executable, user-input, rejected, and executed actions for the current run; `post_action_autopilot` records whether a successful confirmed run automatically reran autopilot and what next action it produced.
 - `PHOTO3D_HANDOFF.json`: preview/execution report from `photo3d-handoff`, including the current source report, rebuilt safe argv, execution result, `followup_action`, `post_handoff_photo3d_run`, `executed_with_followup`, or manual-review reason for the current next action.
 - `PHOTO3D_RUN.json`: multi-round report from `photo3d-run`, including each gate/autopilot/action round, final stop reason, and next safe action.
-- `ENHANCEMENT_REPORT.json`: enhancement delivery acceptance report with per-view source image, enhanced image, similarity, QA, and `accepted` / `preview` / `blocked` status.
-- `DELIVERY_PACKAGE.json`: final delivery manifest from `photo3d-deliver`, including source reports, source renders, enhanced images, labeled images, copied evidence files, blocking reasons, and `final_deliverable` status.
+- `ENHANCEMENT_REPORT.json`: enhancement delivery acceptance report with per-view source image, enhanced image, similarity, QA, `quality_summary`, and `accepted` / `preview` / `blocked` status.
+- `DELIVERY_PACKAGE.json`: final delivery manifest from `photo3d-deliver`, including source reports, source renders, enhanced images, labeled images, copied evidence files, quality summary, blocking reasons such as `photo_quality_not_accepted`, and `final_deliverable` status.
 
 路径隔离 and old artifact cleanup:
 

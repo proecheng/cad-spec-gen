@@ -25,6 +25,31 @@ def _cropped(path):
     image.save(path)
 
 
+def _low_contrast(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (256, 256), (132, 132, 132))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((64, 64, 192, 192), fill=(138, 138, 138))
+    image.save(path)
+
+
+def _source_sized(path, size):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", size, (245, 245, 245))
+    draw = ImageDraw.Draw(image)
+    width, height = size
+    draw.rectangle(
+        (
+            int(width * 0.25),
+            int(height * 0.25),
+            int(width * 0.75),
+            int(height * 0.75),
+        ),
+        fill=(20, 90, 150),
+    )
+    image.save(path)
+
+
 def _manifest(project_root, render_dir, files):
     return {
         "schema_version": 2,
@@ -106,8 +131,62 @@ def test_batch_report_accepts_complete_matching_enhancements(tmp_path):
     assert report["enhancement_report"].endswith(
         "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json"
     )
+    assert report["quality_summary"]["status"] == "accepted"
+    assert report["quality_summary"]["view_count"] == 2
+    assert report["quality_summary"]["warnings"] == []
+    assert all("quality_metrics" in view for view in report["views"])
     written = (render_dir / "ENHANCEMENT_REPORT.json").read_text(encoding="utf-8")
     assert report["enhancement_report"] in written
+
+
+def test_batch_report_marks_low_contrast_enhancement_as_preview(tmp_path):
+    from tools.enhance_consistency import build_enhancement_report
+
+    render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
+    src_v1 = render_dir / "V1_front.png"
+    enhanced_v1 = render_dir / "V1_front_20260504_1200_enhanced.jpg"
+    _source(src_v1)
+    _low_contrast(enhanced_v1)
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V1", src_v1)]),
+        enhanced_images=[enhanced_v1],
+        min_similarity=0.0,
+    )
+
+    assert report["status"] == "preview"
+    assert report["delivery_status"] == "preview"
+    assert report["quality_summary"]["status"] == "preview"
+    assert report["quality_summary"]["warnings"][0]["code"] == "photo_quality_low_contrast"
+    assert report["views"][0]["quality_metrics"]["contrast_stddev"] < 12.0
+
+
+def test_batch_report_marks_inconsistent_canvas_as_preview(tmp_path):
+    from tools.enhance_consistency import build_enhancement_report
+
+    render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
+    src_v1 = render_dir / "V1_front.png"
+    src_v2 = render_dir / "V2_side.png"
+    enhanced_v1 = render_dir / "V1_front_20260504_1200_enhanced.jpg"
+    enhanced_v2 = render_dir / "V2_side_20260504_1200_enhanced.jpg"
+    _source_sized(src_v1, (256, 256))
+    _source_sized(src_v2, (256, 256))
+    _source_sized(enhanced_v1, (256, 256))
+    _source_sized(enhanced_v2, (320, 256))
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V1", src_v1), ("V2", src_v2)]),
+        enhanced_images=[enhanced_v1, enhanced_v2],
+    )
+
+    assert report["status"] == "preview"
+    assert report["delivery_status"] == "preview"
+    assert report["quality_summary"]["status"] == "preview"
+    assert {
+        warning["code"] for warning in report["quality_summary"]["warnings"]
+    } == {"photo_quality_inconsistent_canvas"}
 
 
 def test_batch_report_blocks_missing_enhanced_view(tmp_path):

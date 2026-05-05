@@ -31,6 +31,7 @@ USER_FLOW_TERMS = {
     "DELIVERY_PACKAGE.json",
     "PROJECT_GUIDE.json",
     "ENHANCEMENT_REPORT.json",
+    "quality_summary",
     "ACTION_PLAN.json",
     "LLM_CONTEXT_PACK.json",
     "ARTIFACT_INDEX.json",
@@ -368,6 +369,8 @@ def test_enhance_check_help_explains_delivery_acceptance_contract():
         "--manifest",
         "--output",
         "--min-similarity",
+        "quality_summary",
+        "multi-view quality",
         "accepted",
         "preview",
         "blocked",
@@ -400,6 +403,10 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "render-visual-check" in text, f"{rel} missing render visual check"
         assert "RENDER_VISUAL_REGRESSION.json" in text, (
             f"{rel} missing render visual regression report"
+        )
+        assert "quality_summary" in text, f"{rel} missing enhancement quality summary"
+        assert "photo_quality_not_accepted" in text, (
+            f"{rel} missing final delivery quality blocker"
         )
         assert "followup_action" in text, f"{rel} missing handoff follow-up report"
         assert "post_handoff_photo3d_run" in text, (
@@ -441,6 +448,7 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         ), f"{rel} missing automatic enhance-check follow-up"
         assert "ENHANCEMENT_REPORT.json" in text, f"{rel} missing enhancement report"
         assert "final_deliverable" in text, f"{rel} missing final delivery semantics"
+        assert "quality_summary" in text, f"{rel} missing quality summary semantics"
         assert "--run-id" in text, f"{rel} missing run-aware run_id binding"
         assert "--artifact-index" in text, f"{rel} missing artifact-index binding"
         assert "禁止" in text or "must" in text, f"{rel} missing hard recovery rule"
@@ -533,9 +541,11 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "never trusts arbitrary argv" in tools_by_name["photo3d_handoff"]["description"]
         assert "DELIVERY_PACKAGE.json" in tools_by_name["photo3d_deliver"]["description"]
         assert "final_deliverable" in tools_by_name["photo3d_deliver"]["description"]
+        assert "photo_quality_not_accepted" in tools_by_name["photo3d_deliver"]["description"]
         assert "accepted" in tools_by_name["photo3d_deliver"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_deliver"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_deliver"]["description"]
+        assert "quality_summary" in tools_by_name["enhance_check"]["description"]
         assert "RENDER_VISUAL_REGRESSION.json" in tools_by_name["render_visual_check"][
             "description"
         ]

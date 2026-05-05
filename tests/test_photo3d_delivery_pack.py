@@ -85,6 +85,12 @@ def _write_enhancement_report(fixture, status="accepted", *, run_id=None, with_v
             "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
             "view_count": 1,
             "enhanced_view_count": 1 if status != "blocked" else 0,
+            "quality_summary": {
+                "schema_version": 1,
+                "status": "accepted",
+                "view_count": 1,
+                "warnings": [],
+            },
             "views": views,
             "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
         },
@@ -115,6 +121,7 @@ def test_photo3d_delivery_pack_packages_accepted_run_evidence(tmp_path):
     package_path = tmp_path / report["artifacts"]["delivery_package"]
     package = json.loads(package_path.read_text(encoding="utf-8"))
     assert package["status"] == "delivered"
+    assert package["quality_summary"]["status"] == "accepted"
     assert package["source_reports"]["enhancement_report"] == (
         "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json"
     )
@@ -227,6 +234,36 @@ def test_photo3d_delivery_pack_blocked_rerun_removes_stale_final_images(tmp_path
     assert blocked["status"] == "not_deliverable"
     assert blocked["deliverables"]["enhanced_images"] == []
     assert not accepted_image.exists()
+    assert not (fixture["run_dir"] / "delivery" / "enhanced").exists()
+
+
+def test_photo3d_delivery_pack_rejects_unaccepted_quality_summary(tmp_path):
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    report_path = fixture["render_dir"] / "ENHANCEMENT_REPORT.json"
+    enhancement_report = json.loads(report_path.read_text(encoding="utf-8"))
+    enhancement_report["quality_summary"] = {
+        "schema_version": 1,
+        "status": "preview",
+        "view_count": 1,
+        "warnings": [{"code": "photo_quality_low_contrast", "view": "V1"}],
+    }
+    report_path.write_text(json.dumps(enhancement_report), encoding="utf-8")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    assert report["status"] == "not_deliverable"
+    assert report["final_deliverable"] is False
+    assert report["quality_summary"]["status"] == "preview"
+    assert report["blocking_reasons"][0]["code"] == "photo_quality_not_accepted"
+    assert report["deliverables"]["enhanced_images"] == []
     assert not (fixture["run_dir"] / "delivery" / "enhanced").exists()
 
 

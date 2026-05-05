@@ -107,9 +107,18 @@ def run_photo3d_delivery_pack(
         enhancement_report.get("delivery_status") or enhancement_report.get("status") or ""
     )
     blocking_reasons = list(enhancement_report.get("blocking_reasons") or [])
+    quality_summary = _quality_summary(enhancement_report)
     warnings: list[dict[str, Any]] = []
     final_deliverable = enhancement_status == "accepted"
     copy_preview = enhancement_status == "preview" and include_preview
+    if final_deliverable and quality_summary.get("status") != "accepted":
+        final_deliverable = False
+        blocking_reasons.append({
+            "code": "photo_quality_not_accepted",
+            "quality_status": quality_summary.get("status"),
+            "warnings": list(quality_summary.get("warnings") or []),
+            "message": "最终交付要求增强图质量验收为 accepted。",
+        })
 
     deliverables = {
         "source_images": [],
@@ -143,6 +152,7 @@ def run_photo3d_delivery_pack(
         "final_deliverable": final_deliverable,
         "ordinary_user_message": _ordinary_user_message(status),
         "enhancement_status": enhancement_status,
+        "quality_summary": quality_summary,
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
         "deliverables": deliverables,
@@ -233,6 +243,18 @@ def _copy_evidence_files(
             }
         )
     return evidence
+
+
+def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
+    summary = enhancement_report.get("quality_summary")
+    if isinstance(summary, dict):
+        return summary
+    return {
+        "schema_version": 1,
+        "status": "accepted" if enhancement_report.get("delivery_status") == "accepted" else "unknown",
+        "view_count": enhancement_report.get("enhanced_view_count") or 0,
+        "warnings": [],
+    }
 
 
 def _copy_view_images(

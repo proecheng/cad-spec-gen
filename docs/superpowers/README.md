@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Phase 4 渲染视觉/元件一致性门禁已接入：新增 [Render Visual Regression 执行计划](plans/2026-05-05-render-visual-regression.md)，`render-visual-check` 只读取当前 active run 的 `PRODUCT_GRAPH.json`、`ASSEMBLY_SIGNATURE.json`、`render_manifest.json` 和 accepted baseline 证据，生成 `RENDER_VISUAL_REGRESSION.json`；它阻断少视角、少装配实例、旧 run/路径/哈希漂移，并在有逐视角实例证据时比较可见实例集合。当前总体能力进展约 79%，下一步进入 Phase 5 -> Phase 6 多视角照片级质量验收。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Phase 5 -> Phase 6 多视角照片级质量门禁已接入：新增 [Photo3D Multi-View Quality Gate 执行计划](plans/2026-05-05-photo3d-quality-gate.md)，`enhance-check` 现在写 `ENHANCEMENT_REPORT.json.quality_summary` 和逐视角 `quality_metrics`，`photo3d-deliver` 会把摘要复制到 `DELIVERY_PACKAGE.json`，并在质量未 accepted 时用 `photo_quality_not_accepted` 阻断最终交付。当前总体能力进展约 80%，下一步转入 Phase 4 Blender 环境预检和截图/像素级回归。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -33,6 +33,7 @@
 | [`plans/2026-05-05-enhance-check-handoff-loop.md`](plans/2026-05-05-enhance-check-handoff-loop.md) | 增强执行与验收闭环执行计划 |
 | [`plans/2026-05-05-photo3d-delivery-pack.md`](plans/2026-05-05-photo3d-delivery-pack.md) | Photo3D 最终交付包执行计划 |
 | [`plans/2026-05-05-render-visual-regression.md`](plans/2026-05-05-render-visual-regression.md) | Phase 4 渲染视觉/元件一致性门禁执行计划 |
+| [`plans/2026-05-05-photo3d-quality-gate.md`](plans/2026-05-05-photo3d-quality-gate.md) | Phase 5/6 多视角照片级质量门禁执行计划 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
@@ -69,8 +70,9 @@
 | Done | Phase 5 -> Phase 6 | 增强执行 + `enhance-check` 闭环 | provider 选择后由 `photo3d-handoff --confirm` 自动执行增强、验收复查和 `photo3d-run` 回读，输出 accepted/preview/blocked 和下一步 |
 | Done | Phase 6 ANNOTATE / DELIVER | 最终交付包 | 已新增 `photo3d-deliver`，汇总增强图、标注图、源渲染、证据报告和用户摘要到 `DELIVERY_PACKAGE.json` |
 | Done | Phase 4 RENDER | Blender 视觉回归和元件一致性检查（契约层） | 已新增 `render-visual-check`，通用防止渲染图少视角/少元件、旧 run 混用、视角证据漂移 |
-| 1 | Phase 5 ENHANCE | 多视角照片级质量验收 | 扩展材质一致性、多视角一致性和照片级评分 |
-| 2 | Phase 4 RENDER | Blender 环境预检和截图级回归 | 契约层门禁之后，继续补画面质量、材质/灯光和像素级证据 |
+| Done | Phase 5 -> Phase 6 | 多视角照片级质量验收（确定性契约层） | 已新增 `quality_summary`、逐视角 `quality_metrics` 和 `photo_quality_not_accepted`，防止低质量增强图进入最终交付 |
+| 1 | Phase 4 RENDER | Blender 环境预检和截图级回归 | 契约层门禁之后，继续补画面质量、材质/灯光和像素级证据 |
+| 2 | Phase 5 -> Phase 6 | 语义/材质级增强质量复核 | 在确定性 `quality_summary` 之上增加可配置 AI/人工复核入口，仍绑定 active run 和证据报告 |
 | 3 | Phase 2 CODEGEN | 常用模型库下一批 | 按准入清单扩展更多跨产品高频件，不做单设备临时收紧 |
 | 4 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
 

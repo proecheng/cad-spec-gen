@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageChops, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageStat, UnidentifiedImageError
 
 from tools.contract_io import file_sha256, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
 from tools.render_qa import qa_image
+
+MIN_PHOTO_CONTRAST_STDDEV = 12.0
 
 
 def compare_enhanced_image(
@@ -84,6 +86,7 @@ def build_enhancement_report(
     views: list[dict[str, Any]] = []
     blocking_reasons: list[dict[str, Any]] = []
     has_preview = False
+    quality_records: list[dict[str, Any]] = []
     if not sources:
         blocking_reasons.append({
             "code": "render_manifest_no_sources",
@@ -135,6 +138,8 @@ def build_enhancement_report(
         )
         source_qa = qa_image(source["path_abs_resolved"])
         enhanced_qa = qa_image(enhanced_path)
+        quality_metrics = _photo_quality_metrics(enhanced_path, enhanced_qa)
+        quality_records.append({"view": view, **quality_metrics})
         view_reasons = list(comparison.get("blocking_reasons") or [])
         if not enhanced_qa.get("passed"):
             view_reasons.append({
@@ -161,9 +166,14 @@ def build_enhancement_report(
             "min_similarity": float(min_similarity),
             "source_qa": _compact_qa(source_qa),
             "enhanced_qa": _compact_qa(enhanced_qa),
+            "quality_metrics": quality_metrics,
             "blocking_reasons": view_reasons,
         })
 
+    quality_summary = _build_quality_summary(quality_records)
+    if quality_summary["warnings"] and views and not any(view["status"] == "blocked" for view in views):
+        has_preview = True
+        blocking_reasons.extend(quality_summary["warnings"])
     status = "blocked" if blocking_reasons and not views else (
         "blocked" if any(view["status"] == "blocked" for view in views) else (
         "preview" if has_preview else "accepted"
@@ -185,6 +195,7 @@ def build_enhancement_report(
         "view_count": len(sources),
         "enhanced_view_count": len([view for view in views if view.get("enhanced_image")]),
         "min_similarity": float(min_similarity),
+        "quality_summary": quality_summary,
         "views": views,
         "blocking_reasons": blocking_reasons,
     }
@@ -258,6 +269,51 @@ def _ordinary_user_message(status: str) -> str:
         "blocked": "增强验收缺少必需视角或输入不完整，不能交付。",
     }
     return messages.get(status, "增强一致性验收已生成报告。")
+
+
+def _photo_quality_metrics(path: Path, image_qa: dict[str, Any]) -> dict[str, Any]:
+    with Image.open(path) as image:
+        rgb = image.convert("RGB")
+        hsv = rgb.convert("HSV")
+        gray = rgb.convert("L")
+        luminance = ImageStat.Stat(gray)
+        saturation = ImageStat.Stat(hsv.getchannel("S"))
+    return {
+        "width": int(image_qa.get("width") or rgb.width),
+        "height": int(image_qa.get("height") or rgb.height),
+        "object_occupancy": float(image_qa.get("object_occupancy") or 0.0),
+        "luminance_mean": round(float(luminance.mean[0]), 6),
+        "contrast_stddev": round(float(luminance.stddev[0]), 6),
+        "saturation_mean": round(float(saturation.mean[0]), 6),
+    }
+
+
+def _build_quality_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    warnings: list[dict[str, Any]] = []
+    canvas_sizes = sorted({(int(item["width"]), int(item["height"])) for item in records})
+    if len(canvas_sizes) > 1:
+        warnings.append({
+            "code": "photo_quality_inconsistent_canvas",
+            "canvas_sizes": [list(size) for size in canvas_sizes],
+            "message": "增强图多视角画布尺寸不一致，只能作为预览。",
+        })
+    for item in records:
+        if float(item.get("contrast_stddev") or 0.0) < MIN_PHOTO_CONTRAST_STDDEV:
+            warnings.append({
+                "code": "photo_quality_low_contrast",
+                "view": item["view"],
+                "contrast_stddev": item.get("contrast_stddev"),
+                "min_contrast_stddev": MIN_PHOTO_CONTRAST_STDDEV,
+                "message": "增强图对比度过低，照片级质量需要人工复查。",
+            })
+    return {
+        "schema_version": 1,
+        "status": "preview" if warnings else "accepted",
+        "view_count": len(records),
+        "min_contrast_stddev": MIN_PHOTO_CONTRAST_STDDEV,
+        "canvas_sizes": [list(size) for size in canvas_sizes],
+        "warnings": warnings,
+    }
 
 
 def _manifest_sources(
