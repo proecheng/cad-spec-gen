@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Phase 2 常用模型库第五批已完成审查修正：新增 [Common Model Library Batch 5 执行计划](plans/2026-05-05-common-model-library-batch-5.md)，按通用模型族准入清单加入方形法兰伺服电机、行星减速机、拖链段、DIN 导轨继电器模块、按钮/操作盒。合并前审查发现 route 别名可能拿到错误 fallback 尺寸、`interface relay` 路由和 adapter 模板 gate 不一致；现已修复，并把 route 别名的 template、real_dims、lookup dims 一致性纳入准入测试。当前总体能力进展约 84%，下一步是复跑最终门禁、提交、快进合并、推送和清理 worktree。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Phase 2 常用模型库第五批已快进合并到 `main` 并通过主线复验：新增 [Common Model Library Batch 5 执行计划](plans/2026-05-05-common-model-library-batch-5.md)，按通用模型族准入清单加入方形法兰伺服电机、行星减速机、拖链段、DIN 导轨继电器模块、按钮/操作盒。合并前审查发现 route 别名可能拿到错误 fallback 尺寸、`interface relay` 路由和 adapter 模板 gate 不一致；现已修复，并把 route 别名的 template、real_dims、lookup dims 一致性纳入准入测试。当前总体能力进展约 84%，下一步是推送和清理 `.worktrees/common-model-library-batch-5`。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -77,7 +77,7 @@
 | Done | Phase 4 RENDER | Blender 环境预检和截图级回归（确定性像素层） | 已新增 `render-quality-check`，用 `RENDER_QUALITY_REPORT.json` 证明 Blender 预检、路径/hash/QA 和逐视角像素质量 |
 | Done | Phase 5 -> Phase 6 | 语义/材质级增强质量复核 | 已新增 `enhance-review`、`ENHANCEMENT_REVIEW_REPORT.json.semantic_material_review` 和 `photo3d-deliver --require-semantic-review`，显式复核证据仍绑定 active run 和 source report hash |
 | Done | Phase 2 CODEGEN | 常用模型库第五批 | 已按准入清单扩展五个跨产品高频外购件族，并通过第五批范围门禁 |
-| 1 | Phase 2 CODEGEN | 提交/合并/推送第五批 | 把第五批进入主线，并清理本轮临时 worktree/分支 |
+| 1 | Phase 2 CODEGEN | 推送并清理第五批 | 第五批已进入主线，下一步推送远端并清理本轮临时 worktree/分支 |
 | 2 | Phase 2 -> Phase 6 | 模型质量报告用户化 | 让普通用户知道每个零件是真 STEP、库模板还是 fallback，并知道哪些需要复核 |
 | 3 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
 | 4 | Phase 5 ENHANCE | 真实 AI backend adapter 准入 | `gpt-image-2-pro` 等新后端进入白名单前，先补配置隔离、同 run 验收和多视角一致性测试 |
