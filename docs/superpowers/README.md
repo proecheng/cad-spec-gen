@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-04：常用模型库扩展第三批已在 `codex/common-model-library-batch-3` 实现并进入最终收尾；新增 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和包络测试，并恢复精确成熟模板优先于新增通用族模板的规则。详见 [项目看板](../PROGRESS.md) 和 [第三批计划](plans/2026-05-04-common-model-library-batch-3.md)。
+2026-05-05：常用模型库扩展第三批已快进合并到 `main`，合并后范围回归、镜像同步和空白检查通过，待推送和清理临时 worktree；新增 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和包络测试，并恢复精确成熟模板优先于新增通用族模板的规则。详见 [项目看板](../PROGRESS.md) 和 [第三批计划](plans/2026-05-04-common-model-library-batch-3.md)。
 
 ## 当前主入口
 
@@ -51,7 +51,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| In Progress | 常用模型库扩展第三批 | 已实现并通过范围回归；下一步最终检查、提交、合并、推送和清理 worktree/分支 |
+| Done | 常用模型库扩展第三批 | 已快进合并到 `main`；下一步推送并清理 worktree/分支 |
 | Done | 常用模型库扩展第二批 | 已合并并推送到 `origin/main`；已清理第二批 worktree/分支 |
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
