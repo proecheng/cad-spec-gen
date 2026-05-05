@@ -612,12 +612,37 @@ mappings:
 
   - match:
       category: pneumatic
+      keyword_contains: ["真空发生器", "vacuum ejector", "真空吸盘", "vacuum cup", "suction cup"]
+    adapter: jinja_primitive
+
+  - match:
+      category: pneumatic
       keyword_contains: ["气缸", "pneumatic", "cylinder", "MGPM", "MGPL", "SDA", "CQ2", "SCJ"]
     adapter: jinja_primitive
 
   - match:
       category: other
       keyword_contains: ["DIN导轨", "DIN rail", "35mm导轨", "导轨电源", "导轨继电器"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["IP65 控制箱", "电气控制箱", "control enclosure", "electrical enclosure", "junction box", "接线盒"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["22mm 急停按钮", "急停按钮", "22mm push button", "panel pushbutton", "indicator light", "指示灯"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["传感器安装支架", "传感器固定支架", "sensor mounting bracket", "sensor bracket", "E3Z bracket"]
+    adapter: jinja_primitive
+
+  - match:
+      category: other
+      keyword_contains: ["2020铝型材", "2040铝型材", "T-slot extrusion", "V-slot 2020", "2020角码", "L型角码", "aluminum corner bracket"]
     adapter: jinja_primitive
 
   # ─── Everything else falls through to jinja_primitive ───────────────

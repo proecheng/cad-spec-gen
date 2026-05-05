@@ -42,14 +42,23 @@ _PART_CATEGORY_RULES = [
                   "MGPM", "MGPL", "SDA", "CQ2", "SCJ", "电磁阀", "solenoid valve",
                   "气管接头", "快插", "push fitting", "调压阀", "过滤减压阀",
                   "阀岛", "valve manifold", "FRL", "filter regulator",
-                  "air regulator", "调压过滤器"]),
+                  "air regulator", "调压过滤器", "真空发生器", "vacuum ejector",
+                  "真空吸盘", "vacuum cup", "suction cup"]),
     ("connector", ["连接器", "connector", "LEMO", "SMA", "Molex", "ZIF", "插座", "插头",
                   "端子", "接线端子", "terminal block", "KF301", "Phoenix", "航空插头",
                   "DIN导轨端子", "DIN rail terminal"]),
     ("seal",      ["O型圈", "O-ring", "FKM", "NBR", "缓冲垫", "PU垫"]),
     ("tank",      ["储液罐", "储罐", "tank", "容器"]),
     ("other",     ["护罩", "防护罩", "guard", "cover", "DIN导轨", "DIN rail",
-                   "35mm导轨", "导轨电源", "导轨继电器"]),
+                   "35mm导轨", "导轨电源", "导轨继电器", "IP65 控制箱",
+                   "电气控制箱", "control enclosure", "electrical enclosure",
+                   "junction box", "接线盒", "22mm 急停按钮", "急停按钮",
+                   "22mm push button", "panel pushbutton", "indicator light",
+                   "指示灯", "传感器安装支架", "传感器固定支架",
+                   "sensor mounting bracket", "sensor bracket", "E3Z bracket",
+                   "2020铝型材", "2040铝型材", "T-slot extrusion",
+                   "V-slot 2020", "2020角码", "L型角码",
+                   "aluminum corner bracket"]),
     ("transmission", ["齿轮", "链轮", "皮带轮", "带轮", "同步带", "蜗杆", "蜗轮",
                       "齿条", "锥齿轮", "斜齿轮", "联轴器", "coupler", "coupling",
                       "L070", "L050", "GT2", "皮带", "belt", "丝杠螺母",
@@ -124,6 +133,15 @@ def classify_part(name: str, material: str = "") -> str:
         "丝杠" in raw_text or "丝杆" in raw_text or "lead screw" in lower_text
     ):
         return "transmission"
+    sensor_accessory_keywords = [
+        "传感器安装支架",
+        "传感器固定支架",
+        "sensor mounting bracket",
+        "sensor bracket",
+        "e3z bracket",
+    ]
+    if any(keyword in lower_text for keyword in sensor_accessory_keywords):
+        return "other"
 
     text = raw_text.upper()
     for category, keywords in _PART_CATEGORY_RULES:

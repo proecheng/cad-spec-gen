@@ -311,3 +311,94 @@ def test_batch_3_broad_tokens_do_not_activate_new_default_routes(
     )
 
     assert rules[0]["match"] == {"any": True}
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material", "match_value"),
+    [
+        (
+            "other",
+            "IP65 控制箱",
+            "160×120×80mm",
+            ["IP65 控制箱", "电气控制箱", "control enclosure", "electrical enclosure", "junction box", "接线盒"],
+        ),
+        (
+            "other",
+            "22mm 急停按钮",
+            "红色",
+            ["22mm 急停按钮", "急停按钮", "22mm push button", "panel pushbutton", "indicator light", "指示灯"],
+        ),
+        (
+            "other",
+            "M12 传感器安装支架",
+            "不锈钢",
+            ["传感器安装支架", "传感器固定支架", "sensor mounting bracket", "sensor bracket", "E3Z bracket"],
+        ),
+        (
+            "pneumatic",
+            "真空发生器",
+            "CV-10HS",
+            ["真空发生器", "vacuum ejector", "真空吸盘", "vacuum cup", "suction cup"],
+        ),
+        (
+            "other",
+            "2020铝型材",
+            "L=200mm",
+            ["2020铝型材", "2040铝型材", "T-slot extrusion", "V-slot 2020", "2020角码", "L型角码", "aluminum corner bracket"],
+        ),
+    ],
+)
+def test_batch_4_default_routes_precede_generic_fallbacks(
+    category: str,
+    name: str,
+    material: str,
+    match_value: list[str],
+) -> None:
+    """第四批常用模型必须先命中显式族规则，不能靠 any:true 终端兜底。"""
+    query = PartQuery(
+        part_no="B4-DEFAULT-RULE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules
+    assert rules[0]["match"].get("category") == category
+    assert rules[0]["match"].get("keyword_contains") == match_value
+
+
+@pytest.mark.parametrize(
+    ("category", "name", "material"),
+    [
+        ("other", "普通支架", "铝合金 50×30×5mm"),
+        ("other", "按钮标签", "PVC"),
+        ("other", "真空包装袋", "PE"),
+        ("other", "铝型材手册", "A4"),
+    ],
+)
+def test_batch_4_broad_tokens_do_not_activate_new_default_routes(
+    category: str,
+    name: str,
+    material: str,
+) -> None:
+    """裸 支架/按钮/真空/型材 等宽泛词不能触发第四批 B 级模板族。"""
+    query = PartQuery(
+        part_no="B4-NEGATIVE",
+        name_cn=name,
+        material=material,
+        category=category,
+        make_buy="外购",
+    )
+
+    rules = default_resolver(project_root="__missing_project__").matching_rules(
+        query,
+        adapter_name="jinja_primitive",
+    )
+
+    assert rules[0]["match"] == {"any": True}

@@ -196,6 +196,18 @@ STD_PART_DIMENSIONS = {
     # --- DIN rail electrical families ---
     "DIN导轨端子": {"w": 5.2, "d": 45, "h": 35},
     "DIN导轨电源": {"w": 90, "d": 60, "h": 55},
+    # --- Electrical enclosure / panel control families ---
+    "IP65 控制箱": {"w": 160, "d": 120, "h": 80},
+    "22mm 急停按钮": {"w": 30, "d": 30, "h": 45, "hole_d": 22},
+    # --- Sensor accessory families ---
+    "M12 传感器安装支架": {"w": 50, "d": 32, "h": 28, "hole_d": 12},
+    # --- Vacuum pneumatic families ---
+    "真空发生器": {"w": 60, "d": 18, "h": 28},
+    "真空吸盘": {"w": 30, "d": 30, "h": 25},
+    # --- Aluminum profile / bracket families ---
+    "2020铝型材": {"w": 200, "d": 20, "h": 20, "slot_w": 6},
+    "2040铝型材": {"w": 200, "d": 20, "h": 40, "slot_w": 6},
+    "2020角码": {"w": 40, "d": 40, "h": 20},
     # --- Pumps ---
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
@@ -268,6 +280,14 @@ STD_PART_DIMENSION_CATEGORIES = {
     "PC8": {"pneumatic"},
     "DIN导轨端子": {"connector"},
     "DIN导轨电源": {"other"},
+    "IP65 控制箱": {"other"},
+    "22mm 急停按钮": {"other"},
+    "M12 传感器安装支架": {"other"},
+    "真空发生器": {"pneumatic"},
+    "真空吸盘": {"pneumatic"},
+    "2020铝型材": {"other"},
+    "2040铝型材": {"other"},
+    "2020角码": {"other"},
     "齿轮泵": {"pump"},
     "微量泵": {"pump"},
 }

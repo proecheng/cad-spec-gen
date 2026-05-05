@@ -1518,6 +1518,188 @@ def _gen_gt2_timing_belt_loop(dims: dict) -> str:
     return body"""
 
 
+def _gen_electrical_enclosure_box(dims: dict) -> str:
+    w = dims.get("w", 160)
+    d = dims.get("d", 120)
+    h = dims.get("h", 80)
+    lid_h = min(max(h * 0.12, 5.0), h * 0.22)
+    wall = max(min(min(w, d) * 0.035, 4.0), 2.0)
+    boss_d = max(min(min(w, d) * 0.08, 8.0), 4.0)
+    return f"""    # Electrical enclosure: box body, raised lid, internal corner bosses
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {h - lid_h:.3f}, centered=(True, True, False))
+    lid = (cq.Workplane("XY")
+           .box({w:.3f}, {d:.3f}, {lid_h:.3f}, centered=(True, True, False))
+           .translate((0, 0, {h - lid_h:.3f})))
+    recess = (cq.Workplane("XY")
+              .box({w - wall * 2:.3f}, {d - wall * 2:.3f}, {lid_h * 0.36:.3f}, centered=(True, True, False))
+              .translate((0, 0, {h - lid_h * 0.18:.3f})))
+    body = body.union(lid).cut(recess)
+    for x in ({-w / 2 + wall * 2.0:.3f}, {w / 2 - wall * 2.0:.3f}):
+        for y in ({-d / 2 + wall * 2.0:.3f}, {d / 2 - wall * 2.0:.3f}):
+            boss = (cq.Workplane("XY")
+                    .center(x, y)
+                    .circle({boss_d / 2:.3f})
+                    .extrude({max(h * 0.18, 8.0):.3f}))
+            hole = (cq.Workplane("XY")
+                    .center(x, y)
+                    .circle({boss_d * 0.22:.3f})
+                    .extrude({max(h * 0.18, 8.0) + 0.4:.3f})
+                    .translate((0, 0, -0.2)))
+            body = body.union(boss).cut(hole)
+    return body"""
+
+
+def _gen_panel_pushbutton_22mm(dims: dict) -> str:
+    w = dims.get("w", 30)
+    d = dims.get("d", 30)
+    h = dims.get("h", 45)
+    hole_d = min(dims.get("hole_d", 22), min(w, d) * 0.82)
+    cap_h = h * 0.26
+    collar_h = h * 0.14
+    body_h = h - cap_h - collar_h
+    return f"""    # 22 mm panel pushbutton: round cap, collar, contact block
+    body = cq.Workplane("XY").circle({hole_d * 0.38:.3f}).extrude({body_h:.3f})
+    collar = (cq.Workplane("XY")
+              .circle({min(w, d) * 0.45:.3f})
+              .extrude({collar_h:.3f})
+              .translate((0, 0, {body_h:.3f})))
+    cap = (cq.Workplane("XY")
+           .circle({min(w, d) * 0.50:.3f})
+           .extrude({cap_h:.3f})
+           .translate((0, 0, {body_h + collar_h:.3f})))
+    contact = cq.Workplane("XY").box({w * 0.48:.3f}, {d * 0.34:.3f}, {body_h * 0.46:.3f}, centered=(True, True, False))
+    return body.union(collar).union(cap).union(contact)"""
+
+
+def _gen_sensor_mounting_bracket(dims: dict) -> str:
+    w = dims.get("w", 50)
+    d = dims.get("d", 32)
+    h = dims.get("h", 28)
+    hole_d = min(dims.get("hole_d", 12), min(w, h) * 0.45)
+    thickness = max(min(h * 0.20, 5.0), 3.0)
+    upright_h = h - thickness
+    slot_w = min(w * 0.36, w - 2 * thickness)
+    return f"""    # Sensor mounting bracket: L bracket with sensor bore and base slots
+    base = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {thickness:.3f}, centered=(True, True, False))
+    upright = (cq.Workplane("XY")
+               .box({w:.3f}, {thickness:.3f}, {upright_h:.3f}, centered=(True, True, False))
+               .translate((0, {-d / 2 + thickness / 2:.3f}, {thickness:.3f})))
+    body = base.union(upright)
+    bore = (cq.Workplane("XZ")
+            .center(0, {thickness + upright_h * 0.52:.3f})
+            .circle({hole_d / 2:.3f})
+            .extrude({thickness + 0.4:.3f})
+            .translate((0, {-d / 2 - 0.2:.3f}, 0)))
+    body = body.cut(bore)
+    for x in ({-w * 0.24:.3f}, {w * 0.24:.3f}):
+        slot = (cq.Workplane("XY")
+                .center(x, {d * 0.18:.3f})
+                .box({slot_w * 0.34:.3f}, {d * 0.36:.3f}, {thickness + 0.4:.3f}, centered=(True, True, False))
+                .translate((0, 0, -0.2)))
+        body = body.cut(slot)
+    return body"""
+
+
+def _gen_vacuum_ejector(dims: dict) -> str:
+    w = dims.get("w", 60)
+    d = dims.get("d", 18)
+    h = dims.get("h", 28)
+    body_h = h * 0.62
+    port_d = min(d * 0.34, h * 0.22)
+    return f"""    # Vacuum ejector: compact manifold body with three bounded ports
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {body_h:.3f}, centered=(True, True, False))
+    label_pad = (cq.Workplane("XY")
+                 .box({w * 0.52:.3f}, {d * 0.92:.3f}, {h * 0.12:.3f}, centered=(True, True, False))
+                 .translate((0, 0, {body_h:.3f})))
+    body = body.union(label_pad)
+    for x in ({-w * 0.32:.3f}, 0, {w * 0.32:.3f}):
+        port = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({port_d / 2:.3f})
+                .extrude({h * 0.26:.3f})
+                .translate((0, 0, {body_h + h * 0.12:.3f})))
+        bore = (cq.Workplane("XY")
+                .center(x, 0)
+                .circle({port_d * 0.28:.3f})
+                .extrude({h * 0.26 + 0.4:.3f})
+                .translate((0, 0, {body_h + h * 0.12 - 0.2:.3f})))
+        body = body.union(port).cut(bore)
+    return body"""
+
+
+def _gen_vacuum_suction_cup(dims: dict) -> str:
+    w = dims.get("w", 30)
+    d = dims.get("d", 30)
+    h = dims.get("h", 25)
+    cup_d = min(w, d)
+    lip_h = h * 0.22
+    bellows_h = h * 0.38
+    stem_h = h - lip_h - bellows_h
+    stem_d = cup_d * 0.34
+    return f"""    # Vacuum suction cup: soft flared cup, bellows ring, top stem
+    lip = cq.Workplane("XY").circle({cup_d / 2:.3f}).circle({cup_d * 0.32:.3f}).extrude({lip_h:.3f})
+    bellows = (cq.Workplane("XY")
+               .circle({cup_d * 0.40:.3f})
+               .circle({cup_d * 0.22:.3f})
+               .extrude({bellows_h:.3f})
+               .translate((0, 0, {lip_h:.3f})))
+    stem = (cq.Workplane("XY")
+            .circle({stem_d / 2:.3f})
+            .circle({stem_d * 0.24:.3f})
+            .extrude({stem_h:.3f})
+            .translate((0, 0, {lip_h + bellows_h:.3f})))
+    return lip.union(bellows).union(stem)"""
+
+
+def _gen_aluminum_tslot_extrusion(dims: dict) -> str:
+    w = dims.get("w", 200)
+    d = dims.get("d", 20)
+    h = dims.get("h", 20)
+    slot_w = min(dims.get("slot_w", 6), min(d, h) * 0.38)
+    core_d = min(d, h) * 0.24
+    return f"""    # Aluminum T-slot extrusion: bounded 2020/2040 profile with four slots
+    body = cq.Workplane("XY").box({w:.3f}, {d:.3f}, {h:.3f}, centered=(True, True, False))
+    center = (cq.Workplane("YZ")
+              .circle({core_d / 2:.3f})
+              .extrude({w + 0.4:.3f})
+              .translate(({-(w / 2 + 0.2):.3f}, 0, {h / 2:.3f})))
+    body = body.cut(center)
+    side_slot = (cq.Workplane("XY")
+                 .box({w + 0.4:.3f}, {slot_w:.3f}, {h * 0.22:.3f}, centered=(True, True, False))
+                 .translate((0, {d / 2 - slot_w * 0.30:.3f}, {h * 0.39:.3f})))
+    side_slot_2 = side_slot.translate((0, {-d + slot_w * 0.60:.3f}, 0))
+    top_slot = (cq.Workplane("XY")
+                .box({w + 0.4:.3f}, {d * 0.28:.3f}, {slot_w:.3f}, centered=(True, True, False))
+                .translate((0, 0, {h - slot_w * 0.70:.3f})))
+    bottom_slot = top_slot.translate((0, 0, {-h + slot_w * 1.40:.3f}))
+    body = body.cut(side_slot).cut(side_slot_2).cut(top_slot).cut(bottom_slot)
+    return body"""
+
+
+def _gen_aluminum_corner_bracket(dims: dict) -> str:
+    w = dims.get("w", 40)
+    d = dims.get("d", 40)
+    h = dims.get("h", 20)
+    t = max(min(h * 0.26, 5.0), 3.0)
+    hole_d = min(min(w, d) * 0.18, 7.0)
+    return f"""    # Aluminum corner bracket: L shaped angle with two bounded mounting holes
+    leg_x = cq.Workplane("XY").box({w:.3f}, {t:.3f}, {h:.3f}, centered=(True, True, False)).translate((0, {-d / 2 + t / 2:.3f}, 0))
+    leg_y = cq.Workplane("XY").box({t:.3f}, {d:.3f}, {h:.3f}, centered=(True, True, False)).translate(({ -w / 2 + t / 2:.3f}, 0, 0))
+    web = cq.Workplane("XY").box({w * 0.44:.3f}, {d * 0.44:.3f}, {t:.3f}, centered=(True, True, False)).translate(({ -w * 0.22:.3f}, {-d * 0.22:.3f}, {h - t:.3f}))
+    body = leg_x.union(leg_y).union(web)
+    hole_x = (cq.Workplane("XY")
+              .center({w * 0.18:.3f}, {-d / 2 + t / 2:.3f})
+              .circle({hole_d / 2:.3f})
+              .extrude({h + 0.4:.3f})
+              .translate((0, 0, -0.2)))
+    hole_y = (cq.Workplane("XY")
+              .center({-w / 2 + t / 2:.3f}, {d * 0.18:.3f})
+              .circle({hole_d / 2:.3f})
+              .extrude({h + 0.4:.3f})
+              .translate((0, 0, -0.2)))
+    return body.cut(hole_x).cut(hole_y)"""
+
+
 def _specialized_template(query, dims: dict) -> Optional[dict]:
     """Return a semi-parametric model for high-value fallback rows."""
     text = _query_text(query)
@@ -1528,6 +1710,117 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         "requires_model_review": False,
         "template_scope": "reusable_part_family",
     }
+
+    if category == "other" and _contains_any(
+        text,
+        ["IP65 控制箱", "电气控制箱", "control enclosure", "electrical enclosure", "junction box", "接线盒"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 160),
+            "d": dims.get("d", 120),
+            "h": dims.get("h", 80),
+        }
+        return {
+            "template": "electrical_enclosure_box",
+            "body_code": _gen_electrical_enclosure_box(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["22mm 急停按钮", "急停按钮", "22mm push button", "panel pushbutton", "indicator light", "指示灯"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 30),
+            "d": dims.get("d", 30),
+            "h": dims.get("h", 45),
+            "hole_d": dims.get("hole_d", 22),
+        }
+        return {
+            "template": "panel_pushbutton_22mm",
+            "body_code": _gen_panel_pushbutton_22mm(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["传感器安装支架", "传感器固定支架", "sensor mounting bracket", "sensor bracket", "E3Z bracket"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 50),
+            "d": dims.get("d", 32),
+            "h": dims.get("h", 28),
+            "hole_d": dims.get("hole_d", 12),
+        }
+        return {
+            "template": "sensor_mounting_bracket",
+            "body_code": _gen_sensor_mounting_bracket(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "pneumatic" and _contains_any(text, ["真空发生器", "vacuum ejector"]):
+        tpl_dims = {
+            "w": dims.get("w", 60),
+            "d": dims.get("d", 18),
+            "h": dims.get("h", 28),
+        }
+        return {
+            "template": "vacuum_ejector",
+            "body_code": _gen_vacuum_ejector(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "pneumatic" and _contains_any(text, ["真空吸盘", "vacuum cup", "suction cup"]):
+        tpl_dims = {
+            "w": dims.get("w", 30),
+            "d": dims.get("d", 30),
+            "h": dims.get("h", 25),
+        }
+        return {
+            "template": "vacuum_suction_cup",
+            "body_code": _gen_vacuum_suction_cup(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["2020铝型材", "2040铝型材", "T-slot extrusion", "V-slot 2020"],
+    ):
+        text_upper = text.upper()
+        default_dims = {"w": 200, "d": 20, "h": 40 if "2040" in text_upper else 20, "slot_w": 6}
+        tpl_dims = {
+            "w": dims.get("w", default_dims["w"]),
+            "d": dims.get("d", default_dims["d"]),
+            "h": dims.get("h", default_dims["h"]),
+            "slot_w": dims.get("slot_w", default_dims["slot_w"]),
+        }
+        return {
+            "template": "aluminum_tslot_extrusion",
+            "body_code": _gen_aluminum_tslot_extrusion(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
+    if category == "other" and _contains_any(
+        text,
+        ["2020角码", "L型角码", "aluminum corner bracket"],
+    ):
+        tpl_dims = {
+            "w": dims.get("w", 40),
+            "d": dims.get("d", 40),
+            "h": dims.get("h", 20),
+        }
+        return {
+            "template": "aluminum_corner_bracket",
+            "body_code": _gen_aluminum_corner_bracket(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
 
     if category == "bearing" and _contains_any(
         text, ["直线导轨", "linear guide", "MGN", "HGW", "HGH", "导轨滑块"]
