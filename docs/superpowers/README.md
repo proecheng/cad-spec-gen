@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：Project-guide provider preset 选择已在 `codex/project-guide-provider-presets` worktree 实现并验证，待提交/合并/清理：新增 [project-guide provider preset 执行计划](plans/2026-05-05-project-guide-provider-presets.md)，`PROJECT_GUIDE.json` 在当前 active run 到 `ready_for_enhancement` 且 run/subsystem/action 匹配时，附带白名单 `provider_choice` 和预览版 `photo3d-handoff --provider-preset <id>` 命令；`project-guide` 仍只读，不运行增强、不接受 baseline、不信任 JSON 任意 argv。范围回归 `157 passed`，同步/空白检查通过。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Project-guide provider preset 选择已合并到 `main`，待推送后清理 worktree/分支：新增 [project-guide provider preset 执行计划](plans/2026-05-05-project-guide-provider-presets.md)，`PROJECT_GUIDE.json` 在当前 active run 到 `ready_for_enhancement` 且 run/subsystem/action 匹配时，附带白名单 `provider_choice` 和预览版 `photo3d-handoff --provider-preset <id>` 命令；`project-guide` 仍只读，不运行增强、不接受 baseline、不信任 JSON 任意 argv。合并后范围回归 `157 passed`，同步/空白检查通过。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -58,7 +58,7 @@
 
 | 优先级 | 工作 | 目标 |
 | --- | --- | --- |
-| In Progress | Project-guide provider preset 选择 | 已实现并通过 `157 passed`、同步/空白检查；待提交、合并、推送并清理 worktree/分支 |
+| Done | Project-guide provider preset 选择 | 已提交 `1ce807a` 并合并到 `main`；合并后 `157 passed`、同步/空白检查通过；待推送后清理 worktree/分支 |
 | Done | Photo3D 增强 provider preset 安全交接 | 已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 |
 | Done | 通用模型族准入清单 | 已新增 runbook、manifest 和准入测试；已合并到 `main`，范围回归 `286 passed`，同步/空白检查通过 |
 | Done | 常用模型库扩展第四批 | 已合并并推送到 `origin/main`；已清理第四批 worktree/分支 |
