@@ -21,6 +21,7 @@ PHOTO3D_CONTRACT_TOOL_FILES = {
     "photo3d_actions.py",
     "photo3d_action_runner.py",
     "photo3d_autopilot.py",
+    "photo3d_delivery_pack.py",
     "photo3d_gate.py",
     "photo3d_handoff.py",
     "photo3d_loop.py",

@@ -44,6 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
+| photo3d | photo3d, photorealistic, foolproof output, pass/warning/blocked, accepted/preview/blocked, run_id, baseline, delivery package, action plan, LLM handoff | → Photo3D Contract Gate / Delivery |
 
 ---
 
@@ -134,6 +135,51 @@ Recommendation priority:
   d. Has PNG but no JPG → "Run Gemini AI enhancement"
   e. All complete → "Choose next subsystem" (sorted by maturity)
 ```
+
+### 10. photo3d — Photo3D Contract Gate / Delivery
+
+Recommended read-only first command for ordinary users and LLM agents:
+
+```bash
+python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
+```
+
+`project-guide` writes `PROJECT_GUIDE.json` and chooses the next safe handoff across init, spec, codegen, build-render, and `photo3d-run`. When the current active run reaches `ready_for_enhancement`, it may expose allowlisted provider presets, display-ready `ordinary_user_options`, `provider_wizard`, safe `provider_health`, and preview-only `photo3d-handoff --provider-preset <id>` commands. It must not run enhancement, append `--confirm`, mutate pipeline state, scan directories, or expose keys, URLs, endpoints, secrets, arbitrary backend strings, model names, or JSON argv injection.
+
+With an active run:
+
+```bash
+python cad_pipeline.py photo3d-run --subsystem <name>
+```
+
+`photo3d-run` writes `PHOTO3D_RUN.json`, runs the current active run through the gate and autopilot, and stops at baseline acceptance, enhancement handoff, user input, manual review, execution failure, or loop limit. It does not accept baseline, does not run enhancement, does not switch `active_run_id`, and does not scan directories.
+
+When the user says to execute the recommendation, preview then confirm the handoff:
+
+```bash
+python cad_pipeline.py photo3d-handoff --subsystem <name>
+python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm
+```
+
+`photo3d-handoff` rebuilds trusted argv from `ARTIFACT_INDEX.json`, active run_id, current run/render paths, and an allowlisted provider preset. It never trusts arbitrary argv from JSON reports. After a confirmed enhance succeeds, it automatically runs same-run `enhance-check`, records `followup_action`, reruns `photo3d-run`, and exposes accepted/preview/blocked in `post_handoff_photo3d_run`.
+
+Enhancement acceptance:
+
+```bash
+python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
+```
+
+`enhance-check` writes `ENHANCEMENT_REPORT.json`, accepts only images inside the explicit render dir, and does not scan directories for newest files.
+
+Final delivery package:
+
+```bash
+python cad_pipeline.py photo3d-deliver --subsystem <name>
+```
+
+`photo3d-deliver` reads only `ARTIFACT_INDEX.json.active_run_id`, same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `DELIVERY_PACKAGE.json` plus `README.md` under `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/`. By default it copies final enhanced/source/labeled images only when delivery status is `accepted`; `preview` / `blocked` are not `final_deliverable`. It does not scan directories, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
+
+Agent rule: prefer `PHOTO3D_RUN.json` for next-step loops, `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run` after confirmed enhancement, and `DELIVERY_PACKAGE.json` after `enhancement_accepted`. Do not manually copy render files or use AI enhancement to repair missing CAD geometry, missing instances, wrong positions, stale renders, or baseline mismatch.
 
 ### 4. new_subsys — Quick Start 3-Step Guide
 

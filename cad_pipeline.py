@@ -3765,6 +3765,31 @@ def cmd_photo3d_handoff(args):
     return command_return_code(report)
 
 
+def cmd_photo3d_deliver(args):
+    """生成当前 active run 的 Photo3D 最终交付包。"""
+    from tools.photo3d_delivery_pack import (
+        command_return_code_for_delivery_pack,
+        run_photo3d_delivery_pack,
+    )
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = run_photo3d_delivery_pack(
+            PROJECT_ROOT,
+            args.subsystem,
+            artifact_index_path=getattr(args, "artifact_index", None),
+            output_path=getattr(args, "output", None),
+            include_preview=bool(getattr(args, "include_preview", False)),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("PHOTO3D_DELIVERY_PACKAGE failed: %s", exc)
+        return 1
+    log.info("DELIVERY_PACKAGE: %s", report.get("ordinary_user_message"))
+    return command_return_code_for_delivery_pack(report)
+
+
 def cmd_photo3d_recover(args):
     """执行绑定当前 run_id 的 Photo3D 低风险恢复动作。"""
     from tools.photo3d_recover import run_photo3d_recover
@@ -4459,7 +4484,12 @@ def main():
             "enhance writes *_enhanced.* files, run python cad_pipeline.py "
             "enhance-check --subsystem <name> --dir <render_dir> to write "
             "ENHANCEMENT_REPORT.json; it does not scan directories for the newest "
-            "file and only accepts enhanced images inside the explicit render dir.\n"
+            "file and only accepts enhanced images inside the explicit render dir. "
+            "When accepted, run python cad_pipeline.py photo3d-deliver --subsystem "
+            "<name> to write DELIVERY_PACKAGE.json and README.md under the current "
+            "run delivery directory. photo3d-deliver only uses ARTIFACT_INDEX.json "
+            "active_run_id and same-run evidence, does not scan directories, and "
+            "marks final_deliverable true only for accepted enhancement evidence.\n"
             "The first pass is only a candidate baseline; after user confirmation, "
             "run: python cad_pipeline.py accept-baseline --subsystem <name>. "
             "This records accepted_baseline_run_id in ARTIFACT_INDEX.json without "
@@ -4520,7 +4550,10 @@ def main():
             "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
             "After ready_for_enhancement, run enhance, then run enhance-check with "
             "the explicit render dir to write ENHANCEMENT_REPORT.json; it does not "
-            "scan directories for the newest file. "
+            "scan directories for the newest file. After accepted enhancement, run "
+            "python cad_pipeline.py photo3d-deliver --subsystem <name> to write "
+            "DELIVERY_PACKAGE.json with final_deliverable only for accepted "
+            "active_run_id evidence. "
             "If the first pass/warning run has no accepted baseline, autopilot "
             "recommends: python cad_pipeline.py accept-baseline --subsystem <name>. "
             "That explicit command records accepted_baseline_run_id in "
@@ -4712,6 +4745,10 @@ def main():
             "acceptance follow-up completed; a blocked enhance-check report is "
             "still surfaced through PHOTO3D_RUN.json instead of being hidden as a "
             "raw subprocess failure. "
+            "When the post-handoff run status is enhancement_accepted, run "
+            "python cad_pipeline.py photo3d-deliver --subsystem <name> to build "
+            "the active-run DELIVERY_PACKAGE.json instead of manually copying "
+            "render files. "
             "All output stays inside cad/<name>/.cad-spec-gen/runs/<run_id>/."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4749,6 +4786,51 @@ def main():
         "--output",
         default=None,
         help="PHOTO3D_HANDOFF.json output path (default: current run directory)",
+    )
+
+    # photo3d-deliver：生成当前 run 的最终交付包
+    p_photo3d_deliver = sub.add_parser(
+        "photo3d-deliver",
+        help="Build the active-run Photo3D final delivery package",
+        description=(
+            "Photo3D deliver：读取当前 ARTIFACT_INDEX.json active_run_id 的 "
+            "render_manifest.json、ENHANCEMENT_REPORT.json、PHOTO3D_RUN.json "
+            "和契约证据，写 cad/<name>/.cad-spec-gen/runs/<run_id>/delivery/"
+            "DELIVERY_PACKAGE.json 与 README.md。默认只有 enhancement delivery "
+            "status 为 accepted 才复制最终 enhanced/source/labeled 图片；preview/"
+            "blocked 只写证据报告，不作为照片级最终交付。"
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py photo3d-deliver --subsystem <name>\n"
+            "The command is run-aware and auditable: it does not scan directories "
+            "for the newest file, does not infer a different run, and rejects "
+            "report/render_manifest/run_id/subsystem drift. It copies final "
+            "images only from the active render dir and copies evidence reports "
+            "beside DELIVERY_PACKAGE.json. Use --include-preview only when an "
+            "explicit preview package is desired; it is still not marked as a "
+            "final_deliverable."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_deliver.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_deliver.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active run_id source."
+        ),
+    )
+    p_photo3d_deliver.add_argument(
+        "--output",
+        default=None,
+        help="DELIVERY_PACKAGE.json output path (default: current run delivery directory)",
+    )
+    p_photo3d_deliver.add_argument(
+        "--include-preview",
+        action="store_true",
+        help="Copy preview enhanced images into a preview package; final_deliverable stays false",
     )
 
     # photo3d-recover：只由 action runner 调用的 run-aware 低风险恢复 wrapper
@@ -4878,6 +4960,7 @@ def main():
         "photo3d-action": cmd_photo3d_action,
         "photo3d-run": cmd_photo3d_run,
         "photo3d-handoff": cmd_photo3d_handoff,
+        "photo3d-deliver": cmd_photo3d_deliver,
         "photo3d-recover": cmd_photo3d_recover,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,

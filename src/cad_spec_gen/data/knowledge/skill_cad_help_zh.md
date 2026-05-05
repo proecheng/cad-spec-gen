@@ -518,6 +518,14 @@ python cad_pipeline.py enhance-check --subsystem <name> --dir <render_dir>
 
 `enhance-check` reads only the explicit render directory's `render_manifest.json` and same-directory `*_enhanced.*` files, then writes `ENHANCEMENT_REPORT.json`. Every manifest view must have a matching enhanced image; source/enhanced shape similarity and basic image QA determine `accepted` / `preview` / `blocked`. It does not scan directories for newest files and does not accept enhanced images outside `--dir`.
 
+After `ENHANCEMENT_REPORT.json` is `accepted`, build the final delivery package:
+
+```bash
+python cad_pipeline.py photo3d-deliver --subsystem <name>
+```
+
+`photo3d-deliver` reads only the current `ARTIFACT_INDEX.json.active_run_id` and the same-run `render_manifest.json`, `ENHANCEMENT_REPORT.json`, `PHOTO3D_RUN.json`, and contract evidence. It writes `cad/<subsystem>/.cad-spec-gen/runs/<run_id>/delivery/DELIVERY_PACKAGE.json` plus `README.md`. By default it copies final enhanced images, source renders, and unambiguous labeled images only when delivery status is `accepted`; `preview` / `blocked` produce an evidence report but are not marked `final_deliverable`. It does not scan directories for newest files, infer another run, or accept subsystem/run_id/render_manifest drift. Use `--include-preview` only for an explicit preview package; `final_deliverable` remains false.
+
 Outputs for ordinary users and LLMs:
 
 - `PROJECT_GUIDE.json`: read-only project-level next-step report across init/spec/codegen/build-render/photo3d-run; when the active run is ready for enhancement, it may include allowlisted provider preset choices, display-ready `ordinary_user_options`, `provider_wizard`, safe `provider_health`, and preview `photo3d-handoff --provider-preset <id>` commands.
@@ -529,6 +537,7 @@ Outputs for ordinary users and LLMs:
 - `PHOTO3D_HANDOFF.json`: preview/execution report from `photo3d-handoff`, including the current source report, rebuilt safe argv, execution result, `followup_action`, `post_handoff_photo3d_run`, `executed_with_followup`, or manual-review reason for the current next action.
 - `PHOTO3D_RUN.json`: multi-round report from `photo3d-run`, including each gate/autopilot/action round, final stop reason, and next safe action.
 - `ENHANCEMENT_REPORT.json`: enhancement delivery acceptance report with per-view source image, enhanced image, similarity, QA, and `accepted` / `preview` / `blocked` status.
+- `DELIVERY_PACKAGE.json`: final delivery manifest from `photo3d-deliver`, including source reports, source renders, enhanced images, labeled images, copied evidence files, blocking reasons, and `final_deliverable` status.
 
 路径隔离 and old artifact cleanup:
 
@@ -551,6 +560,7 @@ Agent rule:
 
 - Prefer `photo3d-run` / `PHOTO3D_RUN.json` for ordinary users and LLM-facing next-step loops.
 - When the user says to execute the recommendation, prefer `photo3d-handoff` so baseline acceptance, enhancement, enhance-check, and action-plan confirmation all go through one confirmed active-run handoff instead of hand-written shell commands. If the user wants a provider, pass only an allowlisted `--provider-preset` such as `engineering`; do not hand-write `--backend` or copy arbitrary JSON argv.
+- When `post_handoff_photo3d_run.status` is `enhancement_accepted`, run `photo3d-deliver` to produce `DELIVERY_PACKAGE.json`; do not manually copy files out of the render directory.
 - When status is `blocked`, read `ACTION_PLAN.json` and choose only an allowed action.
 - Use `photo3d-action` to preview/confirm low-risk CLI recovery actions; do not execute shell strings by hand. Allowed recovery shell commands must be `photo3d-recover` with explicit `--run-id` and `--artifact-index`, so product-graph/build/render outputs stay bound to the current run. After confirmed low-risk actions all succeed, read `post_action_autopilot` instead of guessing the next step, because the command automatically reruns `photo3d-autopilot` only when no user input, manual review, or rejected action remains.
 - 不能扫描目录猜最新文件；只能使用当前 `run_id` 在 `ARTIFACT_INDEX.json` 中登记的产物。

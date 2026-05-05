@@ -15,6 +15,7 @@ USER_FLOW_TERMS = {
     "photo3d-autopilot",
     "photo3d-action",
     "photo3d-handoff",
+    "photo3d-deliver",
     "photo3d-run",
     "photo3d-recover",
     "project-guide",
@@ -25,6 +26,7 @@ USER_FLOW_TERMS = {
     "PHOTO3D_ACTION_RUN.json",
     "PHOTO3D_HANDOFF.json",
     "PHOTO3D_RUN.json",
+    "DELIVERY_PACKAGE.json",
     "PROJECT_GUIDE.json",
     "ENHANCEMENT_REPORT.json",
     "ACTION_PLAN.json",
@@ -209,6 +211,41 @@ def test_photo3d_handoff_help_explains_confirmed_handoff_flow():
     assert "python cad_pipeline.py photo3d-handoff --subsystem <name>" in help_text
 
 
+def test_photo3d_deliver_help_explains_final_delivery_package():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "photo3d-deliver", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "photo3d-deliver",
+        "DELIVERY_PACKAGE.json",
+        "README.md",
+        "ENHANCEMENT_REPORT.json",
+        "PHOTO3D_RUN.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "accepted",
+        "preview",
+        "blocked",
+        "final_deliverable",
+        "--include-preview",
+        "does not scan directories",
+        "run_id",
+        "subsystem",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py photo3d-deliver --subsystem <name>" in help_text
+
+
 def test_photo3d_run_help_explains_multi_round_user_flow():
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "photo3d-run", "--help"],
@@ -327,6 +364,7 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
         assert "photo3d-handoff" in text, f"{rel} missing confirmed handoff runner"
+        assert "photo3d-deliver" in text, f"{rel} missing final delivery package"
         assert "followup_action" in text, f"{rel} missing handoff follow-up report"
         assert "post_handoff_photo3d_run" in text, (
             f"{rel} missing post-handoff loop summary"
@@ -341,6 +379,7 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         )
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
         assert "PHOTO3D_HANDOFF.json" in text, f"{rel} missing handoff report"
+        assert "DELIVERY_PACKAGE.json" in text, f"{rel} missing delivery package"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
         assert "project-guide" in text, f"{rel} missing project guide"
@@ -365,6 +404,7 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
             "自动运行" in text or "automatically runs" in text
         ), f"{rel} missing automatic enhance-check follow-up"
         assert "ENHANCEMENT_REPORT.json" in text, f"{rel} missing enhancement report"
+        assert "final_deliverable" in text, f"{rel} missing final delivery semantics"
         assert "--run-id" in text, f"{rel} missing run-aware run_id binding"
         assert "--artifact-index" in text, f"{rel} missing artifact-index binding"
         assert "禁止" in text or "must" in text, f"{rel} missing hard recovery rule"
@@ -384,6 +424,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d_autopilot" in tools_by_name, rel
         assert "photo3d_action" in tools_by_name, rel
         assert "photo3d_handoff" in tools_by_name, rel
+        assert "photo3d_deliver" in tools_by_name, rel
         assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
         assert "project_guide" in tools_by_name, rel
@@ -404,6 +445,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert (
             tools_by_name["photo3d_handoff"]["cli"]
             == "python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm"
+        )
+        assert (
+            tools_by_name["photo3d_deliver"]["cli"]
+            == "python cad_pipeline.py photo3d-deliver --subsystem <name>"
         )
         assert (
             tools_by_name["photo3d_run"]["cli"]
@@ -445,6 +490,11 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "allowlisted provider preset" in tools_by_name["photo3d_handoff"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_handoff"]["description"]
         assert "never trusts arbitrary argv" in tools_by_name["photo3d_handoff"]["description"]
+        assert "DELIVERY_PACKAGE.json" in tools_by_name["photo3d_deliver"]["description"]
+        assert "final_deliverable" in tools_by_name["photo3d_deliver"]["description"]
+        assert "accepted" in tools_by_name["photo3d_deliver"]["description"]
+        assert "does not scan directories" in tools_by_name["photo3d_deliver"]["description"]
+        assert "active_run_id" in tools_by_name["photo3d_deliver"]["description"]
         assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]
         assert "--confirm-actions" in tools_by_name["photo3d_run"]["description"]
         assert "does not accept baseline" in tools_by_name["photo3d_run"]["description"]
