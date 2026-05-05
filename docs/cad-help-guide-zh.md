@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后再进入 `photo3d-run`，验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后可运行 `render-visual-check` 写 `RENDER_VISUAL_REGRESSION.json`，再进入 `photo3d-run` 验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
 
 ### v2.3.0 新增能力
 
@@ -192,6 +192,14 @@ python cad_pipeline.py photo3d-run --subsystem <name>
 
 它会按当前 `active_run_id` 连续运行 `photo3d` 门禁和 `photo3d-autopilot`，并写出 `PHOTO3D_RUN.json`。向导只推进到下一处需要用户决策的位置：`needs_baseline_acceptance`、`ready_for_enhancement`、`needs_user_input`、`needs_manual_review`、`execution_failed` 或 `loop_limit_reached`。它不会静默接受 baseline，不会运行 `enhance`，不会切换 `active_run_id`，也不会扫描目录猜最新文件；要提高轮数可传 `--max-rounds <n>`。
 
+Phase 4 渲染完成后，可先运行渲染视觉/元件一致性检查：
+
+```bash
+python cad_pipeline.py render-visual-check --subsystem <name>
+```
+
+`render-visual-check` 只读取 `ARTIFACT_INDEX.json.active_run_id` 绑定的 `PRODUCT_GRAPH.json`、`ASSEMBLY_SIGNATURE.json` 和 `render_manifest.json`，写出当前 run 目录下的 `RENDER_VISUAL_REGRESSION.json`。它检查 render manifest 的 subsystem/run_id/path/hash 链、active render_dir、渲染文件 hash、重复视角、产品图必需实例是否进入运行时装配签名；有 `accepted baseline` 时还会比较 baseline 的视角、渲染文件、装配实例和可选逐视角实例证据。没有 accepted baseline 时仍检查当前 run 自身；如果缺少 per-view instance evidence，只能给 warning，不能声称图片内每个元件身份已被证明。该命令 does not scan directories，不猜最新 PNG，不换 run；如需显式历史对比，必须同时传 `--baseline-manifest` 和 `--baseline-signature`。
+
 如果 `PHOTO3D_RUN.json` 提示存在低风险恢复动作，用户确认后运行：
 
 ```bash
@@ -274,6 +282,7 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 阻断时会写出：
 
 - `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
+- `RENDER_VISUAL_REGRESSION.json`：`render-visual-check` 的 Phase 4 报告，记录当前 run 与 accepted baseline 的视角、渲染文件、装配实例和逐视角实例证据差异。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。
 - `PHOTO3D_AUTOPILOT.json`：普通用户和大模型本轮下一步报告。
 - `ACTION_PLAN.json`：大模型可执行的下一步动作，如重新渲染、重新 build、请求用户提供模型。

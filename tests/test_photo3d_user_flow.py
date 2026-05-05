@@ -18,9 +18,11 @@ USER_FLOW_TERMS = {
     "photo3d-deliver",
     "photo3d-run",
     "photo3d-recover",
+    "render-visual-check",
     "project-guide",
     "enhance-check",
     "run_id",
+    "RENDER_VISUAL_REGRESSION.json",
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
     "PHOTO3D_ACTION_RUN.json",
@@ -246,6 +248,36 @@ def test_photo3d_deliver_help_explains_final_delivery_package():
     assert "python cad_pipeline.py photo3d-deliver --subsystem <name>" in help_text
 
 
+def test_render_visual_check_help_explains_phase4_consistency_gate():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "render-visual-check", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "render-visual-check",
+        "RENDER_VISUAL_REGRESSION.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "accepted baseline",
+        "baseline-manifest",
+        "baseline-signature",
+        "render_manifest.json",
+        "does not scan",
+        "per-view instance evidence",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py render-visual-check --subsystem <name>" in help_text
+
+
 def test_photo3d_run_help_explains_multi_round_user_flow():
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "photo3d-run", "--help"],
@@ -365,6 +397,10 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
         assert "photo3d-handoff" in text, f"{rel} missing confirmed handoff runner"
         assert "photo3d-deliver" in text, f"{rel} missing final delivery package"
+        assert "render-visual-check" in text, f"{rel} missing render visual check"
+        assert "RENDER_VISUAL_REGRESSION.json" in text, (
+            f"{rel} missing render visual regression report"
+        )
         assert "followup_action" in text, f"{rel} missing handoff follow-up report"
         assert "post_handoff_photo3d_run" in text, (
             f"{rel} missing post-handoff loop summary"
@@ -427,6 +463,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d_deliver" in tools_by_name, rel
         assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
+        assert "render_visual_check" in tools_by_name, rel
         assert "project_guide" in tools_by_name, rel
         assert "enhance_check" in tools_by_name, rel
         assert "accept_baseline" in tools_by_name, rel
@@ -457,6 +494,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert (
             tools_by_name["photo3d_recover"]["cli"]
             == "python cad_pipeline.py photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action render"
+        )
+        assert (
+            tools_by_name["render_visual_check"]["cli"]
+            == "python cad_pipeline.py render-visual-check --subsystem <name>"
         )
         assert (
             tools_by_name["project_guide"]["cli"]
@@ -495,6 +536,15 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "accepted" in tools_by_name["photo3d_deliver"]["description"]
         assert "does not scan directories" in tools_by_name["photo3d_deliver"]["description"]
         assert "active_run_id" in tools_by_name["photo3d_deliver"]["description"]
+        assert "RENDER_VISUAL_REGRESSION.json" in tools_by_name["render_visual_check"][
+            "description"
+        ]
+        assert "does not scan directories" in tools_by_name["render_visual_check"][
+            "description"
+        ]
+        assert "accepted baseline" in tools_by_name["render_visual_check"][
+            "description"
+        ]
         assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]
         assert "--confirm-actions" in tools_by_name["photo3d_run"]["description"]
         assert "does not accept baseline" in tools_by_name["photo3d_run"]["description"]

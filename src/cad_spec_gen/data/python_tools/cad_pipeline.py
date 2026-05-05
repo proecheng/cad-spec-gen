@@ -3674,6 +3674,32 @@ def cmd_photo3d(args):
     return 0 if status in {"pass", "warning"} else 1
 
 
+def cmd_render_visual_check(args):
+    """运行 Phase 4 渲染视觉/元件一致性检查。"""
+    from tools.render_visual_regression import (
+        command_return_code_for_render_visual_regression,
+        run_render_visual_regression,
+    )
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = run_render_visual_regression(
+            PROJECT_ROOT,
+            args.subsystem,
+            artifact_index_path=getattr(args, "artifact_index", None),
+            baseline_manifest_path=getattr(args, "baseline_manifest", None),
+            baseline_signature_path=getattr(args, "baseline_signature", None),
+            output_path=getattr(args, "output", None),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("RENDER_VISUAL_REGRESSION failed: %s", exc)
+        return 1
+    log.info("RENDER_VISUAL_REGRESSION: %s", report.get("ordinary_user_message"))
+    return command_return_code_for_render_visual_regression(report)
+
+
 def cmd_photo3d_autopilot(args):
     """运行 Photo3D 门禁并写出普通用户下一步报告。"""
     from tools.photo3d_autopilot import write_photo3d_autopilot_report
@@ -4453,6 +4479,11 @@ def main():
             "directories.\n"
             "Artifacts are resolved only through ARTIFACT_INDEX.json for the active "
             "run_id; the command does not scan directories for the newest PNG.\n"
+            "Before enhancement, Phase 4 visual evidence can be checked with "
+            "python cad_pipeline.py render-visual-check --subsystem <name>. It "
+            "writes RENDER_VISUAL_REGRESSION.json, compares active-run views, "
+            "render files, assembly instances, optional per-view instance evidence, "
+            "and accepted baseline evidence without scanning render directories.\n"
             "Gate status: pass = CAD contract gate passed; warning = CAD gate passed "
             "with non-blocking warnings; blocked = CAD gate failed and enhancement "
             "must not run. PHOTO3D_REPORT.json enhancement_status is blocked or "
@@ -4527,6 +4558,56 @@ def main():
         ),
     )
 
+    # render-visual-check：Phase 4 渲染视觉回归和元件一致性检查
+    p_render_visual_check = sub.add_parser(
+        "render-visual-check",
+        help="Check active-run render views and component consistency",
+        description=(
+            "Phase 4 render visual check：只通过 ARTIFACT_INDEX.json active_run_id "
+            "读取当前 PRODUCT_GRAPH.json、ASSEMBLY_SIGNATURE.json 和 "
+            "render_manifest.json；检查当前 run 的视角、渲染文件、装配实例和 "
+            "可选逐视角实例证据，并与 accepted baseline 或显式 baseline "
+            "比较，防止新渲染少视角、少元件、旧 run 混用或 render_dir 漂移。"
+        ),
+        epilog=(
+            "Typical: python cad_pipeline.py render-visual-check --subsystem <name>\n"
+            "The command writes RENDER_VISUAL_REGRESSION.json inside the active run "
+            "directory. It does not scan render folders for newest images and does "
+            "not infer another run. If no accepted baseline exists, it still checks "
+            "current-run product/assembly/render bindings and reports warning when "
+            "per-view instance evidence is unavailable. If per-view instance evidence "
+            "exists, it is compared with current/baseline component visibility. "
+            "Use --baseline-manifest and "
+            "--baseline-signature together only for an explicit audited comparison."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_render_visual_check.add_argument("--subsystem", "-s", required=True)
+    p_render_visual_check.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active run_id source."
+        ),
+    )
+    p_render_visual_check.add_argument(
+        "--baseline-manifest",
+        default=None,
+        help="Optional baseline render_manifest.json; must be paired with --baseline-signature",
+    )
+    p_render_visual_check.add_argument(
+        "--baseline-signature",
+        default=None,
+        help="Optional baseline ASSEMBLY_SIGNATURE.json; must be paired with --baseline-manifest",
+    )
+    p_render_visual_check.add_argument(
+        "--output",
+        default=None,
+        help="RENDER_VISUAL_REGRESSION.json output path (default: current run directory)",
+    )
+
     # photo3d-autopilot：普通用户下一步报告
     p_photo3d_autopilot = sub.add_parser(
         "photo3d-autopilot",
@@ -4545,6 +4626,10 @@ def main():
             "project-guide --subsystem <name> --design-doc <path>. It writes "
             "PROJECT_GUIDE.json, is read-only, does not mutate pipeline state, "
             "and does not scan directories. "
+            "Before enhancement, run python cad_pipeline.py render-visual-check "
+            "--subsystem <name> if you need Phase 4 view/component consistency "
+            "evidence; it writes RENDER_VISUAL_REGRESSION.json from active_run_id "
+            "contracts and accepted baseline evidence without scanning directories. "
             "Gate status remains pass/warning/blocked. Enhancement delivery status "
             "remains accepted/preview/blocked and is not produced by this command; "
             "PHOTO3D_REPORT.json enhancement_status stays not_run or blocked here. "
@@ -4956,6 +5041,7 @@ def main():
         "product-graph": cmd_product_graph,
         "project-guide": cmd_project_guide,
         "photo3d": cmd_photo3d,
+        "render-visual-check": cmd_render_visual_check,
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
         "photo3d-run": cmd_photo3d_run,

@@ -44,7 +44,7 @@ Extract keywords from the user's question text, match to the best intent, then e
 | parts | parts, components, modules, BOM, bill of materials, part list, part tree, structure, breakdown, model library, STEP, standard parts | → Parse Design Document BOM / model library guidance |
 | spec | CAD_SPEC, spec, specification, extract data, generate spec, parameter extraction, cad_spec | → CAD Spec Generation/Viewing |
 | review | review, design review, check design, mechanics, assembly check, design audit | → Design Review |
-| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
+| photo3d | project-guide, photo3d, photo3d-run, photo3d-autopilot, photo3d-action, render-visual-check, photorealistic gate, one click photo, pass, warning, blocked, accepted, preview, run_id, ACTION_PLAN, LLM context | → Photo3D Contract Gate |
 
 ---
 
@@ -446,7 +446,17 @@ When an active run already exists, the recommended Photo3D command is:
 python cad_pipeline.py photo3d-run --subsystem <name>
 ```
 
-`photo3d-run` is the foolproof multi-round guide. It runs the current active run through `photo3d` gate + `photo3d-autopilot`, writes `PHOTO3D_RUN.json`, and stops at `needs_baseline_acceptance`, `ready_for_enhancement`, `needs_user_input`, `needs_manual_review`, `execution_failed`, or `loop_limit_reached`. It does not accept baseline, does not run enhancement, does not switch `active_run_id`, and does not scan directories for the newest file. If the report says low-risk recovery is available, the user can explicitly confirm:
+`photo3d-run` is the foolproof multi-round guide. It runs the current active run through `photo3d` gate + `photo3d-autopilot`, writes `PHOTO3D_RUN.json`, and stops at `needs_baseline_acceptance`, `ready_for_enhancement`, `needs_user_input`, `needs_manual_review`, `execution_failed`, or `loop_limit_reached`. It does not accept baseline, does not run enhancement, does not switch `active_run_id`, and does not scan directories for the newest file.
+
+Phase 4 render visual consistency check:
+
+```bash
+python cad_pipeline.py render-visual-check --subsystem <name>
+```
+
+`render-visual-check` writes `RENDER_VISUAL_REGRESSION.json` in the current active run directory. It reads only `ARTIFACT_INDEX.json.active_run_id` and current `PRODUCT_GRAPH.json`, `ASSEMBLY_SIGNATURE.json`, and `render_manifest.json`; it validates subsystem/run_id/path_context/hash bindings, active render_dir, render file hashes, duplicate views, product required instances in the runtime assembly, and optional per-view instance evidence. If `accepted baseline` exists, it compares current views, render files, assembly instances, and optional per-view `visible_instance_ids` evidence against the accepted baseline. If no accepted baseline exists, it still checks the current run and reports warning when per-view instance evidence is unavailable; it must not claim component identity inside each rendered image without that evidence. It does not scan directories, guess newest PNGs, switch runs, or use AI enhancement as proof of missing CAD geometry.
+
+If the `photo3d-run` report says low-risk recovery is available, the user can explicitly confirm:
 
 ```bash
 python cad_pipeline.py photo3d-run --subsystem <name> --confirm-actions
@@ -529,6 +539,7 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 Outputs for ordinary users and LLMs:
 
 - `PROJECT_GUIDE.json`: read-only project-level next-step report across init/spec/codegen/build-render/photo3d-run; when the active run is ready for enhancement, it may include allowlisted provider preset choices, display-ready `ordinary_user_options`, `provider_wizard`, safe `provider_health`, and preview `photo3d-handoff --provider-preset <id>` commands.
+- `RENDER_VISUAL_REGRESSION.json`: Phase 4 render visual/component consistency report from `render-visual-check`, comparing active-run views, render files, assembly instances, optional per-view instance evidence, and accepted baseline evidence.
 - `PHOTO3D_REPORT.json`: Chinese user-facing blocking reasons and status.
 - `PHOTO3D_AUTOPILOT.json`: ordinary-user round-end report with the next safe action.
 - `ACTION_PLAN.json`: machine-readable next actions such as rerun render, rerun build, request a model, or manual review.
