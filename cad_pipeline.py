@@ -4365,7 +4365,8 @@ def main():
             "project-guide 普通用户/大模型向导：只读检查显式子系统、可选设计文档、"
             "固定 CAD_SPEC/codegen 文件和 ARTIFACT_INDEX.json active_run_id，写出 "
             "PROJECT_GUIDE.json 与下一条安全命令；ready_for_enhancement 时可附带 "
-            "provider preset 选择、ordinary_user_options 普通用户可读选项和 "
+            "provider preset 选择、ordinary_user_options 普通用户可读选项、"
+            "provider_wizard 展示向导和 "
             "photo3d-handoff --provider-preset 预览命令。"
             "该命令 read-only，does not "
             "scan directories，does not mutate pipeline state；不会接受 baseline，"
@@ -4382,9 +4383,10 @@ def main():
             "with an explicit render dir for ENHANCEMENT_REPORT.json. When the active "
             "run's PHOTO3D_RUN.json is ready_for_enhancement, PROJECT_GUIDE.json may "
             "include allowlisted provider preset choices, ordinary_user_options with "
-            "titles/summaries/setup hints, and preview commands such as "
+            "titles/summaries/setup hints, a provider_wizard built from those options, "
+            "and preview commands such as "
             "python cad_pipeline.py photo3d-handoff --provider-preset engineering; "
-            "project-guide itself still does not run enhancement."
+            "project-guide itself still does not run enhancement or append --confirm."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：项目看板已重构为 6 个 Phase 的分层视图：Phase 1 SPEC、Phase 2 CODEGEN、Phase 3 BUILD、Phase 4 RENDER、Phase 5 ENHANCE、Phase 6 ANNOTATE / DELIVER。当前总体能力进展约 70%，主攻 Phase 5 Provider preset UI wizard，后续队列已明确标出每项工作所属 Phase。详见 [项目看板](../PROGRESS.md)。
+2026-05-05：Phase 5 Provider preset UI wizard 已完成：新增 [provider UI wizard 执行计划](plans/2026-05-05-provider-ui-wizard.md)，`PROJECT_GUIDE.json` 在增强入口新增 `provider_wizard`，从 `ordinary_user_options` 派生 UI/大模型可展示的步骤、默认项和预览动作；它只预览 `photo3d-handoff --provider-preset <id>`，不执行增强、不追加 `--confirm`、不扫描目录、不暴露密钥/URL。当前总体能力进展约 71%，下一步进入 Phase 5 provider 配置健康检查。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -28,6 +28,7 @@
 | [`plans/2026-05-05-photo3d-provider-presets.md`](plans/2026-05-05-photo3d-provider-presets.md) | Photo3D 增强 provider preset 安全交接计划 |
 | [`plans/2026-05-05-project-guide-provider-presets.md`](plans/2026-05-05-project-guide-provider-presets.md) | Project-guide provider preset 选择执行计划 |
 | [`plans/2026-05-05-provider-choice-user-copy.md`](plans/2026-05-05-provider-choice-user-copy.md) | Provider preset 普通用户可读选项执行计划 |
+| [`plans/2026-05-05-provider-ui-wizard.md`](plans/2026-05-05-provider-ui-wizard.md) | Provider UI wizard 执行计划 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
@@ -59,12 +60,12 @@
 
 | 顺序 | 所属 Phase | 工作 | 目标 |
 | --- | --- | --- | --- |
-| 1 | Phase 5 ENHANCE | Provider preset UI wizard | 把 `ordinary_user_options` 接成普通用户可选、默认只读预览的增强后端选择向导 |
-| 2 | Phase 5 ENHANCE | Provider 配置健康检查 | 判断本地/云增强 provider 是否可用，同时不泄漏 key、URL、endpoint 或 secret |
-| 3 | Phase 5 -> Phase 6 | 增强执行 + `enhance-check` 闭环 | provider 选择后自然进入增强验收，输出 accepted/preview/blocked 和下一步 |
-| 4 | Phase 6 ANNOTATE / DELIVER | 最终交付包 | 汇总增强图、标注图、源渲染、证据报告和用户摘要 |
-| 5 | Phase 4 RENDER | Blender 视觉回归和元件一致性检查 | 通用防止渲染图少元件、旧 run 混用、视角证据漂移 |
-| 6 | Phase 2 CODEGEN | 常用模型库下一批 | 按准入清单扩展更多跨产品高频件，不做单设备临时收紧 |
-| 7 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
+| Done | Phase 5 ENHANCE | Provider preset UI wizard | 已新增 `PROJECT_GUIDE.json.provider_wizard`，把 `ordinary_user_options` 接成普通用户/UI/大模型可选、默认只读预览的增强后端选择向导 |
+| 1 | Phase 5 ENHANCE | Provider 配置健康检查 | 判断本地/云增强 provider 是否可用，同时不泄漏 key、URL、endpoint 或 secret |
+| 2 | Phase 5 -> Phase 6 | 增强执行 + `enhance-check` 闭环 | provider 选择后自然进入增强验收，输出 accepted/preview/blocked 和下一步 |
+| 3 | Phase 6 ANNOTATE / DELIVER | 最终交付包 | 汇总增强图、标注图、源渲染、证据报告和用户摘要 |
+| 4 | Phase 4 RENDER | Blender 视觉回归和元件一致性检查 | 通用防止渲染图少元件、旧 run 混用、视角证据漂移 |
+| 5 | Phase 2 CODEGEN | 常用模型库下一批 | 按准入清单扩展更多跨产品高频件，不做单设备临时收紧 |
+| 6 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把全管线串成少提问、多确认的项目向导 |
 
 历史已完成项保留在 [项目看板](../PROGRESS.md) 的验证记录和对应 `plans/` 文档中；本 README 只展示当前入口和后续队列，避免把进度读成流水账。

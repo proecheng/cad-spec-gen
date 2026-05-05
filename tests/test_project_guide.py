@@ -192,6 +192,47 @@ def test_project_guide_exposes_provider_choices_when_ready_for_enhancement(tmp_p
     ]
     assert "--confirm" not in engineering["argv"]
 
+    wizard = report["provider_wizard"]
+    assert wizard["kind"] == "provider_preset_selection_wizard"
+    assert wizard["source"] == "provider_choice.ordinary_user_options"
+    assert wizard["mutates_pipeline_state"] is False
+    assert wizard["executes_enhancement"] is False
+    assert wizard["does_not_scan_directories"] is True
+    assert wizard["default_provider_preset"] == "default"
+    assert [step["id"] for step in wizard["steps"]] == [
+        "choose_provider",
+        "preview_handoff",
+        "confirm_handoff",
+    ]
+    assert [option["provider_preset"] for option in wizard["options"]] == [
+        "default",
+        "engineering",
+        "gemini",
+        "fal",
+        "fal_comfy",
+        "comfyui",
+    ]
+    default_wizard_option = next(
+        option for option in wizard["options"]
+        if option["provider_preset"] == "default"
+    )
+    assert default_wizard_option["is_default"] is True
+    engineering_wizard_option = next(
+        option for option in wizard["options"]
+        if option["provider_preset"] == "engineering"
+    )
+    assert engineering_wizard_option["is_default"] is False
+    assert engineering_wizard_option["title"] == engineering_option["ordinary_user_title"]
+    assert engineering_wizard_option["summary"] == engineering_option["ordinary_user_summary"]
+    assert engineering_wizard_option["recommended_when"] == engineering_option["recommended_when"]
+    assert engineering_wizard_option["requires_setup"] is False
+    assert engineering_wizard_option["preview_action"]["argv"] == engineering_option["argv"]
+    assert "--confirm" not in engineering_wizard_option["preview_action"]["argv"]
+    forbidden = {"api_key", "key", "secret", "url", "base_url", "endpoint"}
+    for option in wizard["options"]:
+        assert forbidden.isdisjoint(option), option["provider_preset"]
+        assert forbidden.isdisjoint(option["preview_action"]), option["provider_preset"]
+
 
 def test_project_guide_ignores_stale_provider_choice_report(tmp_path):
     from tools.project_guide import write_project_guide
@@ -226,6 +267,7 @@ def test_project_guide_ignores_stale_provider_choice_report(tmp_path):
 
     assert report["status"] == "ready_for_photo3d_run"
     assert "provider_choice" not in report
+    assert "provider_wizard" not in report
 
 
 def test_project_guide_cli_writes_report(tmp_path, monkeypatch):

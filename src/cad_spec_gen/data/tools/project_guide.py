@@ -89,6 +89,7 @@ def write_project_guide(
     }
     if provider_choice:
         report["provider_choice"] = provider_choice
+        report["provider_wizard"] = _provider_wizard(provider_choice)
     if index_path:
         report["artifacts"]["artifact_index"] = project_relative(index_path, root)
     write_json_atomic(target, report)
@@ -297,6 +298,57 @@ def _ordinary_user_provider_options(
             option["cli"] = action["cli"]
         options.append(option)
     return options
+
+
+def _provider_wizard(provider_choice: dict[str, Any]) -> dict[str, Any]:
+    default_provider = str(provider_choice["default_provider_preset"])
+    options = []
+    for option in provider_choice["ordinary_user_options"]:
+        preview_action: dict[str, Any] = {
+            "kind": "preview_photo3d_handoff",
+            "requires_user_confirmation": True,
+            "argv": option["argv"],
+        }
+        if "cli" in option:
+            preview_action["cli"] = option["cli"]
+        options.append(
+            {
+                "provider_preset": option["provider_preset"],
+                "title": option["ordinary_user_title"],
+                "summary": option["ordinary_user_summary"],
+                "recommended_when": option["recommended_when"],
+                "requires_setup": bool(option["requires_setup"]),
+                "requires_user_confirmation": True,
+                "is_default": option["provider_preset"] == default_provider,
+                "preview_action": preview_action,
+            }
+        )
+    return {
+        "kind": "provider_preset_selection_wizard",
+        "source": "provider_choice.ordinary_user_options",
+        "mutates_pipeline_state": False,
+        "executes_enhancement": False,
+        "does_not_scan_directories": True,
+        "default_provider_preset": default_provider,
+        "steps": [
+            {
+                "id": "choose_provider",
+                "title": "选择增强方式",
+                "description": "从白名单 provider preset 中选择一个普通用户可读选项。",
+            },
+            {
+                "id": "preview_handoff",
+                "title": "预览交接命令",
+                "description": "只生成 photo3d-handoff --provider-preset 预览命令，不执行增强。",
+            },
+            {
+                "id": "confirm_handoff",
+                "title": "显式确认执行",
+                "description": "真正执行仍需用户在 photo3d-handoff 边界显式确认。",
+            },
+        ],
+        "options": options,
+    }
 
 
 def _current_photo3d_source(
