@@ -8,47 +8,120 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已推送到 `origin/main`；provider 选项文案 worktree/分支已清理 |
+| 当前主线 | `main` 已推送到 `origin/main`；本轮 phase-progress-board worktree/分支已清理 |
+| 管线 Phase 数 | 6 个：SPEC / CODEGEN / BUILD / RENDER / ENHANCE / ANNOTATE |
+| 总体能力进展 | 约 70%（按 6 个 Phase 的工程化能力估算，不代表某个具体产品一次出图进度） |
+| 当前主攻 Phase | Phase 5 ENHANCE：把 provider 普通用户选项接成更傻瓜式 UI wizard；同时为 Phase 6 交付入口铺路 |
 | 最新功能基线 | `bfae729 feat(photo3d): 增加 provider 普通用户选项` |
-| 最新合并/进度提交 | `e3e93d1 docs(progress): 记录 provider 普通用户选项合并验证` |
+| 最新合并/进度提交 | 本轮看板重构提交待生成；上一轮为 `9331374 docs(progress): 记录 provider 选项清理状态` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `python -m pytest tests\test_photo3d_provider_presets.py tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `159 passed` |
+| 最近验证 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `137 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；本轮 worktree `.worktrees/provider-choice-user-copy` 和分支已清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 当前未跟踪 | 主工作树无未跟踪文件；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot`，本轮不触碰 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库准入 + 确认式 handoff + 增强 provider preset 白名单”阶段：普通用户和大模型不需要手拼增强后端参数；provider preset 现在有稳定的普通用户文案，`PROJECT_GUIDE.json` 在增强入口会输出 `ordinary_user_options`，把“默认 / 本地工程预览 / 云增强”包装成可直接展示的选项，同时仍只生成预览版 `photo3d-handoff --provider-preset <id>` 命令，不运行增强、不接受任意 JSON argv，也不猜旧路径。
+cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线。现在不是围绕某个零件做临时调参，而是在把“其他用户、其他产品也能傻瓜式出照片级 3D 图”的通用流程补齐：Phase 1-4 的 CAD/渲染证据链已基本可用，Phase 5 正在把增强 provider 选择做成普通用户可理解、可确认、可审计的入口，Phase 6 还需要继续强化最终交付包和标注验收。
 
-## 看板
+## 进度口径
 
-| 状态 | 工作项 | 目标 | 当前结果 | 下一步 |
+- 下面百分比是“管线能力建设进展”，不是某个具体产品本轮出图进度。
+- `Done` 表示已经有代码、文档或测试保护并合并过；`In progress` 表示当前主攻；`Next` 表示后续建议顺序。
+- 跨 Phase 能力，例如路径契约、run manifest、项目向导和大模型 handoff，会挂在最主要受益的 Phase 下，同时在备注里标明影响范围。
+
+## Phase 总览
+
+| Phase | 做什么 | 关键产物 | 进展 | 当前判断 |
 | --- | --- | --- | --- | --- |
-| Done | 通用传动/丝杠类零件模型路由 | 让常见传动件走模型库/参数化适配器，而不是每个设备手调 | 已新增 BOM 分类、参数化传动件、resolver 路由和测试 | 扩展更多常用机械类别 |
-| Done | 模型库调用闭环 | 让 purchased/std parts 优先走用户 STEP、缓存、SolidWorks/Toolbox、bd_warehouse/PartCAD，再 fallback | 已有 `parts_library.yaml`、`geometry_report.json`、`model-audit` | 加强模型质量报告和用户导入体验 |
-| Done | 产品图与路径契约 | 防止不同 run、不同目录、旧产物混用 | 已有 `PRODUCT_GRAPH.json`、`RUN_MANIFEST`、`ARTIFACT_INDEX.json`、path context | 把普通用户提示再做成更傻瓜式动作 |
-| Done | Photo3D 契约门禁 | AI 增强前先证明 CAD 几何和渲染证据可信 | 已有 `photo3d` gate，输出 `PHOTO3D_REPORT.json`、`ACTION_PLAN.json`、`LLM_CONTEXT_PACK.json` | 已接增强一致性验收 |
-| Done | 显式接受 baseline | 用户确认后才把当前 pass/warning run 作为漂移基线 | 已有 `accept-baseline`，记录 `accepted_baseline_run_id`，并校验报告路径、artifact 路径、文件哈希 | 后续在 UI/向导里暴露为“一键接受本轮基线” |
-| Done | 普通用户 Photo3D autopilot | 把门禁结果转成固定 round-end 下一步报告 | 新增 `photo3d-autopilot`，写 `PHOTO3D_AUTOPILOT.json`；blocked 指向动作计划；pass/warning 无 baseline 时只建议显式接受；已有 baseline 时建议带 `--dir` 的当前 run 增强命令 | 已在帮助中说明增强后运行 `enhance-check` |
-| Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
-| Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
-| Done | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试；已快进合并到 `main`、验证、推送并清理 worktree/分支 | 下一步可设计 provider presets / UI wizard，或继续抽象模型库准入清单 |
-| Done | Photo3D 增强 provider preset 安全交接 | 让非编程用户/大模型选择增强后端时只选白名单 preset，不手拼 `--backend`、URL、key 或 JSON argv | 已新增 `tools/photo3d_provider_presets.py`；`photo3d-autopilot` 的 `run_enhancement` next_action 输出 `default_provider_preset` 和 `provider_presets`；`photo3d-handoff --provider-preset engineering|gemini|fal|fal_comfy|comfyui|default` 只从白名单重建 argv，未知 preset 阻断，JSON 中恶意 argv 不被执行；已快进合并到 `main`，合并后 `179 passed`、同步/空白检查通过；已推送并清理 worktree/分支 | 下一步接入 UI wizard / project-guide provider 选择 |
-| Done | Project-guide provider preset 选择 | 让普通用户/大模型从项目级只读报告中看到增强 provider 选项，而不是记 CLI 参数 | 已提交 `1ce807a`、快进合并到 `main`、推送并清理本轮 worktree/分支；`PROJECT_GUIDE.json` 在当前 run `ready_for_enhancement` 且 `next_action.kind=run_enhancement` 时附带 `provider_choice`；只读取当前 run 的 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json`，校验 subsystem/run_id/status/action，所有选项来自 `public_provider_presets()`；预览 argv 不带 `--confirm`；合并后范围回归 `157 passed`、同步/空白检查通过 | 后续可做 provider preset 普通用户文案 / UI wizard |
-| Done | Provider preset 普通用户可读选项 | 让非编程用户看到“默认 / 本地工程预览 / 云增强”等稳定选项，而不是只看 provider id 或 CLI 参数 | 已提交 `bfae729`、快进合并到 `main`、推送并清理本轮 worktree/分支；`public_provider_presets()` 新增 `ordinary_user_title`、`ordinary_user_summary`、`recommended_when`、`requires_setup`；`PROJECT_GUIDE.json` 新增 `provider_choice.ordinary_user_options`，每项包含展示文案、是否需配置、预览 argv/cli；测试阻止 preset 暴露 key/url/secret 字段；合并后范围回归 `159 passed`、同步/空白检查通过 | 后续可接 UI wizard |
-| Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
-| Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
-| Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
-| Done | 傻瓜式照片级 3D 流程 | 非编程用户只说需求，大模型按动作计划推进 | 新增 `photo3d-run`，写 `PHOTO3D_RUN.json`；默认只预览并停在低风险动作确认点，`--confirm-actions` 后串联 `photo3d-action`，连续推进到用户输入、人工复查、baseline 确认、增强入口、执行失败或 `--max-rounds` | 下一步接更高层项目向导 |
-| Done | 增强一致性验收 | 照片级输出不仅生成，还能解释是否可交付 | 新增 `tools/enhance_consistency.py` 批量报告与 `cad_pipeline.py enhance-check`；从 `render_manifest.json` 读取视角，要求增强图在同一 render dir、每个视角唯一匹配；输出 `ENHANCEMENT_REPORT.json` 的 `accepted/preview/blocked` | 下一步把验收摘要回写到更高层 Photo3D/project guide |
-| Done | Build artifact backfill | 恢复动作后把更多运行时证据登记回当前 run | `photo3d-recover build` 成功后回填当前 run 的 `ASSEMBLY_SIGNATURE.json`、`ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP；optional 产物只在精确路径、配置路径或唯一候选存在时登记 | 下一步把增强验收摘要接入 `photo3d-run` / 项目向导 |
-| Done | 增强报告接入向导 | 普通用户完成 enhance-check 后不再猜下一步 | `photo3d-autopilot` / `photo3d-run` 只从当前 run 的 `render_manifest` 同目录读取 `ENHANCEMENT_REPORT.json`，输出 `enhancement_accepted` / `enhancement_preview` / `enhancement_blocked` 和 `enhancement_summary` | 下一步设计新用户项目向导 |
-| Done | 新用户项目向导 | 其他产品进入管线时尽量少问技术细节 | 新增只读 `project-guide`，写 `PROJECT_GUIDE.json`；只读取显式 `--subsystem`、可选 `--design-doc`、固定 `CAD_SPEC.md` / codegen 哨兵和显式/默认 `ARTIFACT_INDEX.json` active run；输出下一条安全 `argv` | 下一步扩展模型库类别 |
-| Done | 常用模型库扩展第一批 | 对其他设备也能复用，不围绕单个元件临时特判 | 已在默认库加入 motor、sensor、cable、pneumatic 显式规则；Jinja 适配器支持 LMxxUU、NEMA17/23、M8/M12/M18 接近传感器、线束可视段、紧凑气缸 B 级模板；包络测试保护 `real_dims` 不超界 | 继续扩展 linear guide、常见联轴器/皮带/齿轮、端子/接插件和更多气动件 |
-| Done | 常用模型库扩展第二批 | 继续减少项目特判，让更多产品零配置获得可辨识常用件 | 已合并并推送到 `origin/main`；实现 linear guide、通用联轴器、GT2 带轮、直齿轮、端子/M12 接插件、电磁阀、快插接头 B 级模板；默认库显式路由在真实 STEP/厂商规则之后、通用轴承/终端 fallback 之前；新增 category-scoped 尺寸匹配防止 material 描述跨类别抢尺寸；范围回归通过；已清理 `codex/common-model-library-batch-2` worktree/分支 | 已进入第三批跨产品高频模型库扩展 |
-| Done | 常用模型库扩展第三批 | 扩展更多跨产品高频外购件，继续减少单设备临时调参 | 已实现 mounted bearing/support、BK/BF support block、KK linear module、valve manifold/FRL、DIN rail terminal/device B 级模板；新增分类、category-scoped 尺寸、默认库显式顺序规则和负例；回归中恢复 `KFL001` 精确模板优先，形成“精确成熟模板优先于通用族模板”的通用规则；已推送到 `origin/main` 并清理 worktree/分支 | 进入下一批跨产品高频模型库或大模型交互动作 |
-| Done | 常用模型库扩展第四批 | 覆盖小型电气箱/面板控件、传感器安装附件、真空元件、铝型材/角码 | 已实现 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；新增显式分类、category-scoped 尺寸、默认库显式路由和宽词负例；已提交 `c4226a3`、快进合并到 `main`，合并后回归/同步/空白检查通过；已推送并清理第四批 worktree/分支 | 进入大模型交互动作或新一批通用模型族 |
-| Done | 通用模型族准入清单 | 把四批模型库经验变成通用、可测试、可审查的准入制度 | 已新增执行计划、runbook、`common_model_family_admission.json` manifest 和 `tests/test_common_model_family_admission.py`；已快进合并到 `main`，合并后范围回归 `286 passed`，同步/空白检查通过 | 推送并清理本轮 worktree |
+| Phase 1 SPEC | 从设计文档抽取结构化 CAD 规格，并做设计审查 | `CAD_SPEC.md`、`DESIGN_REVIEW.json`、补充参数 | 85% | 已有结构化章节、审查门禁和模型选择补充；下一步是把新用户输入做得更少、更稳 |
+| Phase 2 CODEGEN | 从 Spec 生成 CadQuery 代码、BOM 路由和标准件模型 | `params.py`、`build_all.py`、`assembly.py`、`std_*.py` | 82% | 模型库、resolver、四批常用模型族和准入清单已成型；仍需继续扩展跨产品高频件 |
+| Phase 3 BUILD | 构建 STEP/GLB/工程图预览，并登记构建证据 | `.step`、`.glb`、DXF/PNG、`ASSEMBLY_REPORT.json` | 76% | run-aware recover、artifact backfill 和装配校验已完成；还要增强更多失败恢复和边界测试 |
+| Phase 4 RENDER | 用 Blender 渲染多视角 3D 图，并绑定当前 run | `render_manifest.json`、多视角 `V*.png` | 72% | 路径契约和当前 run 绑定已建立；后续要补视觉回归、Blender 预检和更稳定的材质/灯光策略 |
+| Phase 5 ENHANCE | 把 CAD 渲染图增强到照片级，并做一致性验收 | `*_enhanced.*`、`ENHANCEMENT_REPORT.json`、provider preset | 64% | provider 白名单、普通用户文案、handoff 和 enhance-check 已有；当前下一步是 UI wizard |
+| Phase 6 ANNOTATE / DELIVER | 标注、交付最终图片包和证据摘要 | `*_labeled_*.png`、交付报告、可读摘要 | 38% | 基础阶段存在，但“傻瓜式最终交付包”和可视化验收还不够完整 |
+
+**总体进展：约 70%。** 最大剩余缺口不在单个零件，而在 Phase 5-6：让非编程用户和大模型通过稳定向导完成 provider 选择、增强执行、增强验收和最终交付。
+
+## 当前 Phase 明细
+
+### Phase 1 SPEC：85%
+
+已完成：
+- `CAD_SPEC.md` 生成、设计审查、§6.3/§6.4/§9 装配约束等结构化信息。
+- `DESIGN_REVIEW.json` 的 warning/critical 门禁和补充参数机制。
+- 模型选择补充可以把用户提供的 STEP 结构化写入后续流程。
+
+剩余：
+- 把 `project-guide` 的新用户入口继续前移，减少用户对子系统名、设计文档路径、补充参数的手工输入。
+- 更系统地测试不同产品类型下的规格缺失、歧义和回填策略。
+
+### Phase 2 CODEGEN：82%
+
+已完成：
+- CadQuery scaffold、标准件生成、模型库 resolver、`parts_library.yaml` 继承规则。
+- 常用模型库四批扩展，以及“新增模型族必须有 positive/negative/route/precedence/dimension/geometry 测试”的准入清单。
+- 真实 STEP、用户 STEP、SolidWorks/Toolbox、bd_warehouse、PartCAD 和 fallback 的优先级边界。
+
+剩余：
+- 继续扩展跨产品高频件，但按准入清单做，不再按某个设备临时收紧。
+- 增强模型质量报告，让普通用户知道哪些零件是真模型、哪些只是 B/C/D 级替代。
+
+### Phase 3 BUILD：76%
+
+已完成：
+- build 后构建 STEP/GLB、装配校验、运行时签名和 build artifact backfill。
+- `photo3d-recover` 让恢复动作绑定当前 run，不猜最新目录、不创建新 run。
+
+剩余：
+- 增强构建失败时的可恢复动作，覆盖更多 optional artifact 和配置缺失边界。
+- 把 build 阶段结果在项目向导里展示得更可读。
+
+### Phase 4 RENDER：72%
+
+已完成：
+- Blender 渲染产物通过 `render_manifest.json` 与当前 run 绑定。
+- `photo3d` gate、`photo3d-run`、`photo3d-action` 防止旧图、旧路径、旧 run 混用。
+
+剩余：
+- 加入更系统的 Blender 环境预检、视角/灯光/材质质量检查和截图级回归。
+- 把“渲染图比上一轮少元件”这类问题固化成通用数量/身份/视角一致性检查。
+
+### Phase 5 ENHANCE：64%
+
+已完成：
+- `enhance-check` 要求增强图与源图、视角、render dir 一致；不会猜多候选。
+- `photo3d-handoff --provider-preset` 只允许白名单 provider，不信任 JSON 任意 argv，不暴露 key/url/secret。
+- `PROJECT_GUIDE.json` 已输出 `provider_choice.ordinary_user_options`，普通用户能看到“默认 / 本地工程预览 / 云增强”等选项。
+
+当前主攻：
+- **Provider preset UI wizard**：把 `ordinary_user_options` 变成可直接展示/选择的向导视图，默认只预览，不执行增强，不加 `--confirm`。
+
+剩余：
+- provider 配置健康检查：告诉用户某个 provider 是否可用，但不泄漏密钥或 endpoint。
+- 若要加入 `gpt-image-2-pro`，必须先做真实 backend adapter、配置隔离、一致性验收和安全测试，再进入白名单。
+
+### Phase 6 ANNOTATE / DELIVER：38%
+
+已完成：
+- 管线已有标注阶段的产物扫描口径。
+- 增强验收报告已经能给出 accepted/preview/blocked 交付状态。
+
+剩余：
+- 做最终交付包：原始渲染、增强图、标注图、证据报告和可读摘要一并归档。
+- 在项目向导里把“已可交付 / 只能预览 / 被阻断”的原因讲清楚。
+- 多视角照片级一致性仍需更严格的视觉和语义验收。
+
+## 后续执行队列
+
+| 顺序 | 工作 | 所属 Phase | 为什么排这里 | 完成后用户会看到什么 |
+| --- | --- | --- | --- | --- |
+| 1 | Provider preset UI wizard | Phase 5 | 已有 `ordinary_user_options` 数据，下一步应接成普通用户可选界面/报告 | 不用记 `--backend` 或 provider id，只选“默认/本地/云增强”等选项 |
+| 2 | Provider 配置健康检查 | Phase 5 | wizard 需要知道哪些选项当前可用，但不能泄漏 key/url | 向导显示“可用/需配置/不可用原因”，仍不展示密钥 |
+| 3 | 增强执行 + enhance-check 闭环入口 | Phase 5 -> Phase 6 | 选择 provider 后要自然进入增强验收，而不是让用户手拼下一条命令 | 增强完成后自动给出 accepted/preview/blocked 和下一步 |
+| 4 | 最终交付包 | Phase 6 | 照片级结果需要可交付，不只是生成一张图 | 一个目录里有增强图、标注图、证据报告和用户摘要 |
+| 5 | Blender 视觉回归和元件一致性检查 | Phase 4 | 防止出现“新渲染比旧渲染少元件”的通用问题 | 渲染阶段能报告元件数量/身份/视角证据是否漂移 |
+| 6 | 常用模型库下一批 | Phase 2 | 继续提高不同产品零配置成图质量 | 更多常见外购件自动走可辨识 B 级或真实模型 |
+| 7 | 新用户项目入口再简化 | Phase 1 -> Phase 6 | 把全流程串成少提问、多确认的项目向导 | 用户只说产品和目标，系统按 Phase 给下一步 |
 
 ## 当前能力边界
 
@@ -88,14 +161,21 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 把 `ordinary_user_options` 接到 UI wizard，形成更傻瓜式的增强后端选择界面。
-2. 若要接入 `gpt-image-2-pro` 或 OpenClaude 后端，仍需先做真实 adapter、密钥配置边界、输出一致性验收和多视角测试，再进入白名单。
-3. 继续清理历史长计划，把当前状态集中在 `docs/PROGRESS.md`，减少用户查看进度时的噪音。
+1. Phase 5：实现 Provider preset UI wizard，把 `PROJECT_GUIDE.json` 里的 `ordinary_user_options` 转成稳定、只读、可确认的选择视图。
+2. Phase 5：补 provider 配置健康检查，判断本地/云增强选项是否可用，但不泄漏 API key、URL、endpoint 或 secret。
+3. Phase 5 -> Phase 6：把增强执行、`enhance-check` 和交付状态串成闭环，让用户看到 accepted/preview/blocked 后自然进入下一步。
+4. Phase 6：设计最终交付包，把增强图、标注图、源渲染、证据报告和用户摘要放在一个可审计目录。
+5. Phase 4：补 Blender 视觉回归和元件一致性检查，通用防止“新图比旧图少元件”这类问题。
+6. Phase 2：按通用模型族准入清单继续扩展下一批常用件，不做单设备临时收紧。
 
 ## 验证记录
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-05 | `git worktree add .worktrees\phase-progress-board -b codex/phase-progress-board` | 已创建看板重构 worktree；旧独立 worktree `.worktrees/generic-threaded-photo-autopilot` 未触碰 |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | 看板重构后同步检查通过；安装版镜像无漂移 |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 看板重构后文档/包装范围回归 `137 passed` |
+| 2026-05-05 | `git diff --check` | 看板重构后空白检查通过；仅 Windows 行尾提示 |
 | 2026-05-05 | `git worktree add .worktrees\provider-choice-user-copy -b codex/provider-choice-user-copy` | 已创建 provider 选项文案 worktree |
 | 2026-05-05 | `python -m pytest tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py -q` | 新 worktree ignored mirror 填充后基线 `23 passed` |
 | 2026-05-05 | `python -m pytest tests\test_photo3d_provider_presets.py -q` | 红测阶段因缺少 `ordinary_user_title` 等字段失败；实现后 `2 passed` |
