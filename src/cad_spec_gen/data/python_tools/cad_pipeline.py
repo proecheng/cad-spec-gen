@@ -3741,6 +3741,29 @@ def cmd_photo3d_run(args):
     return command_return_code_for_loop(report)
 
 
+def cmd_photo3d_handoff(args):
+    """预览或确认执行当前 Photo3D 下一步交接动作。"""
+    from tools.photo3d_handoff import command_return_code, run_photo3d_handoff
+
+    if not args.subsystem:
+        log.error("--subsystem is required")
+        return 1
+    try:
+        report = run_photo3d_handoff(
+            PROJECT_ROOT,
+            args.subsystem,
+            artifact_index_path=getattr(args, "artifact_index", None),
+            source=getattr(args, "source", None),
+            confirm=bool(getattr(args, "confirm", False)),
+            output_path=getattr(args, "output", None),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        log.error("PHOTO3D_HANDOFF failed: %s", exc)
+        return 1
+    log.info("PHOTO3D_HANDOFF: %s", report.get("ordinary_user_message"))
+    return command_return_code(report)
+
+
 def cmd_photo3d_recover(args):
     """执行绑定当前 run_id 的 Photo3D 低风险恢复动作。"""
     from tools.photo3d_recover import run_photo3d_recover
@@ -3771,111 +3794,24 @@ def cmd_photo3d_recover(args):
 
 def cmd_accept_baseline(args):
     """接受当前通过门禁的 Photo3D run 作为后续漂移基准。"""
-    from pathlib import Path
-
-    from tools.artifact_index import accept_run_baseline
-    from tools.contract_io import file_sha256, load_json_required, write_json_atomic
-    from tools.path_policy import assert_within_project, project_relative
+    from tools.photo3d_baseline import accept_photo3d_baseline
 
     if not args.subsystem:
         log.error("--subsystem is required")
         return 1
-
-    def _project_path(path_value, label: str) -> Path:
-        requested = Path(path_value)
-        resolved = requested if requested.is_absolute() else root / requested
-        resolved = resolved.resolve()
-        assert_within_project(resolved, root, label)
-        return resolved
-
-    root = Path(PROJECT_ROOT).resolve()
-    index_path = _project_path(
-        getattr(args, "artifact_index", None)
-        or Path("cad") / args.subsystem / ".cad-spec-gen" / "ARTIFACT_INDEX.json",
-        "artifact index",
-    )
-    index = load_json_required(index_path, "artifact index")
-    if index.get("subsystem") != args.subsystem:
-        log.error(
-            "artifact index subsystem mismatch: %s != %s",
-            index.get("subsystem"),
-            args.subsystem,
-        )
-        return 1
-
-    run_id = getattr(args, "run_id", None) or index.get("active_run_id")
-    if not run_id:
-        log.error("No active run_id; pass --run-id explicitly")
-        return 1
-    run = index.get("runs", {}).get(run_id)
-    if not run:
-        log.error("run_id not found in ARTIFACT_INDEX.json: %s", run_id)
-        return 1
-
-    report_path_value = getattr(args, "report", None) or (run.get("artifacts") or {}).get(
-        "photo3d_report"
-    )
-    if not report_path_value:
-        report_path_value = (
-            Path("cad")
-            / args.subsystem
-            / ".cad-spec-gen"
-            / "runs"
-            / run_id
-            / "PHOTO3D_REPORT.json"
-        )
-    report_path = _project_path(report_path_value, "photo3d report")
-    report = load_json_required(report_path, "photo3d report")
-
-    if report.get("subsystem") != args.subsystem or report.get("run_id") != run_id:
-        log.error("PHOTO3D_REPORT.json does not match subsystem/run_id")
-        return 1
-    if report.get("status") not in {"pass", "warning"}:
-        log.error("Only pass/warning photo3d reports can become accepted baseline")
-        return 1
-
-    artifacts = run.setdefault("artifacts", {})
-    expected_report_rel = artifacts.get("photo3d_report") or (
-        Path("cad")
-        / args.subsystem
-        / ".cad-spec-gen"
-        / "runs"
-        / run_id
-        / "PHOTO3D_REPORT.json"
-    )
-    expected_report_path = _project_path(expected_report_rel, "indexed photo3d report")
-    if expected_report_path != report_path:
-        log.error("PHOTO3D_REPORT.json is not the indexed report for this run_id")
-        return 1
-
-    report_artifacts = report.get("artifacts") or {}
-    report_hashes = report.get("artifact_hashes") or {}
-    for key in ("product_graph", "model_contract", "assembly_signature", "render_manifest"):
-        indexed_value = artifacts.get(key)
-        report_value = report_artifacts.get(key)
-        if not indexed_value or not report_value:
-            log.error("PHOTO3D_REPORT.json missing indexed artifact binding: %s", key)
-            return 1
-        indexed_path = _project_path(indexed_value, f"indexed artifact {key}")
-        report_bound_path = _project_path(report_value, f"report artifact {key}")
-        if indexed_path != report_bound_path:
-            log.error("PHOTO3D_REPORT.json artifact path mismatch: %s", key)
-            return 1
-        expected_hash = report_hashes.get(key)
-        if not expected_hash or file_sha256(indexed_path) != expected_hash:
-            log.error("PHOTO3D_REPORT.json artifact hash mismatch: %s", key)
-            return 1
-
-    artifacts["photo3d_report"] = project_relative(report_path, root)
     try:
-        accept_run_baseline(index, run_id)
-    except ValueError as exc:
+        accepted = accept_photo3d_baseline(
+            PROJECT_ROOT,
+            args.subsystem,
+            artifact_index_path=getattr(args, "artifact_index", None),
+            run_id=getattr(args, "run_id", None),
+            report_path=getattr(args, "report", None),
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
         log.error("%s", exc)
         return 1
-
-    write_json_atomic(index_path, index)
-    log.info("Accepted Photo3D baseline: %s", run_id)
-    log.info("Baseline signature: %s", run["artifacts"]["assembly_signature"])
+    log.info("Accepted Photo3D baseline: %s", accepted["run_id"])
+    log.info("Baseline signature: %s", accepted["baseline_signature"])
     return 0
 
 
@@ -4498,6 +4434,11 @@ def main():
             "needs_baseline_acceptance, ready_for_enhancement, needs_user_input, "
             "needs_manual_review, execution_failed, or loop_limit_reached without "
             "silently accepting baseline or running enhancement.\n"
+            "When the user says to execute the recommendation, use: python "
+            "cad_pipeline.py photo3d-handoff --subsystem <name>. It writes "
+            "PHOTO3D_HANDOFF.json and only with --confirm executes recognized "
+            "current next actions, rebuilding argv from ARTIFACT_INDEX.json and "
+            "active_run_id instead of trusting JSON argv.\n"
             "Enhancement delivery status used later: accepted = CAD gate and "
             "enhancement consistency pass; preview = CAD gate pass but enhancement "
             "consistency is unverified or failed; blocked = CAD gate failed. After "
@@ -4581,7 +4522,11 @@ def main():
             "photo3d-run --subsystem <name>. It writes PHOTO3D_RUN.json, supports "
             "--max-rounds and --confirm-actions, and stops at needs_baseline_acceptance, "
             "ready_for_enhancement, needs_user_input, needs_manual_review, "
-            "execution_failed, or loop_limit_reached."
+            "execution_failed, or loop_limit_reached. When the user says to execute "
+            "the current recommendation, use python cad_pipeline.py photo3d-handoff "
+            "--subsystem <name>; it writes PHOTO3D_HANDOFF.json and, only with "
+            "--confirm, executes recognized current next actions without trusting "
+            "JSON argv."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4725,6 +4670,54 @@ def main():
         help="PHOTO3D_RUN.json output path (default: current run directory)",
     )
 
+    # photo3d-handoff：普通用户/大模型确认后执行当前下一步交接动作
+    p_photo3d_handoff = sub.add_parser(
+        "photo3d-handoff",
+        help="Preview or confirm the current Photo3D next-action handoff",
+        description=(
+            "Photo3D handoff：读取当前 active_run_id 的 PHOTO3D_RUN.json 或 "
+            "PHOTO3D_AUTOPILOT.json，写 PHOTO3D_HANDOFF.json。默认只预览，"
+            "只有传 --confirm 才会执行识别到的当前下一步动作。该命令是 "
+            "photo3d-run 后给普通用户和大模型使用的确认交接层。"
+        ),
+        epilog=(
+            "Typical preview: python cad_pipeline.py photo3d-handoff --subsystem <name>\n"
+            "Typical execute: python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm\n"
+            "Recognized handoffs are accept-baseline, enhance, enhance-check, "
+            "and photo3d-run --confirm-actions. The command does not scan directories, "
+            "never trusts arbitrary argv from JSON reports, and rebuilds argv from "
+            "ARTIFACT_INDEX.json active_run_id plus the current run/render paths. "
+            "All output stays inside cad/<name>/.cad-spec-gen/runs/<run_id>/."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_photo3d_handoff.add_argument("--subsystem", "-s", required=True)
+    p_photo3d_handoff.add_argument(
+        "--artifact-index",
+        default=None,
+        help=(
+            "ARTIFACT_INDEX.json path (default: "
+            "cad/<subsystem>/.cad-spec-gen/ARTIFACT_INDEX.json). "
+            "This is the only active_run_id source."
+        ),
+    )
+    p_photo3d_handoff.add_argument(
+        "--source",
+        choices=["run", "autopilot"],
+        default=None,
+        help="Use PHOTO3D_RUN.json or PHOTO3D_AUTOPILOT.json; default prefers run",
+    )
+    p_photo3d_handoff.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Actually execute the recognized current next action; omitted means preview only",
+    )
+    p_photo3d_handoff.add_argument(
+        "--output",
+        default=None,
+        help="PHOTO3D_HANDOFF.json output path (default: current run directory)",
+    )
+
     # photo3d-recover：只由 action runner 调用的 run-aware 低风险恢复 wrapper
     p_photo3d_recover = sub.add_parser(
         "photo3d-recover",
@@ -4851,6 +4844,7 @@ def main():
         "photo3d-autopilot": cmd_photo3d_autopilot,
         "photo3d-action": cmd_photo3d_action,
         "photo3d-run": cmd_photo3d_run,
+        "photo3d-handoff": cmd_photo3d_handoff,
         "photo3d-recover": cmd_photo3d_recover,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,

@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-05：常用模型库扩展第四批已提交 `c4226a3`、快进合并到 `main`、通过合并后范围回归/同步/空白检查，并推送到 `origin/main`；第四批 worktree/分支已清理。新增 electrical enclosure、22mm panel pushbutton、sensor mounting bracket、vacuum ejector/cup、2020/2040 T-slot extrusion、2020 corner bracket B 级模板；补充显式分类、category-scoped 尺寸、默认库顺序和宽词负例。详见 [项目看板](../PROGRESS.md) 和 [第四批计划](plans/2026-05-05-common-model-library-batch-4.md)。
+2026-05-05：`codex/photo3d-interactive-actions` worktree 中的 Photo3D 确认式 handoff 已完成实现并通过功能分支范围回归：新增 `photo3d-handoff` 方案、红绿测试、CLI/metadata/docs 接入和 `PHOTO3D_HANDOFF.json`，让普通用户或大模型在用户说“按建议执行”时只走预览/确认边界，不手拼 shell、不扫描最新目录、不信任旧 JSON argv。详见 [项目看板](../PROGRESS.md) 和 [确认式 handoff 计划](plans/2026-05-05-photo3d-interactive-handoff.md)。
 
 ## 当前主入口
 
@@ -23,6 +23,7 @@
 | [`plans/2026-05-04-common-model-library-batch-2.md`](plans/2026-05-04-common-model-library-batch-2.md) | 常用模型库扩展第二批计划 |
 | [`plans/2026-05-04-common-model-library-batch-3.md`](plans/2026-05-04-common-model-library-batch-3.md) | 常用模型库扩展第三批计划 |
 | [`plans/2026-05-05-common-model-library-batch-4.md`](plans/2026-05-05-common-model-library-batch-4.md) | 常用模型库扩展第四批计划 |
+| [`plans/2026-05-05-photo3d-interactive-handoff.md`](plans/2026-05-05-photo3d-interactive-handoff.md) | Photo3D 确认式 handoff 执行计划 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
 
 ## 目录约定
@@ -58,5 +59,5 @@
 | Done | 常用模型库扩展第一批 | 已合并到 `main` 并推送；默认库 motor/sensor/cable/pneumatic 显式路由和 LMxxUU、NEMA、圆柱接近传感器、线束可视段、紧凑气缸 B 级模板已可用 |
 | Done | 更高层项目向导 | 已新增只读 `project-guide` / `PROJECT_GUIDE.json`，把 init/spec/codegen/build-render/photo3d-run 的下一步统一给普通用户和大模型 |
 | Done | 第二批计划审查 | 已补误分类/误抢路由反例、默认库顺序、模板包络和路径/镜像边界 |
-| P1 | 大模型交互动作 | 将 baseline 接受、增强、enhance-check 等确认点做成更清晰的下一步动作 |
+| Verified | Photo3D 确认式 handoff | 已通过功能分支范围回归，待提交、合并、推送和清理 worktree/分支 |
 | P2 | 文档包清理 | 将历史长计划保留在 `plans/`，把当前状态集中在 `docs/PROGRESS.md` |

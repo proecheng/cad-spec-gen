@@ -8,17 +8,17 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-05 |
-| 当前分支 | `main`，已推送到 `origin/main`；`codex/common-model-library-batch-4` worktree/分支已清理 |
+| 当前分支 | `codex/photo3d-interactive-actions` worktree：`.worktrees/photo3d-interactive-actions` |
 | 最新功能基线 | `c4226a3 feat(parts-library): 扩展常用模型库第四批` |
 | 最新合并/进度提交 | `c515536 docs(progress): 记录第四批模型库合并验证` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | `main` 合并后第四批范围回归 `pytest tests\test_common_model_library_batch_4.py tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py tests\test_parts_adapters.py tests\test_jinja_generators_new.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `454 passed, 2 skipped` |
-| 同步检查 | `main` 合并后 `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
-| 当前未跟踪 | 主工作树无未跟踪文件；第四批 worktree/分支已清理；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
+| 最近验证 | `pytest tests\test_photo3d_handoff.py tests\test_photo3d_loop.py tests\test_photo3d_autopilot.py tests\test_photo3d_action_runner.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `202 passed` |
+| 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
+| 当前未跟踪 | 功能分支仍待提交；本轮新增工具/测试/计划文档和 ignored 安装版镜像需随提交纳入；另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot` 存在未提交改动，本轮不清理 |
 
 ## 一句话结论
 
-Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库第一批 + 多轮向导 + 报告 + 确认执行 + run-aware 恢复 + build 证据回填 + 执行后自动回看下一步 + 增强后交付摘要”阶段：普通用户和大模型可先运行 `project-guide` 生成 `PROJECT_GUIDE.json`，再按报告进入 `init/spec/codegen/build --render/photo3d-run`；常见外购件优先通过默认库显式规则命中可复用 B 级参数化模板，已有 active run 后继续用 run_id、artifact index、产品图、模型契约、装配签名、装配报告、装配 GLB/STEP、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图。
+Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库第一批 + 多轮向导 + 报告 + 确认执行 + run-aware 恢复 + build 证据回填 + 执行后自动回看下一步 + 增强后交付摘要 + 确认式 handoff”阶段：普通用户和大模型可先运行 `project-guide` 生成 `PROJECT_GUIDE.json`，再按报告进入 `init/spec/codegen/build --render/photo3d-run`，用户说“按建议执行”时走 `photo3d-handoff` 预览/确认当前下一步；常见外购件优先通过默认库显式规则命中可复用 B 级参数化模板，已有 active run 后继续用 run_id、artifact index、产品图、模型契约、装配签名、装配报告、装配 GLB/STEP、渲染清单、变更范围、显式 accepted baseline、`PHOTO3D_RUN.json`、`PHOTO3D_AUTOPILOT.json`、`ACTION_PLAN.json`、`PHOTO3D_ACTION_RUN.json`、`PHOTO3D_HANDOFF.json` 和 `ENHANCEMENT_REPORT.json` 保护照片级 3D 出图。
 
 ## 看板
 
@@ -32,6 +32,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 | Done | 普通用户 Photo3D autopilot | 把门禁结果转成固定 round-end 下一步报告 | 新增 `photo3d-autopilot`，写 `PHOTO3D_AUTOPILOT.json`；blocked 指向动作计划；pass/warning 无 baseline 时只建议显式接受；已有 baseline 时建议带 `--dir` 的当前 run 增强命令 | 已在帮助中说明增强后运行 `enhance-check` |
 | Done | Photo3D 确认执行层 | 让普通用户/大模型只在确认后执行低风险恢复动作 | 新增 `photo3d-action`：默认预览并写 `PHOTO3D_ACTION_RUN.json`；`--confirm` 后仅执行当前 run `ACTION_PLAN.json` 中 `product-graph` / `build` / `render` 低风险 CLI；用户输入类动作继续询问 | 已接入 action 后 autopilot 循环 |
 | Done | Photo3D action 后 autopilot 循环 | 低风险恢复动作成功后自动给出下一步，不让用户反复猜命令 | `photo3d-action --confirm` 在所有已确认 low-risk CLI 成功、整份动作计划没有用户输入/人工复查/rejected/skipped 动作、且 `active_run_id` 执行前后未漂移时，会自动重跑 `photo3d` gate + `photo3d-autopilot`，并写入 `post_action_autopilot` | 已被 `photo3d-run` 多轮向导串联 |
+| Verified | Photo3D 确认式 handoff | 让普通用户/大模型对当前 `next_action` 只需“预览/确认执行”，不用手拼 baseline/enhance/enhance-check/action 命令 | 已新增 `photo3d-handoff` 和 `PHOTO3D_HANDOFF.json`；默认只预览，`--confirm` 后只执行识别到的当前 active run 下一步；从 `ARTIFACT_INDEX.json`/run/render 路径重构 argv，不信任 JSON 任意 argv；已补 accepted/manual/unknown action 返回码和 `run_enhance_check` manifest 漂移阻断测试 | 提交功能分支、合并到 `main`、推送并清理 worktree/分支 |
 | Done | Photo3D run-aware 恢复 wrapper | 让 `product-graph` / `build` / `render` 恢复动作绑定当前 run，不再依赖默认目录或新建 run | 新增 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；action plan 生成 wrapper argv；action runner 拒绝旧式裸 `render/build/product-graph --subsystem`；wrapper 校验 `active_run_id` 后写回当前 run artifacts | 已接 build artifact backfill |
 | Done | 项目看板和规划索引 | 每轮结束后给用户看当前进度、验证和下一步 | 新增 `docs/PROGRESS.md`、`docs/superpowers/README.md`，并在根 README 加入口 | 后续每轮结束更新本看板 |
 | Done | 通用传动件计划归档 | 清理未跟踪计划文档，避免计划/看板漂移 | `2026-05-02-generic-threaded-parts-pipeline.md` 已补执行状态并纳入索引 | 后续扩展机械类别时另开新计划 |
@@ -53,6 +54,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 - `photo3d-autopilot` 只写下一步报告，不静默接受 baseline，不切换 `active_run_id`；增强建议必须带当前 run 的 `--dir cad/output/renders/<subsystem>/<run_id>`；若当前 run 的 `render_manifest.json` 同目录已有匹配的 `ENHANCEMENT_REPORT.json`，则只读取该报告的交付摘要。
 - `photo3d-run` 是普通用户多轮向导，写 `PHOTO3D_RUN.json`；默认不执行恢复动作，只有 `--confirm-actions` 才通过 `photo3d-action` 执行白名单 low-risk 动作。它不接受 baseline、不运行增强、不切换 `active_run_id`，遇到用户输入、人工复查、执行失败或 `--max-rounds` 会停下。
 - `photo3d-action` 默认只预览，不执行；只有 `--confirm` 才执行当前 active run `ACTION_PLAN.json` 中 low-risk、无需用户输入、白名单内的 `product-graph` / `build` / `render` CLI。它不运行增强、不接受 baseline、不切换 `active_run_id`，输出必须留在当前 run 目录。
+- `photo3d-handoff` 默认只预览当前 `PHOTO3D_RUN.json` / `PHOTO3D_AUTOPILOT.json` 的 `next_action`，写 `PHOTO3D_HANDOFF.json`；只有 `--confirm` 才执行 `accept-baseline`、`enhance`、`enhance-check` 或 `photo3d-run --confirm-actions` 这类已识别交接。它不扫描目录猜最新文件、不信任 JSON 中任意 argv、不切换 `active_run_id`，输出必须留在当前 run 目录。
 - `ACTION_PLAN.json` 中自动恢复 CLI 必须是 `photo3d-recover --subsystem <name> --run-id <run_id> --artifact-index <path> --action product-graph|build|render`；裸 `product-graph` / `build` / `render --subsystem <name>` 会被 `photo3d-action` 拒绝。
 - `post_action_autopilot` 的自动重跑判定看整份 `ACTION_PLAN.json`，不只看 `--action-id` 选中的动作；只要仍有用户输入、人工复查、rejected/skipped 动作、未执行完全部 low-risk CLI、任一 CLI 失败或 `active_run_id` 在执行/重跑过程中变化，就不会自动重跑。
 - `photo3d-recover` 不扫描目录、不切换 `active_run_id`、不创建新 run；`product-graph` 写入当前 run `PRODUCT_GRAPH.json`，`render` 使用当前 run 渲染目录，`build` 完成后回填当前 run 的运行时装配签名，并在存在时回填 `ASSEMBLY_REPORT.json`、刷新后的 `MODEL_CONTRACT.json`、确定的装配 GLB/STEP。
@@ -75,7 +77,7 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 ## 下一步建议
 
-1. 继续把“一键接受 baseline”“运行增强”“运行 enhance-check”这些人工确认点做成更清晰的大模型交互动作。
+1. 提交已验证的 `photo3d-handoff` 功能分支，快进合并到 `main`，合并后复跑范围回归并推送。
 2. 把四批模型库沉淀为“添加新族模板的准入清单”：显式分类、默认路由顺序、category-scoped 尺寸、专用模板优先、包络不超界、真实模型优先。
 3. 需要继续扩模型库时，下一批优先从真实跨产品 BOM 中抽高频族，仍按“红测 -> 显式分类 -> category-scoped 尺寸 -> 默认路由顺序 -> 包络测试 -> sync/check”的通用流程进入。
 
@@ -83,6 +85,14 @@ Photo3D 契约驱动出图主线已进入“只读项目向导 + 常用模型库
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-05 | `git worktree add .worktrees\photo3d-interactive-actions -b codex/photo3d-interactive-actions` | 已创建确认式 handoff worktree |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_loop.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 新 worktree 初始化前因 ignored mirror 缺失出现 dev_sync mirror 失败；运行 `python scripts\dev_sync.py` 填充后同命令 `149 passed` |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_user_flow.py::test_photo3d_handoff_help_explains_confirmed_handoff_flow tests\test_photo3d_packaging_sync.py::test_photo3d_contract_tools_have_packaged_mirrors -q` | 红测阶段 `10 failed`；实现后当前 `10 passed` |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py::test_photo3d_handoff_rejects_terminal_delivery_action tests\test_photo3d_handoff.py::test_photo3d_handoff_confirm_unknown_action_is_blocked -q` | 返回码语义红绿测试；最终 `2 passed`，已知人工动作不再当命令失败，未知动作仍阻断 |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py::test_photo3d_handoff_rejects_mismatched_enhance_check_manifest tests\test_photo3d_handoff.py::test_photo3d_handoff_confirm_enhance_check_uses_active_render_dir -q` | manifest 漂移红绿测试；最终 `2 passed`，显式旧 run manifest 阻断，当前 run manifest 才执行 |
+| 2026-05-05 | `python -m pytest tests\test_photo3d_handoff.py tests\test_photo3d_loop.py tests\test_photo3d_autopilot.py tests\test_photo3d_action_runner.py tests\test_photo3d_accept_baseline.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` | 功能分支范围回归 `202 passed` |
+| 2026-05-05 | `python scripts\dev_sync.py --check` | 功能分支同步检查通过；安装版镜像无漂移 |
+| 2026-05-05 | `git diff --check` | 功能分支空白检查通过；仅 Windows 行尾提示 |
 | 2026-05-05 | `git worktree add .worktrees\common-model-library-batch-4 -b codex/common-model-library-batch-4` | 已创建第四批计划 worktree |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_3.py tests\test_common_model_library_batch_2.py tests\test_common_model_library_expansion.py tests\test_parts_library_standard_categories.py -q` | 第四批 worktree 基线 `141 passed, 7 warnings` |
 | 2026-05-05 | `python -m pytest tests\test_common_model_library_batch_4.py tests\test_parts_library_standard_categories.py -q` | 先红后绿，最终 `73 passed, 7 warnings`；覆盖第四批分类、模板、负例、默认路由和包络不超 `real_dims` |

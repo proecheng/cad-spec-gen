@@ -14,6 +14,7 @@ USER_FLOW_TERMS = {
     "photo3d",
     "photo3d-autopilot",
     "photo3d-action",
+    "photo3d-handoff",
     "photo3d-run",
     "photo3d-recover",
     "project-guide",
@@ -22,6 +23,7 @@ USER_FLOW_TERMS = {
     "PHOTO3D_REPORT.json",
     "PHOTO3D_AUTOPILOT.json",
     "PHOTO3D_ACTION_RUN.json",
+    "PHOTO3D_HANDOFF.json",
     "PHOTO3D_RUN.json",
     "PROJECT_GUIDE.json",
     "ENHANCEMENT_REPORT.json",
@@ -166,6 +168,39 @@ def test_photo3d_action_help_explains_confirmed_execution_flow():
     assert "does not run enhancement" in help_text or "不" in help_text
 
 
+def test_photo3d_handoff_help_explains_confirmed_handoff_flow():
+    result = subprocess.run(
+        [sys.executable, "cad_pipeline.py", "photo3d-handoff", "--help"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    help_text = result.stdout
+    for term in (
+        "photo3d-handoff",
+        "PHOTO3D_RUN.json",
+        "PHOTO3D_AUTOPILOT.json",
+        "PHOTO3D_HANDOFF.json",
+        "ARTIFACT_INDEX.json",
+        "active_run_id",
+        "--confirm",
+        "--source",
+        "accept-baseline",
+        "enhance-check",
+        "photo3d-run --confirm-actions",
+        "does not scan directories",
+        "never trusts arbitrary argv",
+    ):
+        assert term in help_text
+    assert "python cad_pipeline.py photo3d-handoff --subsystem <name>" in help_text
+
+
 def test_photo3d_run_help_explains_multi_round_user_flow():
     result = subprocess.run(
         [sys.executable, "cad_pipeline.py", "photo3d-run", "--help"],
@@ -281,7 +316,9 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "大模型" in text, f"{rel} missing LLM-facing guidance"
         assert "不能扫描目录猜最新文件" in text, f"{rel} missing no-fallback rule"
         assert "photo3d-action" in text, f"{rel} missing confirmed action runner"
+        assert "photo3d-handoff" in text, f"{rel} missing confirmed handoff runner"
         assert "PHOTO3D_ACTION_RUN.json" in text, f"{rel} missing action run report"
+        assert "PHOTO3D_HANDOFF.json" in text, f"{rel} missing handoff report"
         assert "post_action_autopilot" in text, f"{rel} missing autopilot loop summary"
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
         assert "project-guide" in text, f"{rel} missing project guide"
@@ -310,6 +347,7 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "photo3d" in tools_by_name, rel
         assert "photo3d_autopilot" in tools_by_name, rel
         assert "photo3d_action" in tools_by_name, rel
+        assert "photo3d_handoff" in tools_by_name, rel
         assert "photo3d_run" in tools_by_name, rel
         assert "photo3d_recover" in tools_by_name, rel
         assert "project_guide" in tools_by_name, rel
@@ -326,6 +364,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert (
             tools_by_name["photo3d_action"]["cli"]
             == "python cad_pipeline.py photo3d-action --subsystem <name> --confirm"
+        )
+        assert (
+            tools_by_name["photo3d_handoff"]["cli"]
+            == "python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm"
         )
         assert (
             tools_by_name["photo3d_run"]["cli"]
@@ -353,6 +395,10 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "--confirm" in tools_by_name["photo3d_action"]["description"]
         assert "post_action_autopilot" in tools_by_name["photo3d_action"]["description"]
         assert "reruns photo3d-autopilot" in tools_by_name["photo3d_action"]["description"]
+        assert "PHOTO3D_HANDOFF.json" in tools_by_name["photo3d_handoff"]["description"]
+        assert "--confirm" in tools_by_name["photo3d_handoff"]["description"]
+        assert "does not scan directories" in tools_by_name["photo3d_handoff"]["description"]
+        assert "never trusts arbitrary argv" in tools_by_name["photo3d_handoff"]["description"]
         assert "PHOTO3D_RUN.json" in tools_by_name["photo3d_run"]["description"]
         assert "--confirm-actions" in tools_by_name["photo3d_run"]["description"]
         assert "does not accept baseline" in tools_by_name["photo3d_run"]["description"]
