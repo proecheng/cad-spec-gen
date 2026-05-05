@@ -13,7 +13,7 @@
 | 总体能力进展 | 约 74%（按 6 个 Phase 的工程化能力估算，不代表某个具体产品一次出图进度） |
 | 当前主攻 Phase | Phase 6 ANNOTATE / DELIVER：Phase 5 -> 6 的增强执行 + enhance-check 闭环本轮完成，下一步是最终交付包 |
 | 最新功能基线 | 增强执行 + `enhance-check` 闭环（本轮完成）；上一轮为 Provider 配置健康检查 |
-| 最新合并/进度提交 | `c853ad9 docs(progress): 记录增强闭环合并验证`；功能提交为 `ec92cb2 feat(photo3d): 串联增强执行和验收闭环` |
+| 最新合并/进度提交 | 功能提交 `ec92cb2 feat(photo3d): 串联增强执行和验收闭环` 已合并并推送；看板推送状态已更新到 `main` |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
 | 最近验证 | `python -m pytest tests\test_photo3d_handoff.py tests\test_enhance_consistency.py tests\test_photo3d_autopilot.py tests\test_photo3d_loop.py tests\test_project_guide.py tests\test_photo3d_user_flow.py tests\test_photo3d_packaging_sync.py tests\test_dev_sync_check.py tests\test_data_dir_sync.py -q` -> `206 passed` |
 | 同步检查 | `python scripts/dev_sync.py --check` -> 通过；`git diff --check` -> 通过（仅 Windows 行尾提示） |
