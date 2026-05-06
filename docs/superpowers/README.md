@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-06：Phase 2 -> Phase 6 模型质量报告用户化已完成实现和核心范围回归：新增 [模型质量报告用户化执行计划](plans/2026-05-05-model-quality-user-report.md)。`model-audit`、`project-guide`、`photo3d-deliver` 现在都会输出 `model_quality_summary`，让普通用户看到每个零件是真 STEP、用户 STEP、库模板还是 fallback，A/B/C/D/E 质量等级意味着什么，以及照片级交付前需要替换或复核哪些模型。当前总体能力进展约 85%，下一步转向新用户项目入口再简化和真实 AI backend adapter 准入。详见 [项目看板](../PROGRESS.md)。
+2026-05-06：Phase 1 -> Phase 6 新用户项目入口再简化已完成第一块实现和核心范围回归：新增 [新用户项目入口再简化执行计划](plans/2026-05-06-new-user-entry-guide.md)。`project-guide --from-design-doc --design-doc <path>` 现在可从一个显式设计文档写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，让普通用户先确认子系统再进入后续管线。当前总体能力进展约 86%，下一步继续把入口前移到“产品目标 + 设计文档 + 缺失参数”的少提问、多确认向导，并准备真实 AI backend adapter 准入。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -38,6 +38,7 @@
 | [`plans/2026-05-05-render-quality-check.md`](plans/2026-05-05-render-quality-check.md) | Phase 4 Blender 预检与截图像素质量门禁执行计划 |
 | [`plans/2026-05-05-semantic-material-quality-review.md`](plans/2026-05-05-semantic-material-quality-review.md) | Phase 5/6 语义/材质级增强质量复核执行计划 |
 | [`plans/2026-05-05-model-quality-user-report.md`](plans/2026-05-05-model-quality-user-report.md) | Phase 2/6 模型质量普通用户摘要执行计划 |
+| [`plans/2026-05-06-new-user-entry-guide.md`](plans/2026-05-06-new-user-entry-guide.md) | Phase 1/6 新用户设计文档入口确认向导执行计划 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
@@ -79,7 +80,8 @@
 | Done | Phase 5 -> Phase 6 | 语义/材质级增强质量复核 | 已新增 `enhance-review`、`ENHANCEMENT_REVIEW_REPORT.json.semantic_material_review` 和 `photo3d-deliver --require-semantic-review`，显式复核证据仍绑定 active run 和 source report hash |
 | Done | Phase 2 CODEGEN | 常用模型库第五批 | 已按准入清单扩展五个跨产品高频外购件族，并通过第五批范围门禁 |
 | Done | Phase 2 -> Phase 6 | 模型质量报告用户化 | 已新增 `model_quality_summary`，把模型来源、质量等级、阻断项和复核建议接入 `model-audit`、`project-guide` 和 `photo3d-deliver` |
-| 1 | Phase 1 -> Phase 6 | 新用户项目入口再简化 | 把设计文档、子系统、模型质量、渲染状态和交付状态串成少提问、多确认的项目向导 |
+| Done | Phase 1 -> Phase 6 | 新用户项目入口再简化（设计文档入口） | 已新增 `project-guide --from-design-doc --design-doc <path>`，只读写入口 `PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，确认子系统后才继续 |
+| 1 | Phase 1 -> Phase 6 | 新用户项目入口继续前移 | 把“产品目标 + 设计文档 + 缺失参数”串成少提问、多确认的项目向导 |
 | 2 | Phase 5 ENHANCE | 真实 AI backend adapter 准入 | `gpt-image-2-pro` 等新后端进入白名单前，先补配置隔离、同 run 验收、多视角一致性和密钥不落盘测试 |
 | 3 | Phase 4 -> Phase 6 | 逐视角可见实例证据增强 | 减少“契约正确但图片内是否可见只能 warning”的情况，把完整性证据做得更接近普通用户判断 |
 | 4 | Phase 6 ANNOTATE / DELIVER | 最终交付报告可视化 | 把 `delivery/README.md` 做成更直观的验收页：缩略图、模型质量、语义/材质复核和下一步动作 |

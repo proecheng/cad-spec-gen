@@ -21,6 +21,75 @@ def _assert_no_forbidden_fields(value):
             _assert_no_forbidden_fields(child)
 
 
+def test_project_entry_guide_suggests_confirmed_subsystem_from_design_doc(tmp_path):
+    from tools.project_guide import write_project_entry_guide
+
+    design_doc = tmp_path / "docs" / "design" / "04-升降平台设计.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# 升降平台设计\n\n测试设计文档。", encoding="utf-8")
+
+    report = write_project_entry_guide(tmp_path, design_doc)
+
+    assert report["entry_mode"] == "design_doc"
+    assert report["status"] == "needs_subsystem_confirmation"
+    assert report["mutates_pipeline_state"] is False
+    assert report["does_not_scan_directories"] is True
+    assert report["design_doc"] == {
+        "path": "docs/design/04-升降平台设计.md",
+        "exists": True,
+    }
+    assert report["ordinary_user_message"] == (
+        "项目向导已读取设计文档；请先确认要创建或继续的子系统名称。"
+    )
+    assert report["subsystem_candidates"][0] == {
+        "subsystem": "sheng_jiang_ping_tai_she_ji",
+        "source": "design_doc_filename",
+        "confidence": "medium",
+        "reason": "由显式设计文档文件名派生；需要用户确认后才进入子系统流程。",
+    }
+    assert report["next_action"]["kind"] == "confirm_subsystem"
+    assert report["next_action"]["requires_user_confirmation"] is True
+    assert report["next_action"]["options"][0]["argv"] == [
+        "python",
+        "cad_pipeline.py",
+        "project-guide",
+        "--subsystem",
+        "sheng_jiang_ping_tai_she_ji",
+        "--design-doc",
+        "docs/design/04-升降平台设计.md",
+    ]
+    assert report["artifacts"]["project_guide"] == (
+        ".cad-spec-gen/project-guide/PROJECT_GUIDE.json"
+    )
+    written = json.loads(
+        (tmp_path / ".cad-spec-gen" / "project-guide" / "PROJECT_GUIDE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert written["next_action"] == report["next_action"]
+
+
+def test_project_entry_guide_uses_ascii_design_doc_stem_as_candidate(tmp_path):
+    from tools.project_guide import write_project_entry_guide
+
+    design_doc = tmp_path / "docs" / "design" / "04-lifting-platform.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# Lifting Platform", encoding="utf-8")
+
+    report = write_project_entry_guide(tmp_path, design_doc)
+
+    assert report["subsystem_candidates"][0]["subsystem"] == "lifting_platform"
+    assert report["next_action"]["options"][0]["argv"] == [
+        "python",
+        "cad_pipeline.py",
+        "project-guide",
+        "--subsystem",
+        "lifting_platform",
+        "--design-doc",
+        "docs/design/04-lifting-platform.md",
+    ]
+
+
 def test_project_guide_recommends_init_when_subsystem_is_missing(tmp_path):
     from tools.project_guide import write_project_guide
 
@@ -417,6 +486,50 @@ def test_project_guide_cli_writes_report(tmp_path, monkeypatch):
         )
     )
     assert report["status"] == "needs_init"
+
+
+def test_project_guide_cli_from_design_doc_writes_entry_report(tmp_path, monkeypatch):
+    import cad_pipeline
+
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+    design_doc = tmp_path / "docs" / "design" / "04-升降平台设计.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# 升降平台设计", encoding="utf-8")
+
+    rc = cad_pipeline.cmd_project_guide(
+        SimpleNamespace(
+            subsystem=None,
+            design_doc=design_doc,
+            from_design_doc=True,
+            artifact_index=None,
+            output=None,
+        )
+    )
+
+    assert rc == 0
+    report = json.loads(
+        (tmp_path / ".cad-spec-gen" / "project-guide" / "PROJECT_GUIDE.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["entry_mode"] == "design_doc"
+    assert report["status"] == "needs_subsystem_confirmation"
+    assert report["next_action"]["kind"] == "confirm_subsystem"
+
+
+def test_project_entry_guide_rejects_output_outside_entry_guide_directory(tmp_path):
+    from tools.project_guide import write_project_entry_guide
+
+    design_doc = tmp_path / "docs" / "design" / "04-lifting-platform.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# Lifting Platform", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must stay in .cad-spec-gen/project-guide"):
+        write_project_entry_guide(
+            tmp_path,
+            design_doc,
+            output_path=tmp_path / "cad" / "demo" / ".cad-spec-gen" / "PROJECT_GUIDE.json",
+        )
 
 
 def test_project_guide_rejects_artifact_index_for_another_subsystem(tmp_path):

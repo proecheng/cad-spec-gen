@@ -35,7 +35,7 @@
 | 14 | 零件/BOM | "有哪些零件？" "BOM清单" | 从设计文档自动提取零件树、统计自制/外购/成本 |
 | 15 | CAD Spec | "生成spec" "提取参数" | 运行 cad_spec_gen.py 生成 CAD_SPEC.md |
 | 16 | 设计审查 | "审查设计" "检查设计" "review" | 工程审查：力学/装配/材质/完整性 → DESIGN_REVIEW.md |
-| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 普通用户优先运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>` 写 `PROJECT_GUIDE.json`；已有 active run 后可运行 `render-visual-check` 写 `RENDER_VISUAL_REGRESSION.json`，运行 `render-quality-check` 写 `RENDER_QUALITY_REPORT.json`，再进入 `photo3d-run` 验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
+| 17 | Photo3D 契约出图 | "照片级一键出图" "photo3d" "检查照片级门禁" | 新用户可先运行 `python cad_pipeline.py project-guide --from-design-doc --design-doc <path>` 写入口 `PROJECT_GUIDE.json`，状态为 `needs_subsystem_confirmation` 时确认子系统；普通用户随后运行 `python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>`；已有 active run 后可运行 `render-visual-check` 写 `RENDER_VISUAL_REGRESSION.json`，运行 `render-quality-check` 写 `RENDER_QUALITY_REPORT.json`，再进入 `photo3d-run` 验证当前 `run_id` 的契约链并写 `PHOTO3D_RUN.json` |
 
 ### v2.3.0 新增能力
 
@@ -179,10 +179,13 @@ python gemini_gen.py \
 普通用户和大模型优先从只读项目向导开始：
 
 ```bash
+python cad_pipeline.py project-guide --from-design-doc --design-doc <path>
 python cad_pipeline.py project-guide --subsystem <name> --design-doc <path>
 ```
 
-`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。如果存在 `geometry_report.json`，`PROJECT_GUIDE.json` 会附带 `model_quality_summary`，用普通用户可读的 model source 标签、A-E 质量、真实 STEP/模型库模板/fallback 分类、`readiness_status`、`photoreal_risk` 和逐零件复核动作说明模型风险。当前 active run 已到 `ready_for_enhancement` 时，`PROJECT_GUIDE.json` 可附带只读 provider 选择：`ordinary_user_options` 是普通用户可读选项，包含“默认 / 本地工程预览 / 云增强”等标题、说明、适用场景、是否需要配置、`provider_health` 健康状态，以及 `photo3d-handoff --provider-preset <id>` 预览命令；`provider_wizard` 则把这些选项组织成 UI/大模型可直接展示的步骤、默认项、预览动作和健康摘要。所有选项来自白名单 provider preset；`provider_health` 只检查本地配置/依赖存在性，不运行增强、不扫描输出目录、不改状态，也不会暴露环境变量名、key 值、URL、endpoint 或 secret。它不会接受任意 backend、URL、API key、模型名或 JSON argv 注入，wizard 本身也不会追加 `--confirm` 或执行增强。
+`project-guide --from-design-doc` 是新用户入口模式：只读取一个显式设计文档，写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，状态为 `needs_subsystem_confirmation`，`next_action.kind` 为 `confirm_subsystem`，只给出候选子系统和预览命令，必须由用户确认后才进入子系统流程。它不扫描 `docs/design`、不扫描 `cad/`、不猜最新 run、不初始化子系统、不生成 spec。
+
+确认子系统后，`project-guide` 会写出 `PROJECT_GUIDE.json`，在 `init`、`spec`、`codegen`、`build --render`、`photo3d-run` 之间选择下一条安全命令。它只读取显式子系统、可选设计文档、固定 `CAD_SPEC.md` / codegen 哨兵文件，以及显式解析的 `ARTIFACT_INDEX.json` 当前 active run；不会扫描目录猜最新文件，不会修改管线状态，不会接受 baseline，也不会运行增强。如果存在 `geometry_report.json`，`PROJECT_GUIDE.json` 会附带 `model_quality_summary`，用普通用户可读的 model source 标签、A-E 质量、真实 STEP/模型库模板/fallback 分类、`readiness_status`、`photoreal_risk` 和逐零件复核动作说明模型风险。当前 active run 已到 `ready_for_enhancement` 时，`PROJECT_GUIDE.json` 可附带只读 provider 选择：`ordinary_user_options` 是普通用户可读选项，包含“默认 / 本地工程预览 / 云增强”等标题、说明、适用场景、是否需要配置、`provider_health` 健康状态，以及 `photo3d-handoff --provider-preset <id>` 预览命令；`provider_wizard` 则把这些选项组织成 UI/大模型可直接展示的步骤、默认项、预览动作和健康摘要。所有选项来自白名单 provider preset；`provider_health` 只检查本地配置/依赖存在性，不运行增强、不扫描输出目录、不改状态，也不会暴露环境变量名、key 值、URL、endpoint 或 secret。它不会接受任意 backend、URL、API key、模型名或 JSON argv 注入，wizard 本身也不会追加 `--confirm` 或执行增强。
 
 已有 active run 后，使用多轮向导：
 
@@ -297,7 +300,7 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 
 阻断时会写出：
 
-- `PROJECT_GUIDE.json`：只读项目级下一步报告，覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；有 `geometry_report.json` 时附带 `model_quality_summary`，展示 model source、A-E 质量、照片级风险和逐零件复核动作；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
+- `PROJECT_GUIDE.json`：只读项目级下一步报告；入口模式由 `--from-design-doc` 写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，状态 `needs_subsystem_confirmation`，动作为 `confirm_subsystem`；确认子系统后覆盖 `init/spec/codegen/build-render/photo3d-run` 的交接；有 `geometry_report.json` 时附带 `model_quality_summary`，展示 model source、A-E 质量、照片级风险和逐零件复核动作；在当前 active run 确认进入增强入口时，可附带白名单 provider preset 选择、普通用户可读选项 `ordinary_user_options`、展示向导 `provider_wizard`、安全配置健康状态 `provider_health` 和 `photo3d-handoff --provider-preset <id>` 预览命令。
 - `RENDER_VISUAL_REGRESSION.json`：`render-visual-check` 的 Phase 4 报告，记录当前 run 与 accepted baseline 的视角、渲染文件、装配实例和逐视角实例证据差异。
 - `RENDER_QUALITY_REPORT.json`：`render-quality-check` 的 Phase 4 报告，记录 `blender_preflight`、`render_quality_summary` 和逐视角 `pixel_metrics`，用于证明 Blender 环境和截图像素质量。
 - `PHOTO3D_REPORT.json`：普通用户可读的中文阻断原因。

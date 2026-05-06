@@ -3664,8 +3664,22 @@ def cmd_project_guide(args):
     """生成普通用户/大模型只读项目下一步向导。"""
     from tools.project_guide import (
         command_return_code_for_project_guide,
+        write_project_entry_guide,
         write_project_guide,
     )
+
+    if getattr(args, "from_design_doc", False):
+        if not getattr(args, "design_doc", None):
+            log.error("--design-doc is required with --from-design-doc")
+            return 1
+        report = write_project_entry_guide(
+            PROJECT_ROOT,
+            args.design_doc,
+            output_path=getattr(args, "output", None),
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        log.info("PROJECT_GUIDE: %s", report.get("ordinary_user_message"))
+        return command_return_code_for_project_guide(report)
 
     if not args.subsystem:
         log.error("--subsystem is required")
@@ -4525,7 +4539,9 @@ def main():
         "project-guide",
         help="Read-only ordinary-user project next-step guide",
         description=(
-            "project-guide 普通用户/大模型向导：只读检查显式子系统、可选设计文档、"
+            "project-guide 普通用户/大模型向导：可用 --from-design-doc 从一个显式"
+            "设计文档启动入口报告，输出 needs_subsystem_confirmation / "
+            "confirm_subsystem 供用户确认子系统；常规模式只读检查显式子系统、可选设计文档、"
             "固定 CAD_SPEC/codegen 文件和 ARTIFACT_INDEX.json active_run_id，写出 "
             "PROJECT_GUIDE.json 与下一条安全命令；ready_for_enhancement 时可附带 "
             "provider preset 选择、ordinary_user_options 普通用户可读选项、"
@@ -4540,9 +4556,11 @@ def main():
             "也不会猜最新 run。"
         ),
         epilog=(
-            "Typical first step: python cad_pipeline.py project-guide --subsystem <name> "
-            "--design-doc <path>\n"
-            "Statuses: needs_init, needs_design_doc, needs_spec, needs_codegen, "
+            "Design-doc-only first step: python cad_pipeline.py project-guide "
+            "--from-design-doc --design-doc <path>\n"
+            "Confirmed subsystem step: python cad_pipeline.py project-guide "
+            "--subsystem <name> --design-doc <path>\n"
+            "Statuses: needs_subsystem_confirmation, needs_init, needs_design_doc, needs_spec, needs_codegen, "
             "needs_build_render, ready_for_photo3d_run. After ready_for_photo3d_run, "
             "run the recommended photo3d-run command. Later user-confirmed handoffs "
             "remain explicit: accept-baseline for baseline acceptance and enhance-check "
@@ -4561,7 +4579,12 @@ def main():
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_project_guide.add_argument("--subsystem", "-s", required=True)
+    p_project_guide.add_argument("--subsystem", "-s", default=None)
+    p_project_guide.add_argument(
+        "--from-design-doc",
+        action="store_true",
+        help="Start from one explicit design document and ask the user to confirm a subsystem candidate",
+    )
     p_project_guide.add_argument(
         "--design-doc",
         default=None,

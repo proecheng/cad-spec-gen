@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+import unicodedata
 from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
@@ -16,6 +17,61 @@ from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provi
 
 
 CODEGEN_SENTINELS = ("params.py", "build_all.py", "assembly.py")
+PROJECT_ENTRY_GUIDE_DIR = Path(".cad-spec-gen") / "project-guide"
+_CJK_TOKEN_MAP = {
+    "升": "sheng",
+    "降": "jiang",
+    "平": "ping",
+    "台": "tai",
+    "设": "she",
+    "计": "ji",
+}
+
+
+def write_project_entry_guide(
+    project_root: str | Path,
+    design_doc: str | Path,
+    *,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Write a read-only design-document entry guide before subsystem selection."""
+    root = Path(project_root).resolve()
+    design_doc_path = _resolve_project_path(root, design_doc, "design document")
+    if not design_doc_path.is_file():
+        raise FileNotFoundError(f"design document not found: {design_doc_path}")
+    design_doc_rel = project_relative(design_doc_path, root)
+    target = _project_entry_guide_target(root, output_path)
+    candidates = _subsystem_candidates_for_design_doc(design_doc_path)
+    options = [
+        _confirm_subsystem_option(candidate["subsystem"], design_doc_rel)
+        for candidate in candidates
+    ]
+    report = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "entry_mode": "design_doc",
+        "status": "needs_subsystem_confirmation",
+        "ordinary_user_message": _ordinary_user_message(
+            "needs_subsystem_confirmation"
+        ),
+        "mutates_pipeline_state": False,
+        "does_not_scan_directories": True,
+        "design_doc": {
+            "path": design_doc_rel,
+            "exists": True,
+        },
+        "subsystem_candidates": candidates,
+        "next_action": {
+            "kind": "confirm_subsystem",
+            "requires_user_confirmation": True,
+            "options": options,
+        },
+        "artifacts": {
+            "project_guide": project_relative(target, root),
+        },
+    }
+    write_json_atomic(target, report)
+    return report
 
 
 def write_project_guide(
@@ -107,6 +163,7 @@ def write_project_guide(
 
 def command_return_code_for_project_guide(report: dict[str, Any]) -> int:
     return 0 if report.get("status") in {
+        "needs_subsystem_confirmation",
         "needs_init",
         "needs_design_doc",
         "needs_spec",
@@ -433,6 +490,7 @@ def _current_photo3d_source(
 
 def _ordinary_user_message(status: str) -> str:
     messages = {
+        "needs_subsystem_confirmation": "项目向导已读取设计文档；请先确认要创建或继续的子系统名称。",
         "needs_init": "项目向导未找到子系统目录；下一步先初始化子系统。",
         "needs_design_doc": "项目向导需要显式设计文档路径；请重新运行并传 --design-doc。",
         "needs_spec": "项目向导已拿到设计文档；下一步生成 CAD_SPEC.md。",
@@ -471,6 +529,88 @@ def _project_guide_target(
     if target.name != "PROJECT_GUIDE.json":
         raise ValueError("project guide output must be PROJECT_GUIDE.json")
     return target
+
+
+def _project_entry_guide_target(
+    root: Path,
+    output_path: str | Path | None,
+) -> Path:
+    guide_dir = (root / PROJECT_ENTRY_GUIDE_DIR).resolve()
+    target = _resolve_project_path(
+        root,
+        output_path or guide_dir / "PROJECT_GUIDE.json",
+        "project entry guide output",
+    )
+    try:
+        target.relative_to(guide_dir)
+    except ValueError as exc:
+        raise ValueError("PROJECT_GUIDE.json output must stay in .cad-spec-gen/project-guide") from exc
+    if target.name != "PROJECT_GUIDE.json":
+        raise ValueError("project entry guide output must be PROJECT_GUIDE.json")
+    return target
+
+
+def _subsystem_candidates_for_design_doc(design_doc_path: Path) -> list[dict[str, Any]]:
+    stem = re.sub(r"^\d+[-_ ]*", "", design_doc_path.stem).strip()
+    subsystem = _safe_subsystem_slug(stem) or "subsystem"
+    return [
+        {
+            "subsystem": subsystem,
+            "source": "design_doc_filename",
+            "confidence": "medium",
+            "reason": "由显式设计文档文件名派生；需要用户确认后才进入子系统流程。",
+        }
+    ]
+
+
+def _safe_subsystem_slug(text: str) -> str:
+    tokens: list[str] = []
+    ascii_buffer: list[str] = []
+
+    def flush_ascii() -> None:
+        if ascii_buffer:
+            token = "".join(ascii_buffer).strip("_")
+            if token:
+                tokens.append(token)
+            ascii_buffer.clear()
+
+    normalized = unicodedata.normalize("NFKD", text)
+    for char in normalized:
+        if char.isascii() and char.isalnum():
+            ascii_buffer.append(char.lower())
+            continue
+        flush_ascii()
+        if char in _CJK_TOKEN_MAP:
+            tokens.append(_CJK_TOKEN_MAP[char])
+        elif "\u4e00" <= char <= "\u9fff":
+            tokens.append(f"u{ord(char):x}")
+        elif char in {"-", "_", " ", "."}:
+            flush_ascii()
+    flush_ascii()
+    slug = "_".join(token for token in tokens if token)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    if slug and slug[0].isdigit():
+        slug = f"subsystem_{slug}"
+    return slug[:80]
+
+
+def _confirm_subsystem_option(subsystem: str, design_doc_rel: str) -> dict[str, Any]:
+    argv = [
+        "python",
+        "cad_pipeline.py",
+        "project-guide",
+        "--subsystem",
+        subsystem,
+        "--design-doc",
+        design_doc_rel,
+    ]
+    option: dict[str, Any] = {
+        "subsystem": subsystem,
+        "argv": argv,
+    }
+    if _safe_cli_token(subsystem):
+        option["cli"] = " ".join(argv)
+    return option
 
 
 def _resolve_project_path(project_root: Path, path: str | Path, label: str) -> Path:

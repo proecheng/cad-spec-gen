@@ -373,6 +373,9 @@ def test_project_guide_help_explains_read_only_user_flow():
     for term in (
         "project-guide",
         "PROJECT_GUIDE.json",
+        "--from-design-doc",
+        "needs_subsystem_confirmation",
+        "confirm_subsystem",
         "普通用户",
         "大模型",
         "read-only",
@@ -534,6 +537,10 @@ def test_cad_help_docs_describe_photo3d_foolproof_user_flow():
         assert "自动重跑" in text, f"{rel} missing rerun autopilot guidance"
         assert "project-guide" in text, f"{rel} missing project guide"
         assert "PROJECT_GUIDE.json" in text, f"{rel} missing project guide report"
+        assert "--from-design-doc" in text, f"{rel} missing design-doc entry mode"
+        assert "needs_subsystem_confirmation" in text, (
+            f"{rel} missing subsystem confirmation status"
+        )
         assert "provider preset" in text or "provider 选择" in text, (
             f"{rel} missing project-guide provider preset guidance"
         )
@@ -712,6 +719,8 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "ordinary_user_options" in tools_by_name["project_guide"]["description"]
         assert "provider_wizard" in tools_by_name["project_guide"]["description"]
         assert "provider_health" in tools_by_name["project_guide"]["description"]
+        assert "--from-design-doc" in tools_by_name["project_guide"]["description"]
+        assert "needs_subsystem_confirmation" in tools_by_name["project_guide"]["description"]
         assert "model_quality_summary" in tools_by_name["project_guide"]["description"]
         assert "geometry_report.json" in tools_by_name["project_guide"]["description"]
         assert "does not scan directories" in tools_by_name["project_guide"]["description"]
