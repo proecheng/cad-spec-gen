@@ -4,15 +4,16 @@
 
 - Working directory: `D:\Work\cad-spec-gen`
 - Active branch: `main`
-- Git state at handoff: clean working tree, `main...origin/main [ahead 4]`
-- Remote push status: not pushed. Two `git push origin main` attempts failed because GitHub port 443 could not be reached.
+- Git state at handoff: clean working tree after final push.
+- Remote push status: pushed successfully after an earlier temporary GitHub port 443 connectivity failure.
 - Remaining worktree: `.worktrees/generic-threaded-photo-autopilot` on `codex/generic-threaded-photo-autopilot`; it is unrelated to the latest completed work and should not be touched unless the user explicitly resumes it.
 
 Latest local commits:
 
 | Commit | Purpose |
 | --- | --- |
-| `8b3d5b4 docs(progress): 记录新用户入口合并状态` | Records local merge, validation, and push failure in the project board. |
+| `397f733 docs(progress): 记录会话交接` | Adds this handoff report and links it from the project documentation index. |
+| `8b3d5b4 docs(progress): 记录新用户入口合并状态` | Records local merge, validation, and the earlier temporary push failure in the project board. |
 | `0ac375a feat(project-guide): 增加设计文档入口向导` | Adds `project-guide --from-design-doc` entry mode. |
 | `4220b16 docs(progress): 记录模型质量摘要合并状态` | Records the previous model quality summary merge. |
 | `2ab8da2 feat(model-quality): 输出普通用户模型质量摘要` | Adds user-facing model quality summaries. |
@@ -47,11 +48,10 @@ Known warning: existing pytest warning for unknown `env` config option.
 
 ## Next Recommended Work
 
-1. Retry `git push origin main` when network access to GitHub works. Local `main` is ahead of remote by 4 commits.
-2. Continue Phase 1 -> Phase 6 new-user entry work: move from explicit design-document entry to a fuller "product goal + design document + missing parameter confirmation" guide.
-3. Prepare real AI backend adapter admission for providers such as `gpt-image-2-pro`: configuration isolation, allowlisted preset, same-run enhancement/check loop, multi-view consistency tests, and no secret persistence or URL/key leakage.
-4. Improve Phase 4 -> Phase 6 per-view visible instance evidence so render completeness relies less on warnings.
-5. Improve Phase 6 delivery README with thumbnails, model quality summary, semantic/material review status, and next actions.
+1. Continue Phase 1 -> Phase 6 new-user entry work: move from explicit design-document entry to a fuller "product goal + design document + missing parameter confirmation" guide.
+2. Prepare real AI backend adapter admission for providers such as `gpt-image-2-pro`: configuration isolation, allowlisted preset, same-run enhancement/check loop, multi-view consistency tests, and no secret persistence or URL/key leakage.
+3. Improve Phase 4 -> Phase 6 per-view visible instance evidence so render completeness relies less on warnings.
+4. Improve Phase 6 delivery README with thumbnails, model quality summary, semantic/material review status, and next actions.
 
 ## Required Reference Documents For New Session
 
