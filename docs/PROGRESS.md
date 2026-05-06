@@ -18,6 +18,7 @@
 | 最近验证 | 新用户入口核心：`tests\test_project_guide.py` 为 `16 passed, 1 warning`；Photo3D 用户流：`14 passed, 1 warning`；组合回归：`172 passed, 1 warning`；`dev_sync --check` 与 `git diff --check` 通过 |
 | 同步检查 | 本轮同步 5 个安装版镜像：`cad_pipeline.py`、`tools/project_guide.py`、`cad-help.md`、`skill_cad_help_zh.md`、`skill.json`；随后 `dev_sync --check` 通过 |
 | 当前未跟踪 | 无运行时产物纳入；远端 `origin/main` 待网络恢复后推送。另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot`，本轮不触碰 |
+| 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-06.md`，再读 `docs/superpowers/README.md` 和本看板 |
 
 ## 一句话结论
 

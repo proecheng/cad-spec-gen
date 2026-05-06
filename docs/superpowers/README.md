@@ -5,7 +5,7 @@
 
 ## 最新更新
 
-2026-05-06：Phase 1 -> Phase 6 新用户项目入口再简化已完成第一块实现和核心范围回归：新增 [新用户项目入口再简化执行计划](plans/2026-05-06-new-user-entry-guide.md)。`project-guide --from-design-doc --design-doc <path>` 现在可从一个显式设计文档写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，让普通用户先确认子系统再进入后续管线。当前总体能力进展约 86%，下一步继续把入口前移到“产品目标 + 设计文档 + 缺失参数”的少提问、多确认向导，并准备真实 AI backend adapter 准入。详见 [项目看板](../PROGRESS.md)。
+2026-05-06：Phase 1 -> Phase 6 新用户项目入口再简化已完成第一块实现和核心范围回归：新增 [新用户项目入口再简化执行计划](plans/2026-05-06-new-user-entry-guide.md) 和 [新 session 交接报告](reports/session-handoff-2026-05-06.md)。`project-guide --from-design-doc --design-doc <path>` 现在可从一个显式设计文档写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，让普通用户先确认子系统再进入后续管线。当前总体能力进展约 86%，下一步继续把入口前移到“产品目标 + 设计文档 + 缺失参数”的少提问、多确认向导，并准备真实 AI backend adapter 准入。详见 [项目看板](../PROGRESS.md)。
 
 ## 当前主入口
 
@@ -39,6 +39,7 @@
 | [`plans/2026-05-05-semantic-material-quality-review.md`](plans/2026-05-05-semantic-material-quality-review.md) | Phase 5/6 语义/材质级增强质量复核执行计划 |
 | [`plans/2026-05-05-model-quality-user-report.md`](plans/2026-05-05-model-quality-user-report.md) | Phase 2/6 模型质量普通用户摘要执行计划 |
 | [`plans/2026-05-06-new-user-entry-guide.md`](plans/2026-05-06-new-user-entry-guide.md) | Phase 1/6 新用户设计文档入口确认向导执行计划 |
+| [`reports/session-handoff-2026-05-06.md`](reports/session-handoff-2026-05-06.md) | 新 session 交接：当前 git 状态、已完成工作、验证、后续顺序和必读文档 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |
 | [`reports/model-quality-final-2026-05-02.md`](reports/model-quality-final-2026-05-02.md) | 模型质量最终审查摘要 |
