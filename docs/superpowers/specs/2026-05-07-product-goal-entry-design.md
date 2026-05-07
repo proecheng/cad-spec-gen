@@ -2,8 +2,26 @@
 
 **日期**：2026-05-07
 **作者**：brainstorming session
-**rev**：2（4 角色对抗审查后修订：6 CRITICAL + 7 KPI 选择类 IMPORTANT 全闭）
+**rev**：3（实地核验代码后修订：4 数据漂移 + 3 函数一致性 + 3 管线融合 + 1 路径全闭）
 **目标**：把 `project-guide` 入口前移一步——外行用户不写设计文档也能启动，只用一句产品目标自然语言（如"做一个升 50kg 的升降平台"），系统识别子系统类别 + 抽取顶层 KPI + 标记缺失项，让用户用 `--confirm-X` flag 一次性补齐后进入既有 Phase 1 流程
+
+## rev 2 → rev 3 修订记录（2026-05-07）
+
+实地 grep 现有代码后发现 spec 与代码漂移，11 项一次闭合：
+
+- **D-1**：`entry_mode` 名 `from_design_doc` → `design_doc`（与现有 `tools/project_guide.py:33` 对齐）
+- **D-2**：PyYAML 不是 base install 依赖（仅在 `parts_library` extras）→ **改用 JSON 字典**（`subsystem_keywords.json` + `kpi_patterns.json`），不引入新依赖
+- **D-3**：补齐既有 PROJECT_GUIDE.json schema 必要字段（`schema_version` / `generated_at` / `ordinary_user_message` / `mutates_pipeline_state` / `does_not_scan_directories` / `artifacts.project_guide`）
+- **D-4**：`_safe_cli_token` 显式声明从 `tools/project_guide.py:_safe_cli_token` 复用（**不**复用 photo3d_actions / photo3d_autopilot 那两个版本）
+- **F-1**：`write_project_goal_guide` 签名对齐现有 `write_project_entry_guide`（首参 `project_root`，必带 `output_path` keyword）
+- **F-2**：明确新增 `_subsystem_candidates_for_product_goal` 函数（与现有 `_subsystem_candidates_for_design_doc` 平行，不修改后者）
+- **F-3**：补 `cmd_project_guide` dispatch 扩展伪代码（在现有 if/elif 链加新分支）
+- **M-1**：声明新 `next_action.kind` 值（`supply_product_goal` / `supply_missing_kpis` / `wait_for_implementation` / `list_supported_subsystems` / `run_cad_spec`）是**文档化字符串**，不被任何现有产线代码自动 dispatch
+- **M-2**：schema_version 保持 1（向后兼容加字段）；新增 status 值不 bump（既有 reader 都通过 `dict.get(status)` 不做 enum 限制）
+- **M-3**：新模式必保留 `mutates_pipeline_state=false` / `does_not_scan_directories=true` 不变量字段
+- **P-1**：`tools/project_guide_dict/` 子目录参考现有 `tools/hybrid_render/` import 风格
+
+---
 
 ## rev 1 → rev 2 修订记录（2026-05-07）
 
@@ -63,21 +81,54 @@
 
 ### 与现有 `--from-design-doc` 的关系
 
-**并存，不替代**。模式选择优先级：
+**并存，不替代**。`cmd_project_guide` dispatch 扩展（rev 3 显式）：
 
-1. `--product-goal` 传入 → 走新增 `write_project_goal_guide`
-2. `--from-design-doc` + `--design-doc` → 走既有 `write_project_entry_guide`
-3. `--subsystem ...` → 走既有 `write_project_guide`
-4. 全空 → 现状（按 active run 推断）
+```python
+def cmd_project_guide(args):
+    if getattr(args, "product_goal", None):                 # 新增分支（最高优先级）
+        report = write_project_goal_guide(
+            PROJECT_ROOT,
+            args.product_goal,
+            design_doc=getattr(args, "design_doc", None),
+            confirmed_subsystem=getattr(args, "confirm_subsystem", None),
+            confirmed_kpis=_collect_confirmed_kpis(args),  # helper 解析 6 个 --confirm-X
+            output_path=getattr(args, "output", None),
+        )
+    elif getattr(args, "from_design_doc", False):          # 既有
+        report = write_project_entry_guide(...)            # 不改
+    elif args.subsystem:                                   # 既有
+        report = write_project_guide(...)                  # 不改
+    else:
+        log.error("--product-goal, --from-design-doc, or --subsystem is required")
+        return 1
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return command_return_code_for_project_guide(report)
+```
+
+**`entry_mode` 取值对齐现有代码**（rev 3 修正）：
+
+| 模式 | `entry_mode` 值 | 入口函数 |
+|---|---|---|
+| 既有：`--from-design-doc` | `design_doc`（**非** `from_design_doc`） | `write_project_entry_guide` |
+| 既有：`--subsystem` | `subsystem` | `write_project_guide` |
+| **新增**：`--product-goal` | `product_goal` | `write_project_goal_guide` |
 
 ### `PROJECT_GUIDE.json` 新字段
 
-扩展现有 schema：
+扩展现有 schema（rev 3：补齐既有字段；新模式必保留 `mutates_pipeline_state` / `does_not_scan_directories` 不变量）：
 
 ```json
 {
+  "schema_version": 1,
+  "generated_at": "2026-05-07T...",
   "entry_mode": "product_goal",
   "status": "needs_kpi_confirmation",
+  "ordinary_user_message": "请补充缺失的 KPI（行程外形等），用 --confirm-X flag 重跑",
+  "mutates_pipeline_state": false,
+  "does_not_scan_directories": true,
+  "artifacts": {
+    "project_guide": ".cad-spec-gen/project-guide/PROJECT_GUIDE.json"
+  },
   "product_goal": {
     "text": "做一个能升 50kg、行程 200mm 的升降平台",
     "subsystem_class": "lifting_platform",
@@ -102,11 +153,13 @@
 | 状态 | 含义 | next_action.kind |
 |---|---|---|
 | `needs_product_goal` | 没传 `--product-goal` 也没 `--design-doc` | `supply_product_goal` |
-| `needs_subsystem_confirmation` | 自然语言含混 / 多类匹配 | `confirm_subsystem` |
+| `needs_subsystem_confirmation` | 自然语言含混 / 多类匹配 | `confirm_subsystem`（**复用既有 entry_guide 同名值**） |
 | `not_yet_implemented` | 命中 17 个文档化但未实现类别 | `wait_for_implementation` |
 | `unknown_subsystem` | 完全未识别 | `list_supported_subsystems` |
 | `needs_kpi_confirmation` | 类别清晰但 KPI 缺失/含混 | `supply_missing_kpis` |
 | `ready_for_cad_spec` | 一切齐备 | `run_cad_spec` |
+
+**rev 3 显式声明**：`next_action.kind` 是**文档化字符串**——产线代码（cad-spec、build、render、photo3d、enhance 等下游）**不会**自动 dispatch 这些值。它们只是给用户和大模型看的"建议"。所以新增这些值不会破坏任何现有路径，也不必新增任何 dispatcher。
 
 ### 状态机
 
@@ -133,9 +186,10 @@
 
 ### 第 1 层：子系统类别识别
 
-**文件**：`tools/project_guide_dict/subsystem_keywords.yaml`
+**文件**：`tools/project_guide_dict/subsystem_keywords.json`（rev 3：改 JSON，避免引入 PyYAML 到 base install）
 
 ```yaml
+# 以下例为 yaml 写法便于阅读；实际文件是等价 JSON
 lifting_platform:
   status: implemented
   primary_terms: ["升降平台", "升降台", "lifting platform", "提升台"]
@@ -148,7 +202,7 @@ navigation:
   status: not_yet_implemented
   primary_terms: ["导航", "navigation", "SLAM"]
   supporting_terms: ["路径规划", "定位"]
-# 其余 16 个 not_yet_implemented 类别（plan 阶段枚举到 yaml）：
+# 其余 16 个 not_yet_implemented 类别（plan 阶段枚举到 json）：
 # motion_ctrl / electrical / communication / charging / couplant / detection
 # integration / output / patent / plan / power / robot_platform / safety
 # software / sys_arch / budget
@@ -170,9 +224,10 @@ navigation:
 
 ### 第 2 层：KPI 抽取
 
-**文件**：`tools/project_guide_dict/kpi_patterns.yaml`
+**文件**：`tools/project_guide_dict/kpi_patterns.json`（rev 3：改 JSON）
 
 ```yaml
+# 以下例为 yaml 写法便于阅读；实际文件是等价 JSON
 lifting_platform:
   load_kg:
     regex: ['(\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)']
@@ -224,7 +279,7 @@ end_effector:
 
 **regex multi-pattern 优先级**：
 
-- 同一 KPI 列多个 regex 时，按 yaml 中**声明顺序短路匹配**（最具体单位优先）
+- 同一 KPI 列多个 regex 时，按 json 数组中**声明顺序短路匹配**（最具体单位优先）
 - 例：`stroke_mm` 列 `[mm, cm, m]` 三个 regex
   - 输入 `200mm` → 第 1 个命中 → `stroke_mm = 200`
   - 输入 `20cm` → 第 1 个不命中（因 `cm` 不含 `mm` 模式）→ 第 2 个命中 → 归一 `stroke_mm = 200`
@@ -325,8 +380,8 @@ end_effector:
 
 | 步骤 | 文件 | 改动 |
 |---|---|---|
-| 1 | `tools/project_guide_dict/subsystem_keywords.yaml` | 加 `<new_subsystem>:` 块（status / primary_terms / supporting_terms） |
-| 2 | `tools/project_guide_dict/kpi_patterns.yaml` | 加 `<new_subsystem>:` 块（3 槽 KPI：capability_1 / capability_2 / envelope） |
+| 1 | `tools/project_guide_dict/subsystem_keywords.json` | 加 `<new_subsystem>` 顶层 key（status / primary_terms / supporting_terms） |
+| 2 | `tools/project_guide_dict/kpi_patterns.json` | 加 `<new_subsystem>` 顶层 key（3 槽 KPI：capability_1 / capability_2 / envelope） |
 | 3 | `cad_pipeline.py` | 加对应 `--confirm-<kpi>` flag（如新 KPI 名是 `xxx_unit` → flag 是 `--confirm-xxx`） |
 | 4 | `tests/test_product_goal_parser.py` | 加 positive + negative + 1 ambiguous case |
 | 5 | `tests/test_project_goal_guide.py` | 加 e2e 1 例（新子系统从识别到 ready_for_cad_spec） |
@@ -337,13 +392,13 @@ end_effector:
 
 - 步骤 1-5 让入口层识别新子系统，**status 仍是 `not_yet_implemented`**
 - 步骤 6 真正补齐 CAD 实现后，更新步骤 1 的 `status: implemented`
-- 步骤 7 是项目级硬约束，每次改 yaml 必跑
+- 步骤 7 是项目级硬约束，每次改字典 json 必跑
 
 **KPI 命名规约**：
 
 - 蛇形小写：`load_kg`、`platform_size_mm`、`rot_range_deg`
 - 单位后缀必须是 SI 基本单位或派生单位的小写形式：`kg` / `mm` / `s` / `deg`、`mm_per_s`
-- 复合 KPI（如 platform_size 是 W×D pair）用单位后缀表示主要单位，`value_shape: pair` 在 yaml 显式声明
+- 复合 KPI（如 platform_size 是 W×D pair）用单位后缀表示主要单位，`value_shape: pair` 在 json 显式声明
 
 ---
 
@@ -357,9 +412,9 @@ end_effector:
 tools/
 ├── product_goal_parser.py            # 3 层确定性解析器
 └── project_guide_dict/
-    ├── __init__.py                    # 加载 yaml 词典 + schema 校验
-    ├── subsystem_keywords.yaml        # 第 1 层
-    └── kpi_patterns.yaml              # 第 2 层
+    ├── __init__.py                    # 加载 json 词典 + dataclass 自校验
+    ├── subsystem_keywords.json        # 第 1 层
+    └── kpi_patterns.json              # 第 2 层
 
 tests/
 ├── test_product_goal_parser.py        # 解析器单元测试
@@ -417,15 +472,21 @@ def load_dictionary(*, dict_root: Path | None = None) -> ProductGoalDictionary: 
 ```
 
 ```python
-# tools/project_guide.py 新增
+# tools/project_guide.py 新增（rev 3：签名对齐现有 write_project_entry_guide 风格）
 def write_project_goal_guide(
+    project_root: str | Path,           # 位置参数（与 write_project_entry_guide 对齐）
+    product_goal: str,                  # 位置参数
     *,
-    project_root: Path,
-    product_goal: str,
-    design_doc: Path | None = None,
+    design_doc: str | Path | None = None,
     confirmed_subsystem: str | None = None,
-    confirmed_kpis: Mapping[str, float] | None = None,
+    confirmed_kpis: Mapping[str, float | tuple[float, float]] | None = None,  # tuple 支持 platform_size pair
+    output_path: str | Path | None = None,  # 与现有 entry_guide 一致
 ) -> dict[str, Any]: ...
+
+# 新辅助函数（与现有 _subsystem_candidates_for_design_doc 平行，不修改后者）
+def _subsystem_candidates_for_product_goal(
+    parse_result: ProductGoalParseResult,
+) -> list[dict[str, Any]]: ...
 ```
 
 ### CLI 接入（`cad_pipeline.py`）
@@ -481,10 +542,10 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 | 约束 | 说明 | 复用现有资产 |
 |---|---|---|
 | Unicode normalize | 所有用户输入 NFKC normalize 后再 regex（含 `--product-goal` text 和 `--confirm-X` value） | `tools/project_guide.py` 已 `import unicodedata`，复用 |
-| YAML 加载 | `yaml.safe_load`（PyYAML 是项目现有依赖） + dataclass 自校（`ProductGoalDictionary` 加 `__post_init__` 校验 schema） | 不引入 jsonschema/pydantic 新依赖 |
+| 字典加载 | `json.loads(Path(...).read_text("utf-8"))` + dataclass 自校（`ProductGoalDictionary` 加 `__post_init__` 校验 schema） | rev 3 改：避免引入 PyYAML 到 base install（PyYAML 仅在 `parts_library` extras） |
 | Path 越界 | 所有路径写入走 `assert_within_project` | `tools/path_policy.py` 已存在 |
 | 文件原子写 | PROJECT_GUIDE.json 走 `write_json_atomic` | `tools/contract_io.py` 已存在 |
-| Shell 转义 | preview_cli 中的 user text 必须经 `_safe_cli_token` 校验；含特殊字符 → 写 `next_action.preview_cli_unsafe = true` 并降级为不带 user text 的通用提示 | `tools/project_guide.py:_safe_cli_token` 已存在 |
+| Shell 转义 | preview_cli 中的 user text 必须经 `_safe_cli_token` 校验；含特殊字符 → 写 `next_action.preview_cli_unsafe = true` 并降级为不带 user text 的通用提示 | **复用 `tools/project_guide.py:624 _safe_cli_token`**（rev 3：明确不复用 `tools/photo3d_actions.py` / `tools/photo3d_autopilot.py` 的同名 duplicate） |
 
 ---
 
@@ -506,11 +567,11 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 1. `--product-goal "..."` 写 PROJECT_GUIDE.json 到正确路径（沿用 `path_policy` 守护）
 2. 5 种 status 各至少 1 例（needs_product_goal / needs_subsystem / not_yet_implemented / unknown / needs_kpi / ready）
 3. `next_action.preview_cli` 永不带 `--confirm` 之外的危险 flag（沿用 `_safe_cli_token`）
-4. 词典 yaml 缺失 / 格式错 → entry 函数抛 `RuntimeError`，不静默 fallback
+4. 词典 json 缺失 / 格式错 → entry 函数抛 `RuntimeError`，不静默 fallback
 5. `parser_evidence` 字段对每个抽取的 KPI 都有条目，可审计
 6. `--confirm-X` 与自然语言冲突时 confirm 胜出（确定性优先于解析）
 7. `entry_mode = "product_goal"` 永远写入（与现有 `--from-design-doc` 区分）
-8. 安装版镜像 `src/cad_spec_gen/data/project_guide_dict/*.yaml` 有 `dev_sync --check` 守护
+8. 安装版镜像 `src/cad_spec_gen/data/project_guide_dict/*.json` 有 `dev_sync --check` 守护
 
 ### `tests/test_project_guide.py`（已有，扩展）
 
@@ -531,7 +592,7 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 
 **C-7 扩展指南可执行性**（加入 `test_project_goal_guide.py`）：
 
-6. 加一个 `mock_subsystem`（仅在测试中存在的 yaml 块）→ parser 能识别它 + 走完 needs_kpi → ready 流程，验证扩展路径可行
+6. 加一个 `mock_subsystem`（仅在测试中存在的 json 块）→ parser 能识别它 + 走完 needs_kpi → ready 流程，验证扩展路径可行
 
 **KPI ↔ CAD 参数映射约束**（加入 `test_product_goal_parser.py`）：
 
@@ -541,7 +602,7 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 
 ## TDD 节奏（按项目 CLAUDE.md）
 
-1. 词典 yaml 先写（含 schema 校验测试）→ 红测：词典加载报错
+1. 词典 json 先写（含 dataclass 自校验测试）→ 红测：词典加载报错
 2. `parse_product_goal` 红测：subsystem 识别 → 实现层 1
 3. KPI 抽取红测 → 实现层 2
 4. 歧义检测红测 → 实现层 3
@@ -571,5 +632,5 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 - **Windows-only**：词典中文优先，英文别名为辅；不假设 Linux/macOS 行为
 - **无 LLM / 无网络**：所有解析在本地完成；不接 cloud API
 - **可审计性**：`parser_evidence` 字段必填，让用户能验证解析对不对，发现错就用 `--confirm-X` 覆盖
-- **dev_sync**：词典 yaml 必须纳入安装版镜像，`dev_sync --check` 守护
+- **dev_sync**：词典 json 必须纳入安装版镜像，`dev_sync --check` 守护
 - **YAGNI**：不收 14-30 个全量 CAD 参数；只收 1-3 个外行表达层；剩余交给现有 supplementation
