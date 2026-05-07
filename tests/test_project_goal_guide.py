@@ -55,3 +55,69 @@ def test_ambiguous_subsystem_writes_needs_subsystem_confirmation(tmp_path):
 
     assert report["status"] == "needs_subsystem_confirmation"
     assert report["next_action"]["kind"] == "confirm_subsystem"
+
+
+def test_needs_kpi_when_subsystem_clear_but_kpis_missing(tmp_path):
+    from tools.project_guide import write_project_goal_guide
+
+    # 仅 product_goal，缺 KPI
+    report = write_project_goal_guide(tmp_path, product_goal="做一个升降平台")
+
+    assert report["status"] == "needs_kpi_confirmation"
+    assert "load_kg" in report["product_goal"]["kpi_missing"]
+    assert "stroke_mm" in report["product_goal"]["kpi_missing"]
+    assert "platform_size_mm" in report["product_goal"]["kpi_missing"]
+    assert report["next_action"]["kind"] == "supply_missing_kpis"
+
+
+def test_needs_design_doc_when_kpis_complete_but_no_design_doc(tmp_path):
+    """rev 4 DR-1：KPI 齐 + 无 design_doc → needs_design_doc（非 ready）。"""
+    from tools.project_guide import write_project_goal_guide
+
+    report = write_project_goal_guide(
+        tmp_path,
+        product_goal="升降平台 升 50kg 行程 200mm 平台 350x230",
+    )
+
+    assert report["status"] == "needs_design_doc"
+    assert report["next_action"]["kind"] == "supply_design_doc"
+    assert report["product_goal"]["kpi_missing"] == []
+
+
+def test_ready_for_cad_spec_when_kpis_and_design_doc_both_present(tmp_path):
+    from tools.project_guide import write_project_goal_guide
+
+    design_doc = tmp_path / "docs" / "design" / "XX-lifting_platform.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# 设计文档", encoding="utf-8")
+
+    report = write_project_goal_guide(
+        tmp_path,
+        product_goal="升降平台 升 50kg 行程 200mm 平台 350x230",
+        design_doc=design_doc,
+    )
+
+    assert report["status"] == "ready_for_cad_spec"
+    assert report["next_action"]["kind"] == "run_cad_spec"
+    assert "lifting_platform" in report["next_action"]["preview_cli"]
+
+
+def test_confirmed_kpis_can_complete_missing_kpis(tmp_path):
+    from tools.project_guide import write_project_goal_guide
+
+    design_doc = tmp_path / "docs" / "design" / "XX-lifting_platform.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# 设计文档", encoding="utf-8")
+
+    report = write_project_goal_guide(
+        tmp_path,
+        product_goal="做一个升降平台",
+        confirmed_kpis={
+            "load_kg": 50.0,
+            "stroke_mm": 200.0,
+            "platform_size_mm": (350.0, 230.0),
+        },
+        design_doc=design_doc,
+    )
+
+    assert report["status"] == "ready_for_cad_spec"

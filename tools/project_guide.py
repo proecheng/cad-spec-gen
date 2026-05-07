@@ -714,11 +714,29 @@ def _derive_goal_status_and_next_action(
             },
         }
 
-    # implemented 分支留给 Task 9（needs_kpi / needs_design_doc / ready_for_cad_spec）
-    return "needs_kpi_confirmation", {
-        "kind": "supply_missing_kpis",
+    # implemented 分支：KPI 完整性检查 → design_doc 检查
+    missing = [name for name, k in parse_result.kpis.items() if k.status != "extracted"]
+    if missing:
+        return "needs_kpi_confirmation", {
+            "kind": "supply_missing_kpis",
+            "missing_kpis": missing,
+            "preview_cli": _build_kpi_preview_cli(parse_result.subsystem_class, missing),
+        }
+
+    if not design_doc:
+        return "needs_design_doc", {
+            "kind": "supply_design_doc",
+            "preview_cli": (
+                f"python cad_pipeline.py project-guide --product-goal \"...\" "
+                f"--design-doc docs/design/<chapter>-{parse_result.subsystem_class}.md"
+            ),
+        }
+
+    return "ready_for_cad_spec", {
+        "kind": "run_cad_spec",
         "preview_cli": (
-            "python cad_pipeline.py project-guide --product-goal \"...\" --confirm-X ..."
+            f"python cad_pipeline.py spec --subsystem {parse_result.subsystem_class} "
+            f"--design-doc {design_doc}"
         ),
     }
 
@@ -733,6 +751,20 @@ def _ordinary_user_message_for_goal(status: str) -> str:
         "needs_design_doc": "KPI 已齐，请用 --design-doc <path> 提供设计文档后重跑。",
         "ready_for_cad_spec": "一切就绪，可执行 cad-spec 生成 CAD_SPEC.md。",
     }.get(status, "(未知状态)")
+
+
+def _build_kpi_preview_cli(subsystem: str, missing: list[str]) -> str:
+    """构造缺失 KPI 的 confirm CLI 模板。"""
+    flag_map = {
+        "load_kg": "--confirm-load 50",
+        "stroke_mm": "--confirm-stroke 200",
+        "platform_size_mm": "--confirm-platform-size 350x230",
+        "rot_range_deg": "--confirm-rot-range 135",
+        "switch_time_s": "--confirm-switch-time 1.5",
+        "flange_dia_mm": "--confirm-flange-dia 90",
+    }
+    flags = " ".join(flag_map[k] for k in missing if k in flag_map)
+    return f"python cad_pipeline.py project-guide --product-goal \"...\" {flags}"
 
 
 def _serialize_parse_result(parse_result: Any) -> dict[str, Any]:
