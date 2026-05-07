@@ -1,0 +1,97 @@
+{
+  "lifting_platform": {
+    "status": "implemented",
+    "primary_terms": ["升降平台", "升降台", "lifting platform", "提升台"],
+    "supporting_terms": ["升降", "提升", "lift", "升起"]
+  },
+  "end_effector": {
+    "status": "implemented",
+    "primary_terms": ["末端执行", "末端工具", "end effector", "EE"],
+    "supporting_terms": ["末端", "夹爪", "翻转工具", "工具切换"]
+  },
+  "navigation": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["导航", "navigation", "SLAM"],
+    "supporting_terms": ["路径规划", "定位"]
+  },
+  "motion_ctrl": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["运动控制", "motion control", "motion_ctrl"],
+    "supporting_terms": ["伺服", "电机控制"]
+  },
+  "electrical": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["电气系统", "electrical system", "配电"],
+    "supporting_terms": ["供电", "线缆"]
+  },
+  "communication": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["通信", "communication", "总线"],
+    "supporting_terms": ["CAN", "RS485", "Ethernet"]
+  },
+  "charging": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["充电", "charging", "充电桩"],
+    "supporting_terms": ["快充", "对接"]
+  },
+  "couplant": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["耦合剂", "couplant", "超声耦合"],
+    "supporting_terms": ["耦合", "超声"]
+  },
+  "detection": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["检测", "detection", "传感"],
+    "supporting_terms": ["传感器", "探测"]
+  },
+  "integration": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["集成", "integration", "总成"],
+    "supporting_terms": ["装配", "整机"]
+  },
+  "output": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["输出", "output", "执行输出"],
+    "supporting_terms": ["输出端", "动作输出"]
+  },
+  "patent": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["专利", "patent"],
+    "supporting_terms": ["专利布局", "知识产权"]
+  },
+  "plan": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["规划", "plan", "项目规划"],
+    "supporting_terms": ["计划"]
+  },
+  "power": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["电源", "power", "供电系统"],
+    "supporting_terms": ["电池", "电源管理"]
+  },
+  "robot_platform": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["机器人平台", "robot platform", "底盘平台"],
+    "supporting_terms": ["机器人", "底盘"]
+  },
+  "safety": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["安全", "safety", "安全系统"],
+    "supporting_terms": ["急停", "安全门"]
+  },
+  "software": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["软件", "software", "上位机"],
+    "supporting_terms": ["代码", "应用"]
+  },
+  "sys_arch": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["系统架构", "system architecture", "sys_arch"],
+    "supporting_terms": ["架构"]
+  },
+  "budget": {
+    "status": "not_yet_implemented",
+    "primary_terms": ["预算", "budget", "成本"],
+    "supporting_terms": ["造价"]
+  }
+}

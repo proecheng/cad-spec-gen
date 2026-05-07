@@ -1,0 +1,52 @@
+{
+  "lifting_platform": {
+    "load_kg": {
+      "regex": ["(\\d+(?:\\.\\d+)?)\\s*(?:kg|公斤|千克)"],
+      "context_terms": ["载荷", "承载", "负载", "升起", "举起", "提升", "升"],
+      "unit": "kg",
+      "slot": "capability_1"
+    },
+    "stroke_mm": {
+      "regex": [
+        "(\\d+(?:\\.\\d+)?)\\s*(?:mm|毫米)",
+        "(\\d+(?:\\.\\d+)?)\\s*(?:cm|厘米)",
+        "(\\d+(?:\\.\\d+)?)\\s*m(?![ms])"
+      ],
+      "context_terms": ["行程", "升高", "升程", "stroke", "travel"],
+      "unit": "mm",
+      "unit_normalize": {"cm": 10, "m": 1000, "厘米": 10, "米": 1000},
+      "slot": "capability_2"
+    },
+    "platform_size_mm": {
+      "regex": ["(\\d+)\\s*[x×]\\s*(\\d+)\\s*(?:mm|毫米)?"],
+      "context_terms": ["平台", "platform", "尺寸", "外形", "包络", "面积"],
+      "unit": "mm",
+      "value_shape": "pair",
+      "slot": "envelope"
+    }
+  },
+  "end_effector": {
+    "rot_range_deg": {
+      "regex": ["[±]?\\s*(\\d+(?:\\.\\d+)?)\\s*[°度]"],
+      "context_terms": ["翻转", "旋转", "rotation", "rotate"],
+      "unit": "deg",
+      "slot": "capability_1"
+    },
+    "switch_time_s": {
+      "regex": ["(\\d+(?:\\.\\d+)?)\\s*(?:s|秒)"],
+      "context_terms": ["切换", "switch"],
+      "unit": "s",
+      "slot": "capability_2"
+    },
+    "flange_dia_mm": {
+      "regex": [
+        "Φ\\s*(\\d+(?:\\.\\d+)?)",
+        "(\\d+)\\s*mm\\s*法兰",
+        "flange\\s*(\\d+)"
+      ],
+      "context_terms": ["法兰", "flange"],
+      "unit": "mm",
+      "slot": "envelope"
+    }
+  }
+}
