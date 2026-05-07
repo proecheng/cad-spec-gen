@@ -48,3 +48,33 @@ def test_kpi_patterns_json_has_3_kpis_per_implemented_subsystem():
             assert isinstance(kpi.get("regex"), list) and kpi["regex"], f"{subsystem}.{kpi_name} regex 缺"
             assert isinstance(kpi.get("context_terms"), list) and kpi["context_terms"], f"{subsystem}.{kpi_name} context_terms 缺"
             assert isinstance(kpi.get("unit"), str), f"{subsystem}.{kpi_name} unit 缺"
+
+
+def test_load_dictionary_returns_validated_object():
+    from tools.project_guide_dict import load_dictionary, ProductGoalDictionary
+
+    d = load_dictionary()
+    assert isinstance(d, ProductGoalDictionary)
+    assert "lifting_platform" in d.subsystem_keywords
+    assert "load_kg" in d.kpi_patterns["lifting_platform"]
+
+
+def test_load_dictionary_raises_on_missing_file(tmp_path):
+    from tools.project_guide_dict import load_dictionary
+
+    (tmp_path / "subsystem_keywords.json").write_text("{}", encoding="utf-8")
+    # 缺 kpi_patterns.json
+    with pytest.raises(RuntimeError, match="kpi_patterns.json"):
+        load_dictionary(dict_root=tmp_path)
+
+
+def test_load_dictionary_raises_on_implemented_subsystem_missing_kpis(tmp_path):
+    from tools.project_guide_dict import load_dictionary
+
+    (tmp_path / "subsystem_keywords.json").write_text(
+        json.dumps({"lifting_platform": {"status": "implemented", "primary_terms": ["升降"], "supporting_terms": []}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "kpi_patterns.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="lifting_platform.*kpi_patterns"):
+        load_dictionary(dict_root=tmp_path)
