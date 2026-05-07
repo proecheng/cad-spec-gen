@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Mapping
 
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.model_audit import build_model_quality_summary
@@ -623,3 +623,133 @@ def _resolve_project_path(project_root: Path, path: str | Path, label: str) -> P
 
 def _safe_cli_token(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value or ""))
+
+
+def write_project_goal_guide(
+    project_root: str | Path,
+    product_goal: str,
+    *,
+    design_doc: str | Path | None = None,
+    confirmed_subsystem: str | None = None,
+    confirmed_kpis: Mapping[str, float | tuple[float, float]] | None = None,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """产品目标自然语言入口；写 PROJECT_GUIDE.json。
+
+    与 write_project_entry_guide 平行；不动 pipeline state，纯只读。
+    """
+    from tools.product_goal_parser import parse_product_goal
+
+    root = Path(project_root).resolve()
+    target = _project_entry_guide_target(root, output_path)
+
+    parse_result = parse_product_goal(
+        text=product_goal,
+        confirmed_subsystem=confirmed_subsystem,
+        confirmed_kpis=confirmed_kpis,
+    )
+
+    status, next_action = _derive_goal_status_and_next_action(
+        parse_result, design_doc, root
+    )
+
+    report = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "entry_mode": "product_goal",
+        "status": status,
+        "ordinary_user_message": _ordinary_user_message_for_goal(status),
+        "mutates_pipeline_state": False,
+        "does_not_scan_directories": True,
+        "product_goal": _serialize_parse_result(parse_result),
+        "next_action": next_action,
+        "artifacts": {
+            "project_guide": project_relative(target, root),
+        },
+    }
+
+    write_json_atomic(target, report)
+    return report
+
+
+def _derive_goal_status_and_next_action(
+    parse_result: Any,
+    design_doc: str | Path | None,
+    root: Path,
+) -> tuple[str, dict[str, Any]]:
+    """从 parse 结果派生 status + next_action。Task 8 仅含 4 简单状态分支。"""
+    if not parse_result.raw_text or not parse_result.raw_text.strip():
+        return "needs_product_goal", {
+            "kind": "supply_product_goal",
+            "preview_cli": (
+                "python cad_pipeline.py project-guide --product-goal \"<描述你的产品>\""
+            ),
+        }
+
+    if parse_result.subsystem_status == "ambiguous":
+        return "needs_subsystem_confirmation", {
+            "kind": "confirm_subsystem",
+            "preview_cli": (
+                "python cad_pipeline.py project-guide --product-goal \"...\" "
+                "--confirm-subsystem <lifting_platform|end_effector>"
+            ),
+        }
+
+    if parse_result.subsystem_status == "unknown":
+        return "unknown_subsystem", {
+            "kind": "list_supported_subsystems",
+            "supported": ["lifting_platform", "end_effector"],
+        }
+
+    if parse_result.subsystem_status == "not_yet_implemented":
+        return "not_yet_implemented", {
+            "kind": "wait_for_implementation",
+            "alternatives": {
+                "implemented_subsystems": ["lifting_platform", "end_effector"],
+                "switch_example": (
+                    'python cad_pipeline.py project-guide --product-goal '
+                    '"做升降平台 50kg"'
+                ),
+                "feedback_url": "https://github.com/proecheng/cad-spec-gen/issues/new",
+            },
+        }
+
+    # implemented 分支留给 Task 9（needs_kpi / needs_design_doc / ready_for_cad_spec）
+    return "needs_kpi_confirmation", {
+        "kind": "supply_missing_kpis",
+        "preview_cli": (
+            "python cad_pipeline.py project-guide --product-goal \"...\" --confirm-X ..."
+        ),
+    }
+
+
+def _ordinary_user_message_for_goal(status: str) -> str:
+    return {
+        "needs_product_goal": "请用 --product-goal \"<描述你的产品>\" 启动。",
+        "needs_subsystem_confirmation": "产品类别含混，请用 --confirm-subsystem <name> 指定。",
+        "not_yet_implemented": "该子系统在路线图但尚未实现；可考虑 lifting_platform 或 end_effector。",
+        "unknown_subsystem": "未识别此产品类别；当前支持 lifting_platform、end_effector。",
+        "needs_kpi_confirmation": "请用 --confirm-X flag 补齐缺失 KPI 后重跑。",
+        "needs_design_doc": "KPI 已齐，请用 --design-doc <path> 提供设计文档后重跑。",
+        "ready_for_cad_spec": "一切就绪，可执行 cad-spec 生成 CAD_SPEC.md。",
+    }.get(status, "(未知状态)")
+
+
+def _serialize_parse_result(parse_result: Any) -> dict[str, Any]:
+    kpi_extracted: dict[str, Any] = {}
+    kpi_missing: list[str] = []
+    for name, k in parse_result.kpis.items():
+        if k.status == "extracted":
+            # tuple value（如 platform_size_mm）改为 list 以便 JSON 序列化
+            value = list(k.value) if isinstance(k.value, tuple) else k.value
+            kpi_extracted[name] = value
+        else:
+            kpi_missing.append(name)
+    return {
+        "text": parse_result.raw_text,
+        "subsystem_class": parse_result.subsystem_class,
+        "subsystem_status": parse_result.subsystem_status,
+        "kpi_extracted": kpi_extracted,
+        "kpi_missing": kpi_missing,
+        "parser_evidence": parse_result.parser_evidence,
+    }
