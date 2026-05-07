@@ -174,3 +174,49 @@ def test_nfkc_normalize_fullwidth_digits():
     # 全角数字 １００ 应等价 100
     result = parse_product_goal(text="升降平台 升起 １００kg")
     assert result.kpis["load_kg"].value == 100
+
+
+def test_numbers_can_be_shared_across_kpis_no_conflict():
+    """50kg + 50mm 各归各位，不算冲突。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 升 50kg 行程 50mm")
+    assert result.kpis["load_kg"].value == 50
+    assert result.kpis["load_kg"].status == "extracted"
+    assert result.kpis["stroke_mm"].value == 50
+    assert result.kpis["stroke_mm"].status == "extracted"
+
+
+def test_confirmed_kpis_override_parser():
+    from tools.product_goal_parser import parse_product_goal
+
+    # 自然语言抽到 50，confirmed 传 100
+    result = parse_product_goal(
+        text="升降平台 升 50kg",
+        confirmed_kpis={"load_kg": 100.0},
+    )
+    assert result.kpis["load_kg"].value == 100
+    assert result.kpis["load_kg"].rule == "confirmed_kpi"
+
+
+def test_confirmed_subsystem_overrides_parser():
+    from tools.product_goal_parser import parse_product_goal
+
+    # 自然语言识别为 EE，confirmed 强制 lifting
+    result = parse_product_goal(
+        text="末端执行机构",
+        confirmed_subsystem="lifting_platform",
+    )
+    assert result.subsystem_class == "lifting_platform"
+
+
+def test_kpi_extraction_does_not_leak_cad_param_names():
+    """入口层和 CAD 层严格分离：kpis 字段绝不含 PARAM_L25 / SENSOR_STROKE 等。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 升 50kg 行程 200mm 350x230 平台")
+    for kpi in result.kpis.values():
+        forbidden = {"PARAM_L25", "PARAM_L27", "SENSOR_STROKE", "PITCH"}
+        assert kpi.kpi_name not in forbidden
+        if kpi.evidence_token:
+            assert kpi.evidence_token not in forbidden
