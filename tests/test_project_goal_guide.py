@@ -155,6 +155,56 @@ def test_output_path_outside_project_guide_dir_rejected(tmp_path):
         )
 
 
+def test_cli_no_flag_writes_needs_product_goal_guide(tmp_path, capsys, monkeypatch):
+    """rev 4 DR-3：dispatch 默认分支不 error，写 informative guide。"""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parents[1]))
+    from cad_pipeline import cmd_project_guide
+
+    # cmd_project_guide 用 PROJECT_ROOT，需 monkeypatch 到 tmp_path
+    import cad_pipeline
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    args = type("Args", (), {
+        "product_goal": None,
+        "from_design_doc": False,
+        "subsystem": None,
+        "design_doc": None,
+        "output": None,
+        "artifact_index": None,
+        "confirm_subsystem": None,
+        "confirm_load": None, "confirm_stroke": None, "confirm_platform_size": None,
+        "confirm_rot_range": None, "confirm_switch_time": None, "confirm_flange_dia": None,
+    })()
+
+    rc = cmd_project_guide(args)
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+
+    assert rc == 0  # 不 error
+    assert report["status"] == "needs_product_goal"
+    assert report["entry_mode"] == "product_goal"
+
+
+def test_cli_collect_confirmed_kpis_handles_unit_suffixes():
+    """--confirm-load 50kg / 50 / 0.05t 都应解析。"""
+    from cad_pipeline import _collect_confirmed_kpis
+
+    args = type("Args", (), {
+        "confirm_load": "50kg",
+        "confirm_stroke": "200",
+        "confirm_platform_size": "350x230",
+        "confirm_rot_range": None,
+        "confirm_switch_time": None,
+        "confirm_flange_dia": None,
+    })()
+
+    kpis = _collect_confirmed_kpis(args)
+    assert kpis["load_kg"] == 50.0
+    assert kpis["stroke_mm"] == 200.0
+    assert kpis["platform_size_mm"] == (350.0, 230.0)
+
+
 def test_no_forbidden_secrets_in_report(tmp_path):
     """复用既有 forbidden 字段守护 — 报告永不含 api_key/url 等敏感字段。"""
     from tools.project_guide import write_project_goal_guide

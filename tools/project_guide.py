@@ -170,6 +170,12 @@ def command_return_code_for_project_guide(report: dict[str, Any]) -> int:
         "needs_codegen",
         "needs_build_render",
         "ready_for_photo3d_run",
+        # rev 4 DR-3：product_goal 入口的 informative/actionable 状态
+        "needs_product_goal",
+        "needs_kpi_confirmation",
+        "ready_for_cad_spec",
+        "unknown_subsystem",
+        "not_yet_implemented",
     } else 1
 
 
