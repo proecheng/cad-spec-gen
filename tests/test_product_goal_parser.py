@@ -88,3 +88,36 @@ def test_parse_empty_text_returns_no_subsystem():
     assert result.subsystem_status == "unknown"
     assert result.kpis == {}
     assert result.raw_text == ""
+
+
+@pytest.mark.parametrize("text,expected_class,expected_status", [
+    ("做一个升降平台", "lifting_platform", "implemented"),
+    ("我要个 lifting platform", "lifting_platform", "implemented"),
+    ("末端执行机构", "end_effector", "implemented"),
+    ("end effector 设计", "end_effector", "implemented"),
+    ("做导航 SLAM", "navigation", "not_yet_implemented"),
+    ("一个充电桩", "charging", "not_yet_implemented"),
+])
+def test_subsystem_primary_terms_match_directly(text, expected_class, expected_status):
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text=text)
+    assert result.subsystem_class == expected_class, f"识别错：{result.subsystem_class}"
+    assert result.subsystem_status == expected_status
+
+
+def test_subsystem_supporting_only_marks_ambiguous():
+    """仅 supporting_terms 命中（无 primary）→ ambiguous。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降 50kg")  # "升降" 是 lifting 的 supporting，无 primary
+    assert result.subsystem_class is None
+    assert result.subsystem_status == "ambiguous"
+
+
+def test_unknown_subsystem_returns_unknown():
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="做一个不存在的产品类型 xyzzy")
+    assert result.subsystem_class is None
+    assert result.subsystem_status == "unknown"
