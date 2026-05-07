@@ -36,6 +36,37 @@ A natural-language-driven assistant for the CAD rendering pipeline. No need to m
 | 15 | CAD Spec | "generate spec" "extract parameters" | Run cad_spec_gen.py to produce CAD_SPEC.md |
 | 16 | Design Review | "review design" "check design" "审查" | Engineering review: mechanical/assembly/material/completeness → DESIGN_REVIEW.md |
 
+### Quickest Entry for New Users: Product Goal in Natural Language (v2.25+)
+
+External users can start the pipeline without writing a full design doc — just describe the product:
+
+```bash
+# Empty start → system asks for product goal
+python cad_pipeline.py project-guide
+
+# Natural language → system identifies subsystem and lists missing KPIs
+python cad_pipeline.py project-guide --product-goal "I want a 50kg lifting platform"
+
+# Provide all KPIs → system asks for design doc (needs_design_doc)
+python cad_pipeline.py project-guide \
+    --product-goal "lifting platform" \
+    --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230
+
+# Add design doc → enters CAD_SPEC stage (ready_for_cad_spec)
+python cad_pipeline.py project-guide \
+    --product-goal "lifting platform" \
+    --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230 \
+    --design-doc docs/design/XX-lifting_platform.md
+```
+
+Supported subsystems: `lifting_platform`, `end_effector` (17 others on roadmap → `not_yet_implemented` status with alternatives).
+
+Supported KPIs:
+- `lifting_platform`: `--confirm-load <kg>` / `--confirm-stroke <mm>` / `--confirm-platform-size <W×D mm>`
+- `end_effector`: `--confirm-rot-range <°>` / `--confirm-switch-time <s>` / `--confirm-flange-dia <mm>`
+
+Status machine (7 states): `needs_product_goal` / `needs_subsystem_confirmation` / `not_yet_implemented` / `unknown_subsystem` / `needs_kpi_confirmation` / `needs_design_doc` / `ready_for_cad_spec`.
+
 ### v2.3.0 New Capabilities
 
 - **Feature Extraction**: Auto-extracts per-part hole/slot features by cross-referencing §2 tolerances, §3 fasteners, §4 connections, §8 assembly sequence

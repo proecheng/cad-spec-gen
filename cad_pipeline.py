@@ -3660,15 +3660,61 @@ def cmd_product_graph(args):
     return 0
 
 
+def _collect_confirmed_kpis(args) -> dict[str, float | tuple[float, float]] | None:
+    """从 args 收集 --confirm-X flag 转 KPI dict。
+
+    设计原则（spec rev 4 DR-3）：
+    - flag→KPI 名映射固定，shape=single 取首数字，shape=pair 取两数字 tuple
+    - 接受 "50" / "50kg" / "0.05t"（regex 只看首数字，不强制单位）
+    - 平台尺寸 "350x230" 或 "350×230" 解析成 (350.0, 230.0)
+    - 全部为 None 时返回 None（保留原 confirmed_kpis 默认 None 语义）
+    """
+    import re as _re
+
+    flag_to_kpi = {
+        "confirm_load": ("load_kg", "single"),
+        "confirm_stroke": ("stroke_mm", "single"),
+        "confirm_platform_size": ("platform_size_mm", "pair"),
+        "confirm_rot_range": ("rot_range_deg", "single"),
+        "confirm_switch_time": ("switch_time_s", "single"),
+        "confirm_flange_dia": ("flange_dia_mm", "single"),
+    }
+    result: dict[str, float | tuple[float, float]] = {}
+    for flag, (kpi_name, shape) in flag_to_kpi.items():
+        raw = getattr(args, flag, None)
+        if raw is None:
+            continue
+        if shape == "pair":
+            m = _re.match(r"\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", str(raw))
+            if m:
+                result[kpi_name] = (float(m.group(1)), float(m.group(2)))
+        else:
+            m = _re.match(r"\s*(\d+(?:\.\d+)?)", str(raw))
+            if m:
+                result[kpi_name] = float(m.group(1))
+    return result or None
+
+
 def cmd_project_guide(args):
     """生成普通用户/大模型只读项目下一步向导。"""
     from tools.project_guide import (
         command_return_code_for_project_guide,
         write_project_entry_guide,
+        write_project_goal_guide,
         write_project_guide,
     )
 
-    if getattr(args, "from_design_doc", False):
+    if getattr(args, "product_goal", None) is not None:
+        # rev 4 DR-3：自然语言产品目标入口（最高优先级）
+        report = write_project_goal_guide(
+            PROJECT_ROOT,
+            args.product_goal or "",
+            design_doc=getattr(args, "design_doc", None),
+            confirmed_subsystem=getattr(args, "confirm_subsystem", None),
+            confirmed_kpis=_collect_confirmed_kpis(args),
+            output_path=getattr(args, "output", None),
+        )
+    elif getattr(args, "from_design_doc", False):
         if not getattr(args, "design_doc", None):
             log.error("--design-doc is required with --from-design-doc")
             return 1
@@ -3677,20 +3723,22 @@ def cmd_project_guide(args):
             args.design_doc,
             output_path=getattr(args, "output", None),
         )
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        log.info("PROJECT_GUIDE: %s", report.get("ordinary_user_message"))
-        return command_return_code_for_project_guide(report)
+    elif args.subsystem:
+        report = write_project_guide(
+            PROJECT_ROOT,
+            args.subsystem,
+            design_doc=getattr(args, "design_doc", None),
+            artifact_index_path=getattr(args, "artifact_index", None),
+            output_path=getattr(args, "output", None),
+        )
+    else:
+        # rev 4 DR-3：default 分支不再 error；写 informative guide
+        report = write_project_goal_guide(
+            PROJECT_ROOT,
+            "",
+            output_path=getattr(args, "output", None),
+        )
 
-    if not args.subsystem:
-        log.error("--subsystem is required")
-        return 1
-    report = write_project_guide(
-        PROJECT_ROOT,
-        args.subsystem,
-        design_doc=getattr(args, "design_doc", None),
-        artifact_index_path=getattr(args, "artifact_index", None),
-        output_path=getattr(args, "output", None),
-    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     log.info("PROJECT_GUIDE: %s", report.get("ordinary_user_message"))
     return command_return_code_for_project_guide(report)
@@ -4600,6 +4648,30 @@ def main():
         default=None,
         help="PROJECT_GUIDE.json output path (default: guide directory or current run directory)",
     )
+    # rev 4 DR-3：自然语言产品目标入口 + KPI 直传 flag
+    p_project_guide.add_argument(
+        "--product-goal",
+        type=str,
+        default=None,
+        help="自然语言产品目标（外行用户入口）",
+    )
+    p_project_guide.add_argument("--confirm-subsystem", type=str, default=None)
+    p_project_guide.add_argument(
+        "--confirm-load",
+        type=str,
+        default=None,
+        help="升降平台载荷 kg；接受 '50' 或 '50kg'",
+    )
+    p_project_guide.add_argument("--confirm-stroke", type=str, default=None)
+    p_project_guide.add_argument(
+        "--confirm-platform-size",
+        type=str,
+        default=None,
+        help="平台尺寸，例 '350x230'",
+    )
+    p_project_guide.add_argument("--confirm-rot-range", type=str, default=None)
+    p_project_guide.add_argument("--confirm-switch-time", type=str, default=None)
+    p_project_guide.add_argument("--confirm-flange-dia", type=str, default=None)
 
     # photo3d：运行照片级契约门禁
     p_photo3d = sub.add_parser(

@@ -576,3 +576,34 @@ def test_project_guide_rejects_non_project_guide_output_name(tmp_path):
             "demo",
             output_path=tmp_path / "cad" / "demo" / ".cad-spec-gen" / "OTHER.json",
         )
+
+
+def test_legacy_entry_mode_still_writes_design_doc_value(tmp_path):
+    """既有 --from-design-doc 路径写 entry_mode='design_doc'。"""
+    from tools.project_guide import write_project_entry_guide
+
+    design_doc = tmp_path / "docs" / "design" / "04-升降平台.md"
+    design_doc.parent.mkdir(parents=True)
+    design_doc.write_text("# 升降平台", encoding="utf-8")
+
+    report = write_project_entry_guide(tmp_path, design_doc)
+    assert report["entry_mode"] == "design_doc"  # 不漂到 "from_design_doc"
+
+
+def test_old_project_guide_json_without_new_fields_still_readable(tmp_path):
+    """旧 PROJECT_GUIDE.json 没 entry_mode 字段，新 reader 不应 KeyError。"""
+    target = tmp_path / ".cad-spec-gen" / "project-guide" / "PROJECT_GUIDE.json"
+    target.parent.mkdir(parents=True)
+
+    # 模拟旧 schema：无 entry_mode、无 product_goal
+    old_report = {
+        "schema_version": 1,
+        "status": "needs_subsystem_confirmation",
+        "subsystem_candidates": [],
+    }
+    target.write_text(json.dumps(old_report), encoding="utf-8")
+
+    # 读取应不抛
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded.get("entry_mode") is None  # 优雅 None
+    assert loaded.get("product_goal") is None
