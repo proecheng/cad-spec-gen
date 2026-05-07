@@ -78,3 +78,13 @@ def test_load_dictionary_raises_on_implemented_subsystem_missing_kpis(tmp_path):
     (tmp_path / "kpi_patterns.json").write_text("{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="lifting_platform.*kpi_patterns"):
         load_dictionary(dict_root=tmp_path)
+
+
+def test_parse_empty_text_returns_no_subsystem():
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="")
+    assert result.subsystem_class is None
+    assert result.subsystem_status == "unknown"
+    assert result.kpis == {}
+    assert result.raw_text == ""
