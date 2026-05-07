@@ -2,7 +2,22 @@
 
 **日期**：2026-05-07
 **作者**：brainstorming session
+**rev**：2（4 角色对抗审查后修订：6 CRITICAL + 7 KPI 选择类 IMPORTANT 全闭）
 **目标**：把 `project-guide` 入口前移一步——外行用户不写设计文档也能启动，只用一句产品目标自然语言（如"做一个升 50kg 的升降平台"），系统识别子系统类别 + 抽取顶层 KPI + 标记缺失项，让用户用 `--confirm-X` flag 一次性补齐后进入既有 Phase 1 流程
+
+## rev 1 → rev 2 修订记录（2026-05-07）
+
+按 4 角色（机械设计 / 3D 建模 / 程序员 / 潜在用户）对抗审查后修订：
+
+- **C-1（机械+3D 建模）**：KPI ↔ CAD 参数对应关系全部显式列表（§KPI 映射表）；说清 `load_kg` 是 **用户表达层**，下游 cad-spec 才决定填 `PARAM_L25` / `PARAM_L27`；`flange_dia_mm → FLANGE_DIA = FLANGE_BODY_OD`（同一外径）
+- **C-2（3D 建模）**：lifting_platform KPI 替换 `speed_mm_s` → `platform_size_mm`（外行更可能说外形包络）
+- **C-3（3D 建模）**：跨子系统统一 KPI 选择原则——3 槽：`capability_1` / `capability_2` / `envelope`
+- **C-4（程序员）**：regex multi-pattern 优先级显式声明（"最具体单位优先"，mm > cm > m）
+- **C-5（程序员）**：距离度量定义 NFKC normalize 后的 char index；不同 KPI 的数字共享允许（按各自 context_terms 距离独立判定）
+- **C-6（程序员）**：PROJECT_GUIDE.json schema 向后兼容——所有新字段 optional + 现有 16 例测试不破坏的回归测试
+- **C-7（潜在用户）**：加 §扩展指南——加新子系统 / 新 KPI 的 minimum file checklist
+- **I-1～I-7（KPI 选择类，已并入 C-1～C-3）**：通过引入"用户表达层 vs CAD 参数层"的双层抽象 + 跨子系统 3 槽统一原则解决
+- **附带（程序员）**：unicode NFKC normalize 策略 / yaml schema 工具选型（pyyaml + dataclass 自校）/ preview_cli 转义复用 `_safe_cli_token` / CLI flag 与 KPI key 显式映射表
 
 ---
 
@@ -68,7 +83,7 @@
     "subsystem_class": "lifting_platform",
     "subsystem_status": "implemented",
     "kpi_extracted": {"load_kg": 50, "stroke_mm": 200},
-    "kpi_missing": ["speed_mm_s"],
+    "kpi_missing": ["platform_size_mm"],
     "parser_evidence": [
       {"token": "升降平台", "matched": "subsystem_class", "rule": "primary_terms[0]"},
       {"token": "50kg", "matched": "load_kg", "rule": "regex+context:升"},
@@ -77,7 +92,7 @@
   },
   "next_action": {
     "kind": "supply_missing_kpis",
-    "preview_cli": "python cad_pipeline.py project-guide --product-goal \"...\" --confirm-speed 20"
+    "preview_cli": "python cad_pipeline.py project-guide --product-goal \"...\" --confirm-platform-size 350x230"
   }
 }
 ```
@@ -168,10 +183,11 @@ lifting_platform:
     context_terms: ["行程", "升高", "升程", "stroke", "travel"]
     unit: mm
     unit_normalize: {cm: 10, m: 1000, 厘米: 10, 米: 1000}
-  speed_mm_s:
-    regex: ['(\d+(?:\.\d+)?)\s*(?:mm/s|毫米每秒|mm·s)']
-    context_terms: ["速度", "升降速度", "speed"]
-    unit: mm_per_s
+  platform_size_mm:
+    regex: ['(\d+)\s*[x×]\s*(\d+)\s*(?:mm|毫米)?']    # 抓两个数字
+    context_terms: ["平台", "platform", "尺寸", "外形", "包络", "面积"]
+    unit: mm
+    value_shape: pair                                  # tuple (W, D)
 end_effector:
   rot_range_deg:
     regex: ['[±]?\s*(\d+(?:\.\d+)?)\s*[°度]']
@@ -198,6 +214,136 @@ end_effector:
 - 多个 KPI 都能匹配同一数字 → 选 `context_terms` token 距离最近的
 - 距离相同 → `status: ambiguous`，必须用户 `--confirm-X` 显式指定
 - regex 命中但没 context_terms → 不抽，但记入 `parser_evidence` 让用户审
+
+### 解析器歧义优先级（rev 2 显式声明）
+
+**输入预处理**（必做，按顺序）：
+
+1. `unicodedata.normalize("NFKC", text)` — 全角数字/全角空格/Φ 全角统一
+2. 全部小写化（仅英文部分）
+
+**regex multi-pattern 优先级**：
+
+- 同一 KPI 列多个 regex 时，按 yaml 中**声明顺序短路匹配**（最具体单位优先）
+- 例：`stroke_mm` 列 `[mm, cm, m]` 三个 regex
+  - 输入 `200mm` → 第 1 个命中 → `stroke_mm = 200`
+  - 输入 `20cm` → 第 1 个不命中（因 `cm` 不含 `mm` 模式）→ 第 2 个命中 → 归一 `stroke_mm = 200`
+  - 输入 `0.2m` → 前 2 个不命中 → 第 3 个命中（带 `(?![ms])` 负向预查保证不撞 `ms`/`mm`）→ 归一 `stroke_mm = 200`
+- 同一 token 命中多个 regex → 取**第一个命中**（不取最长匹配，避免 `200cm` 被 `m` regex 也命中产生歧义）
+
+**距离度量**：
+
+- 单位是 NFKC normalize 后的 **char index**（不是 byte / token）
+- 距离 = `min(|context_pos - number_start|, |context_pos - number_end|)`
+- ±20 char 是软窗口；超出窗口仍允许，但 `parser_evidence` 标 `weak`
+
+**数字共享规则**（rev 2 明确）：
+
+- 不同 KPI 之间允许共享同一 token：`"50kg 平台 + 升 50mm"` 中两个 50 各归各位（一个匹配 load 因近 "kg"，一个匹配 stroke 因近 "mm"）——**不算歧义**
+- 真冲突 = 同一数字 + 多个 KPI 都能匹配 + context_terms 距离相等：`"50 升降"` 中 `50` 既能算 load（"升"在 context）又能算 stroke（"升"在 stroke 的 "升高/升程"）→ `status: ambiguous`，让用户用 `--confirm-X` 显式
+
+---
+
+## KPI ↔ CAD 参数映射（rev 2 新增）
+
+**核心抽象**：KPI 是**用户表达层**，CAD 参数是**实现层**。两层分离：
+
+- 入口模式（本 spec）只输出 `kpi_extracted.<kpi_name> = <value>`，**不指定 CAD 参数**
+- 下游 cad-spec / supplementation 流程根据用户进一步信息决定填哪个 CAD 参数
+- 一对多 / 一对一 / 含混都允许，由下游处理
+
+**映射表**：
+
+| KPI 名 | CAD 参数对应 | 映射类型 | 说明 |
+|---|---|---|---|
+| `load_kg` | `PARAM_L25` 或 `PARAM_L27` | 一对多 | 工件载重 vs 平台额定载荷由下游决定（CAD_SPEC 历史债，不在本 spec 修复范围） |
+| `stroke_mm` | `SENSOR_STROKE` | 一对一 | 行程下极限到上极限距离 |
+| `platform_size_mm` | `(PARAM_L394, PARAM_L395)` | 一对多（pair） | W × D 平台尺寸；下游可能拆 X/Y |
+| `rot_range_deg` | `ROT_RANGE` | 一对一 | 旋转范围（±角度由 CAD_SPEC 公差列承载） |
+| `switch_time_s` | `SWITCH_T` | 一对一 | 切换时间，影响 motor torque selection |
+| `flange_dia_mm` | `FLANGE_DIA = FLANGE_BODY_OD` | 一对一 | 圆盘外径（CAD_SPEC §1 简化命名 §3 完整命名，同一物理量） |
+
+**含混标注**（已知 limitation，不阻塞 rev 2）：
+
+- `load_kg` 工程语义不明（额定/动/静/含安全系数）→ 入口层不区分，原样向下传；cad-spec supplementation 阶段补充
+- `platform_size_mm` 是平台外形包络还是工作台面有效面积 → 同上，原样向下传
+
+---
+
+## 跨子系统统一 KPI 选择原则（rev 2 新增）
+
+为保证未来加新子系统时 KPI 选择有据可依，确立 **3 槽统一原则**：
+
+| 槽 | 含义 | lifting_platform | end_effector |
+|---|---|---|---|
+| `capability_1` | 主要功能能力（最显眼的性能数字） | `load_kg` 载荷 | `rot_range_deg` 翻转范围 |
+| `capability_2` | 次要功能能力（功能完整性） | `stroke_mm` 行程 | `switch_time_s` 切换时间 |
+| `envelope` | 外形/接口包络（用户可视化的尺寸） | `platform_size_mm` 平台尺寸 W×D | `flange_dia_mm` 法兰外径 |
+
+**新加子系统时的选择义务**：
+
+- 必须填齐 3 槽
+- 每槽的 KPI 必须能用**单条自然语言短语表达**（"50kg 载荷" / "翻转 ±135°"），且**单位明确**
+- 每槽的 KPI 必须**显式映射**到 CAD_SPEC 的某/某些参数（一对一、一对多、含混都允许，但映射类型必须声明）
+- 不允许槽留空——如果某子系统真的没有该槽对应概念（如 software 子系统没有 envelope），子系统应被标 `not_yet_implemented` 或 `unknown`，而不是缺槽实现
+
+**3 槽外维度的处理**（rev 2 显式声明 YAGNI 边界）：
+
+工程上有大量 KPI 不进 3 槽——下表举例，**这些维度由现有 cad-spec supplementation 流程承接，不在入口层收集**：
+
+| 维度 | lifting_platform 例 | end_effector 例 | 为什么不在入口层 |
+|---|---|---|---|
+| 精度 | POS_ACC=0.1mm（重复定位精度） | SPRING_POS_ACC=0.2°（弹簧定位精度） | 用户语言里很少提，提了也单位含糊（"高精度"≠数字） |
+| 占空比 / 工时 | PARAM_L470=10h | — | 不直接驱动几何，属选型层（电机连续工作能力） |
+| 驱动方式 | 电动 / 气动 | 电动 / 气动 / 液压 | 离散值不是数字，不适合 regex 抽取 |
+| 工件数 / 工位数 | — | 单工位 vs 多工位翻转 | 同上 |
+| 速度 | SPEED=20mm/s | — | 不直接驱动几何，属 motor selection 层 |
+
+入口层的承诺收窄到"用户最易表达 + 数字化 + 直接对应外形包络或主能力"的 3 项；其余在 cad-spec 阶段通过现有 supplementation 机制（`DESIGN_REVIEW.json` warning/critical 门禁）补充。
+
+---
+
+## PROJECT_GUIDE.json 向后兼容（rev 2 新增）
+
+**约束**：
+
+- 所有新字段（`entry_mode`、`product_goal.*`）在 schema 中必须 **optional**
+- `entry_mode` 缺省值是 `"legacy"`（既有 `--from-design-doc` / `--subsystem` 路径写入）
+- 现有 16 例 `tests/test_project_guide.py` **必须不修改不破坏**（plan 第 0 task 必跑红测验证）
+- 所有 reader（`_provider_choice`、`_subsystem_candidates_for_design_doc`、`build_model_quality_summary` 等）对 `product_goal` 字段的访问都必须 `dict.get(..., None)` 或 `try/except KeyError`
+
+**回归测试**：
+
+- `test_project_guide.py` 既有 16 例全部跑过且不修改
+- 新加 1 例：旧 PROJECT_GUIDE.json（无 `entry_mode` / `product_goal` 字段）能被新代码读取并写入正确状态
+
+---
+
+## 扩展指南（rev 2 新增）
+
+潜在用户加新子系统的最小 file checklist：
+
+| 步骤 | 文件 | 改动 |
+|---|---|---|
+| 1 | `tools/project_guide_dict/subsystem_keywords.yaml` | 加 `<new_subsystem>:` 块（status / primary_terms / supporting_terms） |
+| 2 | `tools/project_guide_dict/kpi_patterns.yaml` | 加 `<new_subsystem>:` 块（3 槽 KPI：capability_1 / capability_2 / envelope） |
+| 3 | `cad_pipeline.py` | 加对应 `--confirm-<kpi>` flag（如新 KPI 名是 `xxx_unit` → flag 是 `--confirm-xxx`） |
+| 4 | `tests/test_product_goal_parser.py` | 加 positive + negative + 1 ambiguous case |
+| 5 | `tests/test_project_goal_guide.py` | 加 e2e 1 例（新子系统从识别到 ready_for_cad_spec） |
+| 6 | `cad/<new_subsystem>/` | 加目录 + `params.py` + `CAD_SPEC.md`（status 才能从 `not_yet_implemented` 升 `implemented`） |
+| 7 | `scripts/dev_sync.py --check` | 跑通确保安装版镜像无漂移 |
+
+**说明**：
+
+- 步骤 1-5 让入口层识别新子系统，**status 仍是 `not_yet_implemented`**
+- 步骤 6 真正补齐 CAD 实现后，更新步骤 1 的 `status: implemented`
+- 步骤 7 是项目级硬约束，每次改 yaml 必跑
+
+**KPI 命名规约**：
+
+- 蛇形小写：`load_kg`、`platform_size_mm`、`rot_range_deg`
+- 单位后缀必须是 SI 基本单位或派生单位的小写形式：`kg` / `mm` / `s` / `deg`、`mm_per_s`
+- 复合 KPI（如 platform_size 是 W×D pair）用单位后缀表示主要单位，`value_shape: pair` 在 yaml 显式声明
 
 ---
 
@@ -290,7 +436,7 @@ parser.add_argument("--confirm-subsystem", type=str)
 # 显式 KPI confirm flags（lifting + EE 共 6 个）
 parser.add_argument("--confirm-load", type=str, help="升降平台载荷 (kg)")
 parser.add_argument("--confirm-stroke", type=str)
-parser.add_argument("--confirm-speed", type=str)
+parser.add_argument("--confirm-platform-size", type=str, help="升降平台尺寸 W×D (mm)，例 '350x230'")
 parser.add_argument("--confirm-rot-range", type=str)
 parser.add_argument("--confirm-switch-time", type=str)
 parser.add_argument("--confirm-flange-dia", type=str)
@@ -307,12 +453,38 @@ parser.add_argument("--confirm-flange-dia", type=str)
 |---|---|---|
 | `--confirm-load` | kg | kg / 公斤 / 千克 |
 | `--confirm-stroke` | mm | mm / cm / m / 毫米 / 厘米 / 米 |
-| `--confirm-speed` | mm/s | mm/s / mm·s |
+| `--confirm-platform-size` | mm × mm | `350x230` / `350×230` / `350x230mm` |
 | `--confirm-rot-range` | ° | ° / 度（前缀 `±` 接受但只取数值） |
 | `--confirm-switch-time` | s | s / 秒 |
 | `--confirm-flange-dia` | mm | mm（前缀 `Φ` 接受但只取数值） |
 
 无法解析时（如 `--confirm-load abc` / `--confirm-load 50ml`）→ 写 `kpi_extracted[load_kg].status = "ambiguous"` + `parser_evidence` 标 `confirm_flag_invalid`，让用户改正。
+
+### CLI flag ↔ KPI key 显式映射表（rev 2 新增）
+
+CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含单位后缀）。**必须有显式 mapping，不让代码读者自己猜**。
+
+| CLI flag | KPI key | 子系统 | 槽 |
+|---|---|---|---|
+| `--confirm-load` | `load_kg` | lifting_platform | capability_1 |
+| `--confirm-stroke` | `stroke_mm` | lifting_platform | capability_2 |
+| `--confirm-platform-size` | `platform_size_mm` | lifting_platform | envelope |
+| `--confirm-rot-range` | `rot_range_deg` | end_effector | capability_1 |
+| `--confirm-switch-time` | `switch_time_s` | end_effector | capability_2 |
+| `--confirm-flange-dia` | `flange_dia_mm` | end_effector | envelope |
+| `--confirm-subsystem` | `<subsystem_class>` | (跨子系统) | meta |
+
+实现层这张表存在 `tools/project_guide_dict/__init__.py`，作为 `CLI_FLAG_TO_KPI_KEY` 常量；`cad_pipeline.py` argparse 解析后查表把 args 转 KPI dict 给 parser。
+
+### 实现层关键约束（rev 2 新增）
+
+| 约束 | 说明 | 复用现有资产 |
+|---|---|---|
+| Unicode normalize | 所有用户输入 NFKC normalize 后再 regex（含 `--product-goal` text 和 `--confirm-X` value） | `tools/project_guide.py` 已 `import unicodedata`，复用 |
+| YAML 加载 | `yaml.safe_load`（PyYAML 是项目现有依赖） + dataclass 自校（`ProductGoalDictionary` 加 `__post_init__` 校验 schema） | 不引入 jsonschema/pydantic 新依赖 |
+| Path 越界 | 所有路径写入走 `assert_within_project` | `tools/path_policy.py` 已存在 |
+| 文件原子写 | PROJECT_GUIDE.json 走 `write_json_atomic` | `tools/contract_io.py` 已存在 |
+| Shell 转义 | preview_cli 中的 user text 必须经 `_safe_cli_token` 校验；含特殊字符 → 写 `next_action.preview_cli_unsafe = true` 并降级为不带 user text 的通用提示 | `tools/project_guide.py:_safe_cli_token` 已存在 |
 
 ---
 
@@ -343,7 +515,27 @@ parser.add_argument("--confirm-flange-dia", type=str)
 ### `tests/test_project_guide.py`（已有，扩展）
 
 - 不破坏现有 16 个测试
-- 新加 2 例：`--product-goal` 和 `--from-design-doc` 都不传时 status 仍是 `needs_subsystem_confirmation`（兼容）
+- 新加 2 例：
+  - `--product-goal` 和 `--from-design-doc` 都不传时 status 仍是 `needs_subsystem_confirmation`（兼容）
+  - 旧 PROJECT_GUIDE.json（无 `entry_mode` / `product_goal` 字段）能被新代码读取（向后兼容回归测试）
+
+### rev 2 新增测试
+
+**P-C1 / P-C2 解析器歧义优先级**（加入 `test_product_goal_parser.py`）：
+
+1. regex multi-pattern 短路：`200mm` / `20cm` / `0.2m` 都归一 `stroke_mm = 200`，且 `parser_evidence.rule` 显示命中第几条 regex
+2. 距离度量：`"50kg 平台 升 50mm"` 中两个 50 各归各位（不算冲突）
+3. 真冲突：`"50 升降"` 中单个 50 + "升" 同时是 load 和 stroke 的 context → status `ambiguous`
+4. NFKC：`"100kg" / "１００kg" / "100ｋｇ"` 都归到 `load_kg = 100`
+5. preview_cli 转义：含 `"` / newline 的 product_goal → `preview_cli_unsafe = true` 不直接拼
+
+**C-7 扩展指南可执行性**（加入 `test_project_goal_guide.py`）：
+
+6. 加一个 `mock_subsystem`（仅在测试中存在的 yaml 块）→ parser 能识别它 + 走完 needs_kpi → ready 流程，验证扩展路径可行
+
+**KPI ↔ CAD 参数映射约束**（加入 `test_product_goal_parser.py`）：
+
+7. `kpi_extracted` 输出**绝不**含 CAD 参数名（`PARAM_L25` / `SENSOR_STROKE`）—— 入口层和 CAD 层严格分离
 
 ---
 
