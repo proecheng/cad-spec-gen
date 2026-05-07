@@ -6,6 +6,7 @@ instead of vertical FOV only, producing correct framing for wide models.
 """
 import math
 import pathlib
+import ast
 
 import pytest
 
@@ -95,3 +96,45 @@ def test_render_depth_only_has_new_formula():
         "render_depth_only.py is missing the new fov_h line"
     assert "min(fov_v, fov_h)" in content, \
         "render_depth_only.py is missing the min(fov_v, fov_h) formula"
+
+
+def _extract_function(src: str, name: str) -> ast.FunctionDef:
+    module = ast.parse(src)
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    pytest.fail(f"render_3d.py is missing {name}()")
+
+
+def test_ortho_auto_frame_uses_projected_bounds_and_aspect():
+    """正交自动取景必须按 Blender 的横向 ortho_scale 语义计算。"""
+    src = pathlib.Path(__file__).parent.parent / "src" / "cad_spec_gen" / "render_3d.py"
+    content = src.read_text(encoding="utf-8")
+    node = _extract_function(content, "_ortho_scale_for_projected_bounds")
+    namespace: dict[str, object] = {}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(src), "exec"), namespace)
+
+    scale = namespace["_ortho_scale_for_projected_bounds"](
+        min_corner=(-20.0, -10.0, 0.0),
+        max_corner=(20.0, 10.0, 420.0),
+        view_dir=(0.0, -1.0, 0.0),
+        up_dir=(0.0, 0.0, 1.0),
+        aspect=1920 / 1080,
+        frame_fill=0.75,
+    )
+
+    # Blender ORTHO scale is the camera frame width.  In 16:9, vertical world
+    # coverage is ortho_scale / aspect, so a 420mm tall subject needs
+    # 420 * aspect / 0.75 = 995.56mm of ortho scale.
+    assert abs(scale - 995.5556) < 0.01
+
+
+def test_ortho_auto_frame_uses_rotation_euler_axes_not_stale_matrix_world():
+    """ORTHO 取景不应从未刷新的 matrix_world 读取相机轴。"""
+    src = pathlib.Path(__file__).parent.parent / "src" / "cad_spec_gen" / "render_3d.py"
+    body = ast.get_source_segment(
+        src.read_text(encoding="utf-8"),
+        _extract_function(src.read_text(encoding="utf-8"), "setup_camera"),
+    )
+    assert "rotation_euler.to_matrix()" in body
+    assert "cam_obj.matrix_world.to_quaternion()" not in body

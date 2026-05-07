@@ -601,6 +601,11 @@ mappings:
     adapter: jinja_primitive
 
   - match:
+      category: locating
+      keyword_contains: ["定位销", "圆柱销", "dowel pin", "locating pin", "parallel pin"]
+    adapter: jinja_primitive
+
+  - match:
       category: cable
       keyword_contains: ["线束", "cable harness", "harness", "FFC"]
     adapter: jinja_primitive

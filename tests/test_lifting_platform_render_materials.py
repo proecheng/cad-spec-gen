@@ -42,6 +42,14 @@ def test_lifting_platform_render_config_has_valid_material_references():
     assert warnings == []
 
 
+def test_lifting_platform_exploded_camera_is_not_rendered_as_standard_view():
+    """Exploded view camera must not also be rendered by render_3d.py --all."""
+    rc = json.loads(LIFTING_RENDER_CONFIG.read_text(encoding="utf-8"))
+    explode_key = rc["explode"]["camera_preset"]
+
+    assert rc["camera"][explode_key]["type"] == "exploded"
+
+
 def test_lifting_platform_glb_nodes_resolve_to_configured_materials():
     pipeline = _load_cad_pipeline()
     rc = json.loads(LIFTING_RENDER_CONFIG.read_text(encoding="utf-8"))

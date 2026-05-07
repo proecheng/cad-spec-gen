@@ -34,6 +34,42 @@ def _write_photo3d_run(fixture, next_action, *, status="needs_baseline_acceptanc
     )
 
 
+def _write_enhancement_report(fixture, status, *, message=None):
+    manifest_files = fixture["payloads"]["render_manifest"]["files"]
+    views = [
+        {
+            "view": entry["view"],
+            "status": "accepted" if status != "blocked" else "blocked",
+            "source_image": entry["path_rel_project"],
+            "source_sha256": entry["sha256"],
+            "enhanced_image": (
+                entry["path_rel_project"].replace(".png", "_enhanced.jpg")
+                if status != "blocked"
+                else None
+            ),
+            "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
+        }
+        for entry in manifest_files
+    ]
+    _write_json(
+        fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
+        {
+            "schema_version": 1,
+            "run_id": fixture["run_id"],
+            "subsystem": "demo",
+            "status": status,
+            "delivery_status": status,
+            "ordinary_user_message": message or f"enhancement {status}",
+            "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
+            "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
+            "view_count": len(views),
+            "enhanced_view_count": len([view for view in views if view["enhanced_image"]]),
+            "views": views,
+            "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
+        },
+    )
+
+
 def _cmd_args(fixture, *, confirm=False, source=None, output=None, provider_preset=None):
     return SimpleNamespace(
         subsystem="demo",
@@ -239,22 +275,7 @@ def test_photo3d_handoff_confirm_enhancement_executes_current_run_command(
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
         if argv[2] == "enhance-check":
-            _write_json(
-                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
-                {
-                    "schema_version": 1,
-                    "run_id": fixture["run_id"],
-                    "subsystem": "demo",
-                    "status": "accepted",
-                    "delivery_status": "accepted",
-                    "ordinary_user_message": "enhancement accepted",
-                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
-                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
-                    "view_count": 1,
-                    "enhanced_view_count": 1,
-                    "blocking_reasons": [],
-                },
-            )
+            _write_enhancement_report(fixture, "accepted", message="enhancement accepted")
         return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
 
     monkeypatch.setattr(handoff.subprocess, "run", fake_run)
@@ -323,22 +344,7 @@ def test_photo3d_handoff_confirm_enhancement_runs_enhance_check_and_loop(
             )
             return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
         if argv[2] == "enhance-check":
-            _write_json(
-                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
-                {
-                    "schema_version": 1,
-                    "run_id": fixture["run_id"],
-                    "subsystem": "demo",
-                    "status": "accepted",
-                    "delivery_status": "accepted",
-                    "ordinary_user_message": "enhancement accepted",
-                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
-                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
-                    "view_count": 1,
-                    "enhanced_view_count": 1,
-                    "blocking_reasons": [],
-                },
-            )
+            _write_enhancement_report(fixture, "accepted", message="enhancement accepted")
             return SimpleNamespace(returncode=0, stdout="check ok", stderr="")
         raise AssertionError(f"unexpected subprocess: {argv}")
 
@@ -413,22 +419,7 @@ def test_photo3d_handoff_confirm_enhancement_surfaces_blocked_enhance_check(
         if argv[2] == "enhance":
             return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
         if argv[2] == "enhance-check":
-            _write_json(
-                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
-                {
-                    "schema_version": 1,
-                    "run_id": fixture["run_id"],
-                    "subsystem": "demo",
-                    "status": "blocked",
-                    "delivery_status": "blocked",
-                    "ordinary_user_message": "enhancement blocked",
-                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
-                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
-                    "view_count": 1,
-                    "enhanced_view_count": 0,
-                    "blocking_reasons": [{"code": "enhanced_view_missing"}],
-                },
-            )
+            _write_enhancement_report(fixture, "blocked", message="enhancement blocked")
             return SimpleNamespace(returncode=1, stdout="", stderr="blocked")
         raise AssertionError(f"unexpected subprocess: {argv}")
 
@@ -523,22 +514,7 @@ def test_photo3d_handoff_confirm_enhancement_uses_json_provider_preset_not_json_
     def fake_run(argv, **kwargs):
         calls.append(argv)
         if argv[2] == "enhance-check":
-            _write_json(
-                fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
-                {
-                    "schema_version": 1,
-                    "run_id": fixture["run_id"],
-                    "subsystem": "demo",
-                    "status": "accepted",
-                    "delivery_status": "accepted",
-                    "ordinary_user_message": "enhancement accepted",
-                    "render_manifest": "cad/output/renders/demo/RUN001/render_manifest.json",
-                    "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
-                    "view_count": 1,
-                    "enhanced_view_count": 1,
-                    "blocking_reasons": [],
-                },
-            )
+            _write_enhancement_report(fixture, "accepted", message="enhancement accepted")
         return SimpleNamespace(returncode=0, stdout="enhance ok", stderr="")
 
     monkeypatch.setattr(handoff.subprocess, "run", fake_run)

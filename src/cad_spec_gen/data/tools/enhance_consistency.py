@@ -10,6 +10,7 @@ from tools.path_policy import assert_within_project, project_relative
 from tools.render_qa import qa_image
 
 MIN_PHOTO_CONTRAST_STDDEV = 12.0
+LOW_OCCUPANCY_SUBJECT_CONTRAST_MAX = 0.08
 
 
 def compare_enhanced_image(
@@ -94,7 +95,11 @@ def build_enhancement_report(
         })
     for source in sources:
         view = source["view"]
-        enhanced_candidates = enhanced_by_view.get(view, [])
+        view_candidates = enhanced_by_view.get(view, [])
+        enhanced_candidates = (
+            _enhanced_candidates_for_source(source["path_abs_resolved"], view_candidates)
+            or view_candidates
+        )
         if not enhanced_candidates:
             reason = {
                 "code": "enhanced_view_missing",
@@ -278,14 +283,48 @@ def _photo_quality_metrics(path: Path, image_qa: dict[str, Any]) -> dict[str, An
         gray = rgb.convert("L")
         luminance = ImageStat.Stat(gray)
         saturation = ImageStat.Stat(hsv.getchannel("S"))
+        subject_luminance = _subject_luminance_stat(gray, image_qa)
+    contrast_stddev = round(float(luminance.stddev[0]), 6)
+    subject_contrast_stddev = (
+        round(float(subject_luminance.stddev[0]), 6)
+        if subject_luminance is not None
+        else None
+    )
+    object_occupancy = float(image_qa.get("object_occupancy") or 0.0)
+    contrast_basis = (
+        "subject_roi"
+        if (
+            object_occupancy <= LOW_OCCUPANCY_SUBJECT_CONTRAST_MAX
+            and subject_contrast_stddev is not None
+            and subject_contrast_stddev >= MIN_PHOTO_CONTRAST_STDDEV
+        )
+        else "full_image"
+    )
     return {
         "width": int(image_qa.get("width") or rgb.width),
         "height": int(image_qa.get("height") or rgb.height),
-        "object_occupancy": float(image_qa.get("object_occupancy") or 0.0),
+        "object_occupancy": object_occupancy,
         "luminance_mean": round(float(luminance.mean[0]), 6),
-        "contrast_stddev": round(float(luminance.stddev[0]), 6),
+        "contrast_stddev": contrast_stddev,
+        "subject_contrast_stddev": subject_contrast_stddev,
+        "effective_contrast_stddev": (
+            subject_contrast_stddev
+            if contrast_basis == "subject_roi"
+            else contrast_stddev
+        ),
+        "contrast_basis": contrast_basis,
         "saturation_mean": round(float(saturation.mean[0]), 6),
     }
+
+
+def _subject_luminance_stat(gray: Image.Image, image_qa: dict[str, Any]) -> ImageStat.Stat | None:
+    bbox = image_qa.get("bbox_px")
+    if not isinstance(bbox, list | tuple) or len(bbox) != 4:
+        return None
+    left, top, right, bottom = (int(value) for value in bbox)
+    if left >= right or top >= bottom:
+        return None
+    return ImageStat.Stat(gray.crop((left, top, right, bottom)))
 
 
 def _build_quality_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -298,11 +337,15 @@ def _build_quality_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
             "message": "增强图多视角画布尺寸不一致，只能作为预览。",
         })
     for item in records:
-        if float(item.get("contrast_stddev") or 0.0) < MIN_PHOTO_CONTRAST_STDDEV:
+        effective_contrast = float(item.get("effective_contrast_stddev") or 0.0)
+        if effective_contrast < MIN_PHOTO_CONTRAST_STDDEV:
             warnings.append({
                 "code": "photo_quality_low_contrast",
                 "view": item["view"],
                 "contrast_stddev": item.get("contrast_stddev"),
+                "subject_contrast_stddev": item.get("subject_contrast_stddev"),
+                "effective_contrast_stddev": item.get("effective_contrast_stddev"),
+                "contrast_basis": item.get("contrast_basis"),
                 "min_contrast_stddev": MIN_PHOTO_CONTRAST_STDDEV,
                 "message": "增强图对比度过低，照片级质量需要人工复查。",
             })
@@ -355,6 +398,19 @@ def _enhanced_candidates_by_view(
         if view:
             result.setdefault(view, []).append(path)
     return result
+
+
+def _enhanced_candidates_for_source(source_image: Path, candidates: list[Path]) -> list[Path]:
+    source_stem = source_image.stem
+    matches = [
+        path
+        for path in candidates
+        if path.stem.endswith("_enhanced")
+        and path.stem.startswith(f"{source_stem}_")
+    ]
+    if len(matches) <= 1:
+        return matches
+    return [sorted(matches, key=lambda path: path.stem.lower())[-1]]
 
 
 def _discover_enhanced_images(render_dir: Path) -> list[Path]:

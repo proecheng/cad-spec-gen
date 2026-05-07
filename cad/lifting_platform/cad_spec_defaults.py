@@ -7,7 +7,11 @@ CAD Spec 默认值与完整性检查
   - 工程常量（屈服强度、最高工作温度、电偶腐蚀、安全系数）
   - 必填项规则（CRITICAL / WARNING / INFO）
   - 派生计算（总重、总成本、BOM完整度）
+  - 装配定位偏移推算（串联链Z偏移、子总成合并）
 """
+
+import re
+import sys
 
 # ─── 标准默认值 ──────────────────────────────────────────────────────────
 
@@ -127,6 +131,33 @@ PARAM_UNIT_PATTERNS = {
 # 格式: "型号关键词" → {"d": 直径mm, "l": 长度mm, ...}
 # 对于方形件: {"w": 宽, "h": 高, "l": 长}
 
+_BATCH_5_SQUARE_FLANGE_SERVO_DIMS = {
+    "w": 60,
+    "d": 60,
+    "h": 115,
+    "body_h": 85,
+    "shaft_d": 14,
+}
+_BATCH_5_PLANETARY_GEARBOX_DIMS = {
+    "w": 60,
+    "d": 60,
+    "h": 70,
+    "shaft_d": 14,
+}
+_BATCH_5_DRAG_CHAIN_SEGMENT_DIMS = {
+    "w": 120,
+    "d": 30,
+    "h": 18,
+    "link_count": 8,
+}
+_BATCH_5_DIN_RELAY_MODULE_DIMS = {"w": 6.2, "d": 78, "h": 90}
+_BATCH_5_OPERATOR_CONTROL_BOX_DIMS = {
+    "w": 80,
+    "d": 70,
+    "h": 65,
+    "button_count": 2,
+}
+
 STD_PART_DIMENSIONS = {
     # --- Motors ---
     "ECX SPEED 22": {"d": 22, "l": 68, "shaft_d": 4, "shaft_l": 14},
@@ -149,11 +180,23 @@ STD_PART_DIMENSIONS = {
     "MR128ZZ":      {"od": 12, "id": 8, "w": 3.5},
     "688ZZ":        {"od": 16, "id": 8, "w": 5},
     "608ZZ":        {"od": 22, "id": 8, "w": 7},
+    # --- Linear guide families ---
+    "MGN12H": {"w": 45, "d": 27, "h": 15, "rail_w": 12, "rail_h": 8, "rail_l": 80},
+    "MGN15H": {"w": 55, "d": 32, "h": 20, "rail_w": 15, "rail_h": 10, "rail_l": 100},
+    "HGW15": {"w": 47, "d": 34, "h": 24, "rail_w": 15, "rail_h": 12, "rail_l": 110},
+    "HGH15": {"w": 34, "d": 39, "h": 28, "rail_w": 15, "rail_h": 12, "rail_l": 110},
+    # --- Mounted bearing / support families ---
+    "UCP204": {"w": 127, "d": 38, "h": 65, "bore_d": 20, "mount_d": 12},
+    "KP08": {"w": 55, "d": 13, "h": 27, "bore_d": 8, "mount_d": 5},
+    "BK12": {"w": 60, "d": 25, "h": 43, "bore_d": 12, "mount_d": 5},
+    "BF12": {"w": 60, "d": 20, "h": 35, "bore_d": 12, "mount_d": 5},
     # --- Sensors ---
     "ATI Nano17":   {"d": 17, "l": 14.5},
     "KWR42":        {"d": 42, "l": 20},
     "TWAE-03":      {"d": 28, "l": 26},
     "I300-UHF":     {"d": 45, "l": 60},
+    "M8 接近":      {"d": 8, "l": 45},
+    "M12 接近":     {"d": 12, "l": 55},
     # --- Connectors ---
     "LEMO FGG.0B":  {"d": 10, "l": 30},
     "LEMO EGG.0B":  {"d": 12, "l": 20},
@@ -161,10 +204,84 @@ STD_PART_DIMENSIONS = {
     "Molex ZIF":    {"w": 12, "h": 3, "l": 8},
     "Molex 5052":   {"w": 12, "h": 3, "l": 8},
     "Molex 15168":  {"w": 12, "h": 1, "l": 30},  # stub (connector portion only)
+    "KF301":        {"w": 15.24, "d": 8, "h": 10, "pins": 3, "pitch": 5.08},
+    "M12 5芯":      {"d": 12, "l": 18, "pins": 5},
+    "M12 4芯":      {"d": 12, "l": 18, "pins": 4},
+    # --- Pneumatic accessories ---
+    "二位五通": {"w": 45, "d": 22, "h": 28},
+    "电磁阀": {"w": 45, "d": 22, "h": 28},
+    "solenoid valve": {"w": 45, "d": 22, "h": 28},
+    "阀岛": {"w": 90, "d": 32, "h": 36, "stations": 4},
+    "过滤减压阀": {"w": 42, "d": 42, "h": 90},
+    "FRL": {"w": 42, "d": 42, "h": 90},
+    # --- Transmission visual families ---
+    "L050":         {"d": 20, "l": 25, "bore_d": 6.35},
+    "L070":         {"d": 25, "l": 30, "bore_d": 6.35},
+    "GT2 30T":      {"od": 19.1, "w": 10, "id": 8, "teeth": 30, "belt_w": 6},
+    "KK60":         {"w": 300, "d": 60, "h": 45, "carriage_w": 80},
+    "KK86":         {"w": 400, "d": 86, "h": 65, "carriage_w": 110},
+    # --- DIN rail electrical families ---
+    "DIN导轨端子": {"w": 5.2, "d": 45, "h": 35},
+    "DIN导轨电源": {"w": 90, "d": 60, "h": 55},
+    # --- Electrical enclosure / panel control families ---
+    "IP65 控制箱": {"w": 160, "d": 120, "h": 80},
+    "22mm 急停按钮": {"w": 30, "d": 30, "h": 45, "hole_d": 22},
+    # --- Sensor accessory families ---
+    "M12 传感器安装支架": {"w": 50, "d": 32, "h": 28, "hole_d": 12},
+    # --- Vacuum pneumatic families ---
+    "真空发生器": {"w": 60, "d": 18, "h": 28},
+    "真空吸盘": {"w": 30, "d": 30, "h": 25},
+    # --- Aluminum profile / bracket families ---
+    "2020铝型材": {"w": 200, "d": 20, "h": 20, "slot_w": 6},
+    "2040铝型材": {"w": 200, "d": 20, "h": 40, "slot_w": 6},
+    "2020角码": {"w": 40, "d": 40, "h": 20},
     # --- Pumps ---
     "齿轮泵":       {"w": 30, "h": 25, "l": 40},
     "微量泵":       {"w": 20, "h": 15, "l": 30},
-    "电磁阀":       {"w": 20, "h": 15, "l": 30},
+    # --- Linear Bearings ---
+    "LM6UU":   {"od": 12, "id": 6, "w": 19},
+    "LM8UU":   {"od": 15, "id": 8, "w": 24},
+    "LM10UU":  {"od": 19, "id": 10, "w": 29},
+    "LM12UU":  {"od": 21, "id": 12, "w": 30},
+    # --- More Deep Groove Bearings (ISO 15) ---
+    "6000ZZ":  {"od": 26, "id": 10, "w": 8},
+    "6001ZZ":  {"od": 28, "id": 12, "w": 8},
+    "6200ZZ":  {"od": 30, "id": 10, "w": 9},
+    "6201ZZ":  {"od": 32, "id": 12, "w": 10},
+    # --- NEMA Stepper Motors ---
+    "NEMA17": {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5},
+    "NEMA 17": {"w": 42.3, "d": 42.3, "h": 72, "body_h": 48, "shaft_d": 5},
+    "NEMA23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
+    "NEMA 23": {"w": 57, "d": 57, "h": 80, "body_h": 56, "shaft_d": 6.35},
+    # --- Batch 5 automation families ---
+    "60法兰伺服电机": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "AC servo motor": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "servo motor 60mm": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "servo motor 60": _BATCH_5_SQUARE_FLANGE_SERVO_DIMS,
+    "PLE60": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "行星减速机": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "行星减速器": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "planetary gearbox": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "planetary reducer": _BATCH_5_PLANETARY_GEARBOX_DIMS,
+    "Igus 拖链段": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "塑料拖链段": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "drag chain segment": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "cable carrier": _BATCH_5_DRAG_CHAIN_SEGMENT_DIMS,
+    "DIN导轨继电器模块": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "DIN rail relay module": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "interface relay": _BATCH_5_DIN_RELAY_MODULE_DIMS,
+    "按钮盒": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "操作盒": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "control station": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    "operator box": _BATCH_5_OPERATOR_CONTROL_BOX_DIMS,
+    # --- Cable / pneumatic visual fallbacks ---
+    "_cable_harness": {"w": 10, "d": 50, "h": 6},
+    "MGPM20": {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
+    "PC6": {"d": 12, "l": 22, "tube_d": 6},
+    "PC8": {"d": 14, "l": 25, "tube_d": 8},
+    # --- Additional Tanks ---
+    "_tank_small": {"d": 25, "l": 110},
+    "_tank_large": {"d": 38, "l": 280},
     # --- Generic fallbacks by category ---
     "_motor":       {"d": 22, "l": 50, "shaft_d": 4, "shaft_l": 12},
     "_reducer":     {"d": 25, "l": 35, "shaft_d": 6, "shaft_l": 10},
@@ -175,6 +292,86 @@ STD_PART_DIMENSIONS = {
     "_connector":   {"d": 10, "l": 25},
     "_seal":        {"od": 80, "id": 75, "section_d": 2.4},
     "_tank":        {"d": 38, "l": 280},
+    "_locating":     {"d": 3,  "l": 10},
+    "_elastic":      {"d": 20, "l": 30},
+    "_transmission": {"od": 30, "w": 8, "id": 6},
+    "_pneumatic":    {"w": 42, "d": 34, "h": 70, "bore_d": 20, "stroke": 50},
+    "_cable":        {"w": 10, "d": 50, "h": 6},
+}
+
+STD_PART_DIMENSION_CATEGORIES = {
+    # Category-scoped keys prevent material descriptors in one family from
+    # stealing dimensions from another family with a more specific name match.
+    "MGN12H": {"bearing"},
+    "MGN15H": {"bearing"},
+    "HGW15": {"bearing"},
+    "HGH15": {"bearing"},
+    "UCP204": {"bearing"},
+    "KP08": {"bearing"},
+    "BK12": {"transmission"},
+    "BF12": {"transmission"},
+    "L050": {"transmission"},
+    "L070": {"transmission"},
+    "GT2 30T": {"transmission"},
+    "KK60": {"transmission"},
+    "KK86": {"transmission"},
+    "KF301": {"connector"},
+    "M12 5芯": {"connector"},
+    "M12 4芯": {"connector"},
+    "二位五通": {"pneumatic"},
+    "电磁阀": {"pneumatic"},
+    "solenoid valve": {"pneumatic"},
+    "阀岛": {"pneumatic"},
+    "过滤减压阀": {"pneumatic"},
+    "FRL": {"pneumatic"},
+    "PC6": {"pneumatic"},
+    "PC8": {"pneumatic"},
+    "DIN导轨端子": {"connector"},
+    "DIN导轨电源": {"other"},
+    "IP65 控制箱": {"other"},
+    "22mm 急停按钮": {"other"},
+    "M12 传感器安装支架": {"other"},
+    "真空发生器": {"pneumatic"},
+    "真空吸盘": {"pneumatic"},
+    "2020铝型材": {"other"},
+    "2040铝型材": {"other"},
+    "2020角码": {"other"},
+    "齿轮泵": {"pump"},
+    "微量泵": {"pump"},
+    "60法兰伺服电机": {"motor"},
+    "AC servo motor": {"motor"},
+    "servo motor 60mm": {"motor"},
+    "servo motor 60": {"motor"},
+    "PLE60": {"reducer"},
+    "行星减速机": {"reducer"},
+    "行星减速器": {"reducer"},
+    "planetary gearbox": {"reducer"},
+    "planetary reducer": {"reducer"},
+    "Igus 拖链段": {"cable"},
+    "塑料拖链段": {"cable"},
+    "drag chain segment": {"cable"},
+    "cable carrier": {"cable"},
+    "DIN导轨继电器模块": {"other"},
+    "DIN rail relay module": {"other"},
+    "interface relay": {"other"},
+    "按钮盒": {"other"},
+    "操作盒": {"other"},
+    "control station": {"other"},
+    "operator box": {"other"},
+}
+
+MATERIAL_PROPS = {
+    "7075-T6":  {"density": 2.81, "color": (0.15, 0.15, 0.15), "ra_default": 3.2, "material_type": "al"},
+    "6063":     {"density": 2.69, "color": (0.20, 0.20, 0.20), "ra_default": 3.2, "material_type": "al"},
+    "6061-T6":  {"density": 2.70, "color": (0.18, 0.18, 0.18), "ra_default": 3.2, "material_type": "al"},
+    "PEEK":     {"density": 1.31, "color": (0.85, 0.65, 0.13), "ra_default": 3.2, "material_type": "peek"},
+    "SUS316L":  {"density": 7.98, "color": (0.82, 0.82, 0.85), "ra_default": 1.6, "material_type": "steel"},
+    "SUS304":   {"density": 7.93, "color": (0.80, 0.80, 0.83), "ra_default": 1.6, "material_type": "steel"},
+    "SUS303":   {"density": 7.90, "color": (0.78, 0.78, 0.80), "ra_default": 1.6, "material_type": "steel"},
+    "FKM":      {"density": 1.80, "color": (0.08, 0.08, 0.08), "ra_default": 6.3, "material_type": "rubber"},
+    "PA66":     {"density": 1.14, "color": (0.10, 0.10, 0.10), "ra_default": 3.2, "material_type": "plastic"},
+    "POM":      {"density": 1.41, "color": (0.90, 0.88, 0.85), "ra_default": 1.6, "material_type": "plastic"},
+    "硅橡胶":   {"density": 1.10, "color": (0.75, 0.60, 0.45), "ra_default": 6.3, "material_type": "rubber"},
 }
 
 
@@ -189,6 +386,11 @@ def _parse_dims_from_text(text: str) -> dict:
       20芯×500mm → {"l": 500}  (cable length)
     """
     import re
+    # Pattern 0: Φ_OD_×Φ_ID_×W (bearing: OD × ID × width, e.g. Φ10×Φ5×4mm)
+    m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
+    if m:
+        return {"od": float(m.group(1)), "id": float(m.group(2)), "w": float(m.group(3))}
+
     # Pattern 1: Φd×l (cylinder: diameter × length)
     m = re.search(r'[Φφ]\s*(\d+(?:\.\d+)?)\s*[×x×]\s*(\d+(?:\.\d+)?)', text)
     if m:
@@ -227,6 +429,9 @@ def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> d
     for key, dims in STD_PART_DIMENSIONS.items():
         if key.startswith("_"):
             continue  # Skip generic fallbacks in first pass
+        allowed_categories = STD_PART_DIMENSION_CATEGORIES.get(key)
+        if category and allowed_categories and category not in allowed_categories:
+            continue
         if key.upper() in text.upper():
             return dict(dims)  # Return copy
 
@@ -243,6 +448,176 @@ def lookup_std_part_dims(name: str, material: str = "", category: str = "") -> d
     return {}
 
 
+def compute_serial_offsets(placements: list, envelopes: dict,
+                           connections: list = None) -> dict:
+    """从串联堆叠链计算零件底面偏移（工位局部坐标）。
+
+    Direction-aware: supports (0,0,-1), (0,0,+1), (1,0,0), etc.
+    Bottom-face convention: returned Z = translate parameter = part bottom face position.
+
+    Returns: {part_no: {"z": float, "h": float, "mode": str, "source": str, "confidence": str}}
+    """
+    result = {}
+
+    for placement in placements:
+        if placement.get("mode") != "axial_stack":
+            continue
+        chain = placement.get("chain", [])
+        if not chain:
+            continue
+
+        # Defense-in-depth: even if BOM matching produced a cross-assembly
+        # part_no (e.g. chain in GIS-EE-003 matched GIS-EE-001-04), we only
+        # accept result writes for parts whose part_no is prefixed by the
+        # chain's own assembly_pno. This guarantees chain-local Z values
+        # never pollute another assembly's positioning table.
+        chain_assy = placement.get("assembly", "")
+
+        d = placement.get("direction", (0, 0, -1))
+        # Determine primary axis sign
+        if abs(d[2]) >= abs(d[0]) and abs(d[2]) >= abs(d[1]):
+            sign = -1 if d[2] < 0 else 1
+        elif abs(d[0]) >= abs(d[1]):
+            sign = -1 if d[0] < 0 else 1
+        else:
+            sign = -1 if d[1] < 0 else 1
+
+        # Merge consecutive sub_assembly nodes
+        merged = _merge_sub_assemblies(chain, envelopes)
+
+        # Track per-part top/bottom across this chain. A single BOM part
+        # may correspond to multiple chain nodes (e.g. 弹簧限力机构 has
+        # 上端板 + 弹簧 + 下端板 sub-nodes that all match the same BOM
+        # entry). The visible envelope is the union of all sub-spans:
+        #   top    = max(node_top)     (least negative for downward stack)
+        #   bottom = min(node_bottom)  (most negative)
+        # We accumulate top/bottom and emit a single span at the end.
+        chain_spans = {}  # pno → {"top": float, "bottom": float}
+
+        cursor = 0.0
+        for i, node in enumerate(merged):
+            pno = node.get("part_no")
+
+            # Skip connection-only nodes — they describe fastener specs
+            # between physical parts, not stack layers (e.g. "[4×M3螺栓]").
+            # Also skip reference surfaces that failed BOM matching.
+            if not pno and not node.get("dims"):
+                continue
+
+            h = _get_node_height(node, envelopes)
+
+            # axial_gap comes from explicit connection-matrix gap fields.
+            # Plain placement offsets like "Z=+73mm" are not treated as gaps.
+            gap = 0.0
+            if connections and i > 0:
+                prev_pno = merged[i - 1].get("part_no")
+                if prev_pno and pno:
+                    for conn in connections:
+                        pa, pb = conn.get("partA", ""), conn.get("partB", "")
+                        # Use regex extraction to avoid substring false positives
+                        # (e.g. "GIS-EE-001" matching "GIS-EE-001-01")
+                        if (
+                            (_mentions_part_no(pa, prev_pno) and
+                             _mentions_part_no(pb, pno))
+                            or (_mentions_part_no(pa, pno) and
+                                _mentions_part_no(pb, prev_pno))
+                        ):
+                            gap = _coerce_axial_gap(conn.get("axial_gap", 0.0))
+                            break
+
+            if sign < 0:
+                cursor -= abs(gap)
+                top = cursor
+                bottom = cursor - h
+            else:
+                cursor += abs(gap)
+                bottom = cursor
+                top = cursor + h
+
+            # Accumulate sub-chain span for this part (only within this
+            # chain's assembly to prevent cross-assembly pollution).
+            if pno and (not chain_assy or pno.startswith(chain_assy)):
+                span = chain_spans.setdefault(
+                    pno, {"top": top, "bottom": bottom})
+                span["top"] = max(span["top"], top)
+                span["bottom"] = min(span["bottom"], bottom)
+
+            # Advance cursor
+            if sign < 0:
+                cursor = bottom
+            else:
+                cursor += h
+
+        # Emit one result entry per part with span-based height
+        for pno, span in chain_spans.items():
+            result[pno] = {
+                "z": round(span["bottom"], 1),
+                "h": round(span["top"] - span["bottom"], 1),
+                "mode": "axial_stack",
+                "source": "serial_chain",
+                "confidence": "high",
+            }
+
+    return result
+
+
+def _mentions_part_no(text: str, part_no: str) -> bool:
+    """Return True when text contains part_no as a separated identifier."""
+    if not text or not part_no:
+        return False
+    pattern = rf"(?<![A-Za-z0-9-]){re.escape(part_no)}(?![A-Za-z0-9-])"
+    return re.search(pattern, text) is not None
+
+
+def _coerce_axial_gap(value) -> float:
+    """Normalize axial gaps for placement math; negative/interference => 0."""
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _merge_sub_assemblies(chain: list, envelopes: dict) -> list:
+    """Merge consecutive nodes with same sub_assembly into single unit."""
+    merged = []
+    i = 0
+    while i < len(chain):
+        node = chain[i]
+        sa = node.get("sub_assembly")
+        if sa:
+            group = [node]
+            j = i + 1
+            while j < len(chain) and chain[j].get("sub_assembly") == sa:
+                group.append(chain[j])
+                j += 1
+            total_h = sum(_get_node_height(n, envelopes) for n in group)
+            merged.append({
+                "part_name": f"{sa}(merged)",
+                "part_no": sa,
+                "dims": {"type": "cylinder", "h": total_h, "source": "chain(merged)"},
+                "connection": group[0].get("connection"),
+                "sub_assembly": None,
+            })
+            i = j
+        else:
+            merged.append(node)
+            i += 1
+    return merged
+
+
+def _get_node_height(node: dict, envelopes: dict) -> float:
+    """Get height from node dims, then envelopes, then default 20mm."""
+    dims = node.get("dims")
+    if dims:
+        h = dims.get("h", dims.get("l", 0.0))
+        if h > 0:
+            return h
+    pno = node.get("part_no")
+    if pno and pno in envelopes:
+        return envelopes[pno].get("h", 20.0)
+    return 20.0
+
+
 # ─── 材质分类 ────────────────────────────────────────────────────────────
 
 MATERIAL_TYPE_KEYWORDS = {
@@ -257,11 +632,46 @@ MATERIAL_TYPE_KEYWORDS = {
                "Shore", "rubber", "silicone"],
 }
 
+_merged_keywords = None
+
+
+def get_material_type_keywords():
+    """返回基础 + SW 扩展的关键词路由表。首次调用时合并，缓存结果。
+
+    无 SW 时返回值与 MATERIAL_TYPE_KEYWORDS 内容一致。
+    """
+    global _merged_keywords
+    if _merged_keywords is not None:
+        return _merged_keywords
+    _merged_keywords = {k: list(v) for k, v in MATERIAL_TYPE_KEYWORDS.items()}
+    if sys.platform == "win32":
+        try:
+            from adapters.solidworks.sw_material_bridge import load_sw_material_bundle
+            bundle = load_sw_material_bundle()
+            if bundle:
+                for mtype, kws in bundle.type_keywords.items():
+                    if mtype in _merged_keywords:
+                        existing = {kw.lower() for kw in _merged_keywords[mtype]}
+                        for kw in kws:
+                            if kw.lower() not in existing:
+                                _merged_keywords[mtype].append(kw)
+                    else:
+                        _merged_keywords[mtype] = list(kws)
+        except ImportError:
+            pass
+    return _merged_keywords
+
+
+def _reset_material_cache():
+    """测试用：重置缓存。"""
+    global _merged_keywords
+    _merged_keywords = None
+
 
 def classify_material_type(material: str):
     """从 BOM material 字段推断 material_type。
 
-    遍历 MATERIAL_TYPE_KEYWORDS 查找关键词匹配。
+    遍历 get_material_type_keywords() 查找关键词匹配。
     无匹配时返回 None（不静默 fallback）。
 
     Returns:
@@ -269,7 +679,7 @@ def classify_material_type(material: str):
     """
     if not material:
         return None
-    for mtype, keywords in MATERIAL_TYPE_KEYWORDS.items():
+    for mtype, keywords in get_material_type_keywords().items():
         if any(kw.lower() in material.lower() for kw in keywords):
             return mtype
     return None

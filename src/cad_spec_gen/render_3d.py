@@ -723,14 +723,8 @@ def setup_lighting():
     bpy.context.scene.collection.objects.link(bounce_obj)
 
 
-def _get_bounding_sphere():
-    """Return (center, radius) of all non-ground mesh objects in scene.
-
-    Uses the axis-aligned bounding box center (NOT the vertex centroid)
-    so vertex density on one side of the model cannot bias the framing.
-    The radius is the distance from that center to the farthest vertex,
-    which is the minimum sphere guaranteed to enclose the geometry.
-    """
+def _get_scene_bounds():
+    """Return (min_corner, max_corner) for all non-ground mesh objects."""
     xs, ys, zs = [], [], []
     for obj in bpy.context.scene.objects:
         if obj.type == "MESH" and obj.name not in ("Ground",):
@@ -741,15 +735,101 @@ def _get_bounding_sphere():
                 ys.append(w.y)
                 zs.append(w.z)
     if not xs:
+        return None
+    return (
+        Vector((min(xs), min(ys), min(zs))),
+        Vector((max(xs), max(ys), max(zs))),
+    )
+
+
+def _get_bounding_sphere():
+    """Return (center, radius) of all non-ground mesh objects in scene.
+
+    Uses the axis-aligned bounding box center (NOT the vertex centroid)
+    so vertex density on one side of the model cannot bias the framing.
+    The radius is the distance from that center to the farthest vertex,
+    which is the minimum sphere guaranteed to enclose the geometry.
+    """
+    bounds = _get_scene_bounds()
+    if bounds is None:
         return Vector((0.0, 0.0, 0.0)), float(_BOUNDING_R)
+    min_corner, max_corner = bounds
     center = Vector((
-        (min(xs) + max(xs)) * 0.5,
-        (min(ys) + max(ys)) * 0.5,
-        (min(zs) + max(zs)) * 0.5,
+        (min_corner.x + max_corner.x) * 0.5,
+        (min_corner.y + max_corner.y) * 0.5,
+        (min_corner.z + max_corner.z) * 0.5,
     ))
     # Half-diagonal is a tight upper bound; good enough for framing.
-    radius = (Vector((max(xs), max(ys), max(zs))) - center).length
+    radius = (max_corner - center).length
     return center, radius
+
+
+def _ortho_scale_for_projected_bounds(
+    min_corner,
+    max_corner,
+    view_dir,
+    up_dir,
+    aspect,
+    frame_fill,
+):
+    """Return Blender ORTHO scale needed to fit projected AABB bounds."""
+    import math
+
+    def _dot(a, b):
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    def _cross(a, b):
+        return (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
+
+    def _normalize(v):
+        length = math.sqrt(_dot(v, v))
+        if length <= 1e-9:
+            return None
+        return (v[0] / length, v[1] / length, v[2] / length)
+
+    view = _normalize(tuple(float(value) for value in view_dir))
+    up = _normalize(tuple(float(value) for value in up_dir))
+    if view is None or up is None:
+        return 0.0
+
+    # Remove any view-axis component from up so it is a true camera-plane axis.
+    up = (
+        up[0] - view[0] * _dot(up, view),
+        up[1] - view[1] * _dot(up, view),
+        up[2] - view[2] * _dot(up, view),
+    )
+    up = _normalize(up)
+    if up is None:
+        return 0.0
+    right = _normalize(_cross(view, up))
+    if right is None:
+        return 0.0
+
+    xs = (float(min_corner[0]), float(max_corner[0]))
+    ys = (float(min_corner[1]), float(max_corner[1]))
+    zs = (float(min_corner[2]), float(max_corner[2]))
+    projected_x = []
+    projected_y = []
+    for x in xs:
+        for y in ys:
+            for z in zs:
+                corner = (x, y, z)
+                projected_x.append(_dot(corner, right))
+                projected_y.append(_dot(corner, up))
+
+    width = max(projected_x) - min(projected_x)
+    height = max(projected_y) - min(projected_y)
+    if frame_fill <= 0:
+        frame_fill = 0.75
+    if aspect <= 0:
+        aspect = 1.0
+    # Blender's camera.data.ortho_scale represents the camera frame width.
+    # The visible world height is therefore ortho_scale / aspect.
+    return max(width, height * aspect) / frame_fill
 
 
 def setup_camera(preset_key):
@@ -837,16 +917,31 @@ def setup_camera(preset_key):
                          bs_radius, required_dist, frame_fill * 100)
 
             elif cam_data.type == "ORTHO":
-                # Auto-scale ortho to fit model bounding sphere
-                cam_data.ortho_scale = bs_radius * 2.0 / frame_fill
+                scene = bpy.context.scene
+                aspect = scene.render.resolution_x / scene.render.resolution_y
+                bounds = _get_scene_bounds()
+                rot = cam_obj.rotation_euler.to_matrix()
+                view_dir = rot @ Vector((0.0, 0.0, -1.0))
+                up_dir = rot @ Vector((0.0, 1.0, 0.0))
+                if bounds is not None:
+                    min_corner, max_corner = bounds
+                    cam_data.ortho_scale = _ortho_scale_for_projected_bounds(
+                        (min_corner.x, min_corner.y, min_corner.z),
+                        (max_corner.x, max_corner.y, max_corner.z),
+                        (view_dir.x, view_dir.y, view_dir.z),
+                        (up_dir.x, up_dir.y, up_dir.z),
+                        aspect,
+                        frame_fill,
+                    )
+                else:
+                    cam_data.ortho_scale = bs_radius * 2.0 / frame_fill
                 # Re-center camera aim at bounding-sphere center
-                view_dir = (cam_obj.location - Vector(tgt)).normalized()
-                cam_obj.location = bs_center + view_dir * (bs_radius * 4)
+                cam_obj.location = bs_center - view_dir.normalized() * (bs_radius * 4)
                 aim = bs_center - cam_obj.location
                 cam_obj.rotation_euler = aim.to_track_quat("-Z", "Y").to_euler()
-                log.info("  Auto-frame ORTHO [%s]: ortho_scale=%.0f r=%.0f fill=%.0f%%",
+                log.info("  Auto-frame ORTHO [%s]: ortho_scale=%.0f r=%.0f fill=%.0f%% aspect=%.2f",
                          preset_key, cam_data.ortho_scale,
-                         bs_radius, frame_fill * 100)
+                         bs_radius, frame_fill * 100, aspect)
 
         except Exception as _af_err:
             log.warning("  Auto-frame skipped: %s", _af_err)

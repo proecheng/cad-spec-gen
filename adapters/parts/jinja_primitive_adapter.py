@@ -2916,6 +2916,21 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
             "metadata": {},
         }
 
+    if category == "locating" and _contains_any(
+        text,
+        ["定位销", "圆柱销", "dowel pin", "locating pin", "parallel pin"],
+    ):
+        tpl_dims = {
+            "d": dims.get("d", 5),
+            "l": dims.get("l", 20),
+        }
+        return {
+            "template": "locating_pin",
+            "body_code": _gen_locating_pin(tpl_dims),
+            "dims": tpl_dims,
+            "metadata": dict(reusable_parametric_template),
+        }
+
     return None
 
 
@@ -2948,6 +2963,31 @@ def _gen_locating(dims: dict) -> str:
     return f"""    # Simplified locating pin: cylinder with chamfered tip
     body = cq.Workplane("XY").circle({d/2}).extrude({l})
     body = body.faces(">Z").edges().chamfer({chamfer:.3f})
+    return body"""
+
+
+def _gen_locating_pin(dims: dict) -> str:
+    d = dims.get("d", 5)
+    l = dims.get("l", 20)
+    chamfer = max(d * 0.08, 0.25)
+    groove_z = max(min(l * 0.12, 2.0), 0.8)
+    groove_h = max(min(l * 0.035, 0.8), 0.25)
+    groove_od = d + 0.06
+    groove_id = max(d - chamfer * 0.9, d * 0.78)
+    return f"""    # Semi-parametric locating pin: precision dowel with chamfers and relief grooves
+    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    for z in ({groove_z:.3f}, {l - groove_z - groove_h:.3f}):
+        groove = (cq.Workplane("XY")
+                  .circle({groove_od/2:.3f})
+                  .circle({groove_id/2:.3f})
+                  .extrude({groove_h:.3f})
+                  .translate((0, 0, z)))
+        body = body.cut(groove)
+    try:
+        body = body.faces(">Z").edges(">Z").chamfer({chamfer:.3f})
+        body = body.faces("<Z").edges("<Z").chamfer({chamfer:.3f})
+    except Exception:
+        pass
     return body"""
 
 

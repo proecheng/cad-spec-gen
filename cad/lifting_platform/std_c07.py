@@ -8,13 +8,20 @@ Source: STEP:std_parts/user_provided/SLP-C07_NEMA23_stepper.step
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:adf4a616ac7f0a2e55fc3ae3d9e9a3c63f79cfbca980e09078fdc2efbd0a6832
+Hash: sha256:74cbb16c67ec23b5eadb7bbd1f539757d5480e056428479841191176790d2bd9
 Path kind: project_relative
 Requires model review: false
 
 NOTE: Imported from a STEP model selected by parts_resolver.
       Verify upstream license and dimensional fit before manufacturing.
 """
+
+import os
+import sys
+_here = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.normpath(os.path.join(_here, "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import cadquery as cq
 

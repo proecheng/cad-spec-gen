@@ -49,6 +49,7 @@ def test_common_purchased_part_names_classify_to_reusable_categories(
             "cylindrical_proximity_sensor",
             (12, 12, 55),
         ),
+        ("locating", "φ5×20 定位销", "", "locating_pin", (5, 5, 20)),
         (
             "pneumatic",
             "薄型气缸",
@@ -82,6 +83,7 @@ def test_jinja_adapter_has_reusable_templates_for_common_categories(
         ("bearing", "LM12UU 直线轴承", ""),
         ("motor", "NEMA17 步进电机", ""),
         ("sensor", "M12 电感接近开关", ""),
+        ("locating", "φ5×20 定位销", ""),
         ("pneumatic", "薄型气缸", "MGPM20-50"),
         ("cable", "拖链线束", "4芯×1200mm"),
     ],
@@ -111,6 +113,7 @@ def test_common_reusable_template_geometry_stays_within_reported_real_dims(
         (_q("bearing", "LM12UU 直线轴承"), "jinja_primitive"),
         (_q("motor", "NEMA17 步进电机"), "jinja_primitive"),
         (_q("sensor", "M12 电感接近开关"), "jinja_primitive"),
+        (_q("locating", "φ5×20 定位销"), "jinja_primitive"),
         (_q("pneumatic", "薄型气缸", "MGPM20-50"), "jinja_primitive"),
         (_q("cable", "拖链线束", "4芯×1200mm"), "jinja_primitive"),
     ],
@@ -138,6 +141,7 @@ def test_default_library_synthesizer_registry_remains_in_lockstep() -> None:
     [
         (_q("motor", "NEMA17 步进电机"), "motor"),
         (_q("sensor", "M12 电感接近开关"), "sensor"),
+        (_q("locating", "φ5×20 定位销"), "locating"),
         (_q("pneumatic", "薄型气缸", "MGPM20-50"), "pneumatic"),
         (_q("cable", "拖链线束", "4芯×1200mm"), "cable"),
     ],

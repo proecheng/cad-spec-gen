@@ -16,6 +16,13 @@ NOTE: Generated from a curated parametric template selected by parts_resolver.
       This is not a vendor STEP model; verify dimensional fit before manufacturing.
 """
 
+import os
+import sys
+_here = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.normpath(os.path.join(_here, "..", ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 import cadquery as cq
 
 

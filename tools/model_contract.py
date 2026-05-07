@@ -19,6 +19,7 @@ def build_model_contract(
     resolver_decisions: list[dict[str, Any]] | None = None,
     run_id: str | None = None,
     path_context_hash: str | None = None,
+    include_codegen_parts: bool = False,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     graph, graph_source = _load_product_graph(product_graph, root)
@@ -36,8 +37,11 @@ def build_model_contract(
         part_no = str(part["part_no"])
         raw_decision = decisions_by_part_no.get(part_no)
         if raw_decision is None:
-            missing_total += 1
-            decision = _missing_decision(part)
+            if include_codegen_parts and _is_codegen_part(part):
+                decision = _codegen_decision(part)
+            else:
+                missing_total += 1
+                decision = _missing_decision(part)
         else:
             decision = _normalize_decision(root, part, raw_decision)
             if decision["geometry_source"] == "MISSING":
@@ -76,6 +80,7 @@ def write_model_contract(
     *,
     run_id: str | None = None,
     path_context_hash: str | None = None,
+    include_codegen_parts: bool = False,
 ) -> Path:
     root = Path(project_root).resolve()
     contract = build_model_contract(
@@ -84,6 +89,7 @@ def write_model_contract(
         resolver_decisions=resolver_decisions,
         run_id=run_id,
         path_context_hash=path_context_hash,
+        include_codegen_parts=include_codegen_parts,
     )
     if output is None:
         output_path = root / ".cad-spec-gen" / "MODEL_CONTRACT.json"
@@ -142,6 +148,32 @@ def _missing_decision(part: dict[str, Any]) -> dict[str, Any]:
             "review_reasons": ["missing_geometry_decision"],
         },
     )
+
+
+def _codegen_decision(part: dict[str, Any]) -> dict[str, Any]:
+    return _base_decision(
+        part,
+        {
+            "adapter": "cadquery_codegen",
+            "geometry_source": "CADQUERY_PARAMETRIC",
+            "geometry_quality": "B",
+            "validated": True,
+            "requires_model_review": False,
+            "metadata": {
+                "origin_policy": "generated_part_module",
+                "coordinate_frame": "cadquery_default",
+                "scale_policy": "millimeter_1_to_1",
+            },
+        },
+    )
+
+
+def _is_codegen_part(part: dict[str, Any]) -> bool:
+    make_buy = str(part.get("make_buy") or "").strip().lower()
+    if make_buy in {"自制", "in-house", "in_house", "custom", "made"}:
+        return True
+    category = str(part.get("category") or "").strip().lower()
+    return category in {"other", "motor", "sensor"} and "外购" not in make_buy
 
 
 def _normalize_decision(

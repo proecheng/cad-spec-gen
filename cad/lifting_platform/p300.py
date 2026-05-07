@@ -3,16 +3,20 @@
 
 Auto-generated scaffold by codegen/gen_parts.py
 Source: CAD_SPEC.md §5 BOM
-Material: 
+Material: 未指定
 
 BOM: SLP-300 动板
 
-┌─ COORDINATE SYSTEM ───────────────────────────────────────────────────────┐
-│ Local origin : Center of plate XY, bottom face at Z=0                    │
-│ Principal axis: Flat plate on XY, thickness extruded along +Z (8mm)      │
-│ Assembly orient: Translate to Z=board_bottom (variable, +43~+235)        │
-│ Design doc ref : §4 动板 — 160×120×8 mm, travels Z=+43 to Z=+235        │
+┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+│ Local origin : CAD_SPEC.md envelope center on XY; bottom face at Z=0
+│ Principal axis: +Z scaffold extrusion axis; body height from envelope
+│ Assembly orient: assembly.py applies §6.2/§6.3 placement transforms
+│ Design doc ref : CAD_SPEC.md §5 BOM + §6.4 envelope
 └──────────────────────────────────────────────────────────────────────────┘
+
+DO NOT extrude / rotate based on assumption. Every axis choice must cite
+a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
+before writing geometry.
 """
 
 import cadquery as cq
@@ -20,22 +24,23 @@ from params import *
 
 
 def make_p300() -> cq.Workplane:
-    """SLP-300: 动板 — Moving plate (elevator platform)
+    """SLP-300: 动板 — 未指定
 
-    Envelope: 160 x 120 x 8 mm (§10.3 visual table)
-    Weight: ~415g (6061-T6, 2.70 g/cm³)
+    Envelope: 60.0 x 40.0 x 10.0 mm
+    Weight: ?g
 
-    Axis: Flat plate on XY, thickness along +Z
-    Doc:  §4 动板, §10.3 视觉标识表 — 160×120×8 mm
-          §4: 150×100×8 in spec text, §10.3 revised to 160×120×8
+    Axis: +Z scaffold default; verify against §6.3 before production use
+    Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
     """
-    # ── Geometry: 160(X) × 120(Y) × 8(Z) flat plate ──────────────────────────
-    # §4: Slides vertically on screws/guide shafts
-    # §4: Board bottom travels Z=+43 ~ +235 (effective stroke 192mm)
-    # Local origin at plate center XY, bottom face at Z=0
+    # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
+    # Principal axis: +Z scaffold default
+    # If this part needs a non-Z extrusion direction, document WHY here.
+    #
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
     body = cq.Workplane("XY").box(
-        160.0, 120.0, 8.0,
-        centered=(True, True, False))
+        60.0, 40.0, 10.0,
+        centered=(True, True, False))  # § refine with real geometry
 
     return body
 
@@ -48,10 +53,11 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
+    # Generated scaffold default; tighten when design-doc axis data is available.
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "§4 动板 160×120×8",
+        "doc_ref": "CAD_SPEC.md §5/§6.4 scaffold envelope",
     }
 
 
@@ -71,7 +77,7 @@ def draw_p300_sheet(output_dir: str = None) -> str:
     sheet = ThreeViewSheet(
         part_no="SLP-300",
         name="动板",
-        material="",
+        material="未指定",
         scale="1:1",
         weight_g=0,
         date=date.today().isoformat(),

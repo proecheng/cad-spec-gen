@@ -242,6 +242,46 @@ def test_write_model_contract_defaults_to_meta_dir(tmp_path):
     assert payload["decisions"][0]["geometry_quality"] == "E"
 
 
+def test_build_model_contract_can_seed_codegen_decisions_for_self_made_parts(tmp_path):
+    from tools.model_contract import build_model_contract
+
+    contract = build_model_contract(
+        tmp_path,
+        _graph([
+            {
+                **_part("P-100", visual_priority="hero"),
+                "make_buy": "自制",
+                "category": "other",
+            },
+            {
+                **_part("P-200", visual_priority="hero"),
+                "make_buy": "外购",
+                "category": "bearing",
+            },
+        ]),
+        resolver_decisions=[
+            {
+                "part_no": "P-200",
+                "adapter": "step_pool",
+                "geometry_source": "USER_STEP",
+                "geometry_quality": "A",
+                "validated": True,
+                "requires_model_review": False,
+            }
+        ],
+        include_codegen_parts=True,
+    )
+
+    custom = next(row for row in contract["decisions"] if row["part_no"] == "P-100")
+
+    assert custom["adapter"] == "cadquery_codegen"
+    assert custom["geometry_source"] == "CADQUERY_PARAMETRIC"
+    assert custom["geometry_quality"] == "B"
+    assert custom["validated"] is True
+    assert custom["requires_model_review"] is False
+    assert contract["coverage"]["missing_total"] == 0
+
+
 def test_codegen_model_contract_existing_invalid_product_graph_raises(tmp_path):
     from codegen.gen_std_parts import _write_model_contract
 

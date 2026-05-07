@@ -27,6 +27,22 @@ def _accept_baseline(fixture):
 
 
 def _write_enhancement_report(fixture, status):
+    manifest_files = fixture["payloads"]["render_manifest"]["files"]
+    views = [
+        {
+            "view": entry["view"],
+            "status": "accepted" if status != "blocked" else "blocked",
+            "source_image": entry["path_rel_project"],
+            "source_sha256": entry["sha256"],
+            "enhanced_image": (
+                entry["path_rel_project"].replace(".png", "_enhanced.jpg")
+                if status != "blocked"
+                else None
+            ),
+            "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
+        }
+        for entry in manifest_files
+    ]
     _write_json(
         fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
         {
@@ -40,6 +56,7 @@ def _write_enhancement_report(fixture, status):
             "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
             "view_count": 1,
             "enhanced_view_count": 1 if status != "blocked" else 0,
+            "views": views,
             "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
         },
     )

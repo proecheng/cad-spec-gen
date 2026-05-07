@@ -3,17 +3,20 @@
 
 Auto-generated scaffold by codegen/gen_parts.py
 Source: CAD_SPEC.md §5 BOM
-Material: 
+Material: 未指定
 
 BOM: SLP-403 下限位传感器支架
 
-┌─ COORDINATE SYSTEM ───────────────────────────────────────────────────────┐
-│ Local origin : Center of horizontal foot XY, bottom face at Z=0          │
-│ Principal axis: L-shape — foot on XY, vertical arm rises along +Z        │
-│ Assembly orient: Foot at Z=0 (left support bar top), arm rises to Z=+43  │
-│                  Center at (−80, 0) in global coords                     │
-│ Design doc ref : §9.2 下限位支架 — L型, 壁厚5mm, foot 25×20, arm 43mm   │
+┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
+│ Local origin : CAD_SPEC.md envelope center on XY; bottom face at Z=0
+│ Principal axis: +Z scaffold extrusion axis; body height from envelope
+│ Assembly orient: assembly.py applies §6.2/§6.3 placement transforms
+│ Design doc ref : CAD_SPEC.md §5 BOM + §6.4 envelope
 └──────────────────────────────────────────────────────────────────────────┘
+
+DO NOT extrude / rotate based on assumption. Every axis choice must cite
+a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
+before writing geometry.
 """
 
 import cadquery as cq
@@ -21,35 +24,24 @@ from params import *
 
 
 def make_p403() -> cq.Workplane:
-    """SLP-403: 下限位传感器支架 — Lower limit sensor bracket
+    """SLP-403: 下限位传感器支架 — 未指定
 
-    L-shaped, 5mm wall thickness, 6061-T6 aluminum
-    Horizontal foot: 25(X) × 20(Y) mm, mounted on left support bar top face
-    Vertical arm: 5(X) × 20(Y) × 43(Z) mm, rising from −X edge
+    Envelope: 50.0 x 40.0 x 25.0 mm
+    Weight: ?g
 
-    Doc:  §9.2 传感器支架 — SLP-403
-          Mounts at left support bar top face (Z=0), sensor at Z=+43
+    Axis: +Z scaffold default; verify against §6.3 before production use
+    Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
     """
-    # ── Geometry: L-shaped bracket ────────────────────────────────────────────
-    # §9.2: L型折弯, 壁厚 5mm
-    #   Horizontal foot: 25(X) × 20(Y) × 5(Z) — lies flat on support bar
-    #   Vertical arm:    5(X) × 20(Y) × 43(Z) — rises from −X edge
-    # Local origin at foot bottom-center, Z=0 at mounting face
-    t = 5.0   # wall thickness
+    # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
+    # Principal axis: +Z scaffold default
+    # If this part needs a non-Z extrusion direction, document WHY here.
+    #
+    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
+    #       Refine with actual geometry citing design-doc lines.
+    body = cq.Workplane("XY").box(
+        50.0, 40.0, 25.0,
+        centered=(True, True, False))  # § refine with real geometry
 
-    # Horizontal foot: 25 × 20 × 5, centered in XY, bottom at Z=0
-    foot = cq.Workplane("XY").box(
-        25.0, 20.0, t,
-        centered=(True, True, False))
-
-    # Vertical arm: 5 × 20 × 43, at −X edge of foot, bottom at Z=0
-    # Foot X range = [-12.5, +12.5]; arm at X = [-12.5, -7.5]
-    arm = (cq.Workplane("XY")
-           .transformed(offset=(-10.0, 0, 0))
-           .box(t, 20.0, 43.0,
-                centered=(True, True, False)))
-
-    body = foot.union(arm)
     return body
 
 
@@ -61,10 +53,11 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
+    # Generated scaffold default; tighten when design-doc axis data is available.
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "§9.2 下限位支架 L型 25×20 foot + 43mm arm",
+        "doc_ref": "CAD_SPEC.md §5/§6.4 scaffold envelope",
     }
 
 
@@ -84,7 +77,7 @@ def draw_p403_sheet(output_dir: str = None) -> str:
     sheet = ThreeViewSheet(
         part_no="SLP-403",
         name="下限位传感器支架",
-        material="",
+        material="未指定",
         scale="1:1",
         weight_g=0,
         date=date.today().isoformat(),

@@ -99,6 +99,46 @@ def test_render_excluded_part_is_not_required_photo_instance(tmp_path):
     assert all(i["render_policy"] == "excluded" and i["required"] is False for i in cable_instances)
 
 
+def test_assembly_rows_are_not_required_photo_instances(tmp_path):
+    graph = _build_graph(tmp_path)
+
+    assembly_part = next(p for p in graph["parts"] if p["part_no"] == "P-100")
+    assembly_instances = [i for i in graph["instances"] if i["part_no"] == "P-100"]
+
+    assert assembly_part["render_policy"] == "excluded"
+    assert assembly_part["required"] is False
+    assert assembly_instances
+    assert all(i["render_policy"] == "excluded" and i["required"] is False for i in assembly_instances)
+
+
+def test_tiny_hardware_categories_are_not_required_photo_instances(tmp_path):
+    graph = _build_graph(
+        tmp_path,
+        bom_rows=[
+            ["P-100", "升降平台总成", "组合件", "1", "总成"],
+            ["P-100-01", "基座", "Q235", "1", "自制"],
+            ["P-100-F01", "M5×16 DIN7991 沉头螺钉", "12.9级", "4", "标准件"],
+            ["P-100-F02", "φ5×20 定位销", "GCr15", "2", "标准件"],
+        ],
+    )
+
+    hardware_parts = [
+        part for part in graph["parts"]
+        if part["part_no"] in {"P-100-F01", "P-100-F02"}
+    ]
+    hardware_instances = [
+        instance for instance in graph["instances"]
+        if instance["part_no"] in {"P-100-F01", "P-100-F02"}
+    ]
+
+    assert {part["category"] for part in hardware_parts} == {"fastener", "locating"}
+    assert hardware_instances
+    assert all(part["render_policy"] == "excluded" for part in hardware_parts)
+    assert all(part["required"] is False for part in hardware_parts)
+    assert all(instance["render_policy"] == "excluded" for instance in hardware_instances)
+    assert all(instance["required"] is False for instance in hardware_instances)
+
+
 def test_contract_policy_fields_use_allowed_enums(tmp_path):
     graph = _build_graph(tmp_path)
     render_policies = {"required", "optional", "excluded"}

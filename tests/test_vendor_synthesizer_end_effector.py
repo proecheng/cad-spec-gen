@@ -11,6 +11,75 @@ from adapters.parts import vendor_synthesizer
 from parts_resolver import PartQuery, default_resolver
 
 
+_LIFTING_PLATFORM_SYNTHESIZER_RULES = [
+    {
+        "part_no": "SLP-C01",
+        "file": "transmission/t16_lead_screw_nut.step",
+        "synthesizer": "t16_lead_screw_nut",
+    },
+    {
+        "part_no": "SLP-C03",
+        "file": "mechanical/kfl001_flange_bearing.step",
+        "synthesizer": "kfl001_flange_bearing",
+    },
+    {
+        "part_no": "SLP-C04",
+        "file": "transmission/gt2_20t_timing_pulley.step",
+        "synthesizer": "gt2_20t_timing_pulley",
+    },
+    {
+        "part_no": "SLP-C05",
+        "file": "transmission/gt2_310_6mm_timing_belt.step",
+        "synthesizer": "gt2_310_6mm_timing_belt",
+    },
+    {
+        "part_no": "SLP-C06",
+        "file": "transmission/l070_clamping_coupling.step",
+        "synthesizer": "l070_clamping_coupling",
+    },
+    {
+        "part_no": "SLP-C08",
+        "file": "electronics/cl57t_stepper_driver.step",
+        "synthesizer": "cl57t_stepper_driver",
+    },
+    {
+        "part_no": "SLP-F11",
+        "file": "elastomer/pu_buffer_pad_20x20x3.step",
+        "synthesizer": "pu_buffer_pad_20x20x3",
+    },
+    {
+        "part_no": "SLP-F13",
+        "file": "mechanical/guide_shaft_protective_cap_10mm.step",
+        "synthesizer": "guide_shaft_protective_cap_10mm",
+    },
+]
+
+
+def _lifting_platform_synthesizer_project(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    mappings = [
+        {
+            "match": {"part_no": rule["part_no"]},
+            "adapter": "step_pool",
+            "spec": {
+                "file": rule["file"],
+                "synthesizer": rule["synthesizer"],
+                "normalize_origin": "center_xy_bottom_z",
+            },
+        }
+        for rule in _LIFTING_PLATFORM_SYNTHESIZER_RULES
+    ]
+    (tmp_path / "parts_library.yaml").write_text(
+        yaml.safe_dump(
+            {"mappings": mappings},
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 @pytest.mark.parametrize(
     ("query", "step_uri"),
     [
@@ -360,7 +429,8 @@ def test_project_library_routes_lifting_platform_kfl001_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -388,7 +458,8 @@ def test_project_library_routes_lifting_platform_t16_nut_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -416,7 +487,8 @@ def test_project_library_routes_lifting_platform_cl57t_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -465,7 +537,8 @@ def test_project_library_routes_lifting_platform_pu_buffer_pad_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -493,7 +566,8 @@ def test_project_library_routes_lifting_platform_guide_cap_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -526,7 +600,8 @@ def test_project_library_routes_lifting_platform_gt2_pulley_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -554,7 +629,8 @@ def test_project_library_routes_lifting_platform_gt2_belt_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(
@@ -582,7 +658,8 @@ def test_project_library_routes_lifting_platform_l070_to_cache_step(
 ):
     cache_root = tmp_path / "step_cache"
     monkeypatch.setenv("CAD_SPEC_GEN_STEP_CACHE", str(cache_root))
-    resolver = default_resolver(project_root=".")
+    project_root = _lifting_platform_synthesizer_project(tmp_path / "project")
+    resolver = default_resolver(project_root=str(project_root))
 
     result = resolver.resolve(
         PartQuery(

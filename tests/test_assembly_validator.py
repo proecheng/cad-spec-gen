@@ -194,6 +194,7 @@ def test_f5_completeness_counts_mechanical_drivetrain_parts():
 def test_validate_assembly_writes_run_scoped_report_and_signature(tmp_path):
     """Runtime validation artifacts should be bound to the current run_id."""
     import json
+    from tools.contract_io import stable_json_hash
 
     sub_dir = tmp_path / "project" / "cad" / "demo"
     output_dir = tmp_path / "project" / "cad" / "output"
@@ -214,20 +215,35 @@ def test_validate_assembly_writes_run_scoped_report_and_signature(tmp_path):
         encoding="utf-8",
         newline="\n",
     )
-    (sub_dir / "PRODUCT_GRAPH.json").write_text(
-        json.dumps({
-            "schema_version": 1,
-            "run_id": "RUN001",
-            "subsystem": "demo",
-            "path_context_hash": "sha256:pathctx",
-            "instances": [{
+    product_graph = {
+        "schema_version": 1,
+        "run_id": "RUN001",
+        "subsystem": "demo",
+        "path_context_hash": "sha256:pathctx",
+        "instances": [{
                 "instance_id": "P-100-01#01",
                 "part_no": "P-100-01",
                 "required": True,
                 "render_policy": "required",
                 "visual_priority": "hero",
-            }],
-        }, ensure_ascii=False),
+        }],
+    }
+    (sub_dir / "PRODUCT_GRAPH.json").write_text(
+        json.dumps(product_graph, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    model_contract = {
+        "schema_version": 1,
+        "run_id": "RUN001",
+        "subsystem": "demo",
+        "path_context_hash": "sha256:pathctx",
+        "product_graph_hash": stable_json_hash(product_graph),
+        "decisions": [],
+    }
+    model_contract_path = sub_dir / ".cad-spec-gen" / "MODEL_CONTRACT.json"
+    model_contract_path.parent.mkdir(parents=True)
+    model_contract_path.write_text(
+        json.dumps(model_contract, ensure_ascii=False),
         encoding="utf-8",
     )
     (sub_dir / "assembly.py").write_text(
@@ -268,6 +284,7 @@ def test_validate_assembly_writes_run_scoped_report_and_signature(tmp_path):
     signature = json.loads(signature_path.read_text(encoding="utf-8"))
     assert signature["source_mode"] == "runtime"
     assert signature["coverage"]["matched_total"] == 1
+    assert signature["model_contract_hash"] == stable_json_hash(model_contract)
 
 
 def test_validate_assembly_rejects_bad_product_graph_instead_of_silent_skip(tmp_path):
