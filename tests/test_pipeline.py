@@ -240,6 +240,12 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                 relative_output_dir = os.path.join("artifacts", "renders")
                 expected_output_dir = os.path.abspath(relative_output_dir)
 
+                def _normalize_path(p):
+                    """Windows CI 上 tempdir 可能给出 8.3 短路径（如 runner~1）；
+                    realpath 在 Python 3.8+ 用 GetFinalPathNameByHandleW 展开短路径，
+                    但**要求路径存在于文件系统**——所以调用方必须先 makedirs。"""
+                    return os.path.normcase(os.path.realpath(p))
+
                 def fake_run(cmd, label, dry_run=False, timeout=600, env=None):
                     output_idx = cmd.index("--output-dir")
                     actual_output_dir = cmd[output_idx + 1]
@@ -247,11 +253,13 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                         os.path.isabs(actual_output_dir),
                         "Blender 子进程必须收到绝对 output-dir，避免 cwd 漂移",
                     )
-                    self.assertEqual(
-                        os.path.normcase(actual_output_dir),
-                        os.path.normcase(expected_output_dir),
-                    )
+                    # 先创建目录，让 realpath 能在 Windows 上展开 8.3 短路径
                     os.makedirs(actual_output_dir, exist_ok=True)
+                    os.makedirs(expected_output_dir, exist_ok=True)
+                    self.assertEqual(
+                        _normalize_path(actual_output_dir),
+                        _normalize_path(expected_output_dir),
+                    )
                     from PIL import Image, ImageDraw
 
                     image = Image.new("RGB", (256, 256), (245, 245, 245))
@@ -282,9 +290,10 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                 self.assertTrue(os.path.isfile(manifest_path))
                 with open(manifest_path, encoding="utf-8") as f:
                     manifest = json.load(f)
+                # 同上：Windows CI 8.3 短路径展开需 realpath 且要求路径存在
                 self.assertEqual(
-                    os.path.normcase(manifest["render_dir"]),
-                    os.path.normcase(expected_output_dir),
+                    _normalize_path(manifest["render_dir"]),
+                    _normalize_path(expected_output_dir),
                 )
             finally:
                 os.chdir(cwd)

@@ -735,3 +735,30 @@ def test_skill_metadata_advertises_photo3d_and_llm_action_reports():
         assert "accepted/preview/blocked" in tools_by_name["enhance_check"]["description"]
         assert "does not scan directories" in tools_by_name["enhance_check"]["description"]
         assert "accepted_baseline_run_id" in tools_by_name["accept_baseline"]["description"]
+
+
+def test_cad_help_docs_describe_product_goal_entry_mode():
+    """验证用户文档描述了产品目标入口模式（rev 4）。"""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    paths = [
+        repo_root / "docs" / "cad-help-guide-zh.md",
+        repo_root / ".claude" / "commands" / "cad-help.md",
+    ]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "--product-goal" in text, f"{path} 缺 --product-goal"
+        assert "needs_kpi_confirmation" in text or "需要 KPI" in text, f"{path} 缺 KPI 状态描述"
+        assert "needs_design_doc" in text or "需要设计文档" in text, f"{path} 缺 design_doc 状态描述"
+
+
+def test_skill_metadata_advertises_product_goal_entry():
+    """验证 skill.json 提及 --product-goal 入口。"""
+    import json
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    skill = json.loads((repo_root / "skill.json").read_text(encoding="utf-8"))
+    description = json.dumps(skill, ensure_ascii=False)
+    assert "--product-goal" in description, "skill.json 缺 --product-goal 提及"

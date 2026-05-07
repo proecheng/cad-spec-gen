@@ -174,6 +174,44 @@ python gemini_gen.py \
 # → 输出: 照片级 JPG (~6MB, 5460×3072)
 ```
 
+### 新用户最简启动：产品目标自然语言入口（v2.25+）
+
+外行用户不需要写设计文档也能启动管线，用一句产品目标即可开始：
+
+```bash
+# 完全空启动 → 系统提示需要产品目标
+python cad_pipeline.py project-guide
+
+# 仅自然语言 → 系统识别子系统并列出缺失 KPI
+python cad_pipeline.py project-guide --product-goal "做一个能升 50kg 的升降平台"
+
+# 补齐 KPI → 系统提示需要设计文档（needs_design_doc）
+python cad_pipeline.py project-guide \
+    --product-goal "升降平台" \
+    --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230
+
+# 加上设计文档 → 进入 CAD_SPEC 阶段
+python cad_pipeline.py project-guide \
+    --product-goal "升降平台" \
+    --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230 \
+    --design-doc docs/design/XX-lifting_platform.md
+```
+
+支持的子系统：`lifting_platform`、`end_effector`（其他 17 类在路线图但未实现，输入会得到 `not_yet_implemented` 状态 + alternatives 切换示例）。
+
+支持的 KPI（按子系统分）：
+- `lifting_platform`：`--confirm-load <kg>` / `--confirm-stroke <mm>` / `--confirm-platform-size <W×D mm>`
+- `end_effector`：`--confirm-rot-range <°>` / `--confirm-switch-time <s>` / `--confirm-flange-dia <mm>`
+
+状态机（7 种）：
+- `needs_product_goal` — 没传 product_goal 也没 design_doc
+- `needs_subsystem_confirmation` — 自然语言含混（例如只命中 supporting_terms）
+- `not_yet_implemented` — 路线图但未实现的子系统
+- `unknown_subsystem` — 完全未识别
+- `needs_kpi_confirmation` — 子系统清晰但缺 KPI
+- `needs_design_doc` — KPI 已齐但无 design_doc（仍需要设计文档才能跑 cad-spec）
+- `ready_for_cad_spec` — 一切齐备，可执行 cad-spec
+
 ### Photo3D 一键照片级契约门禁
 
 普通用户和大模型优先从只读项目向导开始：

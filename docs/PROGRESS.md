@@ -7,22 +7,22 @@
 
 | 字段 | 当前值 |
 | --- | --- |
-| 更新日期 | 2026-05-06 |
-| 当前工作分支 | `main`：新用户项目入口再简化已合并、复验并推送到远端 |
+| 更新日期 | 2026-05-07 |
+| 当前工作分支 | `codex/product-goal-entry`（22 commits 待开 PR；spec rev 4 + plan + 14 task 全完成 + chore sync） |
 | 管线 Phase 数 | 6 个：SPEC / CODEGEN / BUILD / RENDER / ENHANCE / ANNOTATE |
-| 总体能力进展 | 约 86%（按 6 个 Phase 的工程化能力估算，不代表某个具体产品一次出图进度） |
-| 当前主攻 Phase | Phase 1 -> Phase 6：新用户项目入口再简化，把“只有设计文档”的起步动作变成确认式只读向导 |
-| 最新功能基线 | `project-guide --from-design-doc --design-doc <path>`：只读取显式设计文档，写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，用户确认子系统后才进入后续管线 |
-| 最新合并/进度提交 | `0ac375a feat(project-guide): 增加设计文档入口向导` 已快进合并到本地 `main` |
+| 总体能力进展 | 约 87%（Phase 1 入口前移到产品目标自然语言模式后上调 1 点） |
+| 当前主攻 Phase | Phase 1 -> Phase 6：把入口再前移一步——外行用户用一句产品目标自然语言（如"做一个升 50kg 的升降平台"）即可启动管线，3 层确定性词典识别 + KPI 抽取 + 缺失项确认 |
+| 最新功能基线 | `project-guide --product-goal "<自然语言>"`：3 层确定性词典识别 19 子系统类别（2 implemented + 17 not_yet_implemented + unknown_subsystem），抽取 6 KPI（lifting：load/stroke/platform_size；end_effector：rot_range/switch_time/flange_dia），写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json` 并按 7 状态分流（needs_product_goal / needs_subsystem_confirmation / not_yet_implemented + alternatives / unknown_subsystem / needs_kpi_confirmation / needs_design_doc / ready_for_cad_spec）|
+| 最新合并/进度提交 | `0ac375a feat(project-guide): 增加设计文档入口向导` 已合并到 main；本轮 22 commits 在 `codex/product-goal-entry` 待 PR |
 | 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 新用户入口核心：`tests\test_project_guide.py` 为 `16 passed, 1 warning`；Photo3D 用户流：`14 passed, 1 warning`；组合回归：`172 passed, 1 warning`；`dev_sync --check` 与 `git diff --check` 通过 |
-| 同步检查 | 本轮同步 5 个安装版镜像：`cad_pipeline.py`、`tools/project_guide.py`、`cad-help.md`、`skill_cad_help_zh.md`、`skill.json`；随后 `dev_sync --check` 通过 |
-| 当前未跟踪 | 无运行时产物纳入；远端 `origin/main` 已更新。另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot`，本轮不触碰 |
-| 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-06.md`，再读 `docs/superpowers/README.md` 和本看板 |
+| 最近验证 | 全量回归 `2470 passed / 11 skipped / 0 failed`；本 PR 范围核心套件 `92 passed`（解析器 41 + e2e 13 + 既有 18 + 文档 2 + 同步 18）；`dev_sync --check` 通过；ruff/mypy 干净 |
+| 同步检查 | 本轮同步 4 个安装版镜像：`cad_pipeline.py`、`tools/project_guide.py`、`commands/zh/cad-help.md`、`skill.json`；新增 `tools/project_guide_dict/*.json` + `tools/product_goal_parser.py` 镜像（被 .gitignore 屏蔽，hatch_build 自动打包）；`dev_sync --check` 通过 |
+| 当前未跟踪 | `cad/lifting_platform/std_*.py` 13 处副作用改动已 stash 暂存（非本 PR scope，疑似 pytest codegen 重生）；远端 `origin/main` 未变。另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot`，本轮不触碰 |
+| 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-07.md`（如已写）/ `docs/superpowers/specs/2026-05-07-product-goal-entry-design.md` rev 4 + 本看板 |
 
 ## 一句话结论
 
-cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线。本轮把新用户入口往前推了一步：普通用户只拿着一个显式设计文档，也能先得到只读 `PROJECT_GUIDE.json`，确认子系统候选后再进入 spec/codegen/render/enhance，不再靠目录扫描或猜最新产物起步。
+cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线。本轮把新用户入口再前移一步：外行用户即使没有完整设计文档，只要描述产品目标自然语言（如"做一个升 50kg 的升降平台"），系统也能确定性识别子系统类别 + 抽取顶层 KPI + 标记缺失参数，让用户用 `--confirm-X` flag 一次性补齐，最终引导到既有 `--from-design-doc` / cad-spec 流程；新入口不调 LLM、不联网、不修补 CAD 缺件，破不了"AI 不能补 CAD 缺件"的边界。
 
 ## 进度口径
 
