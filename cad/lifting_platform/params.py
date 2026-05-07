@@ -3,7 +3,7 @@ lifting_platform Parametric Dimensions — Single Source of Truth
 
 Auto-generated from CAD_SPEC.md by codegen/gen_params.py
 Source: D:\Work\cad-spec-gen\cad\lifting_platform\CAD_SPEC.md
-Generated: 2026-04-04 13:51
+Generated: 2026-05-06 12:21
 
 All values extracted from design document (? lines).
 Units: mm, degrees, grams unless noted.
@@ -55,3 +55,8 @@ PARAM_L1204 = 0.05               # mm (L1204) ±0.05 mm
 PARAM_L1205 = 0.15               # mm L1205
 BOM_PARTS_COUNT = 32             # [计算] 1总成
 BOM_COMPLETENESS = 33.3          # % (32/96 cells filled) [计算]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Derived (computed)
+# ═══════════════════════════════════════════════════════════════════════════
+MOUNT_CENTER_R = 28.5            # mm — 工位安装面中心到旋转轴距离 (§6.2)

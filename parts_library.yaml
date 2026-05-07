@@ -1,6 +1,153 @@
 extends: default
 mappings:
 - match:
+    part_no: SLP-F13
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-F13_导向轴保护帽_φ10_76fe217b5d05.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:59.360039+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\mechanical\guide_shaft_protective_cap_10mm.step
+    source_hash: sha256:76fe217b5d0570d5077c9f8b29ef9ff45757925a9712bd9246d3b5efa954b7d8
+    name_cn: 导向轴保护帽 φ10
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 10.0
+    - 10.0
+    - 8.0
+- match:
+    part_no: SLP-F11
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-F11_PU_缓冲垫_20_20_3_f884caee24ee.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:55.147025+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\elastomer\pu_buffer_pad_20x20x3.step
+    source_hash: sha256:f884caee24eeb2fb3b5b345a3b2fb9941db8aebc34a8d955f290c4524b443906
+    name_cn: PU 缓冲垫 20×20×3
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 20.0
+    - 20.0
+    - 3.0
+- match:
+    part_no: SLP-C08
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C08_CL57T_闭环驱动器_3b7731817315.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:51.478464+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\electronics\cl57t_stepper_driver.step
+    source_hash: sha256:3b77318173158704456f7e5df4be661f6e24af28efb73f6ccdc972ee7f5f6ed3
+    name_cn: CL57T 闭环驱动器
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 118.0
+    - 75.0
+    - 34.00000000000067
+- match:
+    part_no: SLP-C06
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C06_L070_联轴器_f5cf200c6ae3.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:47.425424+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\transmission\l070_clamping_coupling.step
+    source_hash: sha256:f5cf200c6ae3bfd90efe729352883fc8cbc229f4fbf1b30a924b84a36018a841
+    name_cn: L070 联轴器
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 24.909673845991
+    - 25.000000200000002
+    - 30.00000000000046
+- match:
+    part_no: SLP-C05
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C05_GT2-310-6mm_带_39aa9700b0f4.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:43.269390+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\transmission\gt2_310_6mm_timing_belt.step
+    source_hash: sha256:39aa9700b0f43960902687db1792736644294d91069460d2c121f92e92fe1d52
+    name_cn: GT2-310-6mm 带
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 170.0000002
+    - 80.0000002
+    - 6.000000200000001
+- match:
+    part_no: SLP-C04
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C04_GT2_20T_开式带轮_φ12_19acab231e83.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:39.306613+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\transmission\gt2_20t_timing_pulley.step
+    source_hash: sha256:19acab231e838749b4ad6f56d137b7339f2d725260b6df761611866e106e2313
+    name_cn: GT2 20T 开式带轮 φ12
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 16.0
+    - 16.0
+    - 8.0
+- match:
+    part_no: SLP-C03
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C03_KFL001_4382d87cb411.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:35.764801+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\mechanical\kfl001_flange_bearing.step
+    source_hash: sha256:4382d87cb411fa890af7f13dc832a58c07652476640f76ef18951ecc9156b5b9
+    name_cn: KFL001
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 62.819785488524
+    - 38.0
+    - 16.0
+- match:
+    part_no: SLP-C01
+  adapter: step_pool
+  spec:
+    file: user_provided/SLP-C01_T16_螺母_C7_4edfe101b181.step
+    normalize_origin: center_xy_bottom_z
+  provenance:
+    provided_by_user: true
+    provided_at: '2026-05-06T05:36:31.958618+00:00'
+    source_path: C:\Users\procheng\.cad-spec-gen\step_cache\transmission\t16_lead_screw_nut.step
+    source_hash: sha256:4edfe101b181f58bf83c061fbb8d72670556012d2e8dcc96eceeaf46cfa227a5
+    name_cn: T16 螺母 C7
+    validated: true
+    validation_status: geometry_validated
+    bbox_mm:
+    - 28.0
+    - 28.0
+    - 16.000000200001985
+- match:
+    part_no: SLP-F06
+  adapter: jinja_primitive
+- match:
     part_no: SLP-P01
   adapter: parametric_transmission
   spec:

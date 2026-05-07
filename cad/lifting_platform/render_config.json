@@ -104,6 +104,134 @@
     "assy_UNKNOWN": {
       "preset": "brushed_aluminum",
       "label": "未分组"
+    },
+    "part_c01": {
+      "preset": "brushed_aluminum",
+      "label": "T16 螺母 C7",
+      "name_cn": "T16 螺母 C7",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "T16 螺母 C7 外购"
+    },
+    "part_c04": {
+      "preset": "brushed_aluminum",
+      "label": "GT2 20T 开式带轮 φ12",
+      "name_cn": "GT2 20T 开式带轮 φ12",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "GT2 20T 开式带轮 φ12 外购"
+    },
+    "part_c05": {
+      "preset": "brushed_aluminum",
+      "label": "GT2-310-6mm 带",
+      "name_cn": "GT2-310-6mm 带",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "GT2-310-6mm 带 外购"
+    },
+    "part_c08": {
+      "preset": "brushed_aluminum",
+      "label": "CL57T 闭环驱动器",
+      "name_cn": "CL57T 闭环驱动器",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "CL57T 闭环驱动器 外购"
+    },
+    "part_f01": {
+      "preset": "brushed_aluminum",
+      "label": "M5×16 DIN7991 沉头",
+      "name_cn": "M5×16 DIN7991 沉头",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M5×16 DIN7991 沉头 标准件"
+    },
+    "part_f02": {
+      "preset": "brushed_aluminum",
+      "label": "M5×20 DIN912（全牙）",
+      "name_cn": "M5×20 DIN912（全牙）",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M5×20 DIN912（全牙） 标准件"
+    },
+    "part_f03": {
+      "preset": "brushed_aluminum",
+      "label": "M4×12 DIN912",
+      "name_cn": "M4×12 DIN912",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M4×12 DIN912 标准件"
+    },
+    "part_f04": {
+      "preset": "brushed_aluminum",
+      "label": "轴用 E 型挡圈 φ10",
+      "name_cn": "轴用 E 型挡圈 φ10",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "轴用 E 型挡圈 φ10 标准件"
+    },
+    "part_f05": {
+      "preset": "brushed_aluminum",
+      "label": "孔用 C 型挡圈 φ19",
+      "name_cn": "孔用 C 型挡圈 φ19",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "孔用 C 型挡圈 φ19 标准件"
+    },
+    "part_f06": {
+      "preset": "brushed_aluminum",
+      "label": "φ5×20 定位销",
+      "name_cn": "φ5×20 定位销",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "φ5×20 定位销 标准件"
+    },
+    "part_f07": {
+      "preset": "brushed_aluminum",
+      "label": "M5 法兰螺母",
+      "name_cn": "M5 法兰螺母",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M5 法兰螺母 标准件"
+    },
+    "part_f08": {
+      "preset": "brushed_aluminum",
+      "label": "M4×16 DIN912",
+      "name_cn": "M4×16 DIN912",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M4×16 DIN912 标准件"
+    },
+    "part_f09": {
+      "preset": "brushed_aluminum",
+      "label": "M5×25 DIN912",
+      "name_cn": "M5×25 DIN912",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M5×25 DIN912 标准件"
+    },
+    "part_f10": {
+      "preset": "stainless_304",
+      "label": "钢丝螺套 M6×1D",
+      "name_cn": "钢丝螺套 M6×1D",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "钢丝螺套 M6×1D 标准件"
+    },
+    "part_f13": {
+      "preset": "brushed_aluminum",
+      "label": "导向轴保护帽 φ10",
+      "name_cn": "导向轴保护帽 φ10",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "导向轴保护帽 φ10 外购"
+    },
+    "part_f14": {
+      "preset": "brushed_aluminum",
+      "label": "M3×8 DIN912",
+      "name_cn": "M3×8 DIN912",
+      "name_en": "",
+      "material_source": "fallback",
+      "material_text": "M3×8 DIN912 标准件"
     }
   },
   "explode": {
@@ -229,7 +357,7 @@
     },
     "V5": {
       "name": "V5_exploded",
-      "type": "standard",
+      "type": "exploded",
       "location": [
         280,
         -310,
@@ -316,7 +444,7 @@
       "material": "SLP-500"
     },
     "SLP-P01_LS1": {
-      "name_cn": "丝杠LS1",
+      "name_cn": "丝杠 L350",
       "name_en": "Lead Screw LS1",
       "bom_id": "SLP-P01",
       "material": "SLP-P01"
@@ -328,7 +456,7 @@
       "material": "SLP-P01"
     },
     "SLP-P02_GS1": {
-      "name_cn": "导向轴GS1",
+      "name_cn": "导向轴 L296",
       "name_en": "Guide Shaft GS1",
       "bom_id": "SLP-P02",
       "material": "SLP-P02"
@@ -340,37 +468,37 @@
       "material": "SLP-P02"
     },
     "LM10UU_linear_bearing": {
-      "name_cn": "LM10UU直线轴承",
+      "name_cn": "LM10UU",
       "name_en": "LM10UU Linear Bearing",
       "bom_id": "SLP-C02",
       "material": "SLP-C02"
     },
     "KFL001_bearing_block": {
-      "name_cn": "KFL001轴承座",
+      "name_cn": "KFL001",
       "name_en": "KFL001 Bearing Block",
       "bom_id": "SLP-C03",
       "material": "SLP-C03"
     },
     "NEMA23_motor": {
-      "name_cn": "步进电机",
+      "name_cn": "NEMA23 闭环步进 ≥1.0Nm",
       "name_en": "NEMA23 Motor",
       "bom_id": "SLP-C07",
       "material": "SLP-C07"
     },
     "L070_coupler": {
-      "name_cn": "联轴器",
+      "name_cn": "L070 联轴器",
       "name_en": "Coupler L070",
       "bom_id": "SLP-C06",
       "material": "SLP-C06"
     },
     "PU_bumper_pad": {
-      "name_cn": "PU缓冲垫",
+      "name_cn": "PU 缓冲垫 20×20×3",
       "name_en": "PU Bumper Pad",
       "bom_id": "SLP-F11",
       "material": "SLP-F11"
     },
     "M8_proximity_sensor": {
-      "name_cn": "M8接近开关",
+      "name_cn": "M8 电感接近开关 NPN-NO",
       "name_en": "M8 Proximity Sensor",
       "bom_id": "SLP-F12",
       "material": "SLP-F12"
@@ -380,6 +508,102 @@
       "name_en": "",
       "bom_id": "",
       "material": "assy_UNKNOWN"
+    },
+    "part_c01": {
+      "name_cn": "T16 螺母 C7",
+      "name_en": "",
+      "bom_id": "SLP-C01",
+      "material": "part_c01"
+    },
+    "part_c04": {
+      "name_cn": "GT2 20T 开式带轮 φ12",
+      "name_en": "",
+      "bom_id": "SLP-C04",
+      "material": "part_c04"
+    },
+    "part_c05": {
+      "name_cn": "GT2-310-6mm 带",
+      "name_en": "",
+      "bom_id": "SLP-C05",
+      "material": "part_c05"
+    },
+    "part_c08": {
+      "name_cn": "CL57T 闭环驱动器",
+      "name_en": "",
+      "bom_id": "SLP-C08",
+      "material": "part_c08"
+    },
+    "part_f01": {
+      "name_cn": "M5×16 DIN7991 沉头",
+      "name_en": "",
+      "bom_id": "SLP-F01",
+      "material": "part_f01"
+    },
+    "part_f02": {
+      "name_cn": "M5×20 DIN912（全牙）",
+      "name_en": "",
+      "bom_id": "SLP-F02",
+      "material": "part_f02"
+    },
+    "part_f03": {
+      "name_cn": "M4×12 DIN912",
+      "name_en": "",
+      "bom_id": "SLP-F03",
+      "material": "part_f03"
+    },
+    "part_f04": {
+      "name_cn": "轴用 E 型挡圈 φ10",
+      "name_en": "",
+      "bom_id": "SLP-F04",
+      "material": "part_f04"
+    },
+    "part_f05": {
+      "name_cn": "孔用 C 型挡圈 φ19",
+      "name_en": "",
+      "bom_id": "SLP-F05",
+      "material": "part_f05"
+    },
+    "part_f06": {
+      "name_cn": "φ5×20 定位销",
+      "name_en": "",
+      "bom_id": "SLP-F06",
+      "material": "part_f06"
+    },
+    "part_f07": {
+      "name_cn": "M5 法兰螺母",
+      "name_en": "",
+      "bom_id": "SLP-F07",
+      "material": "part_f07"
+    },
+    "part_f08": {
+      "name_cn": "M4×16 DIN912",
+      "name_en": "",
+      "bom_id": "SLP-F08",
+      "material": "part_f08"
+    },
+    "part_f09": {
+      "name_cn": "M5×25 DIN912",
+      "name_en": "",
+      "bom_id": "SLP-F09",
+      "material": "part_f09"
+    },
+    "part_f10": {
+      "name_cn": "钢丝螺套 M6×1D",
+      "name_en": "",
+      "bom_id": "SLP-F10",
+      "material": "part_f10"
+    },
+    "part_f13": {
+      "name_cn": "导向轴保护帽 φ10",
+      "name_en": "",
+      "bom_id": "SLP-F13",
+      "material": "part_f13"
+    },
+    "part_f14": {
+      "name_cn": "M3×8 DIN912",
+      "name_en": "",
+      "bom_id": "SLP-F14",
+      "material": "part_f14"
     }
   },
   "labels": {

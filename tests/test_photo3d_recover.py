@@ -139,6 +139,7 @@ def test_photo3d_recover_build_fails_when_runtime_signature_is_not_produced(tmp_
 
 def test_photo3d_recover_build_backfills_current_run_build_artifacts(tmp_path):
     from tools.photo3d_recover import run_photo3d_recover
+    from tools.contract_io import stable_json_hash
 
     fixture = _contracts(tmp_path)
     output_dir = tmp_path / "cad" / "output"
@@ -177,6 +178,81 @@ def test_photo3d_recover_build_backfills_current_run_build_artifacts(tmp_path):
     assert (fixture["run_dir"] / "MODEL_CONTRACT.json").is_file()
     assert (fixture["run_dir"] / "DEMO-000_assembly.glb").read_bytes() == b"glb"
     assert (fixture["run_dir"] / "DEMO-000_assembly.step").read_text(encoding="utf-8") == "STEP"
+
+
+def test_photo3d_recover_build_refreshes_model_contract_from_current_product_graph(tmp_path):
+    from tools.photo3d_recover import run_photo3d_recover
+    from tools.contract_io import stable_json_hash
+
+    fixture = _contracts(tmp_path)
+    output_dir = tmp_path / "cad" / "output"
+    run_output_dir = output_dir / "runs" / "RUN001"
+    product_graph = dict(fixture["payloads"]["product_graph"])
+    product_graph["parts"] = [
+        {
+            "part_no": "P-100-01",
+            "name_cn": "主体件",
+            "make_buy": "自制",
+            "category": "other",
+            "render_policy": "required",
+            "visual_priority": "hero",
+        },
+        {
+            "part_no": "P-100-02",
+            "name_cn": "外购件",
+            "make_buy": "外购",
+            "category": "bearing",
+            "render_policy": "required",
+            "visual_priority": "hero",
+        },
+    ]
+    _write_json(fixture["paths"]["product_graph"], product_graph)
+    _write_json(
+        tmp_path / "cad" / "demo" / ".cad-spec-gen" / "geometry_report.json",
+        {
+            "schema_version": 1,
+            "decisions": [
+                {
+                    "part_no": "P-100-02",
+                    "adapter": "step_pool",
+                    "geometry_source": "USER_STEP",
+                    "geometry_quality": "A",
+                    "validated": True,
+                    "requires_model_review": False,
+                }
+            ],
+        },
+    )
+
+    def fake_build(args):
+        model_contract = json.loads(
+            (tmp_path / "cad" / "demo" / ".cad-spec-gen" / "MODEL_CONTRACT.json").read_text(encoding="utf-8")
+        )
+        _write_json(
+            run_output_dir / "ASSEMBLY_SIGNATURE.json",
+            {
+                "schema_version": 1,
+                "source_mode": "runtime",
+                "model_contract_hash": stable_json_hash(model_contract),
+            },
+        )
+        return 0
+
+    report = run_photo3d_recover(
+        tmp_path,
+        "demo",
+        "RUN001",
+        artifact_index_path=fixture["index_path"],
+        action="build",
+        build_runner=fake_build,
+    )
+
+    assert report["returncode"] == 0
+    refreshed = json.loads((fixture["run_dir"] / "MODEL_CONTRACT.json").read_text(encoding="utf-8"))
+    custom = next(row for row in refreshed["decisions"] if row["part_no"] == "P-100-01")
+    assert refreshed["product_graph_hash"] == stable_json_hash(product_graph)
+    assert custom["geometry_source"] == "CADQUERY_PARAMETRIC"
+    assert refreshed["coverage"]["missing_total"] == 0
 
 
 def test_photo3d_recover_build_does_not_guess_ambiguous_assembly_deliverables(tmp_path):

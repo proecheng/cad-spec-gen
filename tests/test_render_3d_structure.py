@@ -76,24 +76,25 @@ def test_get_bounding_sphere_uses_aabb_min_max_not_centroid():
     错误信息里指向 v2.9.0 commit hash。
     """
     src = _RENDER_3D.read_text(encoding="utf-8")
-    body = _extract_function_body(src, "_get_bounding_sphere")
+    bounds_body = _extract_function_body(src, "_get_scene_bounds")
+    sphere_body = _extract_function_body(src, "_get_bounding_sphere")
 
     # 必含 AABB 模式
-    assert "min(xs)" in body and "max(xs)" in body, (
-        "_get_bounding_sphere 不再引用 min(xs) / max(xs)。v2.9.0 的 AABB "
+    assert "min(xs)" in bounds_body and "max(xs)" in bounds_body, (
+        "_get_scene_bounds 不再引用 min(xs) / max(xs)。v2.9.0 的 AABB "
         "中心 fix 可能被意外 revert 了。参考 commit a7555ae "
         "`fix(render): AABB center instead of vertex centroid`。"
     )
-    assert "min(ys)" in body and "max(ys)" in body, (
-        "_get_bounding_sphere 缺 min(ys)/max(ys) —— AABB 模式不完整"
+    assert "min(ys)" in bounds_body and "max(ys)" in bounds_body, (
+        "_get_scene_bounds 缺 min(ys)/max(ys) —— AABB 模式不完整"
     )
-    assert "min(zs)" in body and "max(zs)" in body, (
-        "_get_bounding_sphere 缺 min(zs)/max(zs) —— AABB 模式不完整"
+    assert "min(zs)" in bounds_body and "max(zs)" in bounds_body, (
+        "_get_scene_bounds 缺 min(zs)/max(zs) —— AABB 模式不完整"
     )
 
     # 不应含顶点重心模式
-    assert "sum(xs)" not in body, (
-        "_get_bounding_sphere 含 sum(xs) —— 回退到顶点重心算法。"
+    assert "sum(xs)" not in bounds_body + sphere_body, (
+        "_get_scene_bounds/_get_bounding_sphere 含 sum(xs) —— 回退到顶点重心算法。"
         "必须用 AABB min/max 中心（v2.9.0 a7555ae）。"
     )
 
@@ -108,9 +109,9 @@ def test_get_bounding_sphere_radius_is_half_diagonal():
     src = _RENDER_3D.read_text(encoding="utf-8")
     body = _extract_function_body(src, "_get_bounding_sphere")
 
-    # 半对角线的典型写法：Vector((max(xs), max(ys), max(zs))) - center
-    assert "Vector((max(xs)" in body or "Vector((max(xs), max(ys), max(zs)))" in body, (
+    # 半对角线的典型写法：AABB max corner - AABB center
+    assert "max_corner - center" in body, (
         "_get_bounding_sphere 不再用半对角线公式计算半径。"
-        "参考 v2.9.0 的原始写法：\n"
-        "    radius = (Vector((max(xs), max(ys), max(zs))) - center).length"
+        "当前结构应复用 _get_scene_bounds() 返回的 max_corner：\n"
+        "    radius = (max_corner - center).length"
     )

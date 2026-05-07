@@ -58,6 +58,7 @@ def run_photo3d_recover(
         artifacts["product_graph"] = project_relative(output, root)
     elif action == "build":
         _stage_legacy_inputs(root, subsystem, run_id, artifacts, include_signature=False)
+        _refresh_model_contract(root, subsystem, artifacts)
         build_rc = _run_build_for_current_run(
             root,
             subsystem,
@@ -93,6 +94,34 @@ def _write_product_graph(root: Path, subsystem: str, *, output: Path, run_id: st
     from tools.product_graph import write_product_graph
 
     return write_product_graph(root, subsystem, output=output, run_id=run_id)
+
+
+def _refresh_model_contract(root: Path, subsystem: str, artifacts: dict[str, str]) -> None:
+    product_graph_value = artifacts.get("product_graph")
+    if not product_graph_value:
+        return
+    product_graph_path = _resolve_project_path(root, product_graph_value, "artifact product_graph")
+    if not product_graph_path.is_file():
+        return
+    geometry_report_path = root / "cad" / subsystem / ".cad-spec-gen" / "geometry_report.json"
+    resolver_decisions: list[dict[str, Any]] = []
+    if geometry_report_path.is_file():
+        report = load_json_required(geometry_report_path, "geometry report")
+        resolver_decisions = [
+            dict(item)
+            for item in report.get("decisions", [])
+            if isinstance(item, dict)
+        ]
+    from tools.model_contract import write_model_contract
+
+    output = root / "cad" / subsystem / ".cad-spec-gen" / "MODEL_CONTRACT.json"
+    write_model_contract(
+        root,
+        product_graph_path,
+        resolver_decisions=resolver_decisions,
+        output=output,
+        include_codegen_parts=True,
+    )
 
 
 def _run_build_for_current_run(

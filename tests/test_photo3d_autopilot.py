@@ -16,6 +16,22 @@ def _accept_baseline(fixture):
 
 
 def _write_enhancement_report(fixture, status, *, message=None):
+    manifest_files = fixture["payloads"]["render_manifest"]["files"]
+    views = [
+        {
+            "view": entry["view"],
+            "status": "accepted" if status != "blocked" else "blocked",
+            "source_image": entry["path_rel_project"],
+            "source_sha256": entry["sha256"],
+            "enhanced_image": (
+                entry["path_rel_project"].replace(".png", "_enhanced.jpg")
+                if status != "blocked"
+                else None
+            ),
+            "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
+        }
+        for entry in manifest_files
+    ]
     _write_json(
         fixture["render_dir"] / "ENHANCEMENT_REPORT.json",
         {
@@ -29,6 +45,7 @@ def _write_enhancement_report(fixture, status, *, message=None):
             "enhancement_report": "cad/output/renders/demo/RUN001/ENHANCEMENT_REPORT.json",
             "view_count": 1,
             "enhanced_view_count": 1 if status != "blocked" else 0,
+            "views": views,
             "blocking_reasons": [] if status == "accepted" else [{"code": f"{status}_reason"}],
         },
     )
@@ -294,6 +311,54 @@ def test_cmd_photo3d_autopilot_ignores_mismatched_enhancement_report_binding(
             "blocking_reasons": [],
         },
     )
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
+
+    rc = cad_pipeline.cmd_photo3d_autopilot(
+        SimpleNamespace(
+            subsystem="demo",
+            artifact_index=str(fixture["index_path"]),
+            change_scope=None,
+            baseline_signature=None,
+            output=None,
+        )
+    )
+
+    assert rc == 0
+    report = json.loads(
+        (fixture["run_dir"] / "PHOTO3D_AUTOPILOT.json").read_text(encoding="utf-8")
+    )
+
+    assert report["status"] == "ready_for_enhancement"
+    assert report["enhancement_summary"] is None
+    assert "enhancement_report" not in report["artifacts"]
+
+
+def test_cmd_photo3d_autopilot_ignores_stale_enhancement_report_after_manifest_rewrite(
+    tmp_path,
+    monkeypatch,
+):
+    import cad_pipeline
+    from tools.render_qa import build_render_manifest
+
+    from tests.test_photo3d_gate_contract import _render_png
+
+    fixture = _contracts(tmp_path)
+    _accept_baseline(fixture)
+    _write_enhancement_report(fixture, "blocked", message="stale enhancement report")
+    new_png = fixture["render_dir"] / "V1_front_new.png"
+    _render_png(new_png)
+    new_manifest = build_render_manifest(
+        tmp_path,
+        fixture["render_dir"],
+        [new_png],
+        subsystem="demo",
+        run_id=fixture["run_id"],
+        path_context_hash="sha256:pathctx",
+        product_graph=fixture["payloads"]["product_graph"],
+        model_contract=fixture["payloads"]["model_contract"],
+        assembly_signature=fixture["payloads"]["assembly_signature"],
+    )
+    _write_json(fixture["paths"]["render_manifest"], new_manifest)
     monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(tmp_path))
 
     rc = cad_pipeline.cmd_photo3d_autopilot(

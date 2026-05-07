@@ -33,6 +33,15 @@ def _low_contrast(path):
     image.save(path)
 
 
+def _low_occupancy_subject_contrast(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (256, 256), (72, 72, 72))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((108, 96, 148, 160), fill=(45, 45, 45))
+    draw.rectangle((108, 96, 148, 128), fill=(98, 98, 98))
+    image.save(path)
+
+
 def _source_sized(path, size):
     path.parent.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGB", size, (245, 245, 245))
@@ -162,6 +171,29 @@ def test_batch_report_marks_low_contrast_enhancement_as_preview(tmp_path):
     assert report["views"][0]["quality_metrics"]["contrast_stddev"] < 12.0
 
 
+def test_batch_report_accepts_low_occupancy_subject_with_roi_contrast(tmp_path):
+    from tools.enhance_consistency import build_enhancement_report
+
+    render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
+    src_v5 = render_dir / "V5_exploded.png"
+    enhanced_v5 = render_dir / "V5_exploded_20260504_1200_enhanced.jpg"
+    _low_occupancy_subject_contrast(src_v5)
+    _low_occupancy_subject_contrast(enhanced_v5)
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V5", src_v5)]),
+        enhanced_images=[enhanced_v5],
+    )
+
+    metrics = report["views"][0]["quality_metrics"]
+    assert metrics["contrast_stddev"] < 12.0
+    assert metrics["subject_contrast_stddev"] >= 12.0
+    assert report["status"] == "accepted"
+    assert report["delivery_status"] == "accepted"
+    assert report["quality_summary"]["warnings"] == []
+
+
 def test_batch_report_marks_inconsistent_canvas_as_preview(tmp_path):
     from tools.enhance_consistency import build_enhancement_report
 
@@ -235,8 +267,8 @@ def test_batch_report_blocks_ambiguous_enhanced_view(tmp_path):
 
     render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
     src_v1 = render_dir / "V1_front.png"
-    enhanced_v1_a = render_dir / "V1_front_20260504_1200_enhanced.jpg"
-    enhanced_v1_b = render_dir / "V1_front_20260504_1210_enhanced.jpg"
+    enhanced_v1_a = render_dir / "V1_rear_20260504_1200_enhanced.jpg"
+    enhanced_v1_b = render_dir / "V1_side_20260504_1210_enhanced.jpg"
     _source(src_v1)
     _source(enhanced_v1_a)
     _source(enhanced_v1_b)
@@ -252,6 +284,52 @@ def test_batch_report_blocks_ambiguous_enhanced_view(tmp_path):
     assert report["views"][0]["status"] == "blocked"
     assert report["blocking_reasons"][0]["code"] == "enhanced_view_ambiguous"
     assert len(report["blocking_reasons"][0]["candidates"]) == 2
+
+
+def test_batch_report_matches_enhancement_by_source_stem_when_view_repeats(tmp_path):
+    from tools.enhance_consistency import build_enhancement_report
+
+    render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
+    old_src_v5 = render_dir / "V5_exploded_20260506_1448.png"
+    src_v5 = render_dir / "V5_exploded_20260506_1449.png"
+    old_enhanced_v5 = render_dir / "V5_exploded_20260506_1448_enhanced.jpg"
+    enhanced_v5 = render_dir / "V5_exploded_20260506_1449_enhanced.jpg"
+    _source(old_src_v5)
+    _source(src_v5)
+    _source(old_enhanced_v5)
+    _source(enhanced_v5)
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V5", src_v5)]),
+        enhanced_images=[old_enhanced_v5, enhanced_v5],
+    )
+
+    assert report["status"] == "accepted"
+    assert report["views"][0]["enhanced_image"].endswith(enhanced_v5.name)
+    assert report["blocking_reasons"] == []
+
+
+def test_batch_report_uses_latest_enhancement_when_source_stem_repeats(tmp_path):
+    from tools.enhance_consistency import build_enhancement_report
+
+    render_dir = tmp_path / "cad" / "output" / "renders" / "demo" / "RUN001"
+    src_v5 = render_dir / "V5_exploded_20260506_1519.png"
+    old_enhanced_v5 = render_dir / "V5_exploded_20260506_1519_20260506_1539_enhanced.jpg"
+    enhanced_v5 = render_dir / "V5_exploded_20260506_1519_20260506_1544_enhanced.jpg"
+    _source(src_v5)
+    _source(old_enhanced_v5)
+    _source(enhanced_v5)
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V5", src_v5)]),
+        enhanced_images=[old_enhanced_v5, enhanced_v5],
+    )
+
+    assert report["status"] == "accepted"
+    assert report["views"][0]["enhanced_image"].endswith(enhanced_v5.name)
+    assert report["blocking_reasons"] == []
 
 
 def test_batch_report_marks_shape_drift_as_preview(tmp_path):

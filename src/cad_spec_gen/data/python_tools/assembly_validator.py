@@ -557,12 +557,22 @@ def validate_assembly(sub_dir: str, spec_path: str = None,
     if product_graph is not None:
         from tools.assembly_signature import write_assembly_signature
         signature_path = os.path.join(out_dir, "ASSEMBLY_SIGNATURE.json")
+        model_contract_path = os.path.join(
+            sub_dir,
+            ".cad-spec-gen",
+            "MODEL_CONTRACT.json",
+        )
         write_assembly_signature(
             project_root,
             product_graph_path,
             bboxes,
             signature_path,
             transforms=transforms,
+            model_contract=(
+                model_contract_path
+                if os.path.isfile(model_contract_path)
+                else None
+            ),
         )
         report["assembly_signature_path"] = signature_path
 

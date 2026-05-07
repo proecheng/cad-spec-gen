@@ -13,9 +13,11 @@ def build_assembly_signature(
     product_graph: dict[str, Any] | str | Path,
     bboxes: dict[str, tuple | list],
     transforms: dict[str, dict[str, Any]] | None = None,
+    model_contract: dict[str, Any] | str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     graph, graph_source = _load_product_graph(product_graph, root)
+    model_contract_payload = _load_optional_json(model_contract, root, "model contract")
     transforms = transforms or {}
     assembly_part_nos = _assembly_part_nos(graph)
     graph_instances, unique_graph_instances, duplicate_ids = _graph_instances_for_signature(graph)
@@ -92,6 +94,11 @@ def build_assembly_signature(
         "subsystem": graph.get("subsystem"),
         "path_context_hash": graph.get("path_context_hash"),
         "product_graph_hash": stable_json_hash(graph),
+        "model_contract_hash": (
+            stable_json_hash(model_contract_payload)
+            if model_contract_payload is not None
+            else None
+        ),
         "source_paths": graph_source["source_paths"],
         "source_hashes": graph_source["source_hashes"],
         "coverage": {
@@ -116,6 +123,7 @@ def write_assembly_signature(
     bboxes: dict[str, tuple | list],
     output: str | Path,
     transforms: dict[str, dict[str, Any]] | None = None,
+    model_contract: dict[str, Any] | str | Path | None = None,
 ) -> Path:
     root = Path(project_root).resolve()
     output_path = Path(output)
@@ -127,6 +135,7 @@ def write_assembly_signature(
         product_graph,
         bboxes,
         transforms=transforms,
+        model_contract=model_contract,
     )
     return write_json_atomic(output_path, signature)
 
@@ -201,6 +210,22 @@ def _load_product_graph(
             "PRODUCT_GRAPH.json": file_sha256(resolved),
         },
     }
+
+
+def _load_optional_json(
+    payload: dict[str, Any] | str | Path | None,
+    project_root: Path,
+    label: str,
+) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    if isinstance(payload, dict):
+        return dict(payload)
+    payload_path = Path(payload)
+    resolved = payload_path if payload_path.is_absolute() else project_root / payload_path
+    resolved = resolved.resolve()
+    assert_within_project(resolved, project_root, label)
+    return load_json_required(resolved, label)
 
 
 def _graph_instances_for_signature(

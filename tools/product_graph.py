@@ -43,6 +43,8 @@ _CHINESE_DIGITS = {
     "十": 10,
 }
 
+_NON_RENDERED_CATEGORIES = {"fastener", "cable", "connector", "locating"}
+
 
 def build_product_graph(
     project_root: str | Path,
@@ -78,11 +80,18 @@ def build_product_graph(
         legacy = legacy_by_part_no.get(part_no, {})
         quantity = row["quantity"]
         counts_by_part_no[part_no] = quantity
-        excluded = part_no in excluded_parts or _under_excluded_assembly(part_no, excluded_assemblies)
-        render_policy = "excluded" if excluded else "required"
-        required = not excluded
         material = row.get("material") or legacy.get("material", "")
         name_cn = row.get("name_cn") or legacy.get("name_cn", "")
+        category = classify_part(name_cn, material) if name_cn or material else "unknown"
+        make_buy = row.get("make_buy") or legacy.get("make_buy", "")
+        excluded = (
+            part_no in excluded_parts
+            or _under_excluded_assembly(part_no, excluded_assemblies)
+            or _is_assembly_row(make_buy)
+            or category in _NON_RENDERED_CATEGORIES
+        )
+        render_policy = "excluded" if excluded else "required"
+        required = not excluded
         confidence = row["parse_confidence"]
         if confidence < 1.0:
             warnings.append({
@@ -94,8 +103,8 @@ def build_product_graph(
         parts.append({
             "part_no": part_no,
             "name_cn": name_cn,
-            "make_buy": row.get("make_buy") or legacy.get("make_buy", ""),
-            "category": classify_part(name_cn, material) if name_cn or material else "unknown",
+            "make_buy": make_buy,
+            "category": category,
             "quantity": quantity,
             "required": required,
             "visual_priority": _visual_priority(part_no, legacy, excluded),
@@ -360,6 +369,10 @@ def _parse_chinese_integer(raw: str) -> int | None:
 
 def _under_excluded_assembly(part_no: str, excluded_assemblies: set[str]) -> bool:
     return any(part_no == assembly or part_no.startswith(f"{assembly}-") for assembly in excluded_assemblies)
+
+
+def _is_assembly_row(make_buy: str) -> bool:
+    return make_buy.strip().lower() in {"总成", "assembly", "subassembly", "sub_assembly"}
 
 
 def _visual_priority(part_no: str, legacy: dict[str, Any], excluded: bool) -> str:

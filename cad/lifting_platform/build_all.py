@@ -4,7 +4,7 @@ Build All — One-click STEP + DXF generation for 丝杠式升降平台.
 
 Auto-generated scaffold by codegen/gen_build.py
 Source: D:\Work\cad-spec-gen\cad\lifting_platform\CAD_SPEC.md
-Generated: 2026-04-04 13:51
+Generated: 2026-05-06 12:21
 
 Usage:
     python cad/lifting_platform/build_all.py
@@ -46,13 +46,16 @@ _DXF_BUILDS = [
     ("下限位传感器支架", "p403", "draw_p403_sheet"),
     ("上限位传感器支架", "p404", "draw_p404_sheet"),
     ("同步带护罩", "p500", "draw_p500_sheet"),
-    ("丝杠 L350", "p01", "draw_p01_sheet"),
     ("导向轴 L296", "p02", "draw_p02_sheet"),
 ]
 
 _STD_STEP_BUILDS = [
+    ("[模型库] 丝杠 L350", "std_p01", "make_std_p01", "SLP-P01_std.step"),
+    ("[标准件] T16 螺母 C7", "std_c01", "make_std_c01", "SLP-C01_std.step"),
     ("[标准件] LM10UU", "std_c02", "make_std_c02", "SLP-C02_std.step"),
     ("[标准件] KFL001", "std_c03", "make_std_c03", "SLP-C03_std.step"),
+    ("[标准件] GT2 20T 开式带轮 φ12", "std_c04", "make_std_c04", "SLP-C04_std.step"),
+    ("[标准件] GT2-310-6mm 带", "std_c05", "make_std_c05", "SLP-C05_std.step"),
     ("[标准件] L070 联轴器", "std_c06", "make_std_c06", "SLP-C06_std.step"),
     ("[标准件] NEMA23 闭环步进 ≥1.0Nm", "std_c07", "make_std_c07", "SLP-C07_std.step"),
     ("[标准件] PU 缓冲垫 20×20×3", "std_f11", "make_std_f11", "SLP-F11_std.step"),

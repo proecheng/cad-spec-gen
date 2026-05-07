@@ -379,6 +379,71 @@ class TestEngineeringEnhancerModule:
             except OSError:
                 pass
 
+    def test_default_enhance_lifts_low_contrast_engineering_views(self, tmp_path):
+        """低对比工程视图默认应被拉到照片级质量阈值以上。"""
+        from PIL import Image, ImageDraw, ImageStat
+
+        import engineering_enhancer
+
+        src = tmp_path / "V5_low_contrast.png"
+        image = Image.new("RGB", (256, 256), (132, 132, 132))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((64, 64, 192, 192), fill=(138, 138, 138))
+        image.save(src)
+
+        out = engineering_enhancer.enhance_image(
+            png_path=str(src),
+            prompt="",
+            engineering_cfg={},
+            view_key="V5",
+            rc={},
+        )
+        try:
+            gray = Image.open(out).convert("L")
+            assert ImageStat.Stat(gray).stddev[0] >= 12.0
+        finally:
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+
+    def test_default_enhance_preserves_low_occupancy_views_with_subject_contrast(
+        self,
+        tmp_path,
+    ):
+        """小主体视图若主体 ROI 已有足够对比，不应再强拉全图对比破坏轮廓。"""
+        from PIL import Image, ImageChops, ImageDraw, ImageStat
+
+        import engineering_enhancer
+
+        src = tmp_path / "V5_exploded.png"
+        image = Image.new("RGB", (256, 256), (72, 72, 72))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((108, 96, 148, 160), fill=(45, 45, 45))
+        draw.rectangle((108, 96, 148, 128), fill=(98, 98, 98))
+        image.save(src)
+
+        out = engineering_enhancer.enhance_image(
+            png_path=str(src),
+            prompt="",
+            engineering_cfg={},
+            view_key="V5",
+            rc={},
+        )
+        try:
+            enhanced = Image.open(out).convert("RGB")
+            diff = ImageChops.difference(image, enhanced).convert("L")
+            subject_roi = enhanced.convert("L").crop((108, 96, 148, 160))
+
+            assert ImageStat.Stat(enhanced.convert("L")).stddev[0] < 12.0
+            assert ImageStat.Stat(subject_roi).stddev[0] >= 12.0
+            assert ImageStat.Stat(diff).mean[0] < 4.0
+        finally:
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+
 
 class TestCmdEnhanceHasEngineeringDispatchBranch:
     """v2.9.1 `cmd_enhance` 必须有 `backend == "engineering"` 分支。

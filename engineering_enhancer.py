@@ -27,7 +27,7 @@ import logging
 import os
 import tempfile
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageChops, ImageEnhance, ImageStat
 
 log = logging.getLogger("engineering_enhancer")
 
@@ -35,6 +35,9 @@ DEFAULT_SHARPNESS = 1.3
 DEFAULT_CONTRAST = 1.1
 DEFAULT_SATURATION = 1.0
 DEFAULT_QUALITY = 95
+DEFAULT_MIN_CONTRAST_STDDEV = 12.0
+DEFAULT_MAX_AUTO_CONTRAST = 8.0
+DEFAULT_LOW_OCCUPANCY_SUBJECT_CONTRAST_MAX = 0.08
 
 
 def enhance_image(png_path: str, prompt: str, engineering_cfg: dict,
@@ -55,6 +58,19 @@ def enhance_image(png_path: str, prompt: str, engineering_cfg: dict,
     contrast = float(engineering_cfg.get("contrast", DEFAULT_CONTRAST))
     saturation = float(engineering_cfg.get("saturation", DEFAULT_SATURATION))
     quality = int(engineering_cfg.get("quality", DEFAULT_QUALITY))
+    auto_contrast = bool(engineering_cfg.get("auto_contrast", True))
+    min_contrast_stddev = float(
+        engineering_cfg.get("min_contrast_stddev", DEFAULT_MIN_CONTRAST_STDDEV)
+    )
+    max_auto_contrast = float(
+        engineering_cfg.get("max_auto_contrast", DEFAULT_MAX_AUTO_CONTRAST)
+    )
+    low_occupancy_subject_contrast_max = float(
+        engineering_cfg.get(
+            "low_occupancy_subject_contrast_max",
+            DEFAULT_LOW_OCCUPANCY_SUBJECT_CONTRAST_MAX,
+        )
+    )
 
     log.info(
         "  [engineering] %s: sharpness=%.2f contrast=%.2f saturation=%.2f quality=%d",
@@ -75,8 +91,71 @@ def enhance_image(png_path: str, prompt: str, engineering_cfg: dict,
         img = ImageEnhance.Sharpness(img).enhance(sharpness)
     if saturation != 1.0:
         img = ImageEnhance.Color(img).enhance(saturation)
+    if auto_contrast:
+        gray = img.convert("L")
+        contrast_stddev = float(ImageStat.Stat(gray).stddev[0])
+        subject_metrics = _subject_contrast_metrics(img)
+        subject_has_contrast = (
+            subject_metrics is not None
+            and subject_metrics["occupancy"] <= low_occupancy_subject_contrast_max
+            and subject_metrics["contrast_stddev"] >= min_contrast_stddev
+        )
+        if 0.0 < contrast_stddev < min_contrast_stddev:
+            if subject_has_contrast:
+                log.info(
+                    "  [engineering] %s: auto_contrast skipped for low-occupancy subject "
+                    "full_stddev=%.2f subject_stddev=%.2f occupancy=%.4f",
+                    view_key,
+                    contrast_stddev,
+                    subject_metrics["contrast_stddev"],
+                    subject_metrics["occupancy"],
+                )
+            else:
+                factor = min(
+                    max_auto_contrast,
+                    max(1.0, (min_contrast_stddev / contrast_stddev) * 1.08),
+                )
+                log.info(
+                    "  [engineering] %s: auto_contrast stddev=%.2f target=%.2f factor=%.2f",
+                    view_key,
+                    contrast_stddev,
+                    min_contrast_stddev,
+                    factor,
+                )
+                img = ImageEnhance.Contrast(img).enhance(factor)
 
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     tmp.close()
     img.save(tmp.name, "JPEG", quality=quality, optimize=True)
     return tmp.name
+
+
+def _subject_contrast_metrics(img: Image.Image) -> dict[str, float] | None:
+    rgba = img.convert("RGBA")
+    background = Image.new("RGBA", rgba.size, _corner_background_color(rgba))
+    diff = ImageChops.difference(rgba, background).convert("L")
+    mask = diff.point(lambda value: 255 if value > 18 else 0)
+    bbox = mask.getbbox()
+    if not bbox:
+        return None
+
+    subject_pixels = mask.histogram()[255]
+    width, height = rgba.size
+    occupancy = subject_pixels / float(width * height)
+    subject = img.convert("L").crop(bbox)
+    return {
+        "occupancy": occupancy,
+        "contrast_stddev": float(ImageStat.Stat(subject).stddev[0]),
+    }
+
+
+def _corner_background_color(image: Image.Image) -> tuple[int, int, int, int]:
+    width, height = image.size
+    pixels = image.load()
+    corners = [
+        pixels[0, 0],
+        pixels[width - 1, 0],
+        pixels[0, height - 1],
+        pixels[width - 1, height - 1],
+    ]
+    return tuple(int(sum(pixel[i] for pixel in corners) / len(corners)) for i in range(4))

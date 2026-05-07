@@ -291,8 +291,34 @@ def _enhancement_summary_for_run(
         return None, None
     if str(report.get("render_manifest") or "") != render_manifest:
         return None, None
+    manifest_path = _resolve_project_path(root, render_manifest, "render manifest")
+    manifest = load_json_required(manifest_path, "render manifest")
+    if not _report_matches_manifest_sources(report, manifest):
+        return None, None
     summary = _compact_enhancement_summary(report, report_rel)
     return summary, report_rel
+
+
+def _report_matches_manifest_sources(report: dict[str, Any], manifest: dict[str, Any]) -> bool:
+    manifest_sources = {
+        (
+            str(entry.get("view") or ""),
+            str(entry.get("path_rel_project") or ""),
+            str(entry.get("sha256") or ""),
+        )
+        for entry in manifest.get("files") or []
+        if isinstance(entry, dict)
+    }
+    report_sources = {
+        (
+            str(view.get("view") or ""),
+            str(view.get("source_image") or ""),
+            str(view.get("source_sha256") or ""),
+        )
+        for view in report.get("views") or []
+        if isinstance(view, dict)
+    }
+    return bool(manifest_sources) and manifest_sources == report_sources
 
 
 def _compact_enhancement_summary(report: dict[str, Any], report_rel: str) -> dict[str, Any]:
