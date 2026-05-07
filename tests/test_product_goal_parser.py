@@ -220,3 +220,41 @@ def test_kpi_extraction_does_not_leak_cad_param_names():
         assert kpi.kpi_name not in forbidden
         if kpi.evidence_token:
             assert kpi.evidence_token not in forbidden
+
+
+@pytest.mark.parametrize("text,expected_class", [
+    ("做导航 SLAM", "navigation"),
+    ("运动控制系统", "motion_ctrl"),
+    ("电气系统设计", "electrical"),
+    ("通信总线", "communication"),
+    ("充电桩", "charging"),
+    ("耦合剂", "couplant"),
+    ("检测传感", "detection"),
+    ("集成总成", "integration"),
+    ("输出端", "output"),
+    ("专利布局", "patent"),
+    ("项目规划", "plan"),
+    ("电源系统", "power"),
+    ("机器人平台", "robot_platform"),
+    ("安全系统", "safety"),
+    ("软件代码", "software"),
+    ("系统架构", "sys_arch"),
+    ("预算成本", "budget"),
+])
+def test_not_yet_implemented_subsystem_recognized(text, expected_class):
+    """17 个 not_yet_implemented 子系统 primary_terms 直接命中。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text=text)
+    assert result.subsystem_class == expected_class, f"识别错：{result.subsystem_class}"
+    assert result.subsystem_status == "not_yet_implemented"
+    assert result.kpis == {}  # not_yet_implemented 不抽 KPI
+
+
+def test_unknown_input_examples():
+    """三类典型 unknown 输入：无意义字符串 / 含『未知』关键词 / 完全无关文字。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    for text in ["xyz123 abc", "做一个未知设备", "完全不相关的文字"]:
+        result = parse_product_goal(text=text)
+        assert result.subsystem_status == "unknown", f"{text}: {result.subsystem_status}"
