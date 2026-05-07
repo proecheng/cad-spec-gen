@@ -121,3 +121,58 @@ def test_confirmed_kpis_can_complete_missing_kpis(tmp_path):
     )
 
     assert report["status"] == "ready_for_cad_spec"
+
+
+def test_preview_cli_unsafe_when_text_contains_special_chars(tmp_path):
+    """rev 4 DR-4：含中文/特殊字符触发降级。"""
+    from tools.project_guide import write_project_goal_guide
+
+    report = write_project_goal_guide(
+        tmp_path,
+        product_goal='升降平台 升 50kg "高精度" 平台 350x230 行程 200mm',
+    )
+
+    # 因含中文 + " → _safe_cli_token 必返 false
+    assert report["next_action"].get("preview_cli_unsafe") is True
+    # 降级文案不含原 user text 的特殊字符部分
+    cli = report["next_action"].get("preview_cli", "")
+    assert '"高精度"' not in cli
+    # 降级文案应提示用户用 confirm flag
+    assert "--confirm" in cli or "confirm" in cli
+
+
+def test_output_path_outside_project_guide_dir_rejected(tmp_path):
+    from tools.project_guide import write_project_goal_guide
+
+    bad_output = tmp_path / "elsewhere" / "PROJECT_GUIDE.json"
+    bad_output.parent.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="PROJECT_GUIDE.json"):
+        write_project_goal_guide(
+            tmp_path,
+            product_goal="做一个升降平台",
+            output_path=bad_output,
+        )
+
+
+def test_no_forbidden_secrets_in_report(tmp_path):
+    """复用既有 forbidden 字段守护 — 报告永不含 api_key/url 等敏感字段。"""
+    from tools.project_guide import write_project_goal_guide
+
+    report = write_project_goal_guide(
+        tmp_path,
+        product_goal="升降平台 升 50kg 行程 200mm 平台 350x230",
+    )
+
+    forbidden = {"api_key", "key", "secret", "url", "base_url", "endpoint"}
+
+    def _walk(value):
+        if isinstance(value, dict):
+            assert forbidden.isdisjoint(value), f"forbidden: {value}"
+            for v in value.values():
+                _walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                _walk(v)
+
+    _walk(report)
