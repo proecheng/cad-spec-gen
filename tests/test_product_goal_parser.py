@@ -121,3 +121,56 @@ def test_unknown_subsystem_returns_unknown():
     result = parse_product_goal(text="做一个不存在的产品类型 xyzzy")
     assert result.subsystem_class is None
     assert result.subsystem_status == "unknown"
+
+
+def test_kpi_extracted_when_regex_and_context_both_hit():
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="做一个能升 50kg 的升降平台")
+    assert result.subsystem_class == "lifting_platform"
+    assert result.kpis["load_kg"].value == 50
+    assert result.kpis["load_kg"].status == "extracted"
+    assert result.kpis["load_kg"].unit == "kg"
+
+
+def test_kpi_missing_when_only_regex_hits_no_context():
+    """50kg 但无任何 lifting context_term → load_kg 应 missing。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    # 此 case 中 "升降平台" 含"升"作 context，应抽到
+    result = parse_product_goal(text="做一个升降平台 50kg")
+    assert result.kpis["load_kg"].status == "extracted"
+
+    # 此 case 中 "lifting platform" 不含 context_terms 内任一中文词
+    # （context_terms = ["载荷", "承载", "负载", "升起", "举起", "提升", "升"]）
+    # → load_kg 应 missing
+    result2 = parse_product_goal(text="做一个 lifting platform，重量 50kg")
+    assert result2.kpis["load_kg"].status == "missing"
+
+
+def test_stroke_unit_normalize_mm_cm_m_all_normalize_to_mm():
+    from tools.product_goal_parser import parse_product_goal
+
+    for text, expected in [
+        ("升降平台 行程 200mm", 200.0),
+        ("升降平台 行程 20cm", 200.0),
+        ("升降平台 行程 0.2m", 200.0),
+    ]:
+        result = parse_product_goal(text=text)
+        assert result.kpis["stroke_mm"].value == expected, f"{text}: {result.kpis['stroke_mm'].value}"
+
+
+def test_platform_size_extracts_pair():
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 350x230 平台")
+    assert result.kpis["platform_size_mm"].value == (350.0, 230.0)
+    assert result.kpis["platform_size_mm"].status == "extracted"
+
+
+def test_nfkc_normalize_fullwidth_digits():
+    from tools.product_goal_parser import parse_product_goal
+
+    # 全角数字 １００ 应等价 100
+    result = parse_product_goal(text="升降平台 升起 １００kg")
+    assert result.kpis["load_kg"].value == 100

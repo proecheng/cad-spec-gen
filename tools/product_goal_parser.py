@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping
@@ -15,6 +16,9 @@ from tools.project_guide_dict import ProductGoalDictionary, load_dictionary
 
 SubsystemStatus = Literal["implemented", "not_yet_implemented", "ambiguous", "unknown"]
 KpiStatus = Literal["extracted", "ambiguous", "missing"]
+
+# 数字与 context_term ±20 字符内才视为同一语义；超距离视为不相关，避免误抽
+_DISTANCE_WINDOW = 20
 
 
 @dataclass(frozen=True)
@@ -76,10 +80,31 @@ def parse_product_goal(
             normalized, dictionary, evidence
         )
 
+    # 层 2：仅对 implemented 子系统抽 KPI；其余状态 kpis 保持空 dict
+    if subsystem_class and subsystem_status == "implemented":
+        kpis = _extract_kpis_for_subsystem(
+            normalized, subsystem_class, dictionary, evidence
+        )
+        # 外部已确认的 KPI 直接覆盖，跳过启发式
+        if confirmed_kpis:
+            for k, v in confirmed_kpis.items():
+                if k in kpis:
+                    kpis[k] = KpiExtraction(
+                        kpi_name=k,
+                        value=v,
+                        unit=kpis[k].unit,
+                        evidence_token=str(v),
+                        rule="confirmed_kpi",
+                        status="extracted",
+                    )
+    else:
+        kpis = {}
+
     return ProductGoalParseResult(
         raw_text=text,
         subsystem_class=subsystem_class,
         subsystem_status=subsystem_status,
+        kpis=kpis,
         parser_evidence=evidence,
     )
 
@@ -144,6 +169,115 @@ def _identify_subsystem(
         return None, "ambiguous"
 
     return None, "unknown"
+
+
+def _extract_kpis_for_subsystem(
+    normalized: str,
+    subsystem_class: str,
+    dictionary: ProductGoalDictionary,
+    evidence: list[dict[str, Any]],
+) -> dict[str, KpiExtraction]:
+    """对 implemented 子系统跑所有 KPI 抽取，未命中标 missing。"""
+    extractions: dict[str, KpiExtraction] = {}
+    kpi_specs = dictionary.kpi_patterns[subsystem_class]
+
+    for kpi_name, spec in kpi_specs.items():
+        extracted = _extract_single_kpi(normalized, kpi_name, spec, evidence)
+        extractions[kpi_name] = extracted
+    return extractions
+
+
+def _extract_single_kpi(
+    normalized: str,
+    kpi_name: str,
+    spec: dict[str, Any],
+    evidence: list[dict[str, Any]],
+) -> KpiExtraction:
+    """单 KPI 抽取：regex 短路命中 + ±20 字符 context_terms 距离判定。
+
+    规则：
+    - context_terms 任一在 normalized 中出现 → 收集所有出现位置
+    - context 全无 → status=missing rule=no_context
+    - regex 按 yaml 顺序短路（命中即返回），匹配字符块与最近 context 端点距离 ≤ 20 字符
+    - value_shape=pair → 抽 group(1)/group(2) 为 (float, float)
+    - 单位归一：第 i 条 regex（i>0）按 unit_normalize.keys() 第 i-1 个 key 倍率换算
+    """
+    context_terms = spec["context_terms"]
+    unit = spec["unit"]
+    unit_normalize = spec.get("unit_normalize") or {}
+    value_shape = spec.get("value_shape", "single")
+
+    # 收集所有 context_terms 的出现位置（同 term 多次出现亦记录）
+    context_positions: list[int] = []
+    for term in context_terms:
+        idx = 0
+        while True:
+            pos = normalized.find(term, idx)
+            if pos < 0:
+                break
+            context_positions.append(pos)
+            idx = pos + len(term)
+
+    if not context_positions:
+        return KpiExtraction(
+            kpi_name=kpi_name,
+            value=None,
+            unit=unit,
+            evidence_token=None,
+            rule="no_context",
+            status="missing",
+        )
+
+    # 按 yaml 顺序短路 regex（首条命中即返回）
+    for regex_idx, pattern in enumerate(spec["regex"]):
+        compiled = re.compile(pattern)
+        for match in compiled.finditer(normalized):
+            number_start = match.start()
+            number_end = match.end()
+            # 数字块端点距 context 任一端点最近距离
+            min_dist = min(
+                min(abs(cp - number_start), abs(cp - number_end))
+                for cp in context_positions
+            )
+            if min_dist > _DISTANCE_WINDOW:
+                continue
+
+            value: float | tuple[float, float]
+            if value_shape == "pair":
+                value = (float(match.group(1)), float(match.group(2)))
+            else:
+                raw = float(match.group(1))
+                # 单位归一：regex 第 0 条为基准单位（不归一）；
+                # 第 i 条（i≥1）按 unit_normalize 第 i-1 个 key 取倍率
+                if regex_idx > 0 and unit_normalize:
+                    unit_keys = list(unit_normalize.keys())
+                    if regex_idx - 1 < len(unit_keys):
+                        raw = raw * unit_normalize[unit_keys[regex_idx - 1]]
+                value = raw
+
+            evidence.append({
+                "token": match.group(0),
+                "matched": kpi_name,
+                "rule": f"regex+context:{context_terms[0]}",
+                "regex_index": regex_idx,
+            })
+            return KpiExtraction(
+                kpi_name=kpi_name,
+                value=value,
+                unit=unit,
+                evidence_token=match.group(0),
+                rule=f"regex+context:{context_terms[0]}",
+                status="extracted",
+            )
+
+    return KpiExtraction(
+        kpi_name=kpi_name,
+        value=None,
+        unit=unit,
+        evidence_token=None,
+        rule="no_match",
+        status="missing",
+    )
 
 
 __all__ = [
