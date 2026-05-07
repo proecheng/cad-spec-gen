@@ -240,6 +240,11 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                 relative_output_dir = os.path.join("artifacts", "renders")
                 expected_output_dir = os.path.abspath(relative_output_dir)
 
+                def _normalize_path(p):
+                    """Windows CI 上 tempdir 可能给出 8.3 短路径（如 runner~1）；
+                    用 realpath 把两侧路径归到同一规范形式后比较。"""
+                    return os.path.normcase(os.path.realpath(p))
+
                 def fake_run(cmd, label, dry_run=False, timeout=600, env=None):
                     output_idx = cmd.index("--output-dir")
                     actual_output_dir = cmd[output_idx + 1]
@@ -248,8 +253,8 @@ class TestCmdRenderInjectsEnv(unittest.TestCase):
                         "Blender 子进程必须收到绝对 output-dir，避免 cwd 漂移",
                     )
                     self.assertEqual(
-                        os.path.normcase(actual_output_dir),
-                        os.path.normcase(expected_output_dir),
+                        _normalize_path(actual_output_dir),
+                        _normalize_path(expected_output_dir),
                     )
                     os.makedirs(actual_output_dir, exist_ok=True)
                     from PIL import Image, ImageDraw
