@@ -2,8 +2,20 @@
 
 **日期**：2026-05-07
 **作者**：brainstorming session
-**rev**：3（实地核验代码后修订：4 数据漂移 + 3 函数一致性 + 3 管线融合 + 1 路径全闭）
+**rev**：4（5 场景 dry-run 后修订：3 死路场景 + needs_design_doc 新状态）
 **目标**：把 `project-guide` 入口前移一步——外行用户不写设计文档也能启动，只用一句产品目标自然语言（如"做一个升 50kg 的升降平台"），系统识别子系统类别 + 抽取顶层 KPI + 标记缺失项，让用户用 `--confirm-X` flag 一次性补齐后进入既有 Phase 1 流程
+
+## rev 3 → rev 4 修订记录（2026-05-07）
+
+实地走 5 场景 dry-run 后发现 3 处死路 + 1 处状态从未到达 + 1 处文案缺：
+
+- **DR-1（CRITICAL）：场景 4 ready_for_cad_spec 死路**——KPI 齐但无 `--design-doc` 时 spec 写 ready_for_cad_spec，但下游 `cad-spec` 必须读设计文档（line 1771-1775 报错"Design doc not found"）。**新增 `needs_design_doc` 状态**：仅在子系统+KPI 齐 + design_doc 也已传时才到 ready_for_cad_spec。
+- **DR-2（IMPORTANT）：场景 3 not_yet_implemented 死路**——next_action 没给用户走出来的路径。**补 next_action.alternatives**：列出 implemented 子系统 + 给一条切换示例命令 + 提供反馈渠道（GitHub issue 链接占位）。
+- **DR-3（IMPORTANT）：场景 1 needs_product_goal 状态从未到达**——`cmd_project_guide` dispatch 默认分支 error return 1，不写 PROJECT_GUIDE.json。**修法**：dispatch 加 fallback 写 needs_product_goal guide（空 input 时 informative，不 error），让用户直接看到下一步动作。
+- **DR-4（MINOR）：场景 5 preview_cli_unsafe 降级文案未规范**——补 spec 显式说明降级文案模板：`"<user_text 含特殊字符，请用 --confirm-X flag 直接传值，不通过自然语言>"`。
+- **附带**：dry-run 暴露下游 `cad-spec` 的 design_doc resolution 行为（`_resolve_design_doc` 按 chapter number 查 `docs/design/NN-*.md`）→ spec 加一节"§下游 cad-spec 接口约定"，明确 ready_for_cad_spec 的 next_action 命令需要传 `--design-doc <path>`。
+
+---
 
 ## rev 2 → rev 3 修订记录（2026-05-07）
 
@@ -81,7 +93,7 @@
 
 ### 与现有 `--from-design-doc` 的关系
 
-**并存，不替代**。`cmd_project_guide` dispatch 扩展（rev 3 显式）：
+**并存，不替代**。`cmd_project_guide` dispatch 扩展（rev 4 修订：default 分支改 fallback 而非 error）：
 
 ```python
 def cmd_project_guide(args):
@@ -99,8 +111,13 @@ def cmd_project_guide(args):
     elif args.subsystem:                                   # 既有
         report = write_project_guide(...)                  # 不改
     else:
-        log.error("--product-goal, --from-design-doc, or --subsystem is required")
-        return 1
+        # rev 4 修订：default 分支不再 error；写 needs_product_goal guide
+        # （让用户/大模型看到 informative next_action 而非 error return 1）
+        report = write_project_goal_guide(
+            PROJECT_ROOT,
+            product_goal="",  # 空字符串触发 needs_product_goal 状态
+            output_path=getattr(args, "output", None),
+        )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return command_return_code_for_project_guide(report)
 ```
@@ -148,36 +165,42 @@ def cmd_project_guide(args):
 }
 ```
 
-### 新状态码
+### 新状态码（rev 4：补 `needs_design_doc`）
 
 | 状态 | 含义 | next_action.kind |
 |---|---|---|
-| `needs_product_goal` | 没传 `--product-goal` 也没 `--design-doc` | `supply_product_goal` |
+| `needs_product_goal` | 没传 `--product-goal` 也没 `--design-doc`（**dispatch fallback 写**，非 error） | `supply_product_goal` |
 | `needs_subsystem_confirmation` | 自然语言含混 / 多类匹配 | `confirm_subsystem`（**复用既有 entry_guide 同名值**） |
-| `not_yet_implemented` | 命中 17 个文档化但未实现类别 | `wait_for_implementation` |
+| `not_yet_implemented` | 命中 17 个文档化但未实现类别 | `wait_for_implementation`（**附 alternatives**：implemented 列表 + 切换示例 + 反馈链接） |
 | `unknown_subsystem` | 完全未识别 | `list_supported_subsystems` |
 | `needs_kpi_confirmation` | 类别清晰但 KPI 缺失/含混 | `supply_missing_kpis` |
-| `ready_for_cad_spec` | 一切齐备 | `run_cad_spec` |
+| **`needs_design_doc`**（rev 4 新） | 子系统 + KPI 齐但无 `--design-doc` | `supply_design_doc` |
+| `ready_for_cad_spec` | 子系统 + KPI 齐 **且 design_doc 已传** | `run_cad_spec` |
 
-**rev 3 显式声明**：`next_action.kind` 是**文档化字符串**——产线代码（cad-spec、build、render、photo3d、enhance 等下游）**不会**自动 dispatch 这些值。它们只是给用户和大模型看的"建议"。所以新增这些值不会破坏任何现有路径，也不必新增任何 dispatcher。
+**rev 4 显式声明**：`next_action.kind` 是**文档化字符串**——产线代码（cad-spec、build、render、photo3d、enhance 等下游）**不会**自动 dispatch 这些值。它们只是给用户和大模型看的"建议"。所以新增这些值不会破坏任何现有路径，也不必新增任何 dispatcher。
 
-### 状态机
+
+### 状态机（rev 4 修订）
 
 ```
 [no input]
-   └─ status: needs_product_goal
+   └─ status: needs_product_goal（dispatch fallback 写而非 error）
       └─ user supplies --product-goal "..."
          └─ parse → branch:
             ├─ subsystem ambiguous → needs_subsystem_confirmation
             │    └─ user adds --confirm-subsystem <name>
             │       └─ re-enter parse with subsystem fixed
             ├─ subsystem matches not_yet_implemented → terminal
-            ├─ subsystem unknown → terminal (列出 supported)
+            │    └─ next_action.alternatives 给 implemented 列表 + 切换示例 + 反馈链接
+            ├─ subsystem unknown → terminal (列出 supported + 反馈链接)
             └─ subsystem clear:
-               ├─ all KPIs extracted → ready_for_cad_spec
+               └─ all KPIs extracted:
+                  ├─ design_doc 已传 → ready_for_cad_spec
+                  └─ design_doc 未传 → needs_design_doc
+                     └─ user adds --design-doc <path> → re-enter → ready_for_cad_spec
                └─ KPIs missing → needs_kpi_confirmation
                   └─ user adds --confirm-load 50 --confirm-stroke 200 ...
-                     └─ re-enter parse with KPIs fixed → ready_for_cad_spec
+                     └─ re-enter parse → 检查 design_doc → 上分支
 ```
 
 ---
@@ -296,6 +319,53 @@ end_effector:
 
 - 不同 KPI 之间允许共享同一 token：`"50kg 平台 + 升 50mm"` 中两个 50 各归各位（一个匹配 load 因近 "kg"，一个匹配 stroke 因近 "mm"）——**不算歧义**
 - 真冲突 = 同一数字 + 多个 KPI 都能匹配 + context_terms 距离相等：`"50 升降"` 中 `50` 既能算 load（"升"在 context）又能算 stroke（"升"在 stroke 的 "升高/升程"）→ `status: ambiguous`，让用户用 `--confirm-X` 显式
+
+---
+
+## 下游 cad-spec 接口约定（rev 4 新增）
+
+**核心约束**：本入口模式产出的 `ready_for_cad_spec` 状态**只是用户报告**，不自动跑 cad-spec；用户/大模型按 `next_action.preview_cli` 复制粘贴执行下一步。
+
+**下游 `cad-spec` 实际接口**（实地核验 `cad_pipeline.py:1768-1775`）：
+
+```bash
+python cad_pipeline.py spec --subsystem <name> --design-doc <path>
+# 缺 --design-doc 时尝试 _resolve_design_doc(<name>)：
+#   按 docs/design/<chapter_number>-*.md glob 查找
+#   找不到 → "Design doc not found" error return
+```
+
+**入口模式必须传 `--design-doc`**：
+
+- 即使 KPI 全齐，**没有 design_doc 也不能 ready_for_cad_spec**（`cad-spec` 会硬性失败）
+- 入口层不生成 CAD_SPEC.md 草案（守"入口纯只读"边界）
+- 入口层不替代 design_doc 文件（守"AI 不能补 CAD 缺件"边界）
+
+**5 场景终态映射**：
+
+| 场景 | 终态 | next_action.preview_cli 例 |
+|---|---|---|
+| 1（无 flag） | `needs_product_goal` | `python cad_pipeline.py project-guide --product-goal "做一个升 50kg 的升降平台"` |
+| 2（仅 product_goal，缺 KPI） | `needs_kpi_confirmation` | `... --product-goal "..." --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230` |
+| 3（not_yet_implemented） | `wait_for_implementation` + alternatives | 列 implemented 子系统 + 1 条切换示例 + GitHub issue 链接占位 |
+| 4（KPI 齐 + 无 design_doc） | `needs_design_doc` | `... --product-goal "..." --confirm-load 50 ... --design-doc docs/design/<chapter>-<subsystem>.md` + 模板路径示例 |
+| 5（含转义字符） | preview_cli_unsafe 降级 | `"<user_text 含 \" 等特殊字符；请用 --confirm-X flag 直接传值，不通过自然语言>"` |
+| 6（KPI 齐 + design_doc 已传） | `ready_for_cad_spec` | `python cad_pipeline.py spec --subsystem <name> --design-doc <path>` |
+
+**not_yet_implemented 的 alternatives 字段示例**：
+
+```json
+{
+  "next_action": {
+    "kind": "wait_for_implementation",
+    "alternatives": {
+      "implemented_subsystems": ["lifting_platform", "end_effector"],
+      "switch_example": "python cad_pipeline.py project-guide --product-goal \"做升降平台 50kg\"",
+      "feedback_url": "https://github.com/proecheng/cad-spec-gen/issues/new"
+    }
+  }
+}
+```
 
 ---
 
@@ -597,6 +667,14 @@ CLI flag 名（kebab-case，去单位后缀）≠ KPI key 名（snake_case，含
 **KPI ↔ CAD 参数映射约束**（加入 `test_product_goal_parser.py`）：
 
 7. `kpi_extracted` 输出**绝不**含 CAD 参数名（`PARAM_L25` / `SENSOR_STROKE`）—— 入口层和 CAD 层严格分离
+
+### rev 4 新增 dry-run 场景测试（加入 `test_project_goal_guide.py`）
+
+8. **场景 1 dispatch fallback**：无 flag 跑 `cmd_project_guide` → return code = 0（不 error）+ 写 needs_product_goal guide + next_action.preview_cli 提示加 `--product-goal`
+9. **场景 3 not_yet_implemented alternatives**：`--product-goal "做导航"` → status=not_yet_implemented + next_action.alternatives.implemented_subsystems 含 `lifting_platform` 和 `end_effector` + switch_example 命令可解析
+10. **场景 4 needs_design_doc**：`--product-goal "升降平台 50kg 200mm 350x230"` 无 `--design-doc` → status=needs_design_doc（**非 ready_for_cad_spec**） + next_action.preview_cli 含 `--design-doc <path>` 提示
+11. **场景 4 真 ready_for_cad_spec**：补 `--design-doc <path>` → status=ready_for_cad_spec + next_action.preview_cli = `cad-spec --subsystem <name> --design-doc <path>` 命令可解析（用 argparse 校验）
+12. **场景 5 preview_cli_unsafe 降级**：`--product-goal '高"精度"平台'` → preview_cli_unsafe=true + 降级文案匹配模板（不含原始 user text）
 
 ---
 
