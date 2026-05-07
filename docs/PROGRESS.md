@@ -7,22 +7,22 @@
 
 | 字段 | 当前值 |
 | --- | --- |
-| 更新日期 | 2026-05-07 |
-| 当前工作分支 | `codex/product-goal-entry`（22 commits 待开 PR；spec rev 4 + plan + 14 task 全完成 + chore sync） |
+| 更新日期 | 2026-05-08 |
+| 当前工作分支 | `main` @ `99c0e93`（与 origin/main 同步，无 OPEN PR） |
 | 管线 Phase 数 | 6 个：SPEC / CODEGEN / BUILD / RENDER / ENHANCE / ANNOTATE |
-| 总体能力进展 | 约 87%（Phase 1 入口前移到产品目标自然语言模式后上调 1 点） |
-| 当前主攻 Phase | Phase 1 -> Phase 6：把入口再前移一步——外行用户用一句产品目标自然语言（如"做一个升 50kg 的升降平台"）即可启动管线，3 层确定性词典识别 + KPI 抽取 + 缺失项确认 |
-| 最新功能基线 | `project-guide --product-goal "<自然语言>"`：3 层确定性词典识别 19 子系统类别（2 implemented + 17 not_yet_implemented + unknown_subsystem），抽取 6 KPI（lifting：load/stroke/platform_size；end_effector：rot_range/switch_time/flange_dia），写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json` 并按 7 状态分流（needs_product_goal / needs_subsystem_confirmation / not_yet_implemented + alternatives / unknown_subsystem / needs_kpi_confirmation / needs_design_doc / ready_for_cad_spec）|
-| 最新合并/进度提交 | `0ac375a feat(project-guide): 增加设计文档入口向导` 已合并到 main；本轮 22 commits 在 `codex/product-goal-entry` 待 PR |
-| 最新归档计划提交 | `9ed3280 docs(project): 归档通用传动件计划` |
-| 最近验证 | 全量回归 `2470 passed / 11 skipped / 0 failed`；本 PR 范围核心套件 `92 passed`（解析器 41 + e2e 13 + 既有 18 + 文档 2 + 同步 18）；`dev_sync --check` 通过；ruff/mypy 干净 |
-| 同步检查 | 本轮同步 4 个安装版镜像：`cad_pipeline.py`、`tools/project_guide.py`、`commands/zh/cad-help.md`、`skill.json`；新增 `tools/project_guide_dict/*.json` + `tools/product_goal_parser.py` 镜像（被 .gitignore 屏蔽，hatch_build 自动打包）；`dev_sync --check` 通过 |
-| 当前未跟踪 | `cad/lifting_platform/std_*.py` 13 处副作用改动已 stash 暂存（非本 PR scope，疑似 pytest codegen 重生）；远端 `origin/main` 未变。另有独立旧 worktree `.worktrees/generic-threaded-photo-autopilot`，本轮不触碰 |
-| 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-07.md`（如已写）/ `docs/superpowers/specs/2026-05-07-product-goal-entry-design.md` rev 4 + 本看板 |
+| 总体能力进展 | 约 89%（Phase 1 入口前移 + 升降平台完整子系统两个里程碑后上调 3 点） |
+| 当前主攻 Phase | 已完成本轮（v2.25.0 Phase 1 入口 + v2.26.0 升降平台子系统）；下一轮重点 Phase 5 真实 AI backend adapter 准入 |
+| 最新功能基线 | v2.26.0：lifting_platform 完整子系统端到端（参数化 + 装配契约 + 7 真实 vendor STEP + 跨 Phase 2-6 测试）；v2.25.0：`project-guide --product-goal "<自然语言>"` 3 层确定性词典识别 19 子系统 + 6 KPI + 7 状态分流 + dispatch fallback |
+| 最新合并/进度提交 | `99c0e93 feat(photo3d): 完成升降平台照片级交付 (#58)` (v2.26.0) / `0ac05ad feat(product-goal): Phase 1 入口前移到产品目标自然语言模式 (#59)` (v2.25.0) 都已合并 |
+| 最新归档计划提交 | `b81afad docs(plan): 增加产品目标自然语言入口实施计划` 已合并随 v2.25.0 |
+| 最近验证 | PR #58 / #59 各自 CI 8/8 SUCCESS（Linux 3.10/3.11/3.12 + Windows 3.10/3.11/3.12 + mypy-strict + regression）；全量回归 `2470 passed`；ruff/mypy 干净 |
+| 同步检查 | v2.25.0 引入新模块 `tools/product_goal_parser.py` + `tools/project_guide_dict/`（hatch_build COPY_DIRS 自动镜像）；v2.26.0 引入新 std 件 + render 工具（dev_sync --check 通过） |
+| 当前未跟踪 | `.claude/settings.local.json` 本地配置（非任何 PR scope）；`git stash@{0}` 含过期 lifting_platform std_*.py 改动（建议下 session 直接 drop） |
+| 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-08.md` + 本看板 + `memory/project_current_status.md` |
 
 ## 一句话结论
 
-cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线。本轮把新用户入口再前移一步：外行用户即使没有完整设计文档，只要描述产品目标自然语言（如"做一个升 50kg 的升降平台"），系统也能确定性识别子系统类别 + 抽取顶层 KPI + 标记缺失参数，让用户用 `--confirm-X` flag 一次性补齐，最终引导到既有 `--from-design-doc` / cad-spec 流程；新入口不调 LLM、不联网、不修补 CAD 缺件，破不了"AI 不能补 CAD 缺件"的边界。
+cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 implemented 子系统（end_effector + lifting_platform）。本 session 同日两个 minor release：v2.25.0 把新用户入口前移到产品目标自然语言模式（外行不写设计文档也能启动管线）；v2.26.0 把升降平台作为完整子系统端到端交付（参数化 + 装配契约 + 真实 vendor STEP + 跨 Phase 2-6 实测）。下一轮重点：Phase 5 真实 AI backend adapter 准入（`gpt-image-2-pro` 等云后端的配置隔离 + 白名单 + 同 run 验收）。
 
 ## 进度口径
 
