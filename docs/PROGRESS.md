@@ -8,21 +8,21 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 更新日期 | 2026-05-08 |
-| 当前工作分支 | `main` @ `99c0e93`（与 origin/main 同步，无 OPEN PR） |
+| 当前工作分支 | `feat/v2.25-cleanup-followup` 14 ahead of `main`（v2.25.x cleanup PR 实施完成，待开 PR） |
 | 管线 Phase 数 | 6 个：SPEC / CODEGEN / BUILD / RENDER / ENHANCE / ANNOTATE |
 | 总体能力进展 | 约 89%（Phase 1 入口前移 + 升降平台完整子系统两个里程碑后上调 3 点） |
-| 当前主攻 Phase | 已完成本轮（v2.25.0 Phase 1 入口 + v2.26.0 升降平台子系统）；下一轮重点 Phase 5 真实 AI backend adapter 准入 |
-| 最新功能基线 | v2.26.0：lifting_platform 完整子系统端到端（参数化 + 装配契约 + 7 真实 vendor STEP + 跨 Phase 2-6 测试）；v2.25.0：`project-guide --product-goal "<自然语言>"` 3 层确定性词典识别 19 子系统 + 6 KPI + 7 状态分流 + dispatch fallback |
-| 最新合并/进度提交 | `99c0e93 feat(photo3d): 完成升降平台照片级交付 (#58)` (v2.26.0) / `0ac05ad feat(product-goal): Phase 1 入口前移到产品目标自然语言模式 (#59)` (v2.25.0) 都已合并 |
-| 最新归档计划提交 | `b81afad docs(plan): 增加产品目标自然语言入口实施计划` 已合并随 v2.25.0 |
-| 最近验证 | PR #58 / #59 各自 CI 8/8 SUCCESS（Linux 3.10/3.11/3.12 + Windows 3.10/3.11/3.12 + mypy-strict + regression）；全量回归 `2470 passed`；ruff/mypy 干净 |
-| 同步检查 | v2.25.0 引入新模块 `tools/product_goal_parser.py` + `tools/project_guide_dict/`（hatch_build COPY_DIRS 自动镜像）；v2.26.0 引入新 std 件 + render 工具（dev_sync --check 通过） |
-| 当前未跟踪 | `.claude/settings.local.json` 本地配置（非任何 PR scope）；`git stash@{0}` 含过期 lifting_platform std_*.py 改动（建议下 session 直接 drop） |
+| 当前主攻 Phase | 已完成本轮（v2.25.0 Phase 1 入口 + v2.26.0 升降平台子系统 + v2.25.x cleanup §11 follow-up）；下一轮重点 Phase 5 真实 AI backend adapter 准入 |
+| 最新功能基线 | v2.25.x cleanup（feat/v2.25-cleanup-followup）：§11 follow-up 6 项单 PR 集成（I-1 unit_normalize → schema v2 / I-2 软窗口→硬窗口 / I-3 evidence_token 原文切片 / I-4 拆 7 per-status builder / I-5 降级文案按 reason 分类 / M-3 _classify_unsafe_reason CJK 优先）；v2.26.0：lifting_platform 完整子系统端到端；v2.25.0：`project-guide --product-goal "<自然语言>"` 3 层确定性词典识别 19 子系统 + 6 KPI + 7 状态分流 + dispatch fallback |
+| 最新合并/进度提交 | `99c0e93 feat(photo3d): 完成升降平台照片级交付 (#58)` (v2.26.0) / `0ac05ad feat(product-goal): Phase 1 入口前移到产品目标自然语言模式 (#59)` (v2.25.0) 都已合并；v2.25.x cleanup 在 `feat/v2.25-cleanup-followup` 待 PR |
+| 最新归档计划提交 | `6853a3c docs(plan): v2.25.x cleanup PR 实施计划` / `0e5869a docs(spec): v2.25.x cleanup spec rev 4` 在 `feat/v2.25-cleanup-followup` 分支 |
+| 最近验证 | PR #58 / #59 各自 CI 8/8 SUCCESS（Linux 3.10/3.11/3.12 + Windows 3.10/3.11/3.12 + mypy-strict + regression）；全量回归 `2470 passed`；v2.25.x cleanup 本地 TDD +20 测试（6 parser + 14 guide）RED → GREEN，本地范围 pytest 全绿 |
+| 同步检查 | v2.25.x cleanup 单 commit 镜像同步 `chore(dev_sync): 同步 root tools/ → src/cad_spec_gen/data/tools/ 镜像` (`6327b11`)；v2.25.0 引入新模块 `tools/product_goal_parser.py` + `tools/project_guide_dict/`（hatch_build COPY_DIRS 自动镜像）；v2.26.0 引入新 std 件 + render 工具（dev_sync --check 通过） |
+| 当前未跟踪 | `.claude/settings.local.json` 本地配置（非任何 PR scope）；工作树 `cad/lifting_platform/std_c0[1-8]|f1[13].py` 9 文件被前任 session 改过（不在 v2.25.x cleanup PR scope，等 PR 后处理） |
 | 新 session 入口 | 先读 `docs/superpowers/reports/session-handoff-2026-05-08.md` + 本看板 + `memory/project_current_status.md` |
 
 ## 一句话结论
 
-cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 implemented 子系统（end_effector + lifting_platform）。本 session 同日两个 minor release：v2.25.0 把新用户入口前移到产品目标自然语言模式（外行不写设计文档也能启动管线）；v2.26.0 把升降平台作为完整子系统端到端交付（参数化 + 装配契约 + 真实 vendor STEP + 跨 Phase 2-6 实测）。下一轮重点：Phase 5 真实 AI backend adapter 准入（`gpt-image-2-pro` 等云后端的配置隔离 + 白名单 + 同 run 验收）。
+cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 implemented 子系统（end_effector + lifting_platform）。本 session 同日两个 minor release：v2.25.0 把新用户入口前移到产品目标自然语言模式（外行不写设计文档也能启动管线）；v2.26.0 把升降平台作为完整子系统端到端交付（参数化 + 装配契约 + 真实 vendor STEP + 跨 Phase 2-6 实测）。后续 cleanup 单 PR `feat/v2.25-cleanup-followup` 已把 §11 follow-up 6 项闭合（I-1/I-2/I-3/I-4/I-5/M-3），TDD +20 测试 RED → GREEN，待开 PR。下一轮重点：Phase 5 真实 AI backend adapter 准入（`gpt-image-2-pro` 等云后端的配置隔离 + 白名单 + 同 run 验收）。
 
 ## 进度口径
 
@@ -218,6 +218,9 @@ cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 impl
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-08 | `python -m pytest tests\test_product_goal_parser.py tests\test_project_guide.py -q` | v2.25.x cleanup TDD RED → GREEN：6 parser + 14 guide 共 +20 测试；I-1 schema v2 / I-2 硬窗口 / I-3 evidence_token 原文切片 / I-4 7 builder / I-5 reason 文案 / M-3 unsafe_reason 全部覆盖 |
+| 2026-05-08 | `python scripts\dev_sync.py --check` | v2.25.x cleanup 单 commit 镜像同步通过（`6327b11 chore(dev_sync): 同步 root tools/ → src/cad_spec_gen/data/tools/ 镜像`） |
+| 2026-05-08 | `git log --oneline 99c0e93..HEAD` | `feat/v2.25-cleanup-followup` 13 commits ahead（spec ×4 / plan ×1 / RED 测试 ×1 / 实现 ×6 / dev_sync ×1，本 PROGRESS commit 后 14 ahead） |
 | 2026-05-06 | `python -m pytest tests\test_project_guide.py::test_project_entry_guide_rejects_output_outside_entry_guide_directory -q` | 新用户入口输出路径边界测试通过：`1 passed, 1 warning`；入口 `PROJECT_GUIDE.json` 被限制在 `.cad-spec-gen/project-guide/` |
 | 2026-05-06 | `python -m pytest tests\test_photo3d_user_flow.py::test_cad_help_docs_describe_photo3d_foolproof_user_flow tests\test_photo3d_user_flow.py::test_skill_metadata_advertises_photo3d_and_llm_action_reports -q` | 文档/metadata 先红后绿，最终 `2 passed, 1 warning`；`--from-design-doc`、`needs_subsystem_confirmation`、`confirm_subsystem` 已进入帮助文档和安装版 metadata |
 | 2026-05-06 | `python scripts\dev_sync.py` / `python scripts\dev_sync.py --check` | 同步 5 个安装版镜像：`cad_pipeline.py`、`tools/project_guide.py`、`cad-help.md`、`skill_cad_help_zh.md`、`skill.json`；随后检查通过 |

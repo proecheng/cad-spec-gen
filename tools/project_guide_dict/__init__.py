@@ -94,6 +94,14 @@ def load_dictionary(*, dict_root: Path | None = None) -> ProductGoalDictionary:
     keywords = json.loads(keywords_path.read_text(encoding="utf-8"))
     patterns = json.loads(patterns_path.read_text(encoding="utf-8"))
 
+    # schema_version 顶层校验 + pop（patterns 是 json.loads 返回的临时 dict，
+    # pop 不泄漏 mutation 给外部 caller）
+    schema_version = patterns.pop("schema_version", None)
+    if schema_version != 2:
+        raise RuntimeError(
+            f"kpi_patterns.json schema_version 必须是 2，实际：{schema_version!r}"
+        )
+
     return ProductGoalDictionary(
         subsystem_keywords=keywords,
         kpi_patterns=patterns,

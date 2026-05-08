@@ -18,6 +18,26 @@ from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provi
 
 CODEGEN_SENTINELS = ("params.py", "build_all.py", "assembly.py")
 PROJECT_ENTRY_GUIDE_DIR = Path(".cad-spec-gen") / "project-guide"
+
+# ===== §11.M-5/M-3: 共享常量（_safe_cli_token 与 _classify_unsafe_reason 共用） =====
+_SAFE_CLI_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
+# CJK Unified (U+4E00-U+9FFF) + Ext-A (U+3400-U+4DBF)
+_CJK_PATTERN = re.compile(r"[一-鿿㐀-䶿]")
+_WIN_PATH_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
+
+_UNSAFE_MESSAGE_TEMPLATES = {
+    "windows_path": (
+        "<Windows 路径含反斜杠/冒号；请用 forward slash 或加双引号包裹路径>"
+    ),
+    "chinese_text": (
+        "<user_text 含中文；请用 --confirm-X flag 直接传值，不通过自然语言>"
+    ),
+    "special_chars": (
+        "<user_text 含特殊字符（引号/换行等）；"
+        "请用 --confirm-X flag 直接传值，不通过自然语言>"
+    ),
+}
+
 _CJK_TOKEN_MAP = {
     "升": "sheng",
     "降": "jiang",
@@ -628,7 +648,37 @@ def _resolve_project_path(project_root: Path, path: str | Path, label: str) -> P
 
 
 def _safe_cli_token(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value or ""))
+    """token 校验（subsystem 名等用）。
+
+    与 _classify_unsafe_reason 共用 _SAFE_CLI_PATTERN，避免字面发散；
+    注意：empty 在此返 False（不算合法 token），而 _classify_unsafe_reason("") 返 "safe"
+    （含义"无需降级"），两者语义有别。
+    """
+    return bool(_SAFE_CLI_PATTERN.fullmatch(value or ""))
+
+
+def _classify_unsafe_reason(value: str) -> str:
+    """分类 user_text 不安全原因，给出精确下一步提示。
+
+    返回值（按优先级）：'safe' | 'chinese_text' | 'windows_path' | 'special_chars'。
+    优先级（互斥）：safe > chinese_text > windows_path > special_chars。
+
+    Empty string 与 None：value 必须为 str；调用方（_sanitize_preview_cli）已用
+    `or ""` 兜底 None。empty 时返 "safe"——含义"无 unsafe 内容需要降级"，与
+    _safe_cli_token("") = False 不同（后者用于 token 校验，empty 不算合法 token）。
+
+    日文 Kanji 命中 CJK Unified 范围会归 chinese_text；Hangul / 假名归
+    special_chars——本管线针对中文用户的产品边界。
+    """
+    if not value:
+        return "safe"
+    if _SAFE_CLI_PATTERN.fullmatch(value):
+        return "safe"
+    if _CJK_PATTERN.search(value):
+        return "chinese_text"
+    if _WIN_PATH_PATTERN.match(value):
+        return "windows_path"
+    return "special_chars"
 
 
 def write_project_goal_guide(
@@ -684,10 +734,10 @@ def _sanitize_preview_cli(
 ) -> dict[str, Any]:
     """检查 next_action.preview_cli 是否含 user text；含且 unsafe 则降级。
 
-    设计原则（spec rev 4 DR-4）：
-    - 当 preview_cli 真的把 raw_text 拼进去时，必须用 _safe_cli_token 校验
-    - 含中文/空格/引号 → unsafe → 标记 preview_cli_unsafe + 提示走 --confirm flag
-    - 不破坏既有"..."占位的 cli（不含 raw_text 的不动）
+    设计原则（spec rev 4 DR-4 + M-4）：
+    - 当 preview_cli 真的把 raw_text 拼进去时，必须用 _classify_unsafe_reason 校验
+    - reason 分类对应 _UNSAFE_MESSAGE_TEMPLATES 三类文案
+    - 不变量：preview_cli_unsafe=True ⇔ unsafe_reason 存在；safe 路径下两字段都不写
     """
     raw_text = getattr(parse_result, "raw_text", None) or ""
     if not raw_text:
@@ -697,14 +747,86 @@ def _sanitize_preview_cli(
         return action
     if raw_text not in cli:
         return action
-    if _safe_cli_token(raw_text):
+    reason = _classify_unsafe_reason(raw_text)
+    if reason == "safe":
         return action
     action["preview_cli_unsafe"] = True
-    action["preview_cli"] = (
-        "<user_text 含特殊字符；请用 --confirm-X flag 直接传值，"
-        "不通过自然语言>"
-    )
+    action["unsafe_reason"] = reason
+    action["preview_cli"] = _UNSAFE_MESSAGE_TEMPLATES[reason]
     return action
+
+
+# ===== I-4: 7 per-status builder（spec rev 4 §I-4） =====
+def _action_for_needs_product_goal(parse_result: Any) -> dict[str, Any]:
+    return {
+        "kind": "supply_product_goal",
+        "preview_cli": (
+            'python cad_pipeline.py project-guide --product-goal "<描述你的产品>"'
+        ),
+    }
+
+
+def _action_for_needs_subsystem_confirmation(parse_result: Any) -> dict[str, Any]:
+    return {
+        "kind": "confirm_subsystem",
+        "preview_cli": (
+            'python cad_pipeline.py project-guide --product-goal "..." '
+            "--confirm-subsystem <lifting_platform|end_effector>"
+        ),
+    }
+
+
+def _action_for_unknown_subsystem(parse_result: Any) -> dict[str, Any]:
+    return {
+        "kind": "list_supported_subsystems",
+        "supported": ["lifting_platform", "end_effector"],
+    }
+
+
+def _action_for_not_yet_implemented(parse_result: Any) -> dict[str, Any]:
+    return {
+        "kind": "wait_for_implementation",
+        "alternatives": {
+            "implemented_subsystems": ["lifting_platform", "end_effector"],
+            "switch_example": (
+                'python cad_pipeline.py project-guide --product-goal "做升降平台 50kg"'
+            ),
+            "feedback_url": "https://github.com/proecheng/cad-spec-gen/issues/new",
+        },
+    }
+
+
+def _action_for_needs_kpi_confirmation(
+    parse_result: Any, missing: list[str]
+) -> dict[str, Any]:
+    return {
+        "kind": "supply_missing_kpis",
+        "missing_kpis": missing,
+        "preview_cli": _build_kpi_preview_cli(parse_result.subsystem_class, missing),
+    }
+
+
+def _action_for_needs_design_doc(parse_result: Any) -> dict[str, Any]:
+    return {
+        "kind": "supply_design_doc",
+        "preview_cli": (
+            f"python cad_pipeline.py project-guide "
+            f'--product-goal "{parse_result.raw_text}" '
+            f"--design-doc docs/design/<chapter>-{parse_result.subsystem_class}.md"
+        ),
+    }
+
+
+def _action_for_ready_for_cad_spec(
+    parse_result: Any, design_doc: "str | Path"
+) -> dict[str, Any]:
+    return {
+        "kind": "run_cad_spec",
+        "preview_cli": (
+            f"python cad_pipeline.py spec --subsystem {parse_result.subsystem_class} "
+            f"--design-doc {design_doc}"
+        ),
+    }
 
 
 def _derive_goal_status_and_next_action(
@@ -712,82 +834,38 @@ def _derive_goal_status_and_next_action(
     design_doc: str | Path | None,
     root: Path,
 ) -> tuple[str, dict[str, Any]]:
-    """从 parse 结果派生 status + next_action。Task 8 仅含 4 简单状态分支。
+    """从 parse 结果派生 status + next_action。
 
-    Task 10：含 raw_text 的 preview_cli 都过 _sanitize_preview_cli
-    保证含中文/特殊字符的 user text 不会拼成可执行 CLI。
+    路由层：决定 status，调对应 builder，最后统一过 _sanitize_preview_cli。
     """
     if not parse_result.raw_text or not parse_result.raw_text.strip():
-        action: dict[str, Any] = {
-            "kind": "supply_product_goal",
-            "preview_cli": (
-                "python cad_pipeline.py project-guide --product-goal \"<描述你的产品>\""
-            ),
-        }
-        return "needs_product_goal", _sanitize_preview_cli(action, parse_result)
+        status = "needs_product_goal"
+        action = _action_for_needs_product_goal(parse_result)
+    elif parse_result.subsystem_status == "ambiguous":
+        status = "needs_subsystem_confirmation"
+        action = _action_for_needs_subsystem_confirmation(parse_result)
+    elif parse_result.subsystem_status == "unknown":
+        status = "unknown_subsystem"
+        action = _action_for_unknown_subsystem(parse_result)
+    elif parse_result.subsystem_status == "not_yet_implemented":
+        status = "not_yet_implemented"
+        action = _action_for_not_yet_implemented(parse_result)
+    else:
+        # implemented 分支
+        missing = [
+            name for name, k in parse_result.kpis.items() if k.status != "extracted"
+        ]
+        if missing:
+            status = "needs_kpi_confirmation"
+            action = _action_for_needs_kpi_confirmation(parse_result, missing)
+        elif not design_doc:
+            status = "needs_design_doc"
+            action = _action_for_needs_design_doc(parse_result)
+        else:
+            status = "ready_for_cad_spec"
+            action = _action_for_ready_for_cad_spec(parse_result, design_doc)
 
-    if parse_result.subsystem_status == "ambiguous":
-        action = {
-            "kind": "confirm_subsystem",
-            "preview_cli": (
-                "python cad_pipeline.py project-guide --product-goal \"...\" "
-                "--confirm-subsystem <lifting_platform|end_effector>"
-            ),
-        }
-        return "needs_subsystem_confirmation", _sanitize_preview_cli(action, parse_result)
-
-    if parse_result.subsystem_status == "unknown":
-        action = {
-            "kind": "list_supported_subsystems",
-            "supported": ["lifting_platform", "end_effector"],
-        }
-        return "unknown_subsystem", _sanitize_preview_cli(action, parse_result)
-
-    if parse_result.subsystem_status == "not_yet_implemented":
-        action = {
-            "kind": "wait_for_implementation",
-            "alternatives": {
-                "implemented_subsystems": ["lifting_platform", "end_effector"],
-                "switch_example": (
-                    'python cad_pipeline.py project-guide --product-goal '
-                    '"做升降平台 50kg"'
-                ),
-                "feedback_url": "https://github.com/proecheng/cad-spec-gen/issues/new",
-            },
-        }
-        return "not_yet_implemented", _sanitize_preview_cli(action, parse_result)
-
-    # implemented 分支：KPI 完整性检查 → design_doc 检查
-    missing = [name for name, k in parse_result.kpis.items() if k.status != "extracted"]
-    if missing:
-        action = {
-            "kind": "supply_missing_kpis",
-            "missing_kpis": missing,
-            "preview_cli": _build_kpi_preview_cli(parse_result.subsystem_class, missing),
-        }
-        return "needs_kpi_confirmation", _sanitize_preview_cli(action, parse_result)
-
-    if not design_doc:
-        # Task 10：把 raw_text 真实拼进 preview_cli，让 _sanitize_preview_cli
-        # 触发 unsafe 降级；安全 token 时保留正常 CLI 模板供用户复制。
-        action = {
-            "kind": "supply_design_doc",
-            "preview_cli": (
-                f"python cad_pipeline.py project-guide "
-                f'--product-goal "{parse_result.raw_text}" '
-                f"--design-doc docs/design/<chapter>-{parse_result.subsystem_class}.md"
-            ),
-        }
-        return "needs_design_doc", _sanitize_preview_cli(action, parse_result)
-
-    action = {
-        "kind": "run_cad_spec",
-        "preview_cli": (
-            f"python cad_pipeline.py spec --subsystem {parse_result.subsystem_class} "
-            f"--design-doc {design_doc}"
-        ),
-    }
-    return "ready_for_cad_spec", _sanitize_preview_cli(action, parse_result)
+    return status, _sanitize_preview_cli(action, parse_result)
 
 
 def _ordinary_user_message_for_goal(status: str) -> str:

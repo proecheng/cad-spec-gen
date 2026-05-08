@@ -83,7 +83,7 @@ def parse_product_goal(
     # 层 2：仅对 implemented 子系统抽 KPI；其余状态 kpis 保持空 dict
     if subsystem_class and subsystem_status == "implemented":
         kpis = _extract_kpis_for_subsystem(
-            normalized, subsystem_class, dictionary, evidence
+            text, normalized, subsystem_class, dictionary, evidence
         )
         # 外部已确认的 KPI 直接覆盖，跳过启发式
         if confirmed_kpis:
@@ -172,6 +172,7 @@ def _identify_subsystem(
 
 
 def _extract_kpis_for_subsystem(
+    raw_text: str,
     normalized: str,
     subsystem_class: str,
     dictionary: ProductGoalDictionary,
@@ -182,12 +183,31 @@ def _extract_kpis_for_subsystem(
     kpi_specs = dictionary.kpi_patterns[subsystem_class]
 
     for kpi_name, spec in kpi_specs.items():
-        extracted = _extract_single_kpi(normalized, kpi_name, spec, evidence)
+        extracted = _extract_single_kpi(raw_text, normalized, kpi_name, spec, evidence)
         extractions[kpi_name] = extracted
     return extractions
 
 
+def _raw_token_for_match(
+    raw_text: str,
+    normalized: str,
+    match: "re.Match[str]",
+) -> str:
+    """从原文取 match 区间对应的子串。
+
+    NFKC 在 ASCII 路径与全角→半角场景下保持 char 数 1:1
+    （len(raw)==len(normalized)），此时 match.start()/end() 在两个串上索引等价，
+    可直接切 raw_text。极少数 NFKC 拆分（⅔ → 2/3、㎡ → m2）会让 normalized 比
+    raw_text 长，索引域错位 → fallback 到 match.group(0)（normalized 串上 token，
+    与现状等价不优于 normalized）。
+    """
+    if len(raw_text) == len(normalized):
+        return raw_text[match.start():match.end()]
+    return match.group(0)
+
+
 def _extract_single_kpi(
+    raw_text: str,
     normalized: str,
     kpi_name: str,
     spec: dict[str, Any],
@@ -195,16 +215,10 @@ def _extract_single_kpi(
 ) -> KpiExtraction:
     """单 KPI 抽取：regex 短路命中 + ±20 字符 context_terms 距离判定。
 
-    规则：
-    - context_terms 任一在 normalized 中出现 → 收集所有出现位置
-    - context 全无 → status=missing rule=no_context
-    - regex 按 yaml 顺序短路（命中即返回），匹配字符块与最近 context 端点距离 ≤ 20 字符
-    - value_shape=pair → 抽 group(1)/group(2) 为 (float, float)
-    - 单位归一：第 i 条 regex（i>0）按 unit_normalize.keys() 第 i-1 个 key 倍率换算
+    schema v2：spec["regex"] 为 [{pattern, factor}] 对象数组；factor 直接随 entry 携带。
     """
     context_terms = spec["context_terms"]
     unit = spec["unit"]
-    unit_normalize = spec.get("unit_normalize") or {}
     value_shape = spec.get("value_shape", "single")
 
     # 收集所有 context_terms 的出现位置（同 term 多次出现亦记录）
@@ -229,7 +243,9 @@ def _extract_single_kpi(
         )
 
     # 按 yaml 顺序短路 regex（首条命中即返回）
-    for regex_idx, pattern in enumerate(spec["regex"]):
+    for regex_idx, regex_entry in enumerate(spec["regex"]):
+        pattern = regex_entry["pattern"]
+        factor = regex_entry["factor"]
         compiled = re.compile(pattern)
         for match in compiled.finditer(normalized):
             number_start = match.start()
@@ -247,16 +263,11 @@ def _extract_single_kpi(
                 value = (float(match.group(1)), float(match.group(2)))
             else:
                 raw = float(match.group(1))
-                # 单位归一：regex 第 0 条为基准单位（不归一）；
-                # 第 i 条（i≥1）按 unit_normalize 第 i-1 个 key 取倍率
-                if regex_idx > 0 and unit_normalize:
-                    unit_keys = list(unit_normalize.keys())
-                    if regex_idx - 1 < len(unit_keys):
-                        raw = raw * unit_normalize[unit_keys[regex_idx - 1]]
-                value = raw
+                value = raw * factor   # factor=1 时不变
 
+            raw_token = _raw_token_for_match(raw_text, normalized, match)
             evidence.append({
-                "token": match.group(0),
+                "token": raw_token,
                 "matched": kpi_name,
                 "rule": f"regex+context:{context_terms[0]}",
                 "regex_index": regex_idx,
@@ -265,7 +276,7 @@ def _extract_single_kpi(
                 kpi_name=kpi_name,
                 value=value,
                 unit=unit,
-                evidence_token=match.group(0),
+                evidence_token=raw_token,
                 rule=f"regex+context:{context_terms[0]}",
                 status="extracted",
             )

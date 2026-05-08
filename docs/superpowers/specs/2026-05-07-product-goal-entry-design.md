@@ -12,7 +12,10 @@
 - **DR-1（CRITICAL）：场景 4 ready_for_cad_spec 死路**——KPI 齐但无 `--design-doc` 时 spec 写 ready_for_cad_spec，但下游 `cad-spec` 必须读设计文档（line 1771-1775 报错"Design doc not found"）。**新增 `needs_design_doc` 状态**：仅在子系统+KPI 齐 + design_doc 也已传时才到 ready_for_cad_spec。
 - **DR-2（IMPORTANT）：场景 3 not_yet_implemented 死路**——next_action 没给用户走出来的路径。**补 next_action.alternatives**：列出 implemented 子系统 + 给一条切换示例命令 + 提供反馈渠道（GitHub issue 链接占位）。
 - **DR-3（IMPORTANT）：场景 1 needs_product_goal 状态从未到达**——`cmd_project_guide` dispatch 默认分支 error return 1，不写 PROJECT_GUIDE.json。**修法**：dispatch 加 fallback 写 needs_product_goal guide（空 input 时 informative，不 error），让用户直接看到下一步动作。
-- **DR-4（MINOR）：场景 5 preview_cli_unsafe 降级文案未规范**——补 spec 显式说明降级文案模板：`"<user_text 含特殊字符，请用 --confirm-X flag 直接传值，不通过自然语言>"`。
+- **DR-4（MINOR）：场景 5 preview_cli_unsafe 降级文案未规范**——补 spec 显式说明降级文案模板（按 `_classify_unsafe_reason` 三类）：
+  - windows_path: `"<Windows 路径含反斜杠/冒号；请用 forward slash 或加双引号包裹路径>"`
+  - chinese_text: `"<user_text 含中文；请用 --confirm-X flag 直接传值，不通过自然语言>"`
+  - special_chars: `"<user_text 含特殊字符（引号/换行等）；请用 --confirm-X flag 直接传值，不通过自然语言>"`
 - **附带**：dry-run 暴露下游 `cad-spec` 的 design_doc resolution 行为（`_resolve_design_doc` 按 chapter number 查 `docs/design/NN-*.md`）→ spec 加一节"§下游 cad-spec 接口约定"，明确 ready_for_cad_spec 的 next_action 命令需要传 `--design-doc <path>`。
 
 ---
@@ -313,7 +316,8 @@ end_effector:
 
 - 单位是 NFKC normalize 后的 **char index**（不是 byte / token）
 - 距离 = `min(|context_pos - number_start|, |context_pos - number_end|)`
-- ±20 char 是软窗口；超出窗口仍允许，但 `parser_evidence` 标 `weak`
+- ±20 char 是硬窗口；超出窗口直接不抽（status=missing, rule=no_match）
+- 这与代码 `tools/product_goal_parser.py:242 if min_dist > _DISTANCE_WINDOW: continue` 一致
 
 **数字共享规则**（rev 2 明确）：
 
@@ -349,7 +353,9 @@ python cad_pipeline.py spec --subsystem <name> --design-doc <path>
 | 2（仅 product_goal，缺 KPI） | `needs_kpi_confirmation` | `... --product-goal "..." --confirm-load 50 --confirm-stroke 200 --confirm-platform-size 350x230` |
 | 3（not_yet_implemented） | `wait_for_implementation` + alternatives | 列 implemented 子系统 + 1 条切换示例 + GitHub issue 链接占位 |
 | 4（KPI 齐 + 无 design_doc） | `needs_design_doc` | `... --product-goal "..." --confirm-load 50 ... --design-doc docs/design/<chapter>-<subsystem>.md` + 模板路径示例 |
-| 5（含转义字符） | preview_cli_unsafe 降级 | `"<user_text 含 \" 等特殊字符；请用 --confirm-X flag 直接传值，不通过自然语言>"` |
+| 5a（chinese_text）| preview_cli_unsafe + unsafe_reason=chinese_text | 文案见 _UNSAFE_MESSAGE_TEMPLATES["chinese_text"] |
+| 5b（windows_path）| preview_cli_unsafe + unsafe_reason=windows_path | 文案见 _UNSAFE_MESSAGE_TEMPLATES["windows_path"] |
+| 5c（special_chars）| preview_cli_unsafe + unsafe_reason=special_chars | 文案见 _UNSAFE_MESSAGE_TEMPLATES["special_chars"] |
 | 6（KPI 齐 + design_doc 已传） | `ready_for_cad_spec` | `python cad_pipeline.py spec --subsystem <name> --design-doc <path>` |
 
 **not_yet_implemented 的 alternatives 字段示例**：
