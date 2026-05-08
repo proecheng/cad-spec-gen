@@ -83,7 +83,7 @@ def parse_product_goal(
     # 层 2：仅对 implemented 子系统抽 KPI；其余状态 kpis 保持空 dict
     if subsystem_class and subsystem_status == "implemented":
         kpis = _extract_kpis_for_subsystem(
-            normalized, subsystem_class, dictionary, evidence
+            text, normalized, subsystem_class, dictionary, evidence
         )
         # 外部已确认的 KPI 直接覆盖，跳过启发式
         if confirmed_kpis:
@@ -172,6 +172,7 @@ def _identify_subsystem(
 
 
 def _extract_kpis_for_subsystem(
+    raw_text: str,
     normalized: str,
     subsystem_class: str,
     dictionary: ProductGoalDictionary,
@@ -182,12 +183,31 @@ def _extract_kpis_for_subsystem(
     kpi_specs = dictionary.kpi_patterns[subsystem_class]
 
     for kpi_name, spec in kpi_specs.items():
-        extracted = _extract_single_kpi(normalized, kpi_name, spec, evidence)
+        extracted = _extract_single_kpi(raw_text, normalized, kpi_name, spec, evidence)
         extractions[kpi_name] = extracted
     return extractions
 
 
+def _raw_token_for_match(
+    raw_text: str,
+    normalized: str,
+    match: "re.Match[str]",
+) -> str:
+    """从原文取 match 区间对应的子串。
+
+    NFKC 在 ASCII 路径与全角→半角场景下保持 char 数 1:1
+    （len(raw)==len(normalized)），此时 match.start()/end() 在两个串上索引等价，
+    可直接切 raw_text。极少数 NFKC 拆分（⅔ → 2/3、㎡ → m2）会让 normalized 比
+    raw_text 长，索引域错位 → fallback 到 match.group(0)（normalized 串上 token，
+    与现状等价不优于 normalized）。
+    """
+    if len(raw_text) == len(normalized):
+        return raw_text[match.start():match.end()]
+    return match.group(0)
+
+
 def _extract_single_kpi(
+    raw_text: str,
     normalized: str,
     kpi_name: str,
     spec: dict[str, Any],
@@ -245,8 +265,9 @@ def _extract_single_kpi(
                 raw = float(match.group(1))
                 value = raw * factor   # factor=1 时不变
 
+            raw_token = _raw_token_for_match(raw_text, normalized, match)
             evidence.append({
-                "token": match.group(0),
+                "token": raw_token,
                 "matched": kpi_name,
                 "rule": f"regex+context:{context_terms[0]}",
                 "regex_index": regex_idx,
@@ -255,7 +276,7 @@ def _extract_single_kpi(
                 kpi_name=kpi_name,
                 value=value,
                 unit=unit,
-                evidence_token=match.group(0),
+                evidence_token=raw_token,
                 rule=f"regex+context:{context_terms[0]}",
                 status="extracted",
             )
