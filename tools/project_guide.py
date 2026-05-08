@@ -18,6 +18,26 @@ from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provi
 
 CODEGEN_SENTINELS = ("params.py", "build_all.py", "assembly.py")
 PROJECT_ENTRY_GUIDE_DIR = Path(".cad-spec-gen") / "project-guide"
+
+# ===== §11.M-5/M-3: 共享常量（_safe_cli_token 与 _classify_unsafe_reason 共用） =====
+_SAFE_CLI_PATTERN = re.compile(r"[A-Za-z0-9_.\-]+")
+# CJK Unified (U+4E00-U+9FFF) + Ext-A (U+3400-U+4DBF)
+_CJK_PATTERN = re.compile(r"[一-鿿㐀-䶿]")
+_WIN_PATH_PATTERN = re.compile(r"^[A-Za-z]:[\\/]")
+
+_UNSAFE_MESSAGE_TEMPLATES = {
+    "windows_path": (
+        "<Windows 路径含反斜杠/冒号；请用 forward slash 或加双引号包裹路径>"
+    ),
+    "chinese_text": (
+        "<user_text 含中文；请用 --confirm-X flag 直接传值，不通过自然语言>"
+    ),
+    "special_chars": (
+        "<user_text 含特殊字符（引号/换行等）；"
+        "请用 --confirm-X flag 直接传值，不通过自然语言>"
+    ),
+}
+
 _CJK_TOKEN_MAP = {
     "升": "sheng",
     "降": "jiang",
@@ -628,7 +648,37 @@ def _resolve_project_path(project_root: Path, path: str | Path, label: str) -> P
 
 
 def _safe_cli_token(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value or ""))
+    """token 校验（subsystem 名等用）。
+
+    与 _classify_unsafe_reason 共用 _SAFE_CLI_PATTERN，避免字面发散；
+    注意：empty 在此返 False（不算合法 token），而 _classify_unsafe_reason("") 返 "safe"
+    （含义"无需降级"），两者语义有别。
+    """
+    return bool(_SAFE_CLI_PATTERN.fullmatch(value or ""))
+
+
+def _classify_unsafe_reason(value: str) -> str:
+    """分类 user_text 不安全原因，给出精确下一步提示。
+
+    返回值（按优先级）：'safe' | 'chinese_text' | 'windows_path' | 'special_chars'。
+    优先级（互斥）：safe > chinese_text > windows_path > special_chars。
+
+    Empty string 与 None：value 必须为 str；调用方（_sanitize_preview_cli）已用
+    `or ""` 兜底 None。empty 时返 "safe"——含义"无 unsafe 内容需要降级"，与
+    _safe_cli_token("") = False 不同（后者用于 token 校验，empty 不算合法 token）。
+
+    日文 Kanji 命中 CJK Unified 范围会归 chinese_text；Hangul / 假名归
+    special_chars——本管线针对中文用户的产品边界。
+    """
+    if not value:
+        return "safe"
+    if _SAFE_CLI_PATTERN.fullmatch(value):
+        return "safe"
+    if _CJK_PATTERN.search(value):
+        return "chinese_text"
+    if _WIN_PATH_PATTERN.match(value):
+        return "windows_path"
+    return "special_chars"
 
 
 def write_project_goal_guide(
@@ -684,10 +734,10 @@ def _sanitize_preview_cli(
 ) -> dict[str, Any]:
     """检查 next_action.preview_cli 是否含 user text；含且 unsafe 则降级。
 
-    设计原则（spec rev 4 DR-4）：
-    - 当 preview_cli 真的把 raw_text 拼进去时，必须用 _safe_cli_token 校验
-    - 含中文/空格/引号 → unsafe → 标记 preview_cli_unsafe + 提示走 --confirm flag
-    - 不破坏既有"..."占位的 cli（不含 raw_text 的不动）
+    设计原则（spec rev 4 DR-4 + M-4）：
+    - 当 preview_cli 真的把 raw_text 拼进去时，必须用 _classify_unsafe_reason 校验
+    - reason 分类对应 _UNSAFE_MESSAGE_TEMPLATES 三类文案
+    - 不变量：preview_cli_unsafe=True ⇔ unsafe_reason 存在；safe 路径下两字段都不写
     """
     raw_text = getattr(parse_result, "raw_text", None) or ""
     if not raw_text:
@@ -697,13 +747,12 @@ def _sanitize_preview_cli(
         return action
     if raw_text not in cli:
         return action
-    if _safe_cli_token(raw_text):
+    reason = _classify_unsafe_reason(raw_text)
+    if reason == "safe":
         return action
     action["preview_cli_unsafe"] = True
-    action["preview_cli"] = (
-        "<user_text 含特殊字符；请用 --confirm-X flag 直接传值，"
-        "不通过自然语言>"
-    )
+    action["unsafe_reason"] = reason
+    action["preview_cli"] = _UNSAFE_MESSAGE_TEMPLATES[reason]
     return action
 
 
