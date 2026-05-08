@@ -37,15 +37,22 @@ def test_kpi_patterns_json_has_3_kpis_per_implemented_subsystem():
     assert path.is_file(), f"missing: {path}"
     data = json.loads(path.read_text(encoding="utf-8"))
 
-    assert set(data.keys()) == {"lifting_platform", "end_effector"}
+    # schema v2: 顶层有 schema_version + 子系统 dict
+    assert data.get("schema_version") == 2, f"schema_version 应为 2：{data.get('schema_version')!r}"
+    subsystems = {k: v for k, v in data.items() if k != "schema_version"}
+    assert set(subsystems.keys()) == {"lifting_platform", "end_effector"}
 
-    assert set(data["lifting_platform"].keys()) == {"load_kg", "stroke_mm", "platform_size_mm"}
-    assert set(data["end_effector"].keys()) == {"rot_range_deg", "switch_time_s", "flange_dia_mm"}
+    assert set(subsystems["lifting_platform"].keys()) == {"load_kg", "stroke_mm", "platform_size_mm"}
+    assert set(subsystems["end_effector"].keys()) == {"rot_range_deg", "switch_time_s", "flange_dia_mm"}
 
-    # 每个 KPI 必有 regex (list) + context_terms (list) + unit (str)
-    for subsystem, kpis in data.items():
+    # schema v2: regex 是 [{pattern, factor}] 对象数组
+    for subsystem, kpis in subsystems.items():
         for kpi_name, kpi in kpis.items():
-            assert isinstance(kpi.get("regex"), list) and kpi["regex"], f"{subsystem}.{kpi_name} regex 缺"
+            regex = kpi.get("regex")
+            assert isinstance(regex, list) and regex, f"{subsystem}.{kpi_name} regex 缺"
+            for entry in regex:
+                assert isinstance(entry, dict) and "pattern" in entry and "factor" in entry, \
+                    f"{subsystem}.{kpi_name} regex entry 缺 pattern/factor"
             assert isinstance(kpi.get("context_terms"), list) and kpi["context_terms"], f"{subsystem}.{kpi_name} context_terms 缺"
             assert isinstance(kpi.get("unit"), str), f"{subsystem}.{kpi_name} unit 缺"
 
@@ -75,7 +82,12 @@ def test_load_dictionary_raises_on_implemented_subsystem_missing_kpis(tmp_path):
         json.dumps({"lifting_platform": {"status": "implemented", "primary_terms": ["升降"], "supporting_terms": []}}),
         encoding="utf-8",
     )
-    (tmp_path / "kpi_patterns.json").write_text("{}", encoding="utf-8")
+    # schema v2: 必须含 schema_version=2 才能通过 load_dictionary 入口，
+    # 否则 schema_version 校验先 raise，原 implemented-subsystem-missing-kpi 断言失败
+    (tmp_path / "kpi_patterns.json").write_text(
+        json.dumps({"schema_version": 2}),
+        encoding="utf-8",
+    )
     with pytest.raises(RuntimeError, match="lifting_platform.*kpi_patterns"):
         load_dictionary(dict_root=tmp_path)
 
