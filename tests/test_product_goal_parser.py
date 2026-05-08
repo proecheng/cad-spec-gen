@@ -258,3 +258,78 @@ def test_unknown_input_examples():
     for text in ["xyz123 abc", "做一个未知设备", "完全不相关的文字"]:
         result = parse_product_goal(text=text)
         assert result.subsystem_status == "unknown", f"{text}: {result.subsystem_status}"
+
+
+# ===== §11.I-1: kpi_patterns.json schema v2 =====
+def test_kpi_patterns_schema_version_2(tmp_path):
+    """RED → GREEN: schema_version 校验在 load_dictionary 入口（不绕过 dataclass）。"""
+    import json
+    from tools.project_guide_dict import load_dictionary
+
+    # 缺 schema_version → RuntimeError 含 "schema_version"
+    (tmp_path / "subsystem_keywords.json").write_text(
+        json.dumps({"lifting_platform": {"status": "implemented", "primary_terms": ["升降"], "supporting_terms": []}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "kpi_patterns.json").write_text(
+        json.dumps({"lifting_platform": {}}),  # 无 schema_version
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="schema_version"):
+        load_dictionary(dict_root=tmp_path)
+
+
+def test_stroke_200_厘米_to_2000mm():
+    """guard: 行程 200 厘米 → 2000mm（实证现状已正确，commit 3 schema 重构后保持）。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 升程 200 厘米")
+    kpi = result.kpis["stroke_mm"]
+    assert kpi.value == 2000.0, f"实际：{kpi.value}"
+    assert kpi.unit == "mm"
+    assert kpi.status == "extracted"
+
+
+def test_stroke_0_2_米_to_200mm():
+    """guard: 行程 0.2 米 → 200mm（中文"米"独立 regex 路径，commit 3 新 schema 添加）。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 升程 0.2 米")
+    kpi = result.kpis["stroke_mm"]
+    assert kpi.value == 200.0, f"实际：{kpi.value}"
+    assert kpi.unit == "mm"
+    assert kpi.status == "extracted"
+
+
+def test_stroke_200mm_basic():
+    """guard: 行程 200mm → 200mm（ASCII 路径不回归）。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 升程 200mm")
+    kpi = result.kpis["stroke_mm"]
+    assert kpi.value == 200.0
+    assert kpi.unit == "mm"
+    assert kpi.status == "extracted"
+
+
+def test_evidence_token_preserves_fullwidth():
+    """RED → GREEN: I-3 — evidence_token 取原文切片，保留全角 ５０ｋｇ。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 载荷 ５０ｋｇ")
+    kpi = result.kpis["load_kg"]
+    assert kpi.value == 50.0, f"value 应正常归一为 50：{kpi.value}"
+    # 强断言：原文切片必须等于全角字符串
+    assert kpi.evidence_token == "５０ｋｇ", f"evidence_token 应保留全角原文：{kpi.evidence_token!r}"
+
+
+def test_evidence_list_token_preserves_fullwidth():
+    """RED → GREEN: I-3 双改 — parser_evidence list 的 "token" 字段也取原文切片。"""
+    from tools.product_goal_parser import parse_product_goal
+
+    result = parse_product_goal(text="升降平台 载荷 ５０ｋｇ")
+    # parser_evidence 是 list of dict，至少含一项 matched=load_kg
+    assert result.parser_evidence, "parser_evidence 不应为空"
+    matched_entries = [e for e in result.parser_evidence if e.get("matched") == "load_kg"]
+    assert matched_entries, "应有 load_kg 的 evidence 条目"
+    assert matched_entries[0]["token"] == "５０ｋｇ", f"evidence list token 应保留全角原文：{matched_entries[0]['token']!r}"
