@@ -328,9 +328,9 @@ def test_derive_goal_status_e2e_all_7_paths():
         ("升降",                                None, "needs_subsystem_confirmation"),
         ("xyzzy 不存在的产品",                   None, "unknown_subsystem"),
         ("做导航 SLAM",                         None, "not_yet_implemented"),
-        ("做升降平台",                          None, "needs_kpi_confirmation"),
-        ("做升降 50kg 200mm 350x230mm 平台",    None, "needs_design_doc"),
-        ("做升降 50kg 200mm 350x230mm 平台",    Path("docs/x.md"), "ready_for_cad_spec"),
+        ("做升降平台",                                    None, "needs_kpi_confirmation"),
+        ("做升降平台 50kg 行程200mm 350x230mm",           None, "needs_design_doc"),
+        ("做升降平台 50kg 行程200mm 350x230mm",           Path("docs/x.md"), "ready_for_cad_spec"),
     ]
     for text, design_doc, expected_status in cases:
         parse_result = parse_product_goal(text=text)
