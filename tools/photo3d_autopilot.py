@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import re
 from typing import Any
@@ -9,6 +10,47 @@ from tools.artifact_index import get_accepted_baseline
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
 from tools.photo3d_provider_presets import DEFAULT_PROVIDER_PRESET, public_provider_presets
+
+
+# === v2.29.0 jury config 自动检测（spec §3.3 + §3.4 inv 1-3）===
+JURY_CONFIG_PATH: Path = Path.home() / ".claude" / "cad_jury_config.json"
+
+
+def _jury_config_available() -> bool:
+    """silent boolean 探针：检测 jury config 是否存在 + 合法（spec §3.4 inv 1-3 + §4.2）
+
+    任何失败路径返 False；不抛异常 / 不写 stderr / 不调 subprocess / 不读敏感字段。
+    """
+    config_path = JURY_CONFIG_PATH
+
+    if not config_path.is_file():
+        return False
+
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    try:
+        config = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+
+    if not isinstance(config, dict):
+        return False
+
+    profile_id = config.get("active_profile_id")
+    if not isinstance(profile_id, str) or not profile_id:
+        return False
+
+    profiles = config.get("profiles")
+    if not isinstance(profiles, list) or not profiles:
+        return False
+
+    return any(
+        isinstance(p, dict) and p.get("id") == profile_id
+        for p in profiles
+    )
 
 
 def write_photo3d_autopilot_report(
