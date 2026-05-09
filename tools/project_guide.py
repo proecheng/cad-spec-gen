@@ -689,12 +689,20 @@ def write_project_goal_guide(
     confirmed_subsystem: str | None = None,
     confirmed_kpis: Mapping[str, float | tuple[float, float]] | None = None,
     output_path: str | Path | None = None,
+    _state_round: int = 1,
 ) -> dict[str, Any]:
     """产品目标自然语言入口；写 PROJECT_GUIDE.json。
 
     与 write_project_entry_guide 平行；不动 pipeline state，纯只读。
+
+    Args:
+        _state_round: v2.31.0 内部参数；--resume 时从 state.round + 1 传入。
+            Task 3 仅作签名占位防 TypeError；Task 4 实现 state read/write/delete 逻辑。
     """
     from tools.product_goal_parser import parse_product_goal
+
+    # v2.31.0 product-goal A1：_state_round 占位防 TypeError；Task 4 接入 state 读写
+    _ = _state_round
 
     root = Path(project_root).resolve()
     target = _project_entry_guide_target(root, output_path)
