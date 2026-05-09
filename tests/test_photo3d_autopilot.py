@@ -1,7 +1,25 @@
 import json
+from pathlib import Path as _Path
 from types import SimpleNamespace
+from typing import Callable as _Callable
+
+import pytest as _pytest
 
 from tests.test_photo3d_gate_contract import _contracts, _write_json
+
+
+@_pytest.fixture(autouse=True)
+def _isolate_jury_config(
+    tmp_path: _Path, monkeypatch: _pytest.MonkeyPatch
+) -> None:
+    """A1.1 隔离：默认 monkeypatch JURY_CONFIG_PATH 指向 tmp_path 内不存在路径。
+
+    使 _jury_config_available() 默认返 False；保证旧测试断言 kind='run_enhancement' 稳定。
+    个别测试需要 "jury config 存在" 行为时用 jury_config_factory override 此路径
+    （pytest monkeypatch 后注入覆盖前注入，显式 fixture 在 autouse 之后跑）。
+    """
+    nonexistent = tmp_path / "nonexistent_cad_jury_config.json"
+    monkeypatch.setattr("tools.photo3d_autopilot.JURY_CONFIG_PATH", nonexistent)
 
 
 def _accept_baseline(fixture):
@@ -546,3 +564,196 @@ def test_write_photo3d_autopilot_rejects_enhance_without_render_manifest(tmp_pat
         assert "render_manifest" in str(exc)
     else:
         raise AssertionError("expected missing render_manifest to block enhance action")
+
+
+# === v2.29.0 A1.1: ready_for_enhancement × jury config 自动检测 ===
+
+
+@_pytest.fixture
+def jury_config_factory(
+    tmp_path: _Path, monkeypatch: _pytest.MonkeyPatch
+) -> _Callable[..., None]:
+    """fixture 工厂：构造 jury config + monkeypatch JURY_CONFIG_PATH。
+
+    state="ok"：写出合法 config（含 active_profile_id + 匹配 profile）。
+    state="missing"：不写文件（路径指向不存在）。
+    state="corrupt"：写出非 JSON 字节。
+    """
+
+    def _factory(state: str = "ok") -> None:
+        config_path = tmp_path / "cad_jury_config.json"
+        if state == "ok":
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "active_profile_id": "default",
+                        "profiles": [{"id": "default", "kind": "openai_compat"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        elif state == "missing":
+            pass
+        elif state == "corrupt":
+            config_path.write_bytes(b"{not json")
+        else:
+            raise ValueError(f"unknown state: {state}")
+        monkeypatch.setattr("tools.photo3d_autopilot.JURY_CONFIG_PATH", config_path)
+
+    return _factory
+
+
+def test_ready_for_enhancement_with_jury_config_recommends_handoff(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §6.3 — jury config 合法 → kind=run_handoff_with_jury / argv 含 --with-jury --confirm。"""
+    jury_config_factory(state="ok")
+    from tools.photo3d_autopilot import _next_action
+
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="pass",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={
+            "render_manifest": "cad/output/renders/lifting_platform/20260509-120000/render_manifest.json"
+        },
+        enhancement_summary=None,
+    )
+    assert status == "ready_for_enhancement"
+    assert action["kind"] == "run_handoff_with_jury"
+    argv = action["argv"]
+    assert "photo3d-handoff" in argv
+    assert "--with-jury" in argv
+    assert "--confirm" in argv
+    assert "--subsystem" in argv
+    assert "lifting_platform" in argv
+
+
+def test_ready_for_enhancement_no_jury_config_recommends_enhance(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §6.3 — jury config 缺失 → kind=run_enhancement (v2.27.0 regression)。"""
+    jury_config_factory(state="missing")
+    from tools.photo3d_autopilot import _next_action
+
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="pass",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={
+            "render_manifest": "cad/output/renders/lifting_platform/20260509-120000/render_manifest.json"
+        },
+        enhancement_summary=None,
+    )
+    assert status == "ready_for_enhancement"
+    assert action["kind"] == "run_enhancement"
+    argv = action["argv"]
+    assert "enhance" in argv
+    assert "--with-jury" not in argv
+
+
+def test_ready_for_enhancement_invalid_jury_config_falls_back_to_enhance(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §6.3 — jury config 损坏 → fallback enhance (silent)。"""
+    jury_config_factory(state="corrupt")
+    from tools.photo3d_autopilot import _next_action
+
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="pass",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={
+            "render_manifest": "cad/output/renders/lifting_platform/20260509-120000/render_manifest.json"
+        },
+        enhancement_summary=None,
+    )
+    assert status == "ready_for_enhancement"
+    assert action["kind"] == "run_enhancement"
+
+
+def test_status_remains_ready_for_enhancement_both_paths(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §3.4 inv 5 — 两路径 status 都是 ready_for_enhancement。"""
+    from tools.photo3d_autopilot import _next_action
+
+    for state in ("ok", "missing"):
+        jury_config_factory(state=state)
+        status, _ = _next_action(
+            subsystem="lifting_platform",
+            gate_status="pass",
+            accepted_baseline_run_id="20260509-120000",
+            artifacts={
+                "render_manifest": "cad/output/renders/lifting_platform/20260509-120000/render_manifest.json"
+            },
+            enhancement_summary=None,
+        )
+        assert status == "ready_for_enhancement", (
+            f"state={state}: status drifted to {status}"
+        )
+
+
+def test_argv_uses_safe_cli_token_for_subsystem_with_special_chars(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §6.3 — 特殊字符 subsystem → action 不含 cli 字段（仅 argv）。"""
+    jury_config_factory(state="ok")
+    from tools.photo3d_autopilot import _next_action
+
+    status, action = _next_action(
+        subsystem="my space",
+        gate_status="pass",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={
+            "render_manifest": "cad/output/renders/my space/20260509-120000/render_manifest.json"
+        },
+        enhancement_summary=None,
+    )
+    assert status == "ready_for_enhancement"
+    assert action["kind"] == "run_handoff_with_jury"
+    assert "argv" in action
+    assert "cli" not in action  # _safe_cli_token False → 不下发 cli
+
+
+def test_other_states_not_affected_by_jury_detection(
+    jury_config_factory: _Callable[..., None],
+) -> None:
+    """spec §3.4 inv 6 — blocked / accept_baseline / 三态 enhancement_summary 不触发 jury 检测。"""
+    jury_config_factory(state="corrupt")  # 损坏 config 不应触发 helper
+    from tools.photo3d_autopilot import _next_action
+
+    # blocked
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="blocked",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={
+            "action_plan": "cad/lifting_platform/.cad-spec-gen/runs/20260509-120000/ACTION_PLAN.json"
+        },
+        enhancement_summary=None,
+    )
+    assert status == "blocked"
+    assert action["kind"] == "follow_action_plan"
+
+    # accept_baseline
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="pass",
+        accepted_baseline_run_id=None,
+        artifacts={},
+        enhancement_summary=None,
+    )
+    assert status == "needs_baseline_acceptance"
+    assert action["kind"] == "accept_baseline"
+
+    # enhancement_summary accepted
+    status, action = _next_action(
+        subsystem="lifting_platform",
+        gate_status="pass",
+        accepted_baseline_run_id="20260509-120000",
+        artifacts={},
+        enhancement_summary={"delivery_status": "accepted"},
+    )
+    assert status == "enhancement_accepted"
+    assert action["kind"] == "delivery_complete"
