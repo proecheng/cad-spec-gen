@@ -658,3 +658,106 @@ def test_h19_jury_oom(
     assert result["jury_handoff_status"] == "unexpected_jury_exit"
     assert result["jury_raw_exit"] == 137
     assert result["exit_code"] == 25
+
+
+# === Task 11: H12/H15/H16/H17 step 5 enhance-review 用例 ===
+
+def test_h12_accepted_review_failed(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H12 — jury accepted + review fail (exit=1)：exit=20 (clamp) + review_raw_exit=1 + jury_handoff_status='review_failed'"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="ok")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([
+        cp(0, stdout="[dry-run] estimated=0.04 USD\n"),
+        cp(0),  # jury 实跑
+        cp(1, stderr="review failed"),  # enhance-review fail
+    ])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "review_failed"
+    assert result["review_status"] == "failed"
+    assert result["review_raw_exit"] == 1
+    assert result["exit_code"] == 20  # clamp 1 -> 20
+    assert fake_run.call_count() == 3
+
+
+def test_h15_review_input_missing(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H15 — jury accepted + review_input not_found：exit=13 + jury_handoff_status='review_input_missing' + 不调 review"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="missing")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "review_input_missing"
+    assert result["review_status"] == "input_missing"
+    assert result["exit_code"] == 13
+    assert fake_run.call_count() == 2  # preflight + 实跑；不调 review
+
+
+def test_h16_review_input_run_id_traversal(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H16 — jury accepted + jury report run_id='../etc/passwd'：exit=13 + jury_handoff_status='review_input_missing'（path traversal 被 invariant 10 正则守门）"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="traversal")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "review_input_missing"
+    assert result["review_status"] == "input_missing"
+    assert result["exit_code"] == 13
+    assert fake_run.call_count() == 2  # 不调 review
+
+
+def test_h17_review_input_corrupt(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H17 — jury accepted + jury_review_input.json 是损坏 JSON：exit=23 + jury_handoff_status='review_input_corrupt' + 不调 review"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="corrupt")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "review_input_corrupt"
+    assert result["review_status"] == "input_corrupt"
+    assert result["exit_code"] == 23
+    assert fake_run.call_count() == 2  # 不调 review
