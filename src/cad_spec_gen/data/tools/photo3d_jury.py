@@ -1,0 +1,461 @@
+"""photo3d-jury cli 薄壳 — 顶层 try/finally + 报告组装（Tasks 17+18）。
+
+走 cad_pipeline.py jury subcommand dispatch 调用；不进 pyproject [project.scripts]。
+
+主流程（spec rev 5 §4.7）：
+    1) parse args + resolve config_path
+    2) --list-profiles 走快速分支返 0
+    3) load_jury_config（FileNotFoundError / JuryConfigSchemaError / JuryConfigError → exit 2）
+    4) Layer 0 输入证据绑定（fail → exit 1）
+    5) 重跑保护：archive 已有 PHOTO3D_JURY_REPORT.json
+    6) cost gate（dry-run 跑到这里就停；real run 超 budget 无 --confirm-cost → exit 3）
+    7) Layer 1 字段自洽（per_view_failures 不阻断 Layer 2 但影响 overall status）
+    8) Layer 2 LLM 调用（acquire_lock；逐视角 try/except；失败计入 needs_review）
+    9) sha256 重读校验 enhancement_report → drift 时 status="blocked"
+   10) 写 PHOTO3D_JURY_REPORT.json + (accepted) jury_review_input.json
+   11) 异常兜底（JuryDisabledByEnv / JuryLockBusy / 其它 → 99 + redact_traceback）
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import math
+import os
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from tools._file_lock import LockBusy as JuryLockBusy
+from tools._file_lock import acquire_lock
+from tools.contract_io import file_sha256, write_json_atomic
+from tools.jury.config import (
+    JuryConfigError,
+    JuryConfigSchemaError,
+    load_jury_config,
+)
+from tools.jury.cost import compute_cost_decision
+from tools.jury.deterministic_gate import run_layer1
+from tools.jury.input_evidence_binding import run_layer0
+from tools.jury.llm_client import (
+    JuryDisabledByEnv,
+    JuryLlmError,
+    request_jury_verdict,
+)
+from tools.jury.redact import redact_traceback_str
+from tools.jury.stderr_messages import format_stderr_message
+from tools.jury.verdict import parse_view_verdict
+
+
+_JURY_PROMPT = """\
+你是一名 CAD 渲染照片级验收员。下面这张图来自一台机械产品的多视角渲染增强后输出。
+请按以下 5 项判断（各只出 true/false）：
+1. geometry_preserved   — 几何与设计一致，无明显形变/丢件
+2. material_consistent  — 材质风格统一，无明显错配
+3. photorealistic       — 视觉质感像真实拍摄而非 3D 渲染
+4. no_extra_parts       — 没有 LLM 凭空加出的零件、装饰、文字
+5. no_missing_parts     — 没有把原本存在的零件擦除
+
+另给 photoreal_score（0-100 整数，单独度量第 3 项的强度）。
+
+只返回严格 JSON：
+{"semantic_checks":{"geometry_preserved":bool,"material_consistent":bool,
+"photorealistic":bool,"no_extra_parts":bool,"no_missing_parts":bool},
+"photoreal_score":int,"reason":"<= 80 字"}
+
+不要 markdown 代码块。不要解释。
+"""
+
+
+def _utc_z() -> str:
+    """UTC 时间戳（ISO8601 with Z 后缀），用于 generated_at。"""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_compact() -> str:
+    """紧凑 UTC 时间戳（YYYYMMDDTHHMMSSZ），用于 archive 文件名。"""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """构造 argparse；所有 flag 与 spec rev 5 §4.7 对齐。"""
+    p = argparse.ArgumentParser(
+        prog="photo3d-jury", description="自动照片级验收（vision LLM jury）"
+    )
+    p.add_argument("--subsystem")
+    p.add_argument("--config", type=Path, default=None)
+    p.add_argument("--allow-external-config", action="store_true")
+    p.add_argument("--profile-id")
+    p.add_argument("--list-profiles", action="store_true")
+    p.add_argument("--last-status", action="store_true")
+    p.add_argument("--budget", type=float, default=0.1)
+    p.add_argument("--confirm-cost", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--max-retries", type=int, default=2)
+    p.add_argument("--debug-output", type=Path)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--project-root", type=Path, default=Path.cwd())
+    return p
+
+
+def _resolve_config_path(args: argparse.Namespace) -> Path:
+    """解析 jury config 路径；--config 优先，否则 ~/.claude/cad_jury_config.json。"""
+    if args.config:
+        return Path(args.config).resolve()
+    home = Path(
+        os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~"
+    ).expanduser()
+    return home / ".claude" / "cad_jury_config.json"
+
+
+def _archive_existing_report(report_path: Path, force: bool) -> None:
+    """重跑保护：rename 已有报告（force → forced.json，否则 timestamp+sha 短哈希）。
+
+    用 Path.replace（atomic rename + cross-drive fallback）防 race。
+    """
+    if not report_path.exists():
+        return
+    if force:
+        archived = report_path.parent / "PHOTO3D_JURY_REPORT.forced.json"
+    else:
+        body = report_path.read_bytes()
+        short = hashlib.sha256(body).hexdigest()[:6]
+        archived = (
+            report_path.parent / f"PHOTO3D_JURY_REPORT.{_utc_compact()}.{short}.json"
+        )
+    report_path.replace(archived)
+
+
+def _decide_status(
+    layer1_pass: bool, view_verdicts: list[dict[str, Any]]
+) -> str:
+    """整体 status 决策（layer 0 已 pass 前提下）。
+
+    层 1 fail → preview；任一视角 needs_review → needs_review；
+    任一视角 preview → preview；否则 accepted。
+    """
+    if not layer1_pass:
+        return "preview"
+    if any(v.get("verdict") == "needs_review" for v in view_verdicts):
+        return "needs_review"
+    if any(v.get("verdict") == "preview" for v in view_verdicts):
+        return "preview"
+    return "accepted"
+
+
+def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PLR0915
+    """photo3d-jury 入口；返回 exit code（0/1/2/3/4/99）。
+
+    复杂度高（cli + 9 步主流程 + 6 类异常分支）；ruff 复杂度告警在本函数显式 noqa。
+    """
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    config_path = _resolve_config_path(args)
+
+    # --- --list-profiles 优先级最高（无 --subsystem 也能跑） ---
+    if args.list_profiles:
+        try:
+            profile, _caps = load_jury_config(config_path)
+        except (JuryConfigError, FileNotFoundError):
+            sys.stderr.write(
+                format_stderr_message(
+                    exit_code=2,
+                    error_kind="config_missing",
+                    context={"config_path": str(config_path)},
+                )
+                + "\n"
+            )
+            return 2
+        cost_str = (
+            f"{profile.cost_per_call_usd}"
+            if profile.cost_per_call_usd is not None
+            else "null"
+        )
+        print(f"{profile.id}\t{profile.kind}\t{profile.model}\t{cost_str}\t[active]")
+        return 0
+
+    # --- 必填 --subsystem ---
+    if not args.subsystem:
+        sys.stderr.write("✗ 缺 --subsystem 参数\n")
+        return 2
+
+    # --- 校验 budget ---
+    if not math.isfinite(args.budget) or args.budget < 0:
+        sys.stderr.write(f"✗ --budget={args.budget} 必须为有限非负数\n")
+        return 2
+
+    # --- 加载 config ---
+    try:
+        profile, caps = load_jury_config(config_path)
+    except FileNotFoundError:
+        sys.stderr.write(
+            format_stderr_message(
+                exit_code=2,
+                error_kind="config_missing",
+                context={"config_path": str(config_path)},
+            )
+            + "\n"
+        )
+        return 2
+    except JuryConfigSchemaError as exc:
+        sys.stderr.write(
+            format_stderr_message(
+                exit_code=2,
+                error_kind="schema_version_invalid",
+                context={"actual": str(exc)},
+            )
+            + "\n"
+        )
+        return 2
+    except JuryConfigError as exc:
+        sys.stderr.write(f"✗ 配置错: {exc}\n")
+        return 2
+
+    project_root = Path(args.project_root).resolve()
+
+    try:
+        # === Layer 0：输入证据绑定 + sha256 freeze ===
+        layer0 = run_layer0(
+            project_root=project_root, subsystem=args.subsystem, caps=caps
+        )
+        if not layer0.passed:
+            sys.stderr.write(
+                f"✗ Layer 0 blocked: {layer0.blocking_reasons}\n"
+            )
+            return 1
+
+        run_dir = (
+            project_root / "cad" / args.subsystem / ".cad-spec-gen"
+            / "runs" / layer0.frozen_run_id
+        )
+        report_path = run_dir / "PHOTO3D_JURY_REPORT.json"
+
+        # === 重跑保护：dry-run 不动盘 ===
+        if not args.dry_run:
+            _archive_existing_report(report_path, args.force)
+
+        # === Cost 预估（dry-run 仍走此 gate） ===
+        n_views = len(layer0.frozen_report.get("views", []))
+        cd = compute_cost_decision(
+            cost_per_call_usd=profile.cost_per_call_usd or 0.0,
+            n_views=n_views,
+            budget_per_run_usd=args.budget,
+            confirm_cost=args.confirm_cost,
+        )
+
+        if args.dry_run:
+            print(
+                f"[dry-run] estimated={cd.estimated_usd} USD, allowed={cd.allowed}"
+            )
+            return 0 if cd.allowed else 3
+
+        if not cd.allowed:
+            sys.stderr.write(
+                format_stderr_message(
+                    exit_code=3,
+                    error_kind="budget_exceeded",
+                    context={
+                        "estimated_cost_usd": cd.estimated_usd,
+                        "budget_per_run_usd": args.budget,
+                        "n_views": n_views,
+                        "cost_per_call_usd": profile.cost_per_call_usd or 0.0,
+                    },
+                )
+                + "\n"
+            )
+            return 3
+
+        # === Layer 1：字段自洽 ===
+        layer1 = run_layer1(layer0.frozen_report)
+
+        # === Layer 2：LLM 逐视角调用（lock 守 active run dir） ===
+        view_verdicts: list[dict[str, Any]] = []
+        actual_cost = 0.0
+        n_retries_total = 0
+
+        if layer1.passed:
+            lock_path = run_dir / ".jury.lock"
+            with acquire_lock(lock_path):
+                for view in layer0.frozen_report.get("views", []):
+                    view_name = str(view.get("view", ""))
+                    img_rel = str(view.get("enhanced_image", ""))
+                    img_path = project_root / img_rel
+                    try:
+                        resp = request_jury_verdict(
+                            profile=profile,
+                            image_path=img_path,
+                            prompt=_JURY_PROMPT,
+                            max_retries=args.max_retries,
+                        )
+                        actual_cost += (
+                            (profile.cost_per_call_usd or 0.0) * resp.attempts
+                        )
+                        n_retries_total += resp.attempts - 1
+                        vv = parse_view_verdict(
+                            resp.content_text,
+                            finish_reason=resp.finish_reason or "stop",
+                            min_photoreal_score=caps.min_photoreal_score,
+                        )
+                        view_verdicts.append({
+                            "view": view_name,
+                            "verdict": vv.verdict,
+                            "semantic_checks": vv.semantic_checks,
+                            "photoreal_score": vv.photoreal_score,
+                            "reason": vv.reason,
+                            "llm_meta": {
+                                "http_status": resp.http_status,
+                                "attempts": resp.attempts,
+                                "latency_ms": resp.latency_ms,
+                                "parse_status": vv.parse_status,
+                                "parse_anomalies": vv.parse_anomalies,
+                                "error_kind": None,
+                                "vendor_request_id": resp.vendor_request_id,
+                            },
+                        })
+                    except JuryLlmError as exc:
+                        # 失败也保守计 1 次成本（vendor 通常已计费）
+                        actual_cost += profile.cost_per_call_usd or 0.0
+                        view_verdicts.append({
+                            "view": view_name,
+                            "verdict": "needs_review",
+                            "semantic_checks": {},
+                            "photoreal_score": 0,
+                            "reason": "",
+                            "llm_meta": {
+                                "http_status": exc.http_status,
+                                "attempts": 1,
+                                "latency_ms": 0,
+                                "parse_status": "ok",
+                                "parse_anomalies": [],
+                                "error_kind": exc.error_kind,
+                                "vendor_request_id": None,
+                            },
+                        })
+
+        # === 写报告前 sha256 重读校验 ENHANCEMENT_REPORT.json ===
+        er_path = (
+            project_root / "cad" / "output" / "renders" / args.subsystem
+            / layer0.frozen_run_id / "ENHANCEMENT_REPORT.json"
+        )
+        new_sha = file_sha256(er_path)
+        sha_drift = new_sha != layer0.frozen_sha256.get("enhancement_report")
+
+        # === 整体 status 决策 ===
+        overall = (
+            "blocked" if sha_drift else _decide_status(layer1.passed, view_verdicts)
+        )
+
+        # === 写报告 ===
+        run_dir.mkdir(parents=True, exist_ok=True)
+        report: dict[str, Any] = {
+            "schema_version": 1,
+            "generated_at": _utc_z(),
+            "subsystem": args.subsystem,
+            "run_id": layer0.frozen_run_id,
+            "status": overall,
+            "ordinary_user_message": (
+                "自动验收通过，可作为 enhance-review 的 review-input 输入。"
+                if overall == "accepted"
+                else "(详见 stderr 中文提示)"
+            ),
+            "next_step": "",
+            "source_reports": {
+                "render_manifest": (
+                    layer0.frozen_report.get("render_manifest") or ""
+                ),
+                "render_manifest_sha256": layer0.frozen_sha256.get(
+                    "render_manifest", ""
+                ),
+                "enhancement_report": (
+                    layer0.frozen_report.get("enhancement_report") or ""
+                ),
+                "enhancement_report_sha256": layer0.frozen_sha256.get(
+                    "enhancement_report", ""
+                ),
+            },
+            "jury_meta": {
+                "profile_id": profile.id,
+                "model": profile.model,
+                "estimated_cost_usd": cd.estimated_usd,
+                "actual_cost_usd": round(actual_cost, 4),
+                "budget_per_run_usd": args.budget,
+                "min_photoreal_score": caps.min_photoreal_score,
+                "n_views": n_views,
+                "n_calls": sum(
+                    int(v["llm_meta"]["attempts"]) for v in view_verdicts
+                ),
+                "n_retries_total": n_retries_total,
+                "max_image_bytes": caps.max_image_bytes,
+                "max_n_views": caps.max_n_views,
+                "cost_warning": (
+                    "estimated±50%; verify with vendor billing"
+                    if profile.cost_per_call_usd is None
+                    else None
+                ),
+            },
+            "deterministic_gate": {
+                "passed": layer1.passed,
+                "per_view_failures": layer1.per_view_failures,
+            },
+            "views": view_verdicts,
+            "blocking_reasons": (
+                [{"code": "freeze_drift"}] if sha_drift else []
+            ),
+        }
+        write_json_atomic(report_path, report)
+
+        # === accepted 才写 jury_review_input.json（兼容 enhance-review） ===
+        if overall == "accepted":
+            review_input = {
+                "schema_version": 1,
+                "review_type": "auto_jury_v1",
+                "subsystem": args.subsystem,
+                "run_id": layer0.frozen_run_id,
+                "source_reports": report["source_reports"],
+                "views": [
+                    {
+                        "view": v["view"],
+                        "semantic_checks": v["semantic_checks"],
+                        "reviewer_notes": (
+                            f"auto_jury photoreal_score={v['photoreal_score']}"
+                        ),
+                    }
+                    for v in view_verdicts
+                ],
+            }
+            write_json_atomic(run_dir / "jury_review_input.json", review_input)
+
+        return 0
+    except JuryDisabledByEnv:
+        sys.stderr.write("△ CAD_JURY_DISABLE_LLM=1，jury 跳过\n")
+        return 0
+    except JuryLockBusy:
+        sys.stderr.write(
+            format_stderr_message(
+                exit_code=4,
+                error_kind="lock_busy",
+                context={"held_pid": "(see lock file)", "age_seconds": 0},
+            )
+            + "\n"
+        )
+        return 4
+    except (JuryConfigError, JuryConfigSchemaError) as exc:
+        sys.stderr.write(f"✗ 配置错: {exc}\n")
+        return 2
+    except Exception as exc:  # noqa: BLE001 — 兜底防 traceback 漏 api_key
+        tb_str = traceback.format_exc()
+        sys.stderr.write(
+            format_stderr_message(
+                exit_code=99,
+                error_kind="internal",
+                context={"exception_type": type(exc).__name__},
+            )
+            + "\n"
+        )
+        sys.stderr.write(redact_traceback_str(tb_str)[:500] + "\n")
+        return 99
+
+
+if __name__ == "__main__":
+    sys.exit(main())
