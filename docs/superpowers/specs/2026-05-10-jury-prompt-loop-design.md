@@ -41,10 +41,10 @@ SP1 不绑定 fal.ai 或任何单一 vendor。设计为**可插拔 BackendAdapte
 - `pipeline_config.json` 现有 `enhance.fal` / `enhance.fal_comfy` 段保留
 
 ### 新增模块（命名空间 `tools/jury_loop/`）
-src 包内 canonical 路径：`src/cad_spec_gen/data/tools/jury_loop/`（**唯一权威位置**；`cad/` 与 `tools/` 都不放规则资源——避免 v2.10 漂移类问题再现，参考 `feedback_historical_debt_isolation.md`）
+src 包内 canonical 路径：`tools/jury_loop/`（**唯一权威位置**；`cad/` 与 `tools/` 都不放规则资源——避免 v2.10 漂移类问题再现，参考 `feedback_historical_debt_isolation.md`）
 
 ```
-src/cad_spec_gen/data/tools/jury_loop/
+tools/jury_loop/
 ├── __init__.py
 ├── reason_parser.py       # jury reason 文本 → tags 集合（纯函数）
 ├── rule_table.py          # tags + backend_kind → (prompt_addons, param_overrides)
@@ -246,7 +246,7 @@ reference_mode == "none":
 
 ### 实现注记
 
-- **跨视角 cost 累计 + 模块归属（M-1 + M-13）**：LoopBudget 提升为通用模块 `src/cad_spec_gen/data/python_tools/enhance_budget.py`（**不**放在 jury_loop 命名空间内），跨 SP1 / SP3 / 未来 SP 共享。
+- **跨视角 cost 累计 + 模块归属（M-1 + M-13）**：LoopBudget 提升为通用模块 `enhance_budget.py`（**不**放在 jury_loop 命名空间内），跨 SP1 / SP3 / 未来 SP 共享。
   - 接口：`LoopBudget(cost_cap_usd: float, n_views: int)` 构造；`budget.estimate_remaining()` / `budget.try_spend(amount: float) -> bool`（原子操作，返 True=允许并扣减、False=超 cap） / `budget.spent: float` 只读属性。
   - 线程安全：内部用 `threading.Lock` 保护 spent 的读-改-写。`reference_mode=none` 并行模式下多视角并发调 `try_spend` 仍正确（不会出现"两个视角各估算 spent + retry_cost < cap，都放行，实际合计超 cap"）。
   - cmd_enhance 在视角循环开始前实例化，单视角 hook 接收对象引用并 mutate；写入最终 `loop_summary.extra_cost_usd`。
@@ -429,7 +429,7 @@ tag_dictionary:
   - `tag_dictionary`：同 tag key → 用户 patterns 追加（不替换）；新 tag key → 追加；不对称设计的理由是"内置 patterns 是该 tag 的官方判定基线，用户应当扩展而非替换；tag 含义本身（key）才允许重定义"
   - **多规则同时命中合并顺序（DRIFT-MAJOR-1）**：合并后的 list 顺序 = 内置规则按 yaml 出现顺序（替换不动位置） + 用户新增规则按 yaml 末尾追加。`rule_table.lookup()` 遍历此顺序应用 prompt_addons / param_overrides，"后到先得"覆盖语义按合并 list 顺序判定。L1 测试加 3 条 fixture 锁此契约（替换/追加/混合）
 - **schema_version 不匹配处理（BL-5 + SEC-MINOR-3 修正）**：用户 yaml `schema_version` 缺失或不被引擎支持时，**降级为 `loop_status=loop_disabled`** + 显式 warn 写到 sidecar.warnings[] 与 stderr，**而不是 orchestrator 全程 exit 非零**。rationale：CI 环境用户提交错误 config 不应阻塞整个 enhance/CI（避免 DoS）；但失败必须显式可见——`loop_status=loop_disabled` 配合 warn 既不静默丢用户规则，也不让单一配置错误拖垮整个 pipeline。**唯一**例外：内置 `photoreal_v1.yaml` 加载失败仍然 hard fail（这是 packaging bug 不是 user 输入问题）—— 但见下条懒加载策略
-- **内置 yaml 懒加载（OPS-MINOR-6）**：内置 `photoreal_v1.yaml` 不在模块 import 时 parse；模块 import 时仅检查包内资源**存在**（`importlib.resources.files("cad_spec_gen.data.tools.jury_loop.rules") / "photoreal_v1.yaml"` 调 `.is_file()`），实际 parse 推到 `orchestrator.run_loop_if_eligible()` 首次调用。这样：
+- **内置 yaml 懒加载（OPS-MINOR-6）**：内置 `photoreal_v1.yaml` 不在模块 import 时 parse；模块 import 时仅检查包内资源**存在**（`importlib.resources.files("tools.jury_loop.rules") / "photoreal_v1.yaml"` 调 `.is_file()`），实际 parse 推到 `orchestrator.run_loop_if_eligible()` 首次调用。这样：
   - pip 装包漏 yaml 不会让整个 cad_pipeline import 失败（只阻塞 enhance 闭环路径）
   - codegen / render / 普通 jury 等无关功能不受影响
   - 闭环首次调用时 yaml 缺失 → 降级 `loop_disabled` + warn "内置 photoreal_v1.yaml 缺失，请重装 cad-spec-gen 修复 packaging"
