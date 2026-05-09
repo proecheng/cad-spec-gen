@@ -96,6 +96,11 @@
       "cli": "python cad_pipeline.py photo3d-deliver --subsystem <name>"
     },
     {
+      "name": "photo3d_jury",
+      "description": "Active-run automatic photorealistic acceptance (vision LLM jury): reads ARTIFACT_INDEX.json active_run_id and same-run render/enhancement evidence, runs a vision LLM jury across geometry/material/composition dimensions, writes PHOTO3D_JURY_REPORT.json with verdict accepted/needs_review/blocked, does not scan directories, and does not switch active_run_id. Aliased as photo3d-jury via cad_pipeline jury subcommand. Implementation lives in tools/photo3d_jury.py (Task 17 of photo3d-jury plan).",
+      "cli": "python cad_pipeline.py jury --subsystem <name>"
+    },
+    {
       "name": "enhancement_review",
       "description": "Active-run semantic/material enhancement review ingestion: reads explicit human or LLM --review-input JSON, verifies ARTIFACT_INDEX.json active_run_id plus run_id/subsystem, same-run render_manifest.json and ENHANCEMENT_REPORT.json paths plus sha256 hashes, validates each view has generic semantic checks, writes ENHANCEMENT_REVIEW_REPORT.json with semantic_material_review accepted/preview/needs_review/blocked, does not call AI, does not accept backend/model/key/url settings, and does not scan directories.",
       "cli": "python cad_pipeline.py enhance-review --subsystem <name> --review-input <json>"
