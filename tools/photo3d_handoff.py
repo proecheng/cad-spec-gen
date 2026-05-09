@@ -126,6 +126,7 @@ def run_photo3d_handoff(
     executed_action: dict[str, Any] | None = None
     followup_action: dict[str, Any] | None = None
     post_handoff_photo3d_run: dict[str, Any] | None = None
+    jury_result: dict[str, Any] | None = None  # v2.28.0
 
     if selected_action["classification"] != "executable":
         manual_action = dict(next_action)
@@ -154,8 +155,15 @@ def run_photo3d_handoff(
                     active_run_id,
                 )
             elif selected_action["kind"] == "run_enhancement":
-                followup_action, post_handoff_photo3d_run = _run_enhancement_followup(
-                    root, subsystem, active_run_id, index_path
+                followup_action, post_handoff_photo3d_run, jury_result = (
+                    _run_enhancement_followup(
+                        root,
+                        subsystem,
+                        active_run_id,
+                        index_path,
+                        with_jury=with_jury,
+                        no_strict_jury=no_strict_jury,
+                    )
                 )
                 if (
                     post_handoff_photo3d_run is not None
@@ -194,11 +202,58 @@ def run_photo3d_handoff(
             "photo3d_handoff": project_relative(target, root),
         },
     }
+
+    # v2.28.0 jury_result 字段合并（仅 --with-jury 启用且 jury hook 实际跑过时）
+    if with_jury and jury_result is not None:
+        report.update({
+            "jury_handoff_status": jury_result["jury_handoff_status"],
+            "jury_status": jury_result["jury_status"],
+            "jury_estimated_usd": jury_result["jury_estimated_usd"],
+            "jury_actual_usd": jury_result["jury_actual_usd"],
+            "review_status": jury_result["review_status"],
+            "enhance_review_path": jury_result["enhance_review_path"],
+            "jury_raw_exit": jury_result["jury_raw_exit"],
+            "review_raw_exit": jury_result["review_raw_exit"],
+        })
+
     write_json_atomic(target, report)
     return report
 
 
 def command_return_code(report: dict[str, Any]) -> int:
+    # v2.28.0 jury 集成 exit code 段优先（spec §4.2 决策表）
+    jhs = report.get("jury_handoff_status")
+    if isinstance(jhs, str):
+        if jhs == "accepted":
+            return 0
+        if jhs in ("preview_warning", "needs_review_warning", "awaiting_confirmation"):
+            return 0
+        if jhs in ("preflight_config_missing", "config_error"):
+            return 2
+        if jhs == "cost_over_budget":
+            return 3
+        if jhs == "lock_busy":
+            return 4
+        if jhs == "preview_blocked_by_strict":
+            return 10
+        if jhs == "needs_review_blocked_by_strict":
+            return 11
+        if jhs == "jury_blocked":
+            return 12
+        if jhs == "review_input_missing":
+            return 13
+        if jhs == "review_failed":
+            raw = report.get("review_raw_exit")
+            return clamp_review_exit(raw) if isinstance(raw, int) else 23
+        if jhs == "review_input_corrupt":
+            return 23
+        if jhs == "handoff_lock_busy":
+            return 24
+        if jhs == "unexpected_jury_exit":
+            return 25
+        if jhs in ("internal_error", "crashed_mid_orchestration"):
+            return 99
+    # 现有 status 映射保持不变（兜底，含未启用 --with-jury 路径）
     if report.get("status") in {"awaiting_confirmation", "executed", "executed_with_followup"}:
         return 0
     if report.get("status") == "needs_manual_review":
@@ -433,7 +488,14 @@ def _run_enhancement_followup(
     subsystem: str,
     active_run_id: str,
     artifact_index_path: Path,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    *,
+    with_jury: bool = False,             # v2.28.0
+    no_strict_jury: bool = False,        # v2.28.0
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+    """返回 (followup_action, post_handoff_photo3d_run, jury_result)。
+
+    jury_result 仅 with_jury=True 时非 None（spec §3.3 + §4.1）。
+    """
     try:
         followup_action = _execute_enhance_check_followup(
             project_root,
@@ -441,6 +503,20 @@ def _run_enhancement_followup(
             active_run_id,
             artifact_index_path,
         )
+
+        # === v2.28.0 jury hook (spec §3.3 + §4.1) ===
+        # 在 enhance-check 之后 + post-handoff loop 之前执行；仅 --with-jury 时启用。
+        jury_result: dict[str, Any] | None = None
+        if with_jury:
+            cad_pipeline_py = project_root / "cad_pipeline.py"
+            jury_result = _run_jury_followup(
+                project_root=project_root,
+                subsystem=subsystem,
+                active_run_id=active_run_id,
+                cad_pipeline_py=cad_pipeline_py,
+                no_strict_jury=no_strict_jury,
+            )
+
         post_handoff_photo3d_run = _post_handoff_loop(
             project_root,
             subsystem,
@@ -457,8 +533,9 @@ def _run_enhancement_followup(
                 exc,
             ),
             None,
+            None,  # jury_result
         )
-    return followup_action, post_handoff_photo3d_run
+    return followup_action, post_handoff_photo3d_run, jury_result
 
 
 def _failed_followup_action(
