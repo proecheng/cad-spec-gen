@@ -71,3 +71,29 @@ def test_run_photo3d_handoff_accepts_with_jury_kwarg() -> None:
     assert sig.parameters["no_strict_jury"].default is False
     assert sig.parameters["with_jury"].kind == inspect.Parameter.KEYWORD_ONLY
     assert sig.parameters["no_strict_jury"].kind == inspect.Parameter.KEYWORD_ONLY
+
+
+def test_clamp_review_exit_mapping() -> None:
+    """spec §3.3.1 + §6.2 — clamp_review_exit 映射钉死"""
+    from tools.photo3d_handoff import clamp_review_exit
+    assert clamp_review_exit(0) == 0
+    assert clamp_review_exit(1) == 20
+    assert clamp_review_exit(2) == 21
+    assert clamp_review_exit(3) == 22
+    assert clamp_review_exit(4) == 23
+    assert clamp_review_exit(137) == 23
+    assert clamp_review_exit(-1) == 23
+
+
+def test_validate_run_id_format_rejects_traversal() -> None:
+    """spec §3.4 inv 10 + §6.2 — run_id 格式正则守门"""
+    from tools.photo3d_handoff import validate_run_id_format
+    assert validate_run_id_format("20260509-123456") is True
+    assert validate_run_id_format("run_001") is True
+    assert validate_run_id_format("a") is True
+    assert validate_run_id_format("../etc/passwd") is False
+    assert validate_run_id_format("..\\windows\\system32") is False
+    assert validate_run_id_format("") is False
+    assert validate_run_id_format("a" * 65) is False
+    assert validate_run_id_format("run id") is False
+    assert validate_run_id_format("run/id") is False

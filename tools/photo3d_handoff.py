@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -15,6 +16,35 @@ from tools.photo3d_provider_presets import (
     public_provider_preset,
     trusted_provider_argv_suffix,
 )
+
+
+# === v2.28.0 jury 集成常量（spec §3.3.1） ===
+HANDOFF_LOCK_STALE_SECONDS: int = 1800       # .handoff.lock 30 分钟自动清理
+SUBPROCESS_TIMEOUT_ENHANCE: int = 1800       # enhance 子进程 30 分钟超时
+SUBPROCESS_TIMEOUT_JURY: int = 600           # jury 子进程 10 分钟超时（含 LLM hang 兜底）
+SUBPROCESS_TIMEOUT_REVIEW: int = 300         # enhance-review 5 分钟超时（本地处理）
+RUN_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+
+def validate_run_id_format(run_id: str) -> bool:
+    """returns True iff run_id matches RUN_ID_PATTERN; never raises (spec §3.4 inv 10)."""
+    return bool(RUN_ID_PATTERN.fullmatch(run_id))
+
+
+def clamp_review_exit(review_raw_exit: int) -> int:
+    """clamp enhance-review 子进程 exit code 到 handoff exit 段，防与 handoff 自身段撞码。
+
+    映射：0→0 / 1→20 / 2→21 / 3→22 / 其他→23（spec §3.3.1）
+    """
+    if review_raw_exit == 0:
+        return 0
+    if review_raw_exit == 1:
+        return 20
+    if review_raw_exit == 2:
+        return 21
+    if review_raw_exit == 3:
+        return 22
+    return 23
 
 
 EXECUTABLE_HANDOFFS = {
