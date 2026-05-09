@@ -3,6 +3,16 @@
 > 本文件是每轮工作结束后给用户看的进度入口。
 > 更新规则：每轮完成实现、审查、合并或重要验证后，更新「最新状态」「看板」「下一步建议」「验证记录」。
 
+## v2.28.0 — 2026-05-09 photo3d-jury v2 handoff 集成（A1 子集）
+
+- 新增 photo3d-handoff `--with-jury` `--no-strict-jury` flag；一条命令跑 enhance + check + jury + review 闭环
+- jury hook 嵌入 `_run_enhancement_followup` 在 enhance-check 之后；jury 子模块 0 改动
+- handoff 自身 `.handoff.lock` 防同机并发；step 0.5 fail-fast jury config preflight 防 enhance 白花钱
+- 13 个新 `handoff_*` error_kind stderr 模板（含外行用户友好的"下一步动作"清单）
+- PHOTO3D_HANDOFF.json schema add-only 加 8 字段
+- 27 H 用例 + 5 单测；全量回归 2706 PASS / 0 regression
+- mypy strict + ruff clean（本 PR 改的 4 文件）
+
 ## 最新状态
 
 | 字段 | 当前值 |

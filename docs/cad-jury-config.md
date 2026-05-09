@@ -443,3 +443,63 @@ v2 计划加跨进程信号量协调。
 - [cad-help-guide-zh §7.3.1](cad-help-guide-zh.md#731-完整-photo3d-闭环-cli-序列外行用户必读)：完整 4 步 photo3d 闭环（handoff → jury → enhance-review → deliver）
 - [photo3d-jury spec rev 5](superpowers/specs/2026-05-08-photo3d-jury-design.md)：架构、契约、测试、安全护栏的完整设计
 - [photo3d-jury plan](superpowers/plans/2026-05-08-photo3d-jury-plan.md)：27 task 实施计划
+
+---
+
+## 通过 photo3d-handoff 一条命令跑闭环（v2.28.0+）
+
+### 使用示例
+
+```bash
+# 第一步：预览（不执行；看下一步要跑什么）
+python cad_pipeline.py photo3d-handoff --subsystem lifting_platform --with-jury
+
+# 第二步：加 --confirm 实跑（触发 enhance + check + jury 自动验收 + enhance-review）
+python cad_pipeline.py photo3d-handoff --subsystem lifting_platform --with-jury --confirm
+
+# 进阶：质量验收 preview 时仅警告不阻断（CI 用）
+python cad_pipeline.py photo3d-handoff --subsystem lifting_platform --with-jury --no-strict-jury --confirm
+```
+
+### --with-jury / --no-strict-jury 行为矩阵
+
+| 场景 | --with-jury | --no-strict-jury | 行为 |
+|---|---|---|---|
+| 默认 | ✗ | ✗ | 仅跑 enhance + check（v2.27.0 路径不变） |
+| 标准闭环 | ✓ | ✗ | jury preview/needs_review 阻断；工具故障类阻断 |
+| CI 容错 | ✓ | ✓ | jury preview/needs_review 仅警告；工具故障类仍阻断 |
+
+### 故障恢复
+
+**lock 残留**：`.handoff.lock` 或 `.jury.lock` mtime > 30 分钟自动清理。强制清理：删 `<run_dir>/.handoff.lock` 后重跑（仅在确认无其他 photo3d-handoff/photo3d-jury 进程时）。
+
+**前次报告**：PHOTO3D_HANDOFF.json 用 atomic write 替换；前次报告会被本次覆盖；如需保留请先备份 `cp PHOTO3D_HANDOFF.json PHOTO3D_HANDOFF.json.bak`。
+
+### CI 集成
+
+GitHub Actions 示例：
+
+```yaml
+- name: Run photo3d-handoff with jury
+  run: python cad_pipeline.py photo3d-handoff --subsystem ${{ matrix.subsystem }} --with-jury --confirm
+  continue-on-error: false  # exit 10/11 (preview/needs_review) 阻断 CI
+```
+
+`exit code` 含义：
+- 0 = accepted
+- 2 = config 错 / preflight 失败
+- 3 = cost over budget
+- 4 = jury lock busy
+- 10/11 = jury preview/needs_review 阻断（strict）
+- 12 = jury blocked
+- 13 = review_input 缺失（含 path traversal）
+- 20/21/22/23 = enhance-review 失败
+- 24 = handoff lock busy
+- 25 = jury 异常退出
+- 99 = jury 内部异常
+
+CI retry-on-exit 配置时应**显式排除** 10-25 段（业务自定义码，重试不会变）。
+
+### jury preview 时常见可改 enhance config 入口
+
+参见 `docs/cad-enhance-config.md` "提升 photoreal_score 的常用调整"段（若该文档不存在则后续 PR 补）。
