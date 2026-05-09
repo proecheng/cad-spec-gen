@@ -675,9 +675,21 @@ def _run_jury_followup(
             result["exit_code"] = 2
             return result
         if preflight.returncode == 3:
+            from tools.jury.stderr_messages import format_stderr_message
             result["jury_handoff_status"] = "cost_over_budget"
             result["jury_status"] = "cost_over_budget"
             _parse_estimated_usd(preflight.stdout, result)
+            # spec §5.2 + §6.3 H14: handoff 自打中文 stderr（jury 自身已打英文 [dry-run] estimated=...）
+            msg = format_stderr_message(
+                exit_code=3,
+                error_kind="handoff_jury_cost_over_budget",
+                context={
+                    "estimated_usd": result["jury_estimated_usd"],
+                    "budget_usd": 0.0,  # spec §3.4 inv 8 单源打印：handoff 不读 jury config，仅打印 jury 自报估价
+                    "n_views": 0,
+                },
+            )
+            sys.stderr.write(msg + "\n")
             result["exit_code"] = 3
             return result
         if preflight.returncode == 1:

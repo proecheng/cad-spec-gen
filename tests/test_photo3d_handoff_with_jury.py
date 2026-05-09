@@ -286,3 +286,110 @@ def test_h21_handoff_lock_busy(
     assert result["jury_handoff_status"] == "handoff_lock_busy"
     assert result["exit_code"] == 24
     assert fake_run.call_count() == 0
+
+
+# === Task 6: H10 / H14 / H9a / H9b ===
+
+# H10: cost over budget
+def test_h10_jury_cost_over_budget(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H10 — jury dry-run cost > budget：exit=3 + jury_estimated_usd 字段 + 不调后续 step"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([
+        cp(3, stdout="[dry-run] estimated=0.04 USD, allowed=False\n", stderr=""),
+    ])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "cost_over_budget"
+    assert result["jury_estimated_usd"] == 0.04
+    assert result["exit_code"] == 3
+    assert fake_run.call_count() == 1
+
+
+# H14: stderr 含中文估价文案
+def test_h14_estimate_stderr_chinese(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """H14 — H10 同测：handoff 自打中文 stderr 含 'jury 预估' + 'budget'"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run_factory([cp(3, stdout="[dry-run] estimated=0.04 USD, allowed=False\n", stderr="")])
+    from tools.photo3d_handoff import _run_jury_followup
+    _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    captured = capsys.readouterr()
+    # spec §5.2 模板渲染（handoff_jury_cost_over_budget）
+    assert "jury 预估 0.04 USD" in captured.err
+    assert "budget" in captured.err
+
+
+# H9a: jury config 错 strict
+def test_h9a_jury_config_error_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H9a — jury preflight exit=2 (config 错) + strict：透传 exit=2 + 不调后续 step"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(2, stderr="✗ jury 配置错")])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "preflight_config_missing"
+    assert result["exit_code"] == 2
+    assert fake_run.call_count() == 1
+
+
+# H9b: jury config 错 no-strict（验证工具故障类不可降级；spec inv 5）
+def test_h9b_jury_config_error_no_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H9b — jury preflight exit=2 (config 错) + no-strict：仍 exit=2（工具故障类 no-strict 不可降级）"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(2, stderr="")])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=True,  # 关键：no-strict 不能降级工具故障
+    )
+    assert result["jury_handoff_status"] == "preflight_config_missing"
+    assert result["exit_code"] == 2  # 仍阻断
+    assert fake_run.call_count() == 1
