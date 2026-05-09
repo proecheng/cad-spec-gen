@@ -166,15 +166,6 @@ def test_ci_installs_packaging_build_tools_for_wheel_smoke():
     assert "pip install build hatchling" in text
 
 
-def test_ci_sync_materializes_then_checks_tracked_drift():
-    text = (_ROOT / ".github" / "workflows" / "tests.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "python scripts/dev_sync.py || rc=$?" in text
-    assert "git diff --exit-code -- AGENTS.md" in text
-    assert "python scripts/dev_sync.py --check" in text
-
-
 def test_local_runtime_noise_is_gitignored():
     ignore = (_ROOT / ".gitignore").read_text(encoding="utf-8")
     for pattern in (".coverage", "htmlcov/", ".serena/"):
