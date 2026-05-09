@@ -441,3 +441,119 @@ def test_force_archives_with_fixed_suffix(jury_env: Path) -> None:
     )
     assert (run_dir / "PHOTO3D_JURY_REPORT.forced.json").exists()
     assert (run_dir / "PHOTO3D_JURY_REPORT.json").exists()
+
+
+# === Task 23: 链路 e2e jury → enhance-review ===
+
+
+def test_jury_review_input_feeds_enhance_review(jury_env: Path) -> None:
+    """jury 出 review-input → schema 与 enhance-review 兼容。
+
+    断言策略：兼容 schema 断言（不真跑 enhance-review）。
+    enhance-review 完整运行需写入 active run 的 ENHANCEMENT_REPORT.json
+    到 run_dir 同级（而 fixture 写在 render_dir）+ 完整 binding 链；
+    本 case 仅断言 jury_review_input.json 字段满足 enhance-review
+    `_review_input_binding_blockers` 的最低绑定要求。
+    """
+    iter_resp = _ok_response_iter(["iso", "front"])
+    with patch(
+        "tools.jury.llm_client.urlopen",
+        side_effect=lambda *a, **kw: next(iter_resp),
+    ):
+        code = main(
+            [
+                "--subsystem",
+                "lifting_platform",
+                "--project-root",
+                str(jury_env),
+            ]
+        )
+    assert code == 0
+    run_dir = (
+        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        / "20260508-123456"
+    )
+    review_input_path = run_dir / "jury_review_input.json"
+    assert review_input_path.exists()
+
+    review_input = json.loads(
+        review_input_path.read_text(encoding="utf-8")
+    )
+
+    # enhance-review 兼容 schema：顶层
+    assert review_input["schema_version"] == 1
+    assert review_input["review_type"] == "auto_jury_v1"
+    assert review_input["subsystem"] == "lifting_platform"
+    assert review_input["run_id"] == "20260508-123456"
+
+    # source_reports 含 enhance-review _review_input_binding_blockers 4 个必需字段
+    sr = review_input["source_reports"]
+    assert sr["render_manifest"] == (
+        "cad/output/renders/lifting_platform/20260508-123456/render_manifest.json"
+    )
+    assert sr["enhancement_report"] == (
+        "cad/output/renders/lifting_platform/20260508-123456/ENHANCEMENT_REPORT.json"
+    )
+    assert sr["render_manifest_sha256"]  # 非空
+    assert sr["enhancement_report_sha256"]  # 非空
+
+    # views 含 enhance-review 期望的 5 项 semantic_checks
+    assert isinstance(review_input["views"], list)
+    assert len(review_input["views"]) == 2
+    for v in review_input["views"]:
+        assert "view" in v
+        assert "semantic_checks" in v
+        sc = v["semantic_checks"]
+        for key in (
+            "geometry_preserved",
+            "material_consistent",
+            "photorealistic",
+            "no_extra_parts",
+            "no_missing_parts",
+        ):
+            assert key in sc
+            assert isinstance(sc[key], bool)
+
+
+def test_needs_review_no_review_input_writes(jury_env: Path) -> None:
+    """needs_review 时 jury_review_input.json 不写 → 用户尝试 enhance-review 报"文件不存在"。"""
+    from urllib.error import HTTPError
+
+    err = HTTPError(
+        url="x",
+        code=401,
+        msg="x",
+        hdrs={},  # type: ignore[arg-type]
+        fp=io.BytesIO(b""),
+    )
+    ok_iter = _ok_response_iter(["front"])
+    ok_resp = next(ok_iter)
+    calls: list[Any] = [err, ok_resp]
+    iterator = iter(calls)
+
+    def side_effect(*a: object, **kw: object) -> object:
+        c = next(iterator)
+        if isinstance(c, HTTPError):
+            raise c
+        return c
+
+    with patch(
+        "tools.jury.llm_client.urlopen", side_effect=side_effect
+    ), patch("tools.jury.llm_client.time.sleep"):
+        main(
+            [
+                "--subsystem",
+                "lifting_platform",
+                "--project-root",
+                str(jury_env),
+            ]
+        )
+    run_dir = (
+        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        / "20260508-123456"
+    )
+    rep = json.loads(
+        (run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8")
+    )
+    assert rep["status"] == "needs_review"
+    assert not (run_dir / "jury_review_input.json").exists()
