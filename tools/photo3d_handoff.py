@@ -42,6 +42,8 @@ def run_photo3d_handoff(
     confirm: bool = False,
     provider_preset: str | None = None,
     output_path: str | Path | None = None,
+    with_jury: bool = False,  # v2.28.0 — jury hook 主体后续 task 实现
+    no_strict_jury: bool = False,  # v2.28.0 — jury hook 主体后续 task 实现
 ) -> dict[str, Any]:
     """Preview or execute the current Photo3D next-action handoff."""
     root = Path(project_root).resolve()
