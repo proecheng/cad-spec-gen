@@ -244,7 +244,9 @@ def command_return_code(report: dict[str, Any]) -> int:
             return 13
         if jhs == "review_failed":
             raw = report.get("review_raw_exit")
-            return clamp_review_exit(raw) if isinstance(raw, int) else 23
+            # review_raw_exit 缺 / 非 int → fallback 20（review_failed clamp 段最低位）
+            # 不用 23 防与 review_input_corrupt 撞码（spec §11 follow-up M-2 v2.30.0 修）
+            return clamp_review_exit(raw) if isinstance(raw, int) else 20
         if jhs == "review_input_corrupt":
             return 23
         if jhs == "handoff_lock_busy":
