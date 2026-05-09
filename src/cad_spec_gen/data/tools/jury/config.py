@@ -113,6 +113,8 @@ def _parse_profile(p: dict[str, object]) -> JuryProfile:
     if not parsed.hostname:
         raise JuryConfigError(f"api_base_url hostname 不能为空：{api_base_url}")
     # 智能 /v1：含则保留，不含则追加（仅 kind=openai_compat）
+    # 边界：仅识别后缀 `/v1`；vendor 用 `/v1beta` / `/v2` 等变体路径需用户填完整 base_url
+    # （避免误追加 → `/v1beta/v1` 错路径，会被 LLM 调用 4xx fail-fast 暴露而非 silent corruption）
     if not api_base_url.endswith("/v1") and "/v1/" not in api_base_url + "/":
         api_base_url = api_base_url + "/v1"
 

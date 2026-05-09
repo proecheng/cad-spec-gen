@@ -22,6 +22,9 @@ def compute_cost_decision(
 ) -> CostDecision:
     """估算成本 + 比较 budget。
 
+    前置条件：cost_per_call_usd 由 load_jury_config 校验通过
+    （finite + 0 ≤ x < 1000）。直接调用方需自行保证此条件。
+
     规则：
     - estimated = cost_per_call_usd * n_views（保留 6 位小数防浮点漂移）
     - estimated <= budget → 放行
