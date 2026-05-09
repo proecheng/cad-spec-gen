@@ -304,6 +304,165 @@ def test_photo3d_delivery_pack_rejects_unaccepted_quality_summary(tmp_path):
     assert not (fixture["run_dir"] / "delivery" / "enhanced").exists()
 
 
+# === Task 22: DELIVERY_PACKAGE.json jury 字段 ===
+
+
+def test_build_jury_section_present(tmp_path):
+    """PHOTO3D_JURY_REPORT.json 存在 → 抽 status / actual_cost / vendor_ids / schema_version。"""
+    from tools.photo3d_delivery_pack import _build_jury_section
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "PHOTO3D_JURY_REPORT.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "accepted",
+                "jury_meta": {"actual_cost_usd": 0.030},
+                "views": [
+                    {"llm_meta": {"vendor_request_id": "trace-1"}},
+                    {"llm_meta": {"vendor_request_id": "trace-2"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    section = _build_jury_section(run_dir, tmp_path)
+    assert section is not None
+    assert section["status"] == "accepted"
+    assert section["actual_cost_usd"] == 0.030
+    assert section["vendor_request_ids"] == ["trace-1", "trace-2"]
+    assert section["jury_report_schema_version"] == 1
+    assert section["report"].endswith("PHOTO3D_JURY_REPORT.json")
+    # review_input 缺失则为 None
+    assert section["review_input"] is None
+
+
+def test_build_jury_section_with_review_input(tmp_path):
+    """jury_review_input.json 存在时 review_input 字段为相对路径。"""
+    from tools.photo3d_delivery_pack import _build_jury_section
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "PHOTO3D_JURY_REPORT.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "accepted",
+                "jury_meta": {"actual_cost_usd": 0.010},
+                "views": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "jury_review_input.json").write_text("{}", encoding="utf-8")
+    section = _build_jury_section(run_dir, tmp_path)
+    assert section is not None
+    assert section["review_input"] is not None
+    assert section["review_input"].endswith("jury_review_input.json")
+
+
+def test_build_jury_section_absent_when_no_report(tmp_path):
+    """PHOTO3D_JURY_REPORT.json 不存在 → 返 None。"""
+    from tools.photo3d_delivery_pack import _build_jury_section
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert _build_jury_section(run_dir, tmp_path) is None
+
+
+def test_build_jury_section_corrupt_json_returns_none(tmp_path):
+    """PHOTO3D_JURY_REPORT.json 解析失败 → 返 None（不抛）。"""
+    from tools.photo3d_delivery_pack import _build_jury_section
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "PHOTO3D_JURY_REPORT.json").write_text(
+        "{not valid json",
+        encoding="utf-8",
+    )
+    assert _build_jury_section(run_dir, tmp_path) is None
+
+
+def test_delivery_package_includes_jury_field_when_jury_ran(tmp_path):
+    """jury 跑过后 deliver 把 jury 报告并入 DELIVERY_PACKAGE.json 顶层 jury 字段。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    # 写入 jury 报告 + review_input
+    run_dir = fixture["run_dir"]
+    (run_dir / "PHOTO3D_JURY_REPORT.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "subsystem": "demo",
+                "run_id": fixture["run_id"],
+                "status": "accepted",
+                "jury_meta": {"actual_cost_usd": 0.020},
+                "views": [
+                    {"llm_meta": {"vendor_request_id": "trace-V1"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "jury_review_input.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "subsystem": "demo",
+                "run_id": fixture["run_id"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "jury" in pkg
+    assert pkg["jury"] is not None
+    assert pkg["jury"]["status"] == "accepted"
+    assert pkg["jury"]["actual_cost_usd"] == 0.020
+    assert pkg["jury"]["vendor_request_ids"] == ["trace-V1"]
+    assert isinstance(pkg["jury"]["vendor_request_ids"], list)
+    assert pkg["jury"]["jury_report_schema_version"] == 1
+    assert pkg["jury"]["review_input"].endswith("jury_review_input.json")
+
+
+def test_delivery_package_jury_field_null_when_jury_not_run(tmp_path):
+    """jury 未跑 → DELIVERY_PACKAGE.json 顶层 jury 字段为 None。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "jury" in pkg
+    assert pkg["jury"] is None
+
+
 def test_cmd_photo3d_deliver_writes_delivery_package(tmp_path, monkeypatch):
     import cad_pipeline
 

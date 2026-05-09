@@ -3963,6 +3963,28 @@ def cmd_photo3d_recover(args):
     return int(report.get("returncode") or 0)
 
 
+def cmd_jury(args):
+    """自动照片级验收（vision LLM jury）。
+
+    Task 17 提供 tools.photo3d_jury 主流程；当前阶段 tools/photo3d_jury.py
+    可能尚未存在，因此用 lazy import + ImportError 捕获，缺失时优雅退出
+    （exit=99 + stderr 提示），避免 cad_pipeline.py 启动即炸。
+
+    photo3d_jury.main 自己解析 argv（包含 --subsystem / --run-id 等参数），
+    所以这里不在 argparse 子解析器里增加参数，直接透传 sys.argv[2:]。
+    """
+    try:
+        from tools import photo3d_jury  # noqa: PLC0415  Lazy import 防模块缺失炸
+    except ImportError:
+        # Task 17 未完成时的占位返回；不抛异常以便 --help 仍可枚举 jury。
+        sys.stderr.write(
+            "photo3d-jury 子模块未实现（Task 17 提供）；"
+            "当前 cad_pipeline.py 仅注册子命令入口。\n"
+        )
+        return 99
+    return int(photo3d_jury.main(sys.argv[2:]) or 0)
+
+
 def cmd_accept_baseline(args):
     """接受当前通过门禁的 Photo3D run 作为后续漂移基准。"""
     from tools.photo3d_baseline import accept_photo3d_baseline
@@ -5250,6 +5272,23 @@ def main():
         help="Low-risk recovery action to run inside the current run scope",
     )
 
+    # jury：自动照片级验收（vision LLM jury）
+    # 仅注册子命令入口，主流程由 tools.photo3d_jury（Task 17 提供）。
+    # photo3d_jury.main() 自己解析 argv，所以此处不重复声明参数；
+    # 用 add_help=False 让 `cad_pipeline.py jury --help` 也透传给 photo3d_jury。
+    sub.add_parser(
+        "jury",
+        help="自动照片级验收（vision LLM jury）",
+        description=(
+            "对当前 active run 的渲染/增强结果做基于 vision LLM 的自动验收，"
+            "覆盖几何/材质/构图等维度，输出 PHOTO3D_JURY_REPORT.json。"
+            "全部参数（如 --subsystem / --run-id / --output 等）由 "
+            "tools.photo3d_jury 自行解析。"
+        ),
+        add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
     # accept-baseline：显式接受通过门禁的 Photo3D run
     p_accept_baseline = sub.add_parser(
         "accept-baseline",
@@ -5349,6 +5388,7 @@ def main():
         "photo3d-handoff": cmd_photo3d_handoff,
         "photo3d-deliver": cmd_photo3d_deliver,
         "photo3d-recover": cmd_photo3d_recover,
+        "jury": cmd_jury,
         "accept-baseline": cmd_accept_baseline,
         "sw-export-plan": cmd_sw_export_plan,
     }

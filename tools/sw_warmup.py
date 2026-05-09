@@ -9,22 +9,13 @@ from __future__ import annotations
 import contextlib
 import csv
 import logging
-import os
 from pathlib import Path
 from typing import Iterator
 
 from parts_resolver import PartQuery
+from tools._file_lock import LockBusy, acquire_lock
 
 log = logging.getLogger(__name__)
-
-# 全局状态：追踪当前进程已持有的锁（同进程内防止重复 acquire）
-_held_locks: set[str] = set()
-
-
-# 锁定的字节范围常量 — acquire 与 release 必须对齐同一 range，
-# 否则 msvcrt release 成 no-op 导致句柄泄漏（Part 2b review I-3）。
-_LOCK_OFFSET = 0
-_LOCK_NBYTES = 1
 
 
 class WarmupLockContentionError(RuntimeError):
@@ -32,6 +23,10 @@ class WarmupLockContentionError(RuntimeError):
 
     PID 作为结构化属性暴露，未来 sw-inspect 子命令（P2）可以直接
     `exc.pid` 读取，无需 `re.match(r"PID (\\d+)", str(exc))` 反解字符串。
+
+    Task 1 重构后：进程锁实现已下沉到 tools/_file_lock.py（jury 共用）；
+    acquire_warmup_lock 仍保留 WarmupLockContentionError 作为外部 API
+    抛出类型，转发器把内部 LockBusy 转换为本异常以保旧契约不变。
     """
 
     _MSG_FMT = "另一个 sw-warmup 进程运行中 (PID {pid})"
@@ -129,7 +124,16 @@ def read_bom_csv(csv_path: Path) -> list[PartQuery]:
 
 @contextlib.contextmanager
 def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
-    """独占进程锁（决策 #26）。Windows 用 msvcrt，其他平台 fcntl。
+    """独占进程锁（决策 #26）。
+
+    Task 1 重构后：转发到 tools/_file_lock.acquire_lock（jury 共用通用锁）。
+    把内部 LockBusy 翻译为既有 WarmupLockContentionError，保留外部 API 契约
+    （RuntimeError 子类 + .pid 结构化属性 + "另一个 sw-warmup 进程" 文案）。
+
+    行为差异说明：
+    - 旧实现用 OS-level msvcrt/fcntl 锁；新实现用 JSON sidecar + PID liveness +
+      30 分钟 mtime stale 自动清理。两种方案都达到"另一进程并发抢锁失败"的契约。
+    - LockBusy.pid 是 int；翻译时统一转 str 以匹配旧契约（exc.pid 是 str）。
 
     Args:
         lock_path: 锁文件绝对路径，父目录会被自动创建
@@ -138,85 +142,13 @@ def acquire_warmup_lock(lock_path: Path) -> Iterator[None]:
         None — with 块内代表已持锁
 
     Raises:
-        RuntimeError: 已被另一进程占用（带 PID 提示）
+        WarmupLockContentionError: 已被另一进程占用（带 PID 提示）
     """
-    lock_path = Path(lock_path)
-    lock_path_str = str(lock_path.resolve())
-
-    # 同进程内重复 acquire 检查
-    if lock_path_str in _held_locks:
-        raise WarmupLockContentionError(pid=str(os.getpid()))
-
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # 确保文件存在，以便 lock 操作
-    if not lock_path.exists():
-        lock_path.write_text(str(os.getpid()))
-
-    fh = open(lock_path, "a+")
     try:
-        if os.name == "nt":
-            import msvcrt
-
-            try:
-                # msvcrt.locking 锁的是"从当前位置起 N 字节"。"a+" 模式 open
-                # 后 file position 默认在 EOF，锁会落在未知 offset；而释放路径
-                # 已 seek 到 _LOCK_OFFSET 锁定 _LOCK_NBYTES 字节。acquire 与
-                # release 必须对齐同一 byte range，否则 release 成 no-op 导致
-                # 锁句柄泄漏。修 Part 2b final review I-3。
-                fh.seek(_LOCK_OFFSET)
-                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, _LOCK_NBYTES)
-            except OSError as e:
-                fh.close()
-                pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise WarmupLockContentionError(pid=pid) from e
-        else:
-            import fcntl
-
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except (OSError, BlockingIOError) as e:
-                fh.close()
-                pid = lock_path.read_text(encoding="utf-8").strip() or "未知"
-                raise WarmupLockContentionError(pid=pid) from e
-
-        # 记录为已持有。_held_locks.add 必须与 .discard 成对出现在同层 try/finally，
-        # 否则 yield 体抛异常时会留下孤岛条目，未来 acquire 误判为"已持有"。
-        _held_locks.add(lock_path_str)
-
-        # 持锁后写入当前 PID 供下个尝试者诊断（spec 要求）
-        # 用 seek(0)+truncate 保证清掉 bootstrap 写入的旧值
-        try:
-            fh.seek(0)
-            fh.truncate()
-            fh.write(str(os.getpid()))
-            fh.flush()
-        except OSError as e:
-            log.debug("写入 PID 异常（忽略）: %s", e)
-
-        try:
+        with acquire_lock(Path(lock_path)):
             yield
-        finally:
-            if os.name == "nt":
-                import msvcrt
-
-                try:
-                    fh.seek(_LOCK_OFFSET)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, _LOCK_NBYTES)
-                except OSError as e:
-                    log.debug("释放 msvcrt 锁异常（忽略）: %s", e)
-            else:
-                import fcntl
-
-                try:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                except OSError as e:
-                    log.debug("释放 fcntl 锁异常（忽略）: %s", e)
-
-            # 移除持有标记
-            _held_locks.discard(lock_path_str)
-    finally:
-        fh.close()
+    except LockBusy as e:
+        raise WarmupLockContentionError(pid=str(e.pid)) from e
 
 
 def _default_lock_path() -> Path:
@@ -256,6 +188,7 @@ def _check_preflight() -> tuple[bool, str]:
     if not info.toolbox_dir:
         return False, "未检测到 Toolbox 目录；检查 SW 安装完整性"
     import psutil  # 局部 import，与 msvcrt/fcntl 惯例一致
+
     sw_running = any(
         (p.info.get("name") or "").upper() == "SLDWORKS.EXE"
         for p in psutil.process_iter(["name"])
@@ -388,7 +321,9 @@ def _run_smoke_test() -> int:
             print(f"[sw-warmup] smoke-test PASS — STEP 文件 {size_kb}KB")
             return 0
         else:
-            stderr_tail = (session.last_convert_diagnostics or {}).get("stderr_tail", "")
+            stderr_tail = (session.last_convert_diagnostics or {}).get(
+                "stderr_tail", ""
+            )
             print(f"[sw-warmup] smoke-test FAIL — {stderr_tail}")
             return 2
     finally:

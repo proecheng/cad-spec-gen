@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "subsystem": "lifting_platform",
+  "run_id": "20260508-123456",
+  "status": "accepted",
+  "delivery_status": "accepted",
+  "render_manifest": "cad/output/renders/lifting_platform/20260508-123456/render_manifest.json",
+  "render_dir": "cad/output/renders/lifting_platform/20260508-123456",
+  "enhancement_report": "cad/output/renders/lifting_platform/20260508-123456/ENHANCEMENT_REPORT.json",
+  "view_count": 2,
+  "enhanced_view_count": 2,
+  "min_similarity": 0.85,
+  "quality_summary": {
+    "schema_version": 1,
+    "status": "accepted",
+    "view_count": 2,
+    "min_contrast_stddev": 12.0,
+    "warnings": []
+  },
+  "views": [
+    {
+      "view": "iso",
+      "status": "accepted",
+      "source_image": "cad/output/renders/lifting_platform/20260508-123456/iso.png",
+      "enhanced_image": "cad/output/renders/lifting_platform/20260508-123456/iso_enhanced.png",
+      "edge_similarity": 0.91,
+      "min_similarity": 0.85,
+      "quality_metrics": {"effective_contrast_stddev": 18.5, "luminance_mean": 128.0, "saturation_mean": 60.0},
+      "blocking_reasons": []
+    },
+    {
+      "view": "front",
+      "status": "accepted",
+      "source_image": "cad/output/renders/lifting_platform/20260508-123456/front.png",
+      "enhanced_image": "cad/output/renders/lifting_platform/20260508-123456/front_enhanced.png",
+      "edge_similarity": 0.88,
+      "min_similarity": 0.85,
+      "quality_metrics": {"effective_contrast_stddev": 16.2, "luminance_mean": 130.0, "saturation_mean": 58.0},
+      "blocking_reasons": []
+    }
+  ],
+  "blocking_reasons": []
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "subsystem": "lifting_platform",
+  "active_run_id": "20260508-123456",
+  "runs": {
+    "20260508-123456": {
+      "active": true,
+      "artifacts": {
+        "render_manifest": "cad/output/renders/lifting_platform/20260508-123456/render_manifest.json",
+        "enhancement_report": "cad/output/renders/lifting_platform/20260508-123456/ENHANCEMENT_REPORT.json"
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
@@ -175,6 +176,7 @@ def run_photo3d_delivery_pack(
             deliverables = image_deliverables
 
     status = _package_status(enhancement_status, final_deliverable, copy_preview)
+    jury_section = _build_jury_section(run_dir, root)
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -187,6 +189,7 @@ def run_photo3d_delivery_pack(
         "quality_summary": quality_summary,
         "model_quality_summary": model_quality_summary,
         "semantic_material_review": semantic_material_review,
+        "jury": jury_section,
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
         "deliverables": deliverables,
@@ -316,6 +319,53 @@ def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
         "status": "accepted" if enhancement_report.get("delivery_status") == "accepted" else "unknown",
         "view_count": enhancement_report.get("enhanced_view_count") or 0,
         "warnings": [],
+    }
+
+
+def _build_jury_section(
+    run_dir: Path,
+    project_root: Path,
+) -> dict[str, Any] | None:
+    """jury 跑过则返 jury 字段；否则返 None。
+
+    PHOTO3D_JURY_REPORT.json 不存在 / 解析失败 / I/O 失败均返 None；
+    存在则抽 status / actual_cost_usd / vendor_request_ids / schema_version
+    + jury_review_input.json 路径（accepted 时存在）。
+    """
+    jury_report_path = run_dir / "PHOTO3D_JURY_REPORT.json"
+    if not jury_report_path.is_file():
+        return None
+    try:
+        rep = json.loads(jury_report_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(rep, dict):
+        return None
+    review_input_path = run_dir / "jury_review_input.json"
+    review_input_rel: str | None = (
+        project_relative(review_input_path, project_root)
+        if review_input_path.is_file()
+        else None
+    )
+    vendor_ids: list[str] = []
+    for v in rep.get("views", []) or []:
+        if not isinstance(v, dict):
+            continue
+        meta = v.get("llm_meta")
+        if not isinstance(meta, dict):
+            continue
+        vid = meta.get("vendor_request_id")
+        if vid:
+            vendor_ids.append(str(vid))
+    raw_meta = rep.get("jury_meta")
+    jury_meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
+    return {
+        "report": project_relative(jury_report_path, project_root),
+        "review_input": review_input_rel,
+        "status": rep.get("status"),
+        "actual_cost_usd": jury_meta.get("actual_cost_usd"),
+        "vendor_request_ids": vendor_ids,
+        "jury_report_schema_version": rep.get("schema_version"),
     }
 
 

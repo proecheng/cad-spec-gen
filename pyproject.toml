@@ -101,6 +101,17 @@ source = [
     "adapters.solidworks.sw_config_broker",
     "adapters.solidworks.sw_config_lists_cache",
     "adapters.solidworks.sw_list_configs_worker",
+    # photo3d jury 模块（Tasks 25+27 — feat/photo3d-jury 分支引入）
+    "tools.jury.config",
+    "tools.jury.cost",
+    "tools.jury.input_evidence_binding",
+    "tools.jury.deterministic_gate",
+    "tools.jury.llm_client",
+    "tools.jury.verdict",
+    "tools.jury.redact",
+    "tools.jury.stderr_messages",
+    "tools.photo3d_jury",
+    "tools._file_lock",
 ]
 # plan-drift fix：plan 写 branch = true 让 partial branch coverage 算严，
 # 三模块从 95.07% 降到 94.07% fail；spec rev 5 H "≥95% 覆盖率"未要求 branch
@@ -134,12 +145,16 @@ module = "adapters.solidworks.sw_config_broker"
 strict = true
 
 [[tool.mypy.overrides]]
-# 历史债模块（sw_detect / sw_config_lists_cache）：transitive import 被 broker
-# gate 扫到；暂不进 strict，ignore_errors 防止它们的历史 type error 污染 broker gate。
-# 未来 cleanup PR 触动这些模块时再移除 ignore_errors + 加 strict。
+# 历史债模块（sw_detect / sw_config_lists_cache / contract_io）：transitive
+# import 被 broker / jury gate 扫到；暂不进 strict，ignore_errors 防止它们
+# 的历史 type error 污染 strict gate。未来 cleanup PR 触动这些模块时再移除
+# ignore_errors + 加 strict。
+# - tools.contract_io: jury (input_evidence_binding / photo3d_jury) transitive
+#   import；line 33 `dict` 缺 generic args 是 HEAD 已有历史债（Tasks 25+27 不扩大 scope）
 module = [
     "adapters.solidworks.sw_detect",
     "adapters.solidworks.sw_config_lists_cache",
     "cad_paths",
+    "tools.contract_io",
 ]
 ignore_errors = true

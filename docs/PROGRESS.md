@@ -7,12 +7,12 @@
 
 | 字段 | 当前值 |
 | --- | --- |
-| 更新日期 | 2026-05-08 |
-| 当前工作分支 | `feat/v2.25-cleanup-followup` 14 ahead of `main`（v2.25.x cleanup PR 实施完成，待开 PR） |
+| 更新日期 | 2026-05-09 |
+| 当前工作分支 | `feat/photo3d-jury` ahead of `main`（v2.27.0 photo3d-jury vision LLM 自动验收，27 task plan 全部落地，待开 PR） |
 | 管线 Phase 数 | 6 个：SPEC / CODEGEN / BUILD / RENDER / ENHANCE / ANNOTATE |
 | 总体能力进展 | 约 89%（Phase 1 入口前移 + 升降平台完整子系统两个里程碑后上调 3 点） |
-| 当前主攻 Phase | 已完成本轮（v2.25.0 Phase 1 入口 + v2.26.0 升降平台子系统 + v2.25.x cleanup §11 follow-up）；下一轮重点 Phase 5 真实 AI backend adapter 准入 |
-| 最新功能基线 | v2.25.x cleanup（feat/v2.25-cleanup-followup）：§11 follow-up 6 项单 PR 集成（I-1 unit_normalize → schema v2 / I-2 软窗口→硬窗口 / I-3 evidence_token 原文切片 / I-4 拆 7 per-status builder / I-5 降级文案按 reason 分类 / M-3 _classify_unsafe_reason CJK 优先）；v2.26.0：lifting_platform 完整子系统端到端；v2.25.0：`project-guide --product-goal "<自然语言>"` 3 层确定性词典识别 19 子系统 + 6 KPI + 7 状态分流 + dispatch fallback |
+| 当前主攻 Phase | 已完成本轮（v2.27.0 Phase 5/6 photo3d-jury vision LLM 自动验收）；下一轮重点 Phase 5 真实 AI backend adapter 准入 |
+| 最新功能基线 | v2.27.0（feat/photo3d-jury）：`photo3d-jury` 子命令把增强后多视角图发 OpenAI 兼容 vision LLM 做语义/材质级自动验收；spec rev 5（1302 行 / 199 findings 全闭）+ plan 27 task；Layer 0 输入证据绑定 + sha256/active_run freeze + `.jury.lock` 防并发；Layer 1 字段自洽性；Layer 2 vision LLM 5 boolean + `photoreal_score`；写 `PHOTO3D_JURY_REPORT.json` + `jury_review_input.json`（仅 accepted）；8 个 jury 模块（`config.py` / `cost.py` / `verdict.py` / `redact.py` / `stderr_messages.py` / `input_evidence_binding.py` / `deterministic_gate.py` / `llm_client.py`）+ cli 薄壳 + DELIVERY_PACKAGE.json `jury` 字段 + 内置 model→cost 估价表（gpt-4o / gemini / claude）+ `--list-profiles` / `--last-status` / `--dry-run` 故障恢复 |
 | 最新合并/进度提交 | `99c0e93 feat(photo3d): 完成升降平台照片级交付 (#58)` (v2.26.0) / `0ac05ad feat(product-goal): Phase 1 入口前移到产品目标自然语言模式 (#59)` (v2.25.0) 都已合并；v2.25.x cleanup 在 `feat/v2.25-cleanup-followup` 待 PR |
 | 最新归档计划提交 | `6853a3c docs(plan): v2.25.x cleanup PR 实施计划` / `0e5869a docs(spec): v2.25.x cleanup spec rev 4` 在 `feat/v2.25-cleanup-followup` 分支 |
 | 最近验证 | PR #58 / #59 各自 CI 8/8 SUCCESS（Linux 3.10/3.11/3.12 + Windows 3.10/3.11/3.12 + mypy-strict + regression）；全量回归 `2470 passed`；v2.25.x cleanup 本地 TDD +20 测试（6 parser + 14 guide）RED → GREEN，本地范围 pytest 全绿 |
@@ -22,7 +22,7 @@
 
 ## 一句话结论
 
-cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 implemented 子系统（end_effector + lifting_platform）。本 session 同日两个 minor release：v2.25.0 把新用户入口前移到产品目标自然语言模式（外行不写设计文档也能启动管线）；v2.26.0 把升降平台作为完整子系统端到端交付（参数化 + 装配契约 + 真实 vendor STEP + 跨 Phase 2-6 实测）。后续 cleanup 单 PR `feat/v2.25-cleanup-followup` 已把 §11 follow-up 6 项闭合（I-1/I-2/I-3/I-4/I-5/M-3），TDD +20 测试 RED → GREEN，待开 PR。下一轮重点：Phase 5 真实 AI backend adapter 准入（`gpt-image-2-pro` 等云后端的配置隔离 + 白名单 + 同 run 验收）。
+cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 implemented 子系统（end_effector + lifting_platform）。本轮 v2.27.0 在 Phase 5/6 加 `photo3d-jury` 子命令：`enhance-check` accepted 后用 OpenAI 兼容 vision LLM 做语义/材质级自动验收，免去外行用户手抄 5 boolean 进 `enhance-review`。spec rev 5（1302 行 / 199 findings 全闭）+ plan 27 task；8 个 jury 模块走 TDD RED → GREEN（含 8 / 11 / 11 / 9 / 11 / 13 / 6 / 7 case 共 1XX 新测试）；DELIVERY_PACKAGE.json 加 `jury` 字段；用户文档 `docs/cad-jury-config.md` 新建 + `cad-help-guide-zh / -en §7.3.1` 加 4 步 photo3d 闭环序列图（handoff → jury → enhance-review → deliver）。前序 v2.25.0 / v2.26.0 / v2.25.x cleanup 仍保留：v2.25.0 产品目标自然语言入口；v2.26.0 升降平台子系统端到端；v2.25.x cleanup §11 follow-up 6 项闭合。下一轮重点：Phase 5 真实 AI backend adapter 准入（`gpt-image-2-pro` 等云后端的配置隔离 + 白名单 + 同 run 验收）。
 
 ## 进度口径
 
@@ -218,6 +218,8 @@ cad-spec-gen 已形成 6 阶段 CAD 混合渲染管线，并已落地 2 个 impl
 
 | 日期 | 命令 | 结果 |
 | --- | --- | --- |
+| 2026-05-09 | v2.27.0 photo3d-jury 落地：spec rev 5（1302 行 / 199 findings 全闭）+ plan 27 task | 8 jury 模块 TDD RED → GREEN：`redact.py` 8 case / `stderr_messages.py` 11 case / `verdict.py` 11 case / `deterministic_gate.py` 9 case / `input_evidence_binding.py` 11 case / `llm_client.py` 13 case + kill switch + redact + vendor_request_id / `photo3d_jury.py` cli 6 case + 主流程串联 / e2e 集成 7 case（happy + 失败 + 重跑保护）/ DELIVERY_PACKAGE.json 加 jury 字段 + 链路 e2e；累计 +1XX 测试 |
+| 2026-05-09 | `docs/cad-jury-config.md` 新建 + `docs/cad-help-guide-zh.md` / `-en.md` §7.3.1 完整 photo3d 闭环序列（4 步：handoff → jury → enhance-review → deliver）+ `docs/PROGRESS.md` v2.27.0 条目 + `docs/superpowers/README.md` spec/plan 链接 | Tasks 24 + 26 文档落地：`cad-jury-config.md` 含最小配置模板、字段说明、内置估价表、隐私警告、TLS 企业 CA、已知中转商示例、故障恢复（--list-profiles / --profile-id / --last-status / --dry-run）、`.gitignore` 提醒 |
 | 2026-05-08 | `python -m pytest tests\test_product_goal_parser.py tests\test_project_guide.py -q` | v2.25.x cleanup TDD RED → GREEN：6 parser + 14 guide 共 +20 测试；I-1 schema v2 / I-2 硬窗口 / I-3 evidence_token 原文切片 / I-4 7 builder / I-5 reason 文案 / M-3 unsafe_reason 全部覆盖 |
 | 2026-05-08 | `python scripts\dev_sync.py --check` | v2.25.x cleanup 单 commit 镜像同步通过（`6327b11 chore(dev_sync): 同步 root tools/ → src/cad_spec_gen/data/tools/ 镜像`） |
 | 2026-05-08 | `git log --oneline 99c0e93..HEAD` | `feat/v2.25-cleanup-followup` 13 commits ahead（spec ×4 / plan ×1 / RED 测试 ×1 / 实现 ×6 / dev_sync ×1，本 PROGRESS commit 后 14 ahead） |

@@ -5,6 +5,8 @@
 
 ## 最新更新
 
+2026-05-09：v2.27.0 photo3d-jury vision LLM 自动验收（`feat/photo3d-jury`）：`enhance-check` accepted 后用 OpenAI 兼容 vision LLM 做语义/材质级 5 boolean + `photoreal_score` 自动验收，写 `PHOTO3D_JURY_REPORT.json` + `jury_review_input.json`（仅 accepted），免去外行用户手抄 review-input 进 `enhance-review`。配套 [photo3d-jury spec rev 5](specs/2026-05-08-photo3d-jury-design.md)（1302 行 / 199 findings 全闭，含 Layer 0/1/2 三层契约 / 内置 model→cost 估价表 / `.jury.lock` 防并发 / `api_key` 不落盘 / TLS 企业 CA 注入 / forward-compat schema_version∈{1,2}）和 [photo3d-jury plan](plans/2026-05-08-photo3d-jury-plan.md)（27 task / 5 checkpoint）。新增用户级配置文档 [`docs/cad-jury-config.md`](../cad-jury-config.md) 与 cad-help-guide §7.3.1 完整 4 步闭环序列图（handoff → jury → enhance-review → deliver）。详见 [项目看板](../PROGRESS.md)。
+
 2026-05-08：v2.25.x cleanup PR（`feat/v2.25-cleanup-followup`）单 PR 集成 §11 follow-up 6 项闭合：I-1 `unit_normalize` → schema v2 `list[{pattern,factor}]`；I-2 spec line 316 软窗口收敛为硬窗口；I-3 `evidence_token` 双改为原文切片；I-4 拆 `_derive_goal_status_and_next_action` 为 7 个 per-status builder；I-5 降级文案按 `reason` 分类；M-3 新增 `_classify_unsafe_reason`（CJK 优先 + windows_path 收紧）。配套新增 [v2.25.x cleanup spec rev 4](specs/2026-05-08-v2.25-cleanup-design.md)（3 轮自审 + 实测，11 BLOCKER + 18 MAJOR + 5 MINOR 全闭）和 [v2.25.x cleanup 实施计划](plans/2026-05-08-v2.25-cleanup-followup.md)（8 task / 9 commit / TDD RED → GREEN +20 测试）。北极星 5 gate 全过。详见 [项目看板](../PROGRESS.md)。
 
 2026-05-06：Phase 1 -> Phase 6 新用户项目入口再简化已完成第一块实现和核心范围回归：新增 [新用户项目入口再简化执行计划](plans/2026-05-06-new-user-entry-guide.md) 和 [新 session 交接报告](reports/session-handoff-2026-05-06.md)。`project-guide --from-design-doc --design-doc <path>` 现在可从一个显式设计文档写 `.cad-spec-gen/project-guide/PROJECT_GUIDE.json`，返回 `needs_subsystem_confirmation` / `confirm_subsystem`，让普通用户先确认子系统再进入后续管线。当前总体能力进展约 86%，下一步继续把入口前移到“产品目标 + 设计文档 + 缺失参数”的少提问、多确认向导，并准备真实 AI backend adapter 准入。详见 [项目看板](../PROGRESS.md)。
@@ -43,6 +45,8 @@
 | [`plans/2026-05-06-new-user-entry-guide.md`](plans/2026-05-06-new-user-entry-guide.md) | Phase 1/6 新用户设计文档入口确认向导执行计划 |
 | [`specs/2026-05-08-v2.25-cleanup-design.md`](specs/2026-05-08-v2.25-cleanup-design.md) | v2.25.x cleanup PR 设计 spec rev 4（§11 follow-up 6 项 I-1/I-2/I-3/I-4/I-5/M-3 闭合方案） |
 | [`plans/2026-05-08-v2.25-cleanup-followup.md`](plans/2026-05-08-v2.25-cleanup-followup.md) | v2.25.x cleanup PR 8 task / 9 commit 实施计划（TDD RED → GREEN +20 测试） |
+| [`specs/2026-05-08-photo3d-jury-design.md`](specs/2026-05-08-photo3d-jury-design.md) | v2.27.0 photo3d-jury vision LLM 自动验收 spec rev 5（1302 行 / 199 findings 全闭 / Layer 0/1/2 / 估价表 / `.jury.lock` / TLS / forward-compat） |
+| [`plans/2026-05-08-photo3d-jury-plan.md`](plans/2026-05-08-photo3d-jury-plan.md) | v2.27.0 photo3d-jury 实施计划（27 task / 5 checkpoint / TDD RED → GREEN） |
 | [`reports/session-handoff-2026-05-06.md`](reports/session-handoff-2026-05-06.md) | 新 session 交接：当前 git 状态、已完成工作、验证、后续顺序和必读文档 |
 | [`runbooks/common-model-family-admission.md`](runbooks/common-model-family-admission.md) | 新模型族进入默认库的人工/大模型操作手册 |
 | [`specs/common_model_family_admission.json`](specs/common_model_family_admission.json) | 新模型族准入的机读测试清单 |

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "subsystem": "lifting_platform",
+  "run_id": "20260508-123456",
+  "render_dir": "cad/output/renders/lifting_platform/20260508-123456",
+  "render_dir_rel_project": "cad/output/renders/lifting_platform/20260508-123456",
+  "files": [
+    {"view": "iso", "path_rel_project": "cad/output/renders/lifting_platform/20260508-123456/iso.png", "sha256": "sha256:fake_iso"},
+    {"view": "front", "path_rel_project": "cad/output/renders/lifting_platform/20260508-123456/front.png", "sha256": "sha256:fake_front"}
+  ]
+}

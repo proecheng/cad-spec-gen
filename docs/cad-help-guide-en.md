@@ -219,6 +219,79 @@ After Blender renders exist, enhance all views to photorealistic JPGs. Four back
 **Auto-detect priority**: FAL_KEY env var → ComfyUI running on localhost:8188 → Gemini config → engineering fallback.
 **Fallback chain**: fal → gemini → engineering (batch-locked after downgrade to ensure cross-view consistency).
 
+### Photo3D Jury — Vision LLM Auto-Acceptance (v2.27.0+)
+
+After `enhance-check` writes an accepted `ENHANCEMENT_REPORT.json`, you can run `photo3d-jury` to have a vision LLM perform an **automatic semantic / material-level review** so you don't have to hand-write a `review-input` for `enhance-review`:
+
+```bash
+python cad_pipeline.py photo3d-jury --subsystem <name>
+python cad_pipeline.py photo3d-jury --subsystem <name> --dry-run
+python cad_pipeline.py photo3d-jury --subsystem <name> --profile-id <next>
+python cad_pipeline.py photo3d-jury --subsystem <name> --list-profiles
+python cad_pipeline.py photo3d-jury --subsystem <name> --last-status
+```
+
+`photo3d-jury` reads `~/.claude/cad_jury_config.json` (an OpenAI-compatible vision profile — relay or native vendor), sends each accepted enhanced view as base64 to the vision LLM, and collects 5 booleans (`geometry_preserved` / `material_consistent` / `photorealistic` / `no_extra_parts` / `no_missing_parts`) plus `photoreal_score` (0-100). It writes `PHOTO3D_JURY_REPORT.json` and (only when `status == accepted`) `jury_review_input.json`.
+
+Execution order is **strictly enforced** (no implementer drift):
+
+1. **Layer 0 — Input evidence binding + resource/race protection.** Validates ENHANCEMENT_REPORT `subsystem` / `run_id` / `status=accepted` / `delivery_status=accepted` / `quality_summary.status=accepted` / non-empty `views[]` ≤ `max_n_views`, each enhanced image ≤ `max_image_bytes`. Freezes `active_run_id` and the sha256 of ENHANCEMENT_REPORT/render_manifest at entry. Creates `.jury.lock` in the active run dir to prevent concurrent double-runs. On failure → `blocked`, exit=1, **does not call the LLM**.
+2. **Layer 1 — Per-view field self-consistency.** Checks every `views[].status=accepted` / `edge_similarity ≥ min_similarity` / `effective_contrast_stddev ≥ MIN_PHOTO_CONTRAST_STDDEV` (12.0, same as `tools/enhance_consistency.py`). On failure → `preview`, exit=0, **does not call the LLM**.
+3. **Layer 2 — Vision LLM.** One call per view, strict OpenAI Chat Completions schema (`messages[].content[].type=image_url` with base64). Parse failures retry once at `temperature=0`. Network/timeout/4xx/5xx are classified into `error_kind`. Overall status: all views pass → `accepted`; any view fails but deterministic checks are clean → `preview`; partial LLM failure → `needs_review`; Layer 0 failure → `blocked`.
+
+Cost & privacy:
+
+- Default `--budget 0.1` USD; 6 views × 0.005 ≈ 0.03 leaves ample headroom. Exceeding budget requires explicit `--confirm-cost`.
+- Per-view image size hard cap 8 MiB (`max_image_bytes`); view count hard cap 32 (`max_n_views`); these are **not bypassed** by `--confirm-cost`.
+- Built-in model→cost table covers `gpt-4o` / `gpt-4-turbo` / `gemini-2.5-flash` / `gemini-1.5-flash` / `gemini-2.5-pro` / `gemini-1.5-pro` / `claude-3-*` etc.; the profile-level `cost_per_call_usd` overrides it.
+- Enhanced images are uploaded as base64 to `api_base_url`; relays / native vendors **may log and train on them** — confidential projects should self-host the vision endpoint.
+- For corporate MITM proxies, inject the self-signed CA via the `SSL_CERT_FILE` env var. Jury **forbids** `ssl._create_unverified_context()`.
+- `api_key` never enters any report / log / stderr / debug-output / traceback.
+
+Fault recovery (no LLM call):
+
+- `--list-profiles` lists available profiles + the active one; useful after `needs_review` to pick the next vendor.
+- `--profile-id <next>` temporarily switches profile without modifying the config.
+- `--last-status` re-prints the latest `PHOTO3D_JURY_REPORT.json` summary (`status` / `next_step` / `first_blocking_reason`).
+- `--dry-run` runs Layer 0/1 + cost estimation without sending an LLM request — recommended on first profile setup.
+
+Full field schema, minimal config template, the built-in cost table, privacy/TLS guidance, known vision-capable relays, and complete CLI flag reference live in [`docs/cad-jury-config.md`](cad-jury-config.md).
+
+#### §7.3.1 Full Photo3D Closing Sequence (mandatory order for end users)
+
+External users must walk these 4 steps in order from `enhance-check` to final delivery — skipping any step is blocked by the next contract layer:
+
+```
+1. photo3d-handoff --subsystem X --confirm
+   ├─ runs enhance (using the configured provider preset, e.g. engineering / gemini)
+   └─ runs enhance-check → ENHANCEMENT_REPORT.json (deterministic IoU + pixel metrics)
+
+2. photo3d-jury --subsystem X
+   ├─ Layer 0: input evidence binding + sha256/active_run freeze + .jury.lock + rerun guard
+   ├─ Layer 1: per-view field self-consistency
+   ├─ Layer 2: vision LLM 5 booleans + photoreal_score
+   └─ writes PHOTO3D_JURY_REPORT.json + jury_review_input.json (only on accepted)
+
+3. enhance-review --subsystem X --review-input <abs_path>/jury_review_input.json
+   └─ writes ENHANCEMENT_REVIEW_REPORT.json (accepted/preview/needs_review/blocked)
+
+4. photo3d-deliver --subsystem X --confirm
+   └─ copies accepted files + writes DELIVERY_PACKAGE.json (now with a `jury` field)
+```
+
+Why every step is mandatory:
+
+- Skipping step 2 leaves step 3 with no trustworthy `review-input`; the user must hand-write 6 views × 5 booleans before step 4.
+- Skipping step 3 leaves step 4 without an accepted `ENHANCEMENT_REVIEW_REPORT.json`; if `--require-semantic-review` is set, it is blocked.
+- Step 2 emits the `jury_review_input.json` step 3 needs, so `enhance-review` accepts it directly without manual transcription.
+
+**Windows notes**:
+
+- PowerShell is recommended (forward-slash paths work).
+- cmd.exe users must convert forward slashes to backslashes or quote the paths; see [`docs/cad-jury-config.md`](cad-jury-config.md) §6 / appendix for examples.
+
+**`.gitignore` reminder**: add `cad/**/.cad-spec-gen/runs/` to your project root `.gitignore` so `PHOTO3D_JURY_REPORT.json` (which contains `profile_id` / `model` / `vendor_request_id`) does not leak your billing-vendor fingerprint into git.
+
 ```bash
 # Auto-detect best backend
 python cad_pipeline.py enhance --subsystem <name>
