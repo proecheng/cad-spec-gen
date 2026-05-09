@@ -48,13 +48,11 @@ jobs:
         if: runner.os == 'Windows'
         run: pip install pywin32
 
-      - name: Sync data/ mirrors
+      - name: Verify data/ mirrors are in sync
         shell: bash
         run: |
-          rc=0
-          python scripts/dev_sync.py || rc=$?
-          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
-          git diff --exit-code -- AGENTS.md
+          # fail-fast：drift 直接 exit=1，不在 runner 上偷偷修复掩盖问题
+          # （历史教训：v2.27→v2.31 共 5 PR 漏同步均被旧 gate 吞掉）
           python scripts/dev_sync.py --check
 
       - name: Run tests with coverage gate (Linux / macOS)
@@ -110,13 +108,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest jinja2 pyyaml cadquery ezdxf
 
-      - name: Sync data/ mirrors
+      - name: Verify data/ mirrors are in sync
         shell: bash
         run: |
-          rc=0
-          python scripts/dev_sync.py || rc=$?
-          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
-          git diff --exit-code -- AGENTS.md
+          # fail-fast：drift 直接 exit=1，不在 runner 上偷偷修复掩盖问题
+          # （历史教训：v2.27→v2.31 共 5 PR 漏同步均被旧 gate 吞掉）
           python scripts/dev_sync.py --check
 
       - name: Run parts_resolver unit tests with kill switch
