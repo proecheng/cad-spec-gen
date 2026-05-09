@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -208,3 +209,80 @@ def fake_enhancement_report() -> dict[str, Any]:
 
 def cp(returncode: int, *, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=["fake"], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+# === Task 5: H20 / H21 ===
+
+
+def _fake_acquire_lock_ok(lock_path: Path) -> Any:
+    """fake context manager that does nothing (i.e., lock acquired ok)"""
+    @contextmanager
+    def _ctx() -> Any:
+        yield
+    return _ctx()
+
+
+# === H20: fail-fast jury config 缺失 ===
+
+def test_h20_preflight_jury_config_missing(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H20 — jury config 缺失：handoff exit=2 + 不调 enhance"""
+    run_dir = make_jury_run_dir()
+    # tmp/cad/<sub>/.cad-spec-gen/runs/<id> -> tmp/
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    # mock acquire_lock 直接 ok
+    monkeypatch.setattr(
+        "tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False
+    )
+    # mock subprocess: 仅期望 1 次调用（jury --dry-run preflight）返 exit=2
+    fake_run = fake_run_factory([cp(2, stderr="✗ jury config 不存在")])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "preflight_config_missing"
+    assert result["exit_code"] == 2
+    # 仅 1 次 subprocess 调用（preflight）；不跑实跑 / review
+    assert fake_run.call_count() == 1
+
+
+# === H21: handoff 自身 .handoff.lock busy ===
+
+def test_h21_handoff_lock_busy(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H21 — 同 subsystem 已有 handoff 持锁：exit=24 + 不调 enhance"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    # mock acquire_lock 抛 LockBusy
+    from tools._file_lock import LockBusy
+
+    def fake_acquire_lock(lock_path: Path) -> Any:
+        raise LockBusy(lock_path.name, 12345)
+
+    monkeypatch.setattr(
+        "tools.photo3d_handoff.acquire_lock", fake_acquire_lock, raising=False
+    )
+    fake_run = fake_run_factory([])  # 0 次调用预期
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "handoff_lock_busy"
+    assert result["exit_code"] == 24
+    assert fake_run.call_count() == 0

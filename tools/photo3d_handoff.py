@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -7,6 +8,7 @@ import subprocess
 import sys
 from typing import Any
 
+from tools._file_lock import LockBusy, acquire_lock
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
 from tools.photo3d_baseline import accept_photo3d_baseline
@@ -598,3 +600,110 @@ def _resolve_project_path(project_root: Path, path: str | Path, label: str) -> P
     resolved = resolved.resolve()
     assert_within_project(resolved, project_root, label)
     return resolved
+
+
+# === v2.28.0 jury hook 主流程（spec §3.3.1） ===
+
+
+def _run_jury_followup(
+    *,
+    project_root: Path,
+    subsystem: str,
+    active_run_id: str,
+    cad_pipeline_py: Path,
+    no_strict_jury: bool,
+) -> dict[str, Any]:
+    """jury hook 主流程（spec §3.3.1）；嵌入 _run_enhancement_followup 内（Task 13 集成）。
+
+    本 task（Task 5）实现 step 0 acquire .handoff.lock + step 0.5 fail-fast preflight；
+    step 4 jury 实跑 + step 5 enhance-review 在后续 task 加。
+    """
+    run_dir = (
+        project_root / "cad" / subsystem / ".cad-spec-gen" / "runs" / active_run_id
+    )
+    lock_path = run_dir / ".handoff.lock"
+    result: dict[str, Any] = {
+        "jury_handoff_status": "crashed_mid_orchestration",
+        "jury_status": "crashed",
+        "jury_estimated_usd": 0.0,
+        "jury_actual_usd": None,
+        "review_status": None,
+        "enhance_review_path": None,
+        "jury_raw_exit": None,
+        "review_raw_exit": None,
+        "exit_code": 0,
+    }
+
+    # === step 0 acquire .handoff.lock ===
+    try:
+        lock_ctx = acquire_lock(lock_path)
+    except LockBusy:
+        result["jury_handoff_status"] = "handoff_lock_busy"
+        result["exit_code"] = 24
+        return result
+
+    with lock_ctx:
+        # === step 0.5 fail-fast jury config preflight ===
+        preflight_argv = [
+            sys.executable,
+            str(cad_pipeline_py),
+            "jury",
+            "--subsystem",
+            subsystem,
+            "--dry-run",
+        ]
+        try:
+            preflight = subprocess.run(
+                preflight_argv,
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=SUBPROCESS_TIMEOUT_JURY,
+                env=os.environ.copy(),
+                creationflags=0,
+            )
+        except subprocess.TimeoutExpired:
+            result["jury_handoff_status"] = "unexpected_jury_exit"
+            result["jury_raw_exit"] = -1  # timeout sentinel
+            result["exit_code"] = 25
+            return result
+
+        if preflight.returncode == 2:
+            result["jury_handoff_status"] = "preflight_config_missing"
+            result["jury_status"] = "config_error"
+            result["exit_code"] = 2
+            return result
+        if preflight.returncode == 3:
+            result["jury_handoff_status"] = "cost_over_budget"
+            result["jury_status"] = "cost_over_budget"
+            _parse_estimated_usd(preflight.stdout, result)
+            result["exit_code"] = 3
+            return result
+        if preflight.returncode == 1:
+            # jury Layer 0 fail（grep 实证：jury 不写 PHOTO3D_JURY_REPORT.json，return 1）
+            result["jury_handoff_status"] = "jury_blocked"
+            result["jury_status"] = "blocked"
+            result["exit_code"] = 12
+            return result
+        if preflight.returncode != 0:
+            result["jury_handoff_status"] = "unexpected_jury_exit"
+            result["jury_raw_exit"] = preflight.returncode
+            result["exit_code"] = 25
+            return result
+
+        # preflight ok（return 0）；解析估价后继续
+        _parse_estimated_usd(preflight.stdout, result)
+
+        # TODO(Task 6+): step 4 jury 实跑 + step 5 enhance-review；后续 task 实现
+        return result
+
+
+def _parse_estimated_usd(stdout: str, result: dict[str, Any]) -> None:
+    """从 jury --dry-run stdout `[dry-run] estimated=X.XX USD, allowed=Y` 提取估价。"""
+    m = re.search(r"estimated=([\d.]+)\s*USD", stdout or "")
+    if m:
+        try:
+            result["jury_estimated_usd"] = float(m.group(1))
+        except ValueError:
+            pass
