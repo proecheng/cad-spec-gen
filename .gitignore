@@ -69,3 +69,6 @@ artifacts/regression_run*.log
 # 仓库根的临时测试输出 + plan baseline 记录（保留 working dir，不入 git）
 /task0_baseline.txt
 /test_output.txt
+
+# v2.31.0 product-goal 异步多轮渐进状态文件（cwd / project-local）
+PROJECT_GOAL_STATE.json

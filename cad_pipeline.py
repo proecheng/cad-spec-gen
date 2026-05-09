@@ -3704,6 +3704,70 @@ def cmd_project_guide(args):
         write_project_guide,
     )
 
+    # v2.31.0 product-goal A1：--resume 路径分支（异步多轮渐进确认）
+    # 优先级高于 --product-goal（argparse 互斥组保证两者不会同时出现）
+    if getattr(args, "resume", False):
+        from typing import Any as _Any
+
+        from tools.product_goal_state import (
+            MAX_ROUND,
+            read_state,
+            validate_answer,
+        )
+
+        try:
+            state = read_state()
+        except ValueError as exc:
+            log.error(str(exc))
+            return 2
+
+        if state is None:
+            log.error(
+                "./PROJECT_GOAL_STATE.json 不存在；先跑 "
+                "'cad-spec-gen project-guide --product-goal \"...\"' 起手"
+            )
+            return 2
+
+        if state.get("round", 0) >= MAX_ROUND:
+            log.error(
+                f"已续答 {state['round']} 轮仍未完整（>= MAX_ROUND={MAX_ROUND}）；"
+                f"建议检查 --answer 是否覆盖 missing_kpis: "
+                f"{state.get('missing_kpis', [])}"
+            )
+            return 2
+
+        # 解析 --answer KEY=VALUE 列表
+        confirmed_kpis: dict[str, _Any] = dict(state.get("confirmed_kpis", {}))
+        confirmed_subsystem = state.get("confirmed_subsystem")
+        for kv in getattr(args, "answer", []) or []:
+            if "=" not in kv:
+                log.error(f"--answer 需要 key=value 格式；收到 {kv!r}")
+                return 2
+            key, value_str = kv.split("=", 1)
+            key = key.strip()
+            try:
+                parsed = validate_answer(key, value_str.strip())
+            except ValueError as exc:
+                log.error(str(exc))
+                return 2
+            if key == "subsystem":
+                confirmed_subsystem = parsed
+            else:
+                confirmed_kpis[key] = parsed
+
+        report = write_project_goal_guide(
+            PROJECT_ROOT,
+            state["raw_text"],
+            confirmed_subsystem=confirmed_subsystem,
+            confirmed_kpis=confirmed_kpis,
+            design_doc=state.get("design_doc"),
+            output_path=getattr(args, "output", None),
+            _state_round=state.get("round", 1) + 1,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        log.info("PROJECT_GUIDE: %s", report.get("ordinary_user_message"))
+        return command_return_code_for_project_guide(report)
+
     if getattr(args, "product_goal", None) is not None:
         # rev 4 DR-3：自然语言产品目标入口（最高优先级）
         report = write_project_goal_guide(
@@ -4673,11 +4737,24 @@ def main():
         help="PROJECT_GUIDE.json output path (default: guide directory or current run directory)",
     )
     # rev 4 DR-3：自然语言产品目标入口 + KPI 直传 flag
-    p_project_guide.add_argument(
+    # product-goal A1：--product-goal 与 --resume 互斥；--answer 可重复用于多轮渐进答案
+    group_pg = p_project_guide.add_mutually_exclusive_group()
+    group_pg.add_argument(
         "--product-goal",
-        type=str,
-        default=None,
-        help="自然语言产品目标（外行用户入口）",
+        metavar="TEXT",
+        help="自然语言产品目标（如 \"做升 50kg 的升降平台\"）；不全时进入异步多轮模式",
+    )
+    group_pg.add_argument(
+        "--resume",
+        action="store_true",
+        help="续答多轮渐进确认；从 ./PROJECT_GOAL_STATE.json 读上次状态",
+    )
+    p_project_guide.add_argument(
+        "--answer",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="多轮渐进答案；可重复（如 --answer load_kg=50 --answer stroke_mm=800）",
     )
     p_project_guide.add_argument("--confirm-subsystem", type=str, default=None)
     p_project_guide.add_argument(
