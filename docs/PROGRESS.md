@@ -3,6 +3,15 @@
 > 本文件是每轮工作结束后给用户看的进度入口。
 > 更新规则：每轮完成实现、审查、合并或重要验证后，更新「最新状态」「看板」「下一步建议」「验证记录」。
 
+## v2.29.0 — 2026-05-09 photo3d-autopilot 自动检测 jury config（A1.1）
+
+- photo3d-autopilot 静默检测 `~/.claude/cad_jury_config.json`；已配 jury 用户在 ready_for_enhancement 状态自动获得 `photo3d-handoff --with-jury --confirm` 推荐
+- 未配用户行为完全不变（v2.27.0 regression 守门）
+- 不引入 cli flag / 不引入新 status / 不引入新 stderr 文案
+- next_action.kind 加新枚举值 `run_handoff_with_jury`（add-only schema）
+- 11 helper 单测 + 6 集成测试 = 17 用例 PASS
+- 全量回归 2723 PASS / 0 regression
+
 ## v2.28.0 — 2026-05-09 photo3d-jury v2 handoff 集成（A1 子集）
 
 - 新增 photo3d-handoff `--with-jury` `--no-strict-jury` flag；一条命令跑 enhance + check + jury + review 闭环
