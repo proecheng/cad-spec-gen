@@ -393,3 +393,39 @@ def test_h9b_jury_config_error_no_strict(
     assert result["jury_handoff_status"] == "preflight_config_missing"
     assert result["exit_code"] == 2  # 仍阻断
     assert fake_run.call_count() == 1
+
+
+# === Task 7: H2 jury accepted 主路径 ===
+
+def test_h2_accepted_review_ok(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H2 — jury accepted (jury exit=0 status='accepted') + review ok：
+    exit=0 + jury_handoff_status='accepted' + jury_actual_usd float + 3 次 subprocess"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="ok")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([
+        cp(0, stdout="[dry-run] estimated=0.04 USD, allowed=True\n"),  # preflight
+        cp(0, stdout="", stderr=""),  # jury 实跑（写 PHOTO3D_JURY_REPORT.json by fixture）
+        cp(0, stdout="", stderr=""),  # enhance-review
+    ])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root,
+        subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "accepted"
+    assert result["jury_status"] == "accepted"
+    assert isinstance(result["jury_actual_usd"], float)
+    assert result["jury_actual_usd"] == pytest.approx(0.04)  # fixture jury_meta.actual_cost_usd
+    assert result["review_status"] == "ok"
+    assert result["enhance_review_path"] is not None
+    assert result["exit_code"] == 0
+    assert fake_run.call_count() == 3
