@@ -11,6 +11,7 @@ from typing import Any
 
 from tools._file_lock import LockBusy, acquire_lock
 from tools.contract_io import load_json_required, write_json_atomic
+from tools.jury.stderr_messages import format_stderr_message
 from tools.path_policy import assert_within_project, project_relative
 from tools.photo3d_baseline import accept_photo3d_baseline
 from tools.photo3d_loop import run_photo3d_loop
@@ -665,6 +666,10 @@ def _run_jury_followup(
                 creationflags=0,
             )
         except subprocess.TimeoutExpired:
+            sys.stderr.write(format_stderr_message(
+                exit_code=25, error_kind="handoff_unexpected_jury_exit",
+                context={"raw_exit": "timeout"},
+            ) + "\n")
             result["jury_handoff_status"] = "unexpected_jury_exit"
             result["jury_raw_exit"] = -1  # timeout sentinel
             result["exit_code"] = 25
@@ -676,7 +681,6 @@ def _run_jury_followup(
             result["exit_code"] = 2
             return result
         if preflight.returncode == 3:
-            from tools.jury.stderr_messages import format_stderr_message
             result["jury_handoff_status"] = "cost_over_budget"
             result["jury_status"] = "cost_over_budget"
             _parse_estimated_usd(preflight.stdout, result)
@@ -720,6 +724,10 @@ def _run_jury_followup(
                 env=os.environ.copy(), creationflags=0,
             )
         except subprocess.TimeoutExpired:
+            sys.stderr.write(format_stderr_message(
+                exit_code=25, error_kind="handoff_unexpected_jury_exit",
+                context={"raw_exit": "timeout"},
+            ) + "\n")
             result["jury_handoff_status"] = "unexpected_jury_exit"
             result["jury_raw_exit"] = -1
             result["exit_code"] = 25
@@ -732,6 +740,10 @@ def _run_jury_followup(
             return result
         # (c) 其他 unexpected exit (130/137/...) → 归 unexpected_jury_exit
         if real.returncode not in (0, 1, 3):
+            sys.stderr.write(format_stderr_message(
+                exit_code=25, error_kind="handoff_unexpected_jury_exit",
+                context={"raw_exit": real.returncode},
+            ) + "\n")
             result["jury_handoff_status"] = "unexpected_jury_exit"
             result["jury_raw_exit"] = real.returncode
             result["exit_code"] = 25
@@ -758,6 +770,10 @@ def _run_jury_followup(
             jury_report = json.loads(jury_report_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             # jury exit=0 但报告缺失/损坏 → unexpected
+            sys.stderr.write(format_stderr_message(
+                exit_code=25, error_kind="handoff_unexpected_jury_exit",
+                context={"raw_exit": real.returncode},
+            ) + "\n")
             result["jury_handoff_status"] = "unexpected_jury_exit"
             result["jury_raw_exit"] = real.returncode
             result["exit_code"] = 25
@@ -773,6 +789,21 @@ def _run_jury_followup(
         if jury_status == "accepted":
             pass  # 走 step 5
         elif jury_status == "preview":
+            jury_meta_obj = jury_report.get("jury_meta", {})
+            jury_meta = jury_meta_obj if isinstance(jury_meta_obj, dict) else {}
+            preview_context: dict[str, Any] = {
+                "failed_n": 0,  # spec 后续可填具体失败项数；本 PR 暂用 0 兜底
+                "score": 0,
+                "min_score": jury_meta.get("min_photoreal_score", 0),
+                "report_path": str(jury_report_path),
+                "mode": "warning" if no_strict_jury else "strict",
+            }
+            preview_exit_for_msg = 0 if no_strict_jury else 10
+            sys.stderr.write(format_stderr_message(
+                exit_code=preview_exit_for_msg,
+                error_kind="handoff_jury_preview",
+                context=preview_context,
+            ) + "\n")
             if no_strict_jury:
                 result["jury_handoff_status"] = "preview_warning"
                 result["exit_code"] = 0
@@ -781,6 +812,18 @@ def _run_jury_followup(
                 result["exit_code"] = 10
             return result
         elif jury_status == "needs_review":
+            needs_review_context: dict[str, Any] = {
+                "failed_views": [],
+                "vendor_request_id": None,
+                "report_path": str(jury_report_path),
+                "mode": "warning" if no_strict_jury else "strict",
+            }
+            needs_review_exit_for_msg = 0 if no_strict_jury else 11
+            sys.stderr.write(format_stderr_message(
+                exit_code=needs_review_exit_for_msg,
+                error_kind="handoff_jury_needs_review",
+                context=needs_review_context,
+            ) + "\n")
             if no_strict_jury:
                 result["jury_handoff_status"] = "needs_review_warning"
                 result["exit_code"] = 0
@@ -789,10 +832,18 @@ def _run_jury_followup(
                 result["exit_code"] = 11
             return result
         elif jury_status == "blocked":
+            sys.stderr.write(format_stderr_message(
+                exit_code=12, error_kind="handoff_jury_blocked",
+                context={"report_path": str(jury_report_path)},
+            ) + "\n")
             result["jury_handoff_status"] = "jury_blocked"
             result["exit_code"] = 12
             return result
         else:
+            sys.stderr.write(format_stderr_message(
+                exit_code=25, error_kind="handoff_unexpected_jury_exit",
+                context={"raw_exit": real.returncode},
+            ) + "\n")
             result["jury_handoff_status"] = "unexpected_jury_exit"
             result["jury_raw_exit"] = real.returncode
             result["exit_code"] = 25
@@ -801,6 +852,13 @@ def _run_jury_followup(
         # === step 5 enhance-review (仅 jury accepted 走到这) ===
         jury_run_id = str(jury_report.get("run_id", ""))
         if not validate_run_id_format(jury_run_id):
+            sys.stderr.write(format_stderr_message(
+                exit_code=13, error_kind="handoff_review_input_missing",
+                context={
+                    "review_input_path": "",
+                    "reason": "run_id_format",
+                },
+            ) + "\n")
             result["jury_handoff_status"] = "review_input_missing"
             result["review_status"] = "input_missing"
             result["exit_code"] = 13
@@ -814,12 +872,26 @@ def _run_jury_followup(
         except ValueError:
             # spec invariant 10 path traversal 防御：assert_within_project 仅抛 ValueError
             # （path_policy.py:48-49 实证）
+            sys.stderr.write(format_stderr_message(
+                exit_code=13, error_kind="handoff_review_input_missing",
+                context={
+                    "review_input_path": str(review_input_path),
+                    "reason": "path_traversal",
+                },
+            ) + "\n")
             result["jury_handoff_status"] = "review_input_missing"
             result["review_status"] = "input_missing"
             result["exit_code"] = 13
             return result
 
         if not review_input_path.is_file():
+            sys.stderr.write(format_stderr_message(
+                exit_code=13, error_kind="handoff_review_input_missing",
+                context={
+                    "review_input_path": str(review_input_path),
+                    "reason": "not_found",
+                },
+            ) + "\n")
             result["jury_handoff_status"] = "review_input_missing"
             result["review_status"] = "input_missing"
             result["exit_code"] = 13
@@ -827,7 +899,14 @@ def _run_jury_followup(
 
         try:
             json.loads(review_input_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as parse_exc:
+            sys.stderr.write(format_stderr_message(
+                exit_code=23, error_kind="handoff_review_input_corrupt",
+                context={
+                    "review_input_path": str(review_input_path),
+                    "parse_error": str(parse_exc),
+                },
+            ) + "\n")
             result["jury_handoff_status"] = "review_input_corrupt"
             result["review_status"] = "input_corrupt"
             result["exit_code"] = 23
@@ -845,6 +924,13 @@ def _run_jury_followup(
                 env=os.environ.copy(), creationflags=0,
             )
         except subprocess.TimeoutExpired:
+            sys.stderr.write(format_stderr_message(
+                exit_code=23, error_kind="handoff_review_failed",
+                context={
+                    "review_raw_exit": "timeout",
+                    "report_path": str(jury_report_path),
+                },
+            ) + "\n")
             result["jury_handoff_status"] = "review_failed"
             result["review_status"] = "failed"
             result["review_raw_exit"] = -1
@@ -857,6 +943,14 @@ def _run_jury_followup(
             result["enhance_review_path"] = str(review_input_path.parent / "ENHANCEMENT_REVIEW_REPORT.json")
             result["exit_code"] = 0
             return result
+        sys.stderr.write(format_stderr_message(
+            exit_code=clamp_review_exit(review.returncode),
+            error_kind="handoff_review_failed",
+            context={
+                "review_raw_exit": review.returncode,
+                "report_path": str(jury_report_path),
+            },
+        ) + "\n")
         result["jury_handoff_status"] = "review_failed"
         result["review_status"] = "failed"
         result["review_raw_exit"] = review.returncode

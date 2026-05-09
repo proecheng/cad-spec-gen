@@ -429,3 +429,232 @@ def test_h2_accepted_review_ok(
     assert result["enhance_review_path"] is not None
     assert result["exit_code"] == 0
     assert fake_run.call_count() == 3
+
+
+# === Task 8: H3-H6 业务降级（preview / needs_review × strict / no-strict）===
+
+def test_h3_jury_preview_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H3 — jury preview + strict：exit=10 + jury_handoff_status='preview_blocked_by_strict' + 不调 review"""
+    run_dir = make_jury_run_dir(jury_status="preview")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([
+        cp(0, stdout="[dry-run] estimated=0.04 USD\n"),  # preflight
+        cp(0),  # jury 实跑（fixture 写 status=preview）
+    ])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "preview_blocked_by_strict"
+    assert result["exit_code"] == 10
+    assert result["review_status"] is None  # 不调 review
+    assert fake_run.call_count() == 2  # preflight + 实跑
+
+
+def test_h4_jury_preview_no_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H4 — jury preview + no-strict：exit=0 + jury_handoff_status='preview_warning'"""
+    run_dir = make_jury_run_dir(jury_status="preview")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=True,
+    )
+    assert result["jury_handoff_status"] == "preview_warning"
+    assert result["exit_code"] == 0
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+def test_h5_jury_needs_review_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H5 — jury needs_review + strict：exit=11"""
+    run_dir = make_jury_run_dir(jury_status="needs_review")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "needs_review_blocked_by_strict"
+    assert result["exit_code"] == 11
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+def test_h6_jury_needs_review_no_strict(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H6 — jury needs_review + no-strict：exit=0 + warning"""
+    run_dir = make_jury_run_dir(jury_status="needs_review")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=True,
+    )
+    assert result["jury_handoff_status"] == "needs_review_warning"
+    assert result["exit_code"] == 0
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+# === Task 9: H7a/b/H8a/b/H11a/b 工具故障类双向（spec inv 5 no-strict 不可降级）===
+
+@pytest.mark.parametrize("no_strict", [False, True])
+def test_h7_jury_blocked(
+    no_strict: bool,
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H7a/H7b — jury 实跑写 status=blocked + return 0：exit=12 永远阻断（spec inv 5）"""
+    run_dir = make_jury_run_dir(jury_status="blocked")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(0)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=no_strict,
+    )
+    assert result["jury_handoff_status"] == "jury_blocked"
+    assert result["exit_code"] == 12  # no-strict 不能覆盖
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+@pytest.mark.parametrize("no_strict", [False, True])
+def test_h8_jury_lock_busy(
+    no_strict: bool,
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H8a/H8b — jury 实跑 exit=4：透传"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(4, stderr="lock busy")])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=no_strict,
+    )
+    assert result["jury_handoff_status"] == "lock_busy"
+    assert result["exit_code"] == 4
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+@pytest.mark.parametrize("no_strict", [False, True])
+def test_h11_jury_internal(
+    no_strict: bool,
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H11a/H11b — jury 实跑 exit=99：透传"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(99, stderr="internal")])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=no_strict,
+    )
+    assert result["jury_handoff_status"] == "internal_error"
+    assert result["exit_code"] == 99
+    assert result["review_status"] is None
+    assert fake_run.call_count() == 2
+
+
+# === Task 10: H18/H19 unexpected exit ===
+
+def test_h18_jury_sigint(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H18 — jury exit=130 (SIGINT)：exit=25 + jury_raw_exit=130"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(130)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "unexpected_jury_exit"
+    assert result["jury_raw_exit"] == 130
+    assert result["exit_code"] == 25
+
+
+def test_h19_jury_oom(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H19 — jury exit=137 (OOM)：exit=25 + jury_raw_exit=137"""
+    run_dir = make_jury_run_dir()
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run_factory([cp(0, stdout="[dry-run] estimated=0.04 USD\n"), cp(137)])
+    from tools.photo3d_handoff import _run_jury_followup
+    result = _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    assert result["jury_handoff_status"] == "unexpected_jury_exit"
+    assert result["jury_raw_exit"] == 137
+    assert result["exit_code"] == 25
