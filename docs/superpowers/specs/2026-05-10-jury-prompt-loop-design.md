@@ -66,7 +66,7 @@ src/cad_spec_gen/data/tools/jury_loop/
 ### 改既有
 | 文件 | 改动 |
 |---|---|
-| `cad_pipeline.py` | `cmd_enhance` 内循环改为视角级（B-1）：每个视角跑完 baseline 后调 `orchestrator.run_loop_if_eligible(view, backend, ...)` |
+| `cad_pipeline.py` | `cmd_enhance` 内循环改为视角级（B-1）：每个视角跑完 baseline 后调 `orchestrator.run_loop_if_eligible(view, backend_kind, ...)` |
 | `pipeline_config.json` | 新增 `enhance.jury_loop` 段（schema 见 §4） |
 | `tools/jury/` | photo3d-jury CLI 加 `--single-view <V>` flag（B-2）；不破 batch 模式 |
 | ENHANCEMENT_REPORT.json | 顶层加 `loop_summary` 段（D-3 见 §7） |
@@ -260,7 +260,7 @@ reference_mode == "none":
   ```python
   for view in views:
       try:
-          orchestrator.run_loop_if_eligible(view, backend, rc, baseline_path, budget, hero_image)
+          orchestrator.run_loop_if_eligible(view, backend_kind, rc, baseline_path, budget, project_root, config)
       except Exception as e:
           # 写降级 sidecar：loop_status=retry_failed, errors[] 含 scrub_secrets(traceback)
           metadata.write_degraded_sidecar(view, error=e)
@@ -612,7 +612,7 @@ config 层 `score_select_strategy` 字符串 → Strategy 实例的注册表在 
 2. **metadata.json 是事实来源**：每个视角写一份 sidecar；`errors[]` 内是堆栈摘要（≤200 字/条）
 3. **顶层报告也要可见**：ENHANCEMENT_REPORT.json 顶层 `loop_summary` 段聚合所有视角的 `loop_status`（§7）
 4. **log level 层次**：fatal/error 不存在；warn = jury/yaml schema 不可用；info = loop_skipped_*；debug = tag 命中详情
-5. **预算守门次序**：每次 retry 前估算成本 → 累计 > cap → 接受 baseline；cap 默认 `n_views × 0.25 USD`，启动时计算；用户显式数值则锁死（C-4）
+5. **预算守门次序**：每次 retry 前估算成本 → 累计 > cap → 接受 baseline；cap 默认固定 `1.5 USD`（约 5 视角×0.25 + 安全余量；视角数明显不同时用户手动调，§4.1）；用户显式数值锁死
 
 ### 失败矩阵
 
@@ -857,7 +857,7 @@ CI 默认 skip L4；本地 `pytest --run-slow` 触发。
 | 规则表覆盖度不够 → photoreal_score 提升不显著 | LLM fallback 兜底；后续 SP1.5 迭代追加规则；L4-1 测验提供反馈 |
 | LLM fallback 调用费 + 不稳定 | 默认开启但可用 `llm_fallback=false` 关；规则表命中即跳 LLM |
 | retry 后反而降分 | 二轮 jury 选高分（C-3）；选张保守优先 baseline |
-| cost 失控 | 预算 cap，默认 `n_views×0.25`；超额接受 baseline + 提示用户调高 |
+| cost 失控 | 预算 cap，默认固定 1.5 USD（≈ 5 视角×0.25 安全值，§4.1）；超额接受 baseline + 提示用户调高 |
 | v1_anchor 串行降低吞吐 | 视角串行是现有 reference_mode=v1_anchor 的固有约束，闭环没引入新瓶颈；reference_mode=none 时并行不变 |
 | jury LLM 评分主观 | 二轮 jury 用同一 model 同一 prompt template，相对值仍可信；绝对值用户可调 threshold |
 | 通用 backend 不支持 ControlNet 几何锁，retry 改几何 | 1. retry 选张靠 jury 二轮 `geometry_preserved` 5 boolean 兜底（改几何会被打 false 导致 score 降，pick_max_jury 选 baseline）；2. fal_comfy 内置选项保留作"高质量几何锁路径"；3. spec §1 北极星表"结果准确"已澄清：通用 backend 靠 jury 兜底而非硬锁 |
