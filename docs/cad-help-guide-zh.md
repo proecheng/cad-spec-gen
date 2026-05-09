@@ -328,6 +328,77 @@ python cad_pipeline.py enhance-review --subsystem <name> --review-input <json>
 
 普通用户不需要手动把增强和验收两条命令拼起来：当 `PHOTO3D_RUN.json` 的下一步是增强，且用户确认执行 `python cad_pipeline.py photo3d-handoff --subsystem <name> --confirm` 后，handoff 会先执行同一 active run 的 `enhance`，成功后自动运行同一 render dir 的 `enhance-check`，把复查 subprocess 写入 `PHOTO3D_HANDOFF.json.followup_action`，再无确认重跑一次 `photo3d-run`，把 accepted/preview/blocked 状态写入 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`。`executed_with_followup` 表示增强和同 run 验收闭环已完成；即使 `enhance-check` 因 blocked 返回非零，只要写出了有效 `ENHANCEMENT_REPORT.json`，也会通过 `PHOTO3D_RUN.json` 暴露下一步，而不是变成不可读的 subprocess 失败。
 
+`enhance-check` 通过后还可以让 vision LLM 做一道**自动语义/材质级复核**（v2.27.0 新增），不必先手抄 review-input：
+
+```bash
+python cad_pipeline.py photo3d-jury --subsystem <name>
+python cad_pipeline.py photo3d-jury --subsystem <name> --dry-run
+python cad_pipeline.py photo3d-jury --subsystem <name> --profile-id <next>
+python cad_pipeline.py photo3d-jury --subsystem <name> --list-profiles
+python cad_pipeline.py photo3d-jury --subsystem <name> --last-status
+```
+
+`photo3d-jury` 读取 `~/.claude/cad_jury_config.json` 中配置的 OpenAI 兼容 vision profile（中转或原生厂商均可），把当前 active run 已 accepted 的 enhanced 图按视角各发一次 vision LLM，回收 5 项 boolean（`geometry_preserved` / `material_consistent` / `photorealistic` / `no_extra_parts` / `no_missing_parts`）+ `photoreal_score`（0-100），写出 `PHOTO3D_JURY_REPORT.json` 与 `jury_review_input.json`（仅 `accepted` 时写）。
+
+执行顺序硬规定（实施层不可漂移）：
+
+1. **Layer 0 输入证据绑定 + 资源/竞态防护** — 校验 ENHANCEMENT_REPORT 的 `subsystem` / `run_id` / `status=accepted` / `delivery_status=accepted` / `quality_summary.status=accepted` / `views[]` 非空且 ≤ `max_n_views`、每视角增强图 ≤ `max_image_bytes`；同时一次性 freeze active_run_id 与 ENHANCEMENT_REPORT/render_manifest 的 sha256，并在 active run dir 创建 `.jury.lock` 文件锁防并发双跑。失败 → `blocked` exit=1，**不调 LLM**。
+2. **Layer 1 字段自洽性** — 每视角检查 `views[].status=accepted` / `edge_similarity ≥ min_similarity` / `effective_contrast_stddev ≥ MIN_PHOTO_CONTRAST_STDDEV`（12.0，与 `tools/enhance_consistency.py` 同值）。失败 → `preview` exit=0，**不调 LLM**。
+3. **Layer 2 vision LLM** — 每视角 1 次调用，严格 OpenAI Chat Completions schema 兼容（`messages[].content[].type=image_url` 嵌 base64）；解析失败重试 1 次（temperature=0）；网络/timeout/4xx/5xx 按 `error_kind` 分类。整体 status：全部视角通过 → `accepted`；任一视角不达标但确定性指标正常 → `preview`；LLM 部分失败 → `needs_review`；Layer 0 失败 → `blocked`。
+
+成本与隐私：
+
+- 默认 `--budget 0.1` USD，6 视角 × 0.005 ≈ 0.03 充裕；超 budget 必须显式 `--confirm-cost`
+- 单视角图片大小硬上限 8 MiB（`max_image_bytes`）；视角数硬上限 32（`max_n_views`），超此值 `--confirm-cost` 也不旁路
+- 内置 model→cost 估价表覆盖 `gpt-4o` / `gpt-4-turbo` / `gemini-2.5-flash` / `gemini-1.5-flash` / `gemini-2.5-pro` / `gemini-1.5-pro` / `claude-3-*` 等常见 vision 模型；profile 显式 `cost_per_call_usd` 可覆盖
+- 增强图会以 base64 上传到 `api_base_url`；中转/原生厂商**可能记录与训练**，机密项目应自托管 vision endpoint
+- 企业 MITM 自签 CA 用 `SSL_CERT_FILE` env 注入；jury 严禁 `ssl._create_unverified_context()`
+- `api_key` 不进任何报告 / log / stderr / debug-output / traceback
+
+故障恢复（不调 LLM）：
+
+- `--list-profiles` 列出可用 profile 与当前 active；用于 `needs_review` 后用户挑下一家
+- `--profile-id <next>` 临时切 profile 不改 config；常见用法：先用便宜 `gemini-2.5-flash` 跑，不达标时换 `gpt-4o`
+- `--last-status` 复述最新 `PHOTO3D_JURY_REPORT.json` 的 `status` / `next_step` / `first_blocking_reason`
+- `--dry-run` 跑 Layer 0/1 + cost 预估，不发 LLM 请求；首次配 profile 推荐先 dry-run
+
+完整字段定义、最小配置 JSON 模板、内置估价表、隐私警告、TLS 配置、已知支持 vision 的中转商示例、故障恢复 cli 全部在 [`docs/cad-jury-config.md`](cad-jury-config.md)。
+
+#### §7.3.1 完整 Photo3D 闭环 cli 序列（外行用户必读）
+
+外行用户从 enhance-check 到最终交付**必须按以下 4 步走**，跳步会被下一步契约层 blocked：
+
+```
+1. photo3d-handoff --subsystem X --confirm
+   ├─ 跑 enhance（用配置的 provider preset，如 engineering / gemini）
+   └─ 跑 enhance-check 产 ENHANCEMENT_REPORT.json（确定性指标 IoU + pixel）
+
+2. photo3d-jury --subsystem X
+   ├─ Layer 0: 输入证据绑定 + sha256/active_run freeze + .jury.lock + 重跑保护
+   ├─ Layer 1: 字段自洽性
+   ├─ Layer 2: vision LLM 5 boolean + photoreal_score
+   └─ 写 PHOTO3D_JURY_REPORT.json + jury_review_input.json (仅 accepted 写)
+
+3. enhance-review --subsystem X --review-input <abs_path>/jury_review_input.json
+   └─ 产 ENHANCEMENT_REVIEW_REPORT.json（accepted/preview/needs_review/blocked）
+
+4. photo3d-deliver --subsystem X --confirm
+   └─ 复制 accepted 文件 + DELIVERY_PACKAGE.json 含 jury 字段
+```
+
+每步是必经环节：
+
+- 跳过 step 2，step 3 缺乏可信 review-input，外行用户得手抄 6 视角 5 boolean 才能进入 step 4
+- 跳过 step 3，step 4 没有 `ENHANCEMENT_REVIEW_REPORT.json` accepted 证据，需 `--require-semantic-review` 时会被 blocked
+- step 2 自动写出 step 3 需要的 `jury_review_input.json`，`enhance-review` 直接接受不需手抄
+
+**Windows 平台备注**：
+
+- 推荐用 PowerShell（forward-slash 路径 PowerShell 接受）
+- cmd.exe 用户需把命令里的 forward slash 改成 backslash 或加引号；详见 [`docs/cad-jury-config.md`](cad-jury-config.md) §6 / 附录
+
+**`.gitignore` 提醒**：建议项目根加 `cad/**/.cad-spec-gen/runs/`，避免 `PHOTO3D_JURY_REPORT.json` 含 `profile_id` / `model` / `vendor_request_id` 落 git 暴露计费供应商指纹。
+
 增强验收为 `accepted` 后，生成最终交付包：
 
 ```bash
@@ -350,7 +421,9 @@ python cad_pipeline.py photo3d-deliver --subsystem <name>
 - `PHOTO3D_RUN.json`：`photo3d-run` 的多轮向导报告，记录每轮 gate/autopilot/action 状态、最终 `next_action` 和停止原因。
 - `ENHANCEMENT_REPORT.json`：增强完成后的交付验收报告，记录每个视角的源图、增强图、相似度、QA、`quality_summary` 和 `accepted` / `preview` / `blocked` 状态。
 - `ENHANCEMENT_REVIEW_REPORT.json`：显式人工/大模型语义和材质复核报告，记录 `semantic_material_review`、源报告路径/hash、逐视角检查和 `accepted` / `preview` / `needs_review` / `blocked` 状态。
-- `DELIVERY_PACKAGE.json`：`photo3d-deliver` 的最终交付包清单，记录源报告、源渲染图、增强图、标注图、证据文件、质量摘要、来自 active-run `MODEL_CONTRACT.json` 的 `model_quality_summary`、可选 `semantic_material_review`、`photo_quality_not_accepted` 等阻断原因和 `final_deliverable` 状态。
+- `PHOTO3D_JURY_REPORT.json`：`photo3d-jury` 的 vision LLM 自动验收报告，记录 active-run sha256/active_run_id 双 freeze、Layer 0/1/2 验证结果、逐视角 5 boolean + `photoreal_score`、`actual_cost_usd`、`vendor_request_id`、`error_kind` 与 `status ∈ {accepted, preview, needs_review, blocked}`；`api_key` 不落盘。
+- `jury_review_input.json`：仅 `PHOTO3D_JURY_REPORT.json.status == accepted` 时写出；可作为 `enhance-review --review-input` 的可信输入，外行用户不必手抄 5 boolean。
+- `DELIVERY_PACKAGE.json`：`photo3d-deliver` 的最终交付包清单，记录源报告、源渲染图、增强图、标注图、证据文件、质量摘要、来自 active-run `MODEL_CONTRACT.json` 的 `model_quality_summary`、可选 `semantic_material_review`、可选 `jury` 字段（`{report, review_input, status, actual_cost_usd, vendor_request_ids, jury_report_schema_version}`，未跑 jury 时为 `null`）、`photo_quality_not_accepted` 等阻断原因和 `final_deliverable` 状态。
 
 大模型优先调用 `photo3d-run` 读取 `PHOTO3D_RUN.json`；Phase 4 证据需要分清：`render-visual-check` 证明视角/元件契约，`render-quality-check` 证明 Blender 环境和截图像素质量，二者都只读当前 active run。用户说“按建议执行”时优先调用 `photo3d-handoff` 预览或在用户确认后执行当前 `next_action`，不要自己拼 shell。用户要选择增强后端时只传 `--provider-preset` 白名单值，例如离线预览用 `engineering`，不要手写 `--backend` 或从 JSON 复制任意 argv。增强确认执行后读取 `PHOTO3D_HANDOFF.json.post_handoff_photo3d_run`，不要再扫描 render 目录猜增强是否成功；如果用户或流程需要语义/材质级照片级判断，先生成显式 review JSON，再运行 `enhance-review`，不要让任意模型直接改管线状态；当状态为 `enhancement_accepted` 时，再运行 `photo3d-deliver` 生成 `DELIVERY_PACKAGE.json`，需要强制语义/材质复核时加 `--require-semantic-review`，而不是手工复制图片。需要处理 blocked 恢复动作时，可以调用 `photo3d-action` 预览或在用户确认后执行低风险 CLI 动作。不能扫描目录猜最新文件，也不能用 AI 增强补齐 CAD 阶段缺失的零件、位置或结构。低风险 CLI 的实际命令必须经 `photo3d-recover` 绑定 `--run-id` 与 `--artifact-index`，让恢复产物写回当前 run 的固定路径。
 
