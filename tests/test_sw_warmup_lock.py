@@ -38,39 +38,27 @@ class TestAcquireWarmupLock:
             assert ei.value.pid == str(os.getpid())
             assert "另一个 sw-warmup 进程" in str(ei.value)
 
-    def test_acquire_seeks_to_zero_before_locking(self, tmp_path, monkeypatch):
-        """Part 2b I-3: msvcrt.locking 前必须 fh.seek(0)；字节数 == _LOCK_NBYTES。
+    def test_acquire_forwards_to_file_lock(self, tmp_path):
+        """Task 1 重构后：acquire_warmup_lock 转发到 tools/_file_lock.acquire_lock。
 
-        验证 acquire 路径调用 msvcrt.locking 时：
-          - 文件位置在 _LOCK_OFFSET（由常量驱动）
-          - 第 3 位置参数（nbytes）等于 _LOCK_NBYTES 模块常量
+        旧测试 test_acquire_seeks_to_zero_before_locking 直接 patch msvcrt.locking
+        校验 OS-level 锁字节范围（_LOCK_OFFSET / _LOCK_NBYTES）；重构后底层实现
+        改为 JSON sidecar + PID liveness 检测，不再调 msvcrt.locking。本测试改
+        为校验"转发关系"和"锁文件 JSON 内容"两个新契约。
         """
-        import os
+        import json
+        import os as _os
 
-        if os.name != "nt":
-            pytest.skip("msvcrt 仅 Windows")
-
-        import msvcrt
-        from tools import sw_warmup as mod
-
-        observed = {}
-
-        def _fake_locking(fd, op, nbytes):
-            observed["nbytes"] = nbytes
-            observed["pos_at_call"] = os.lseek(fd, 0, 1)  # SEEK_CUR
-
-        monkeypatch.setattr(msvcrt, "locking", _fake_locking)
+        from tools.sw_warmup import acquire_warmup_lock
 
         lock_path = tmp_path / "sw_warmup.lock"
-        with mod.acquire_warmup_lock(lock_path):
-            pass
-
-        assert observed["pos_at_call"] == mod._LOCK_OFFSET, (
-            f"acquire 未在 locking 前 seek 到 _LOCK_OFFSET={mod._LOCK_OFFSET}"
-        )
-        assert observed["nbytes"] == mod._LOCK_NBYTES, (
-            f"acquire 的 locking 字节数 != _LOCK_NBYTES={mod._LOCK_NBYTES}"
-        )
+        with acquire_warmup_lock(lock_path):
+            # 持锁期间锁文件应是合法 JSON，含当前进程 PID
+            data = json.loads(lock_path.read_text(encoding="utf-8"))
+            assert data["pid"] == _os.getpid()
+            assert "started_at" in data
+        # with 退出后锁文件应被自动清理（与 _file_lock.acquire_lock 契约一致）
+        assert not lock_path.exists()
 
     @pytest.mark.skipif(os.name == "nt", reason="POSIX fcntl 分支测试")
     def test_concurrent_acquire_raises_on_posix(self, tmp_path):
