@@ -4673,11 +4673,24 @@ def main():
         help="PROJECT_GUIDE.json output path (default: guide directory or current run directory)",
     )
     # rev 4 DR-3：自然语言产品目标入口 + KPI 直传 flag
-    p_project_guide.add_argument(
+    # product-goal A1：--product-goal 与 --resume 互斥；--answer 可重复用于多轮渐进答案
+    group_pg = p_project_guide.add_mutually_exclusive_group()
+    group_pg.add_argument(
         "--product-goal",
-        type=str,
-        default=None,
-        help="自然语言产品目标（外行用户入口）",
+        metavar="TEXT",
+        help="自然语言产品目标（如 \"做升 50kg 的升降平台\"）；不全时进入异步多轮模式",
+    )
+    group_pg.add_argument(
+        "--resume",
+        action="store_true",
+        help="续答多轮渐进确认；从 ./PROJECT_GOAL_STATE.json 读上次状态",
+    )
+    p_project_guide.add_argument(
+        "--answer",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="多轮渐进答案；可重复（如 --answer load_kg=50 --answer stroke_mm=800）",
     )
     p_project_guide.add_argument("--confirm-subsystem", type=str, default=None)
     p_project_guide.add_argument(
