@@ -3,6 +3,19 @@
 > 本文件是每轮工作结束后给用户看的进度入口。
 > 更新规则：每轮完成实现、审查、合并或重要验证后，更新「最新状态」「看板」「下一步建议」「验证记录」。
 
+## v2.31.0 — 2026-05-09 product-goal 多轮渐进确认（Phase 1 入口前移 — A）
+
+- `cad-spec-gen project-guide --product-goal "..."` 不全时不再 reject；写 `./PROJECT_GOAL_STATE.json` 异步状态机；用户用 `--resume --answer key=value` 多轮渐进补全 KPI
+- 全 KPI 齐 → 自动删 state + ready_for_cad_spec
+- `--answer` 可重复（一次答多 KPI）；严格 schema 校验（key ∈ KPI 列表 / value 类型对）
+- 死循环保护 MAX_ROUND=20
+- 14 单元测试 + 13 cli 集成测试 + 5 project_guide 集成测试 = 32 用例 PASS
+- 全量回归 2758 PASS / 0 regression（v2.30.0 基线 2725 + 33 新加）
+- mypy strict + ruff clean（本 PR 改的 6 文件）
+- 北极星 5 gate 全过
+
+**v2.31.0 无 break-change**：v2.25.0 `command_return_code_for_project_guide` 已经把 `needs_kpi_confirmation` 放在 0-set 中；本 PR 仅扩展异步多轮模式（写 state + message 改造），不改 exit code 行为。
+
 ## v2.30.0 — 2026-05-09 jury §11 follow-up cleanup（M-1 + M-2 closed）
 
 - v2.28.0 PR #61 Task 13 标的 2 项 MINOR follow-up 闭合：

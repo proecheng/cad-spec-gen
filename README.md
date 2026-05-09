@@ -316,6 +316,32 @@ python cad_pipeline.py status
 python cad_pipeline.py env-check
 ```
 
+### 多轮渐进确认（v2.31.0+）
+
+不必一次说全 KPI；起手只说大方向，系统主动追问：
+
+```bash
+# 第一步：起手（不全也 ok）
+$ python cad_pipeline.py project-guide --product-goal "做升降平台"
+# → status=needs_kpi_confirmation；状态已记到 ./PROJECT_GOAL_STATE.json
+# → 提示：cad-spec-gen project-guide --resume --answer load_kg=50
+
+# 第二步：续答任一项（可重复）
+$ python cad_pipeline.py project-guide --resume --answer load_kg=50
+$ python cad_pipeline.py project-guide --resume --answer stroke_mm=800
+$ python cad_pipeline.py project-guide --resume --answer platform_size_mm=600x600
+
+# 全齐自动删 state + ready_for_cad_spec
+```
+
+也可一次答多个 KPI：
+
+```bash
+$ python cad_pipeline.py project-guide --resume --answer load_kg=50 --answer stroke_mm=800
+```
+
+`./PROJECT_GOAL_STATE.json` 是 project-local 状态文件（已加 .gitignore）。
+
 ### AI Enhancement Quick Start
 
 After Blender renders your PNGs, enhance them to photorealistic images via the pipeline.
