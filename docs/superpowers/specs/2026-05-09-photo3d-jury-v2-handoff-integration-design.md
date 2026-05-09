@@ -13,6 +13,7 @@
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | 1.0 | 2026-05-09 | 初稿（brainstorm 5 节 + 5 决策点收敛后落盘） |
+| 1.1 | 2026-05-09 | spec 自审发现 2 处事实错误；修：(1) 复用 jury 已有 `--dry-run` flag 替代新加 `--cost-estimate-only`，jury 子模块零改动；(2) `jury_review_input.json` 路径走 subsystem + run_id 约定路径（不读 jury report 字段） |
 
 ---
 
@@ -59,10 +60,10 @@ photo3d-deliver --subsystem ...
 ### 2.1 范围（in-scope）
 
 1. `photo3d-handoff` 加 `--with-jury` `--no-strict-jury` 两个 flag
-2. `photo3d-handoff --with-jury` orchestrator 串联 5 步（enhance → enhance-check → jury cost-estimate → jury 实跑 → enhance-review）
-3. `tools/photo3d_jury.py` 加 `--cost-estimate-only` flag（dry-run 估价 + budget 检查后立即 return；不进 layer 1/2）
+2. `photo3d-handoff --with-jury` orchestrator 串联 5 步（enhance → enhance-check → jury --dry-run 估价 → jury 实跑 → enhance-review）
+3. **`tools/photo3d_jury.py` 不动**：复用 jury v1 已有的 `--dry-run` flag（已存在于 v2.27.0），只跑到 cost gate 后 print + return 0/3
 4. `cad_pipeline.py:cmd_photo3d_autopilot` 在 `ready_for_enhancement` 状态的 next_action 命令文案追加 `--with-jury`
-5. `HANDOFF_RUN.json` schema add-only 加三字段（`jury_status` / `review_status` / `enhance_review_path`）
+5. `HANDOFF_RUN.json` schema add-only 加五字段（`jury_status` / `jury_estimated_usd` / `jury_actual_usd` / `review_status` / `enhance_review_path`）
 6. 中文 stderr 文案模板集中在 `tools/jury/stderr_messages.py` 新模板组（命名前缀 `HANDOFF_*`）
 7. 文档：`docs/cad-jury-config.md` 加"通过 photo3d-handoff 一条命令跑闭环"章节
 8. 全量测试覆盖（单元 + handoff e2e + autopilot 文案校验）
@@ -78,7 +79,7 @@ photo3d-deliver --subsystem ...
 
 ### 2.3 非目标的兼容性承诺
 
-- jury v1 cli 行为完全不变（除 `--cost-estimate-only` 这一新 flag 外）
+- jury v1 cli 行为**完全不变**（本 PR 不动 jury 子模块任何代码；handoff 复用 v1 已有的 `--dry-run` flag）
 - 独立用户跑 `photo3d-jury` 仍按 v1 流程（不会"突然多跑 enhance-review"）
 - `HANDOFF_RUN.json` 现有字段不动；新加字段在不带 `--with-jury` 时**不出现**（不污染回归用户的报告）
 
@@ -98,7 +99,7 @@ photo3d-deliver --subsystem ...
 ┌─ handoff orchestrator (cad_pipeline.py) ──────────┐
 │  1. enhance        (现有 cli call)                 │
 │  2. enhance-check  (现有 follow-up)                │
-│  3. jury --cost-estimate-only  (新 flag, dry-run)  │
+│  3. jury --dry-run  (复用 v1 已有 flag, 估价 + budget 检查)  │
 │     → stderr 打印估价 + budget 检查                 │
 │  4. jury  (jury v1 4 层主流程, --confirm-cost 内传) │
 │     → 等 PHOTO3D_JURY_REPORT.json 落盘             │
@@ -120,13 +121,13 @@ photo3d-deliver --subsystem ...
 ```
 cad_pipeline.py                       ← 改 cmd_photo3d_handoff（新增 ~150 行）
                                        + cmd_photo3d_autopilot 文案（~10 行）
-tools/photo3d_jury.py                  ← 加 --cost-estimate-only flag（~30 行）
-tools/jury/stderr_messages.py          ← 加 HANDOFF_* 模板组（~60 行）
+tools/jury/stderr_messages.py          ← add-only 加 HANDOFF_* 模板组（~60 行）
 docs/cad-jury-config.md                ← 新增"handoff 一条闭环"章节（~40 行）
 tests/test_photo3d_handoff_with_jury.py（新文件，~400 行）
-tests/jury/test_photo3d_jury_cli.py    ← 加 --cost-estimate-only 单测（~80 行）
 tests/test_cad_pipeline_autopilot.py   ← 加 next_action 含 jury cmd 用例（~30 行）
 tests/jury/test_stderr_messages.py     ← 加 HANDOFF_* 模板覆盖测试（~30 行）
+
+注：tools/photo3d_jury.py 与其他 jury 子模块文件 0 改动；handoff 复用 jury v1 已有的 `--dry-run` flag。
 ```
 
 ### 3.3 模块契约
@@ -134,23 +135,23 @@ tests/jury/test_stderr_messages.py     ← 加 HANDOFF_* 模板覆盖测试（~3
 | 模块 / 函数 | 单一职责 | 输入 | 输出 | 不做 |
 |---|---|---|---|---|
 | `cmd_photo3d_handoff` (修改) | orchestrator：5 步串联、透传 exit code、决定 strict 行为、写 HANDOFF_RUN.json 终态 | argparse.Namespace（含 with_jury / no_strict_jury 等新字段） | exit code（0 / 1 / 2 / 3 / 4 / 10 / 11 / 12 / 99 / review_exit） | 不实现 jury 业务逻辑；不动 enhance/check 已有逻辑 |
-| `tools/photo3d_jury.py:main`（修改） | 现有 jury 入口；加 `--cost-estimate-only` 早 return | argv | exit code（含 0 = 估价 ok / 3 = over budget / 2 = config 错） | dry-run 模式不取锁、不 freeze sha256、不读图、不调 LLM |
+| `tools/photo3d_jury.py`（不动） | jury v1 已有 `--dry-run` flag（v2.27.0 落地）：跑到 cost gate 后 print + return；handoff 直接复用 | argv | exit code（0 = 估价 ok / 3 = over budget） | 本 PR 不改 jury 子模块任何代码 |
 | `tools/jury/stderr_messages.py`（增） | `HANDOFF_*` 中文文案模板组 | exit_code + context dict | 单字符串（无 `{xxx}` 残留） | 不做 IO；纯 string format |
 | `cmd_photo3d_autopilot`（修改） | 现有 autopilot；改 next_action 命令文案 | 同现有 | next_action.command 字段含 `--with-jury` | 不实跑 jury / 不调 enhance |
 
 ### 3.4 不变量
 
 1. **autopilot 行为不变**：autopilot 自身不调 jury / 不调 enhance；只在 next_action.command 字符串里追加 `--with-jury` 子串
-2. **jury 子模块边界不动**：`tools/jury/{config,cost,llm_client,verdict,redact,deterministic_gate,input_evidence_binding}.py` 全部 0 改动；只在 `tools/jury/stderr_messages.py` add-only 加 HANDOFF 模板组
+2. **jury 子模块边界不动**：`tools/jury/{config,cost,llm_client,verdict,redact,deterministic_gate,input_evidence_binding}.py` 与 `tools/photo3d_jury.py` 全部 0 改动；只在 `tools/jury/stderr_messages.py` add-only 加 HANDOFF 模板组
 3. **handoff 调子进程方式**：必须用 `sys.executable + cad_pipeline.py + subcommand` 形式（与现有 enhance-check follow-up 一致），不直接 import 跨模块函数（避免 cli 副作用泄漏）
 4. **`HANDOFF_RUN.json` add-only**：现有字段保持不变；新加字段（jury_status / review_status / enhance_review_path / jury_estimated_usd / jury_actual_usd）仅在 `--with-jury` 启用时出现
 5. **strict/no-strict 边界硬约束**：
    - 业务质量类（`preview` / `needs_review`）：strict → exit=10/11 abort；no-strict → exit=0 + warning
    - 工具故障类（`blocked` / `JuryLockBusy` / `JuryConfigError` / `JuryInternalError`）：永远阻断，no-strict 不能覆盖
-6. **cost 估价 dry-run 必须无副作用**：`--cost-estimate-only` 不取 `.jury.lock`、不 freeze active_run_id 与 sha256、不 hit 网络
+6. **dry-run 副作用与 race window 缓解**：jury v1 现有 `--dry-run` 行为：跑 Layer 0（取 `.jury.lock` + freeze sha256）+ cost gate 后 print + return；**会取锁 + freeze**，handoff 接受此副作用换取 jury 子模块零改动；race window：dry-run 释放锁与实跑获取锁之间被外部进程抢锁的概率极低，但允许；handoff 实跑触发 `JuryLockBusy` 时按 invariant 5 工具故障类阻断 + stderr 文案明确告知用户"另一进程并发"
 7. **estimated_usd 重复打印 ok**：jury 实跑也会打印估价；handoff 在 step 3 dry-run 也打印；用户看两次不算 bug，是稳健性
 8. **enhance-review 失败不污染 jury 报告**：`PHOTO3D_JURY_REPORT.json` 保持 jury 自己写完时的内容；handoff 把 review 失败记到 `HANDOFF_RUN.json` 自己的字段
-9. **jury_review_input.json 路径来源**：handoff 必须从 `PHOTO3D_JURY_REPORT.json` 读 `review_input_path` 字段，**禁止扫目录猜文件**（北极星硬约束）
+9. **jury_review_input.json 路径走约定**：handoff 通过 `subsystem`（自身 args）+ jury report 的 `run_id` 字段构造 `<project_root>/cad/<subsystem>/.cad-spec-gen/runs/<run_id>/jury_review_input.json`；jury report `run_id` 字段为唯一权威来源，**禁止扫目录猜文件**（北极星硬约束）；handoff 在调 enhance-review 前必须 `Path.exists()` 校验该路径存在，缺则报 `HANDOFF_REVIEW_INPUT_MISSING` 错
 
 ---
 
@@ -168,14 +169,14 @@ photo3d-handoff --confirm --with-jury [--no-strict-jury]
 2. enhance-check  ──fail──▶ exit=check_exit；HANDOFF_RUN.json{check_status:"failed"}；不调后续步
         │ ok（check_status:"ok"）
         ▼
-3. jury --cost-estimate-only
-   读 ENHANCEMENT_REPORT.json 的 views 长度 → 算 estimated_usd
-   stderr: "jury 预估 0.04 USD / 4 视角 (budget 0.50 USD)"
-   ──cost > budget──▶ exit=3；HANDOFF_RUN.json{jury_status:"cost_over_budget", jury_estimated_usd:0.04}
-   ──config 错──▶ exit=2；HANDOFF_RUN.json{jury_status:"config_error"}
-        │ ok
+3. jury --dry-run（复用 jury v1 已有 flag，跑到 cost gate 后 print + return 0/3）
+   stdout: "[dry-run] estimated=0.04 USD, allowed=True"  (jury 自己打)
+   stderr: "[handoff] jury 预估 0.04 USD / 4 视角 (budget 0.50 USD)"  (handoff 加打中文提示)
+   ──cost > budget (jury return 3)──▶ exit=3；HANDOFF_RUN.json{jury_status:"cost_over_budget", jury_estimated_usd:0.04}
+   ──jury 自身 fail (config / lock 等 jury return ≠0/3)──▶ 透传 jury exit code
+        │ jury return 0
         ▼
-4. jury (实跑，handoff 内传 --confirm-cost)
+4. jury (实跑，handoff 内传 --confirm-cost；jury 二次 freeze sha + 二次取锁)
    等 PHOTO3D_JURY_REPORT.json 落盘
    读 jury_report.status:
    ┌────────────────────────────────────────────────────────────────┐
@@ -190,8 +191,10 @@ photo3d-handoff --confirm --with-jury [--no-strict-jury]
    └────────────────────────────────────────────────────────────────┘
         │ accepted（jury_status:"accepted"）
         ▼
-5. enhance-review --review-input <jury_review_input_path_from_jury_report>
-   ──fail──▶ exit=review_exit；HANDOFF_RUN.json{review_status:"failed"}
+5. enhance-review --review-input <project_root>/cad/<subsystem>/.cad-spec-gen/runs/<run_id>/jury_review_input.json
+   (handoff 从 PHOTO3D_JURY_REPORT.json 读 run_id 字段构造路径，先 .exists() 校验)
+   ──路径不存在──▶ exit=13；HANDOFF_RUN.json{review_status:"input_missing"}
+   ──enhance-review 失败──▶ exit=review_exit；HANDOFF_RUN.json{review_status:"failed"}
         │ ok（review_status:"ok"）
         ▼
 6. 写 HANDOFF_RUN.json 终态
@@ -209,6 +212,7 @@ photo3d-handoff --confirm --with-jury [--no-strict-jury]
 |---|---|---|---|---|
 | accepted | * | ok | accepted | 0 |
 | accepted | * | failed | review_failed | review_exit |
+| accepted | * | input_missing | review_input_missing | 13 |
 | preview | strict | n/a (skip) | preview_blocked_by_strict | 10 |
 | preview | no-strict | n/a (skip) | preview_warning | 0 |
 | needs_review | strict | n/a (skip) | needs_review_blocked_by_strict | 11 |
@@ -242,6 +246,7 @@ photo3d-handoff --confirm --with-jury [--no-strict-jury]
 | jury blocked | 12 | ✗ 永远阻断 | `HANDOFF_JURY_BLOCKED` |
 | jury internal | 99 | ✗ 永远阻断 | `HANDOFF_JURY_INTERNAL_ERROR` |
 | enhance-review 失败 | 透传 review | n/a | `HANDOFF_REVIEW_FAILED` |
+| review_input 路径缺失 | 13 | n/a | `HANDOFF_REVIEW_INPUT_MISSING` |
 
 ### 5.2 stderr 模板示例（中文人话）
 
@@ -293,12 +298,10 @@ HANDOFF_JURY_LOCK_BUSY = (
 
 | 测试文件 | 用例 | 预期 |
 |---|---|---|
-| `tests/jury/test_photo3d_jury_cli.py` | `test_cost_estimate_only_dry_run_returns_early` | exit=0 + stderr 含估价 + 不写 PHOTO3D_JURY_REPORT.json |
-| `tests/jury/test_photo3d_jury_cli.py` | `test_cost_estimate_only_over_budget_exit_3` | exit=3 + stderr 含 over budget 文案 |
-| `tests/jury/test_photo3d_jury_cli.py` | `test_cost_estimate_only_with_confirm_cost_mutually_exclusive` | exit=2 + stderr "两个 flag 不能同时" |
-| `tests/jury/test_photo3d_jury_cli.py` | `test_cost_estimate_only_does_not_acquire_lock` | 跑后 .jury.lock 不存在 |
-| `tests/jury/test_photo3d_jury_cli.py` | `test_cost_estimate_only_does_not_freeze_sha256` | 跑后报告不包含 sha256 字段（确认未 freeze） |
 | `tests/jury/test_stderr_messages.py` | `test_handoff_templates_no_unfilled_placeholders` | 所有 HANDOFF_* 模板 placeholder 全填充 |
+| `tests/jury/test_stderr_messages.py` | `test_handoff_template_keys_complete` | HANDOFF_* 模板覆盖 §5.1 全部 11 个 template_key |
+
+注：jury `--dry-run` flag 已存在 v2.27.0，已有单测覆盖（`tests/jury/test_photo3d_jury_cli.py:test_dry_run_*`）；本 PR 不再新增 jury 子模块单测。
 
 ### 6.3 handoff 集成测试
 
@@ -324,6 +327,7 @@ mock 策略：
 | H12 | --with-jury jury accepted + review 失败 | exit=review_exit + handoff_status="review_failed" |
 | H13 | enhance step 失败 | exit=enhance_exit + 不调 jury（HANDOFF_RUN.json 仅 enhance_status="failed"） |
 | H14 | --with-jury 估价 stderr 强制打印 | stderr 含 "jury 预估 X.XX USD" + budget 字符串 |
+| H15 | --with-jury accepted + review_input 约定路径不存在 | exit=13 + handoff_status="review_input_missing" + 不调 review |
 
 ### 6.4 autopilot 测试
 
@@ -354,7 +358,7 @@ mock 策略：
 ### 7.1 cli 层
 
 - 不带 `--with-jury` 跑 `photo3d-handoff`：行为完全等同 v2.27.0；H1 用例守门
-- jury v1 独立用户跑 `photo3d-jury`：行为完全等同 v2.27.0；除非显式加 `--cost-estimate-only` flag
+- jury v1 独立用户跑 `photo3d-jury`：行为完全等同 v2.27.0（本 PR 不改 jury 任何代码）
 
 ### 7.2 报告 schema
 
@@ -378,22 +382,21 @@ mock 策略：
 
 ## 8. 实施顺序（plan 阶段拆分预想）
 
-预估 plan 阶段会拆 ~12-15 task。粗顺序：
+预估 plan 阶段会拆 ~10-12 task（jury 子模块零改动后比初版减少 1 段）。粗顺序：
 
-1. **C0 准备**：建分支（已建）+ spec commit
-2. **C1 jury --cost-estimate-only**（不依赖 handoff 改动）：先 RED 写 6 单测 → GREEN 实现 jury main 加 flag → REFACTOR
-3. **C2 stderr 模板组**：HANDOFF_* 模板 + format_handoff_message + 1 单测
-4. **C3 handoff parser**：`--with-jury` `--no-strict-jury` flag 解析；不带 flag 时回归用例 H1 守门
-5. **C4 handoff orchestrator step 3 (cost-estimate)**：H10 + H14 + H9（cost over budget / 估价打印 / config 错）
-6. **C5 handoff orchestrator step 4 (jury actual)**：H2 + H3 + H4 + H5 + H6 + H7 + H8 + H11（11 用例）
-7. **C6 handoff orchestrator step 5 (enhance-review)**：H12（accepted + review 失败）
-8. **C7 enhance step 失败回归**：H13
-9. **C8 autopilot next_action 文案**：2 单测
-10. **C9 文档**：docs/cad-jury-config.md / PROGRESS.md / README.md
-11. **C10 全量回归 + ruff/mypy 检查 + 北极星 5 gate 体检**
-12. **C11 PR 与 review 流程**
+1. **C0 准备**：建分支（已建）+ spec commit（已 commit）
+2. **C1 stderr 模板组**：HANDOFF_* 模板 + format_handoff_message + 2 单测（template_keys 完整 / placeholder 全填）
+3. **C2 handoff parser**：`--with-jury` `--no-strict-jury` flag 解析；不带 flag 时回归用例 H1 守门
+4. **C3 handoff orchestrator step 3 (jury --dry-run)**：H10 + H14 + H9（cost over budget / 估价打印 / config 错）
+5. **C4 handoff orchestrator step 4 (jury actual)**：H2 + H3 + H4 + H5 + H6 + H7 + H8 + H11（11 用例）
+6. **C5 handoff orchestrator step 5 (enhance-review)**：H12 + H15（accepted + review 失败 / review_input 路径缺失）
+7. **C6 enhance step 失败回归**：H13
+8. **C7 autopilot next_action 文案**：2 单测
+9. **C8 文档**：docs/cad-jury-config.md / PROGRESS.md / README.md
+10. **C9 全量回归 + ruff/mypy 检查 + 北极星 5 gate 体检**
+11. **C10 PR 与 review 流程**
 
-每个 C 段一个 commit；C2-C7 内每个 H 用例独立子任务，先 RED 后 GREEN。
+每个 C 段一个 commit；C1-C6 内每个 H 用例独立子任务，先 RED 后 GREEN。
 
 ---
 
@@ -404,22 +407,23 @@ mock 策略：
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | handoff e2e mock 子进程在 Windows / Linux 行为差异 | 测试 flake | 用 jury v1 conftest 已验证的 monkeypatch subprocess.run pattern |
-| `jury_review_input.json` 路径 schema 字段名假设 | handoff 找不到文件 | C5 实施前先 grep jury 实际写入字段；不假设字段名 |
+| `--dry-run` 释放锁与实跑获取锁之间的 race window | 实跑触发 lock_busy（exit=4）| invariant 5 工具故障类阻断；stderr 文案明确告知"另一进程并发"；实战频率极低 |
+| `jury_review_input.json` 约定路径假设 | handoff 找不到文件触发 H15 | invariant 9 强制 `.exists()` 校验 + exit=13 错误路径 + 测试用例 H15 守门 |
 | jury cost 估价依赖 `ENHANCEMENT_REPORT.json` 已存在 | 步骤 3 在步骤 1+2 失败时跑不起来 | 实现保证：handoff 严格 step 顺序，step 3 永远在 step 2 ok 后跑 |
-| autopilot next_action 文案变更影响下游脚本（如果有）| 回归 | C8 测试用 substring assert 不用 exact match；命令字符串末尾追加而非中间插入 |
+| autopilot next_action 文案变更影响下游脚本（如果有）| 回归 | C7 测试用 substring assert 不用 exact match；命令字符串末尾追加而非中间插入 |
 | 用户混淆 `--no-strict-jury` 与 jury v1 的 `--debug-output` 等 flag | 文档不清 | docs/cad-jury-config.md 显式表格列出 flag 矩阵 |
 
 ### 9.2 已知 unknown
 
-- handoff 当前 description epilog 的实际文本是否需要重写（行数较多）— C9 阶段决定
-- jury `--cost-estimate-only` 是否需要支持 `--profile-id` override — 当前假设跟随 jury v1 默认；C1 阶段验证
+- handoff 当前 description epilog 的实际文本是否需要重写（行数较多）— C8 阶段决定
+- jury `--dry-run` 是否需要 handoff 显式传 `--budget`/`--profile-id` — 当前假设走 jury v1 默认；C3 阶段验证
 
 ### 9.3 不接受的风险（Red Team 防线）
 
 - **不允许**：handoff 自己 import jury 模块函数直接调（破坏 invariant 3 子进程隔离）
 - **不允许**：handoff 自己拼 stderr 文案（破坏 invariant 5.3 唯一入口）
 - **不允许**：autopilot 实跑 jury 或 enhance（破坏 invariant 1 autopilot 行为不变）
-- **不允许**：`--cost-estimate-only` 取锁或 freeze sha256（破坏 invariant 6 dry-run 无副作用）
+- **不允许**：handoff 修改 jury 子模块的任何文件（除 `tools/jury/stderr_messages.py` add-only 加 HANDOFF_* 模板组）
 
 ---
 
@@ -427,7 +431,7 @@ mock 策略：
 
 完成本 PR 必须满足：
 
-1. **测试**：所有 §6 测试 PASS（H1-H14 + 6 jury 单测 + 2 autopilot 单测 + stderr 模板覆盖测试）
+1. **测试**：所有 §6 测试 PASS（H1-H15 共 15 用例 + 2 stderr 模板单测 + 2 autopilot 单测）
 2. **回归**：`tests/` 全量 PASS 不少于 v2.27.0 基线（≥2622 PASS）
 3. **mypy strict**：本 PR 改的所有文件保持 strict 不降级
 4. **ruff check + format**：clean，无 violations
@@ -466,7 +470,7 @@ mock 策略：
 | 文件 | 用途 |
 |---|---|
 | `docs/superpowers/specs/2026-05-08-photo3d-jury-design.md` | jury v1 设计（架构 / 4 层判定 / 异常类层级 / 不变量） |
-| `tools/photo3d_jury.py` | jury main 入口（本 PR 加 `--cost-estimate-only` flag） |
+| `tools/photo3d_jury.py` | jury main 入口（本 PR 不动；复用 v1 已有 `--dry-run` flag） |
 | `tools/jury/cost.py` | cost 估价逻辑（dry-run 模式复用） |
 | `tools/jury/stderr_messages.py` | 中文文案模板模块（本 PR add-only 加 HANDOFF_* 组） |
 | `cad_pipeline.py:cmd_photo3d_handoff` | handoff 主体（本 PR orchestrator 改造） |
