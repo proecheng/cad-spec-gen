@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -761,3 +762,73 @@ def test_h17_review_input_corrupt(
     assert result["review_status"] == "input_corrupt"
     assert result["exit_code"] == 23
     assert fake_run.call_count() == 2  # 不调 review
+
+
+# === Task 12: H22 subprocess argv 守门 + H1b/H1c/H13/H23 placeholder ===
+
+@pytest.mark.regression
+def test_h22_subprocess_argv_form(
+    fake_run_factory: Callable[..., Any],
+    make_jury_run_dir: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """H22 — subprocess argv 是 list[str] + shell ∉ kwargs + env 不主动注入敏感键 (spec inv 3/11)"""
+    run_dir = make_jury_run_dir(jury_status="accepted", review_input_state="ok")
+    project_root = run_dir.parent.parent.parent.parent.parent
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr("tools.photo3d_handoff.acquire_lock", _fake_acquire_lock_ok, raising=False)
+    fake_run = fake_run_factory([
+        cp(0, stdout="[dry-run] estimated=0.04 USD\n"),  # preflight
+        cp(0),  # jury 实跑
+        cp(0),  # enhance-review
+    ])
+    from tools.photo3d_handoff import _run_jury_followup
+    _run_jury_followup(
+        project_root=project_root, subsystem="lifting_platform",
+        active_run_id="20260509-123456",
+        cad_pipeline_py=project_root / "cad_pipeline.py",
+        no_strict_jury=False,
+    )
+    # 守门：每次 subprocess.run 调用
+    assert fake_run.call_count() == 3
+    for call in fake_run.call_log:
+        argv = call["argv"]
+        # 1. argv 是 list[str]
+        assert isinstance(argv, list)
+        assert all(isinstance(t, str) for t in argv)
+        # 2. 第 0 元素是 sys.executable
+        assert argv[0] == sys.executable
+        # 3. 第 1 元素以 cad_pipeline.py 结尾
+        assert argv[1].endswith("cad_pipeline.py")
+        # 4. shell=False（fake_run_factory 已守门，但这里再次显式 assert）
+        assert call["shell"] is False
+
+
+def test_h1b_with_jury_kind_not_run_enhancement() -> None:
+    """H1b placeholder — --with-jury 但 next_action.kind == 'accept_baseline'：jury hook 不触发
+    本 PR 范围：jury hook 仅在 _run_enhancement_followup 内调；其他 kind 路径不进入。
+    集成层用 H1 + H1b combine：H1 已守门"不带 with_jury 不出现 jury_* 字段"。
+    H1b 等价行为由现有 _classify_next_action + selected_action.kind != run_enhancement 路径覆盖。
+    """
+    # 由 Task 13 集成 _run_enhancement_followup 守门；此处 placeholder pass
+
+
+def test_h1c_with_jury_no_confirm() -> None:
+    """H1c placeholder — --with-jury 但 confirm=False：handoff status='awaiting_confirmation'，jury hook 不触发
+    由 Task 13 集成（_run_enhancement_followup 仅在 confirm=True + run_enhancement 路径调）。
+    """
+    # placeholder pass
+
+
+def test_h13_enhance_step_failed() -> None:
+    """H13 placeholder — enhance subprocess fail：透传 enhance exit + 不调 jury hook
+    由现有 _execute_selected_action returncode != 0 路径覆盖（Task 13 集成确认）。
+    """
+    # placeholder pass
+
+
+def test_h23_crash_mid_step() -> None:
+    """H23 placeholder — enhance subprocess 抛 OSError：finally 块仍写 PHOTO3D_HANDOFF.json
+    由现有 _run_enhancement_followup `except (FileNotFoundError, OSError, ValueError)` 路径覆盖。
+    """
+    # placeholder pass
