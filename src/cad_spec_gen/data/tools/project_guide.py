@@ -689,12 +689,20 @@ def write_project_goal_guide(
     confirmed_subsystem: str | None = None,
     confirmed_kpis: Mapping[str, float | tuple[float, float]] | None = None,
     output_path: str | Path | None = None,
+    _state_round: int = 1,
 ) -> dict[str, Any]:
-    """产品目标自然语言入口；写 PROJECT_GUIDE.json。
+    """产品目标自然语言入口；写 PROJECT_GUIDE.json + 异步多轮 state（v2.31.0+）。
 
     与 write_project_entry_guide 平行；不动 pipeline state，纯只读。
+    v2.31.0 break-change：needs_kpi_confirmation 走异步多轮模式 → cwd 写 state file；
+    ready_for_cad_spec / 其他终态删 state file（如存在）。
+
+    Args:
+        _state_round: v2.31.0 内部参数；--resume 时从 state.round + 1 传入；
+            首轮（一次未给全 KPI）默认 1。
     """
     from tools.product_goal_parser import parse_product_goal
+    from tools.product_goal_state import delete_state, write_state
 
     root = Path(project_root).resolve()
     target = _project_entry_guide_target(root, output_path)
@@ -709,12 +717,37 @@ def write_project_goal_guide(
         parse_result, design_doc, root
     )
 
+    # v2.31.0：缺 KPI → 写 state file（cwd）；ready_for_cad_spec → 删 state file
+    if status == "needs_kpi_confirmation":
+        missing_kpis = list(next_action.get("missing_kpis", []))
+        write_state({
+            "raw_text": parse_result.raw_text,
+            "subsystem_class": parse_result.subsystem_class,
+            "subsystem_status": parse_result.subsystem_status,
+            "confirmed_subsystem": confirmed_subsystem,
+            "confirmed_kpis": dict(confirmed_kpis or {}),
+            "missing_kpis": missing_kpis,
+            "design_doc": str(design_doc) if design_doc else None,
+            "round": _state_round,
+        })
+        ordinary_message = _ordinary_user_message_for_progressive(
+            parse_result.subsystem_class,
+            missing_kpis,
+            already_confirmed=dict(confirmed_kpis or {}),
+        )
+    else:
+        # 离开"待补 KPI"续答模式 → 清场 state file（幂等；不存在不报错）
+        # 覆盖：ready_for_cad_spec / needs_design_doc / needs_subsystem_confirmation /
+        #       unknown_subsystem / not_yet_implemented / needs_product_goal
+        delete_state()
+        ordinary_message = _ordinary_user_message_for_goal(status)
+
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "entry_mode": "product_goal",
         "status": status,
-        "ordinary_user_message": _ordinary_user_message_for_goal(status),
+        "ordinary_user_message": ordinary_message,
         "mutates_pipeline_state": False,
         "does_not_scan_directories": True,
         "product_goal": _serialize_parse_result(parse_result),
@@ -726,6 +759,30 @@ def write_project_goal_guide(
 
     write_json_atomic(target, report)
     return report
+
+
+def _ordinary_user_message_for_progressive(
+    subsystem_class: str | None,
+    missing_kpis: list[str],
+    already_confirmed: Mapping[str, Any],
+) -> str:
+    """v2.31.0 多轮渐进 needs_kpi_confirmation 文案（含 --resume hint）。"""
+    subsystem_label = subsystem_class or "(未识别)"
+    confirmed_lines = ""
+    if already_confirmed:
+        confirmed_str = ", ".join(
+            f"{k}={v}" for k, v in sorted(already_confirmed.items())
+        )
+        confirmed_lines = f"\n  已记录：{confirmed_str}"
+
+    first_missing = missing_kpis[0] if missing_kpis else "<KEY>"
+    missing_str = " / ".join(missing_kpis)
+    return (
+        f"已识别为 {subsystem_label}。还缺 KPI：{missing_str}。{confirmed_lines}\n"
+        f"  下一步答任一项：cad-spec-gen project-guide --resume "
+        f"--answer {first_missing}=<值>\n"
+        f"  状态已记到 ./PROJECT_GOAL_STATE.json；可断点续答"
+    )
 
 
 def _sanitize_preview_cli(
