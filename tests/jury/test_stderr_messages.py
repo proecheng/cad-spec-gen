@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tools.jury.stderr_messages import format_stderr_message
 
 
@@ -140,3 +142,48 @@ def test_internal_error() -> None:
     )
     assert "RuntimeError" in msg
     assert "issue" in msg.lower() or "提" in msg
+
+
+# spec §5.2.1 钉死的 14 个 (exit_code, error_kind, context) 三元组（含 awaiting_confirmation_with_jury）
+HANDOFF_ERROR_KINDS = [
+    (10, "handoff_jury_preview", {"failed_n": 2, "score": 60, "min_score": 75, "report_path": "/r/p", "mode": "strict"}),
+    (0, "handoff_jury_preview", {"failed_n": 2, "score": 60, "min_score": 75, "report_path": "/r/p", "mode": "warning"}),
+    (11, "handoff_jury_needs_review", {"failed_views": ["v1"], "vendor_request_id": None, "report_path": "/r/p", "mode": "strict"}),
+    (12, "handoff_jury_blocked", {"report_path": "/r/p"}),
+    (4, "handoff_jury_lock_busy", {"lock_mtime_minutes_ago": 5, "lock_path": "/r/.jury.lock"}),
+    (99, "handoff_jury_internal_error", {"redacted_traceback": "Traceback..."}),
+    (2, "handoff_jury_config_error", {"config_path": "~/.claude/cad_jury_config.json"}),
+    (3, "handoff_jury_cost_over_budget", {"estimated_usd": 0.04, "budget_usd": 0.02, "n_views": 4}),
+    (20, "handoff_review_failed", {"review_raw_exit": 1, "report_path": "/r/p"}),
+    (13, "handoff_review_input_missing", {"review_input_path": "/r/p", "reason": "not_found"}),
+    (23, "handoff_review_input_corrupt", {"review_input_path": "/r/p", "parse_error": "Expecting value"}),
+    (25, "handoff_unexpected_jury_exit", {"raw_exit": 137}),
+    (24, "handoff_handoff_lock_busy", {"lock_mtime_minutes_ago": 3, "lock_path": "/r/.handoff.lock"}),
+    (2, "handoff_jury_preflight_config_missing", {"config_path": "~/.claude/cad_jury_config.json"}),
+    (0, "handoff_awaiting_confirmation_with_jury", {"argv_with_confirm": "python cad_pipeline.py photo3d-handoff --subsystem X --with-jury --confirm"}),
+]
+
+
+@pytest.mark.parametrize("exit_code,error_kind,context", HANDOFF_ERROR_KINDS)
+def test_handoff_error_kinds_no_unfilled_placeholders(exit_code, error_kind, context):
+    """spec §6.2 — 13 个 handoff_* error_kind 模板渲染无 {xxx} 残留"""
+    out = format_stderr_message(exit_code=exit_code, error_kind=error_kind, context=context)
+    import re
+    assert re.search(r"\{[a-zA-Z_]+\}", out) is None, f"unfilled placeholder in {error_kind}: {out!r}"
+    assert out.strip()
+
+
+@pytest.mark.parametrize("exit_code,error_kind,context", HANDOFF_ERROR_KINDS)
+def test_handoff_error_kinds_dispatch_complete(exit_code, error_kind, context):
+    """spec §6.2 — 用每个 error_kind 调 format_stderr_message，输出非 fallback 兜底"""
+    out = format_stderr_message(exit_code=exit_code, error_kind=error_kind, context=context)
+    assert f"（{error_kind}）" not in out, f"fell through to fallback for {error_kind}: {out!r}"
+
+
+def test_handoff_templates_no_secret_leakage():
+    """spec §5.3 — handoff_* 模板源码中无 api_key / base_url / model 字面量作为 placeholder"""
+    import inspect
+    from tools.jury import stderr_messages
+    src = inspect.getsource(stderr_messages.format_stderr_message)
+    for forbidden in ("{api_key}", "{base_url}", "{model}"):
+        assert forbidden not in src, f"forbidden placeholder {forbidden!r} found in format_stderr_message"

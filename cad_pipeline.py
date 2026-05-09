@@ -3899,6 +3899,8 @@ def cmd_photo3d_handoff(args):
             confirm=bool(getattr(args, "confirm", False)),
             provider_preset=getattr(args, "provider_preset", None),
             output_path=getattr(args, "output", None),
+            with_jury=bool(getattr(args, "with_jury", False)),  # v2.28.0
+            no_strict_jury=bool(getattr(args, "no_strict_jury", False)),  # v2.28.0
         )
     except (FileNotFoundError, OSError, ValueError) as exc:
         log.error("PHOTO3D_HANDOFF failed: %s", exc)
@@ -5174,6 +5176,16 @@ def main():
         "--output",
         default=None,
         help="PHOTO3D_HANDOFF.json output path (default: current run directory)",
+    )
+    p_photo3d_handoff.add_argument(
+        "--with-jury",
+        action="store_true",
+        help="run_enhancement 完成后串联 jury 自动验收 + enhance-review，一条命令跑闭环",
+    )
+    p_photo3d_handoff.add_argument(
+        "--no-strict-jury",
+        action="store_true",
+        help="jury preview/needs_review 时仅警告不阻断（不影响 jury 工具故障类）；默认 strict",
     )
 
     # photo3d-deliver：生成当前 run 的最终交付包

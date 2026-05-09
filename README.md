@@ -396,6 +396,18 @@ Labels are defined in `render_config.json`:
 - `labels` section: per-view coordinates for **visible** components only (occluded = not labeled)
 - Coordinates at 1920×1080 reference (configurable via `reference_resolution`), auto-scaled to actual image size
 
+### 一条命令跑完 photo3d 验收闭环（v2.28.0+）
+
+```bash
+# 第一步：预览（不执行；看下一步要跑什么）
+python cad_pipeline.py photo3d-handoff --subsystem lifting_platform --with-jury
+
+# 第二步：加 --confirm 实跑（触发 enhance + check + jury 自动验收 + enhance-review）
+python cad_pipeline.py photo3d-handoff --subsystem lifting_platform --with-jury --confirm
+```
+
+详细 flag 矩阵 / 故障恢复 / CI 集成示例见 `docs/cad-jury-config.md`。
+
 ## Adding a New Subsystem
 
 ### Option A: One-command scaffold (recommended)

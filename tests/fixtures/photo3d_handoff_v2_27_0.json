@@ -1,0 +1,25 @@
+{
+  "artifacts": {
+    "artifact_index": "cad/lifting_platform/.cad-spec-gen/ARTIFACT_INDEX.json",
+    "photo3d_handoff": "cad/lifting_platform/.cad-spec-gen/runs/20260509-120000/PHOTO3D_HANDOFF.json"
+  },
+  "confirmed": false,
+  "executed_action": null,
+  "followup_action": null,
+  "generated_at": "FROZEN",
+  "manual_action": null,
+  "ordinary_user_message": "已找到可交接的下一步；加 --confirm 后才会执行。",
+  "post_handoff_photo3d_run": null,
+  "run_id": "20260509-120000",
+  "schema_version": 1,
+  "selected_action": {
+    "argv": ["python", "cad_pipeline.py", "enhance", "--subsystem", "lifting_platform"],
+    "classification": "executable",
+    "kind": "run_enhancement",
+    "reason": ""
+  },
+  "source": "autopilot",
+  "source_report": "cad/lifting_platform/.cad-spec-gen/runs/20260509-120000/PHOTO3D_AUTOPILOT.json",
+  "status": "awaiting_confirmation",
+  "subsystem": "lifting_platform"
+}
