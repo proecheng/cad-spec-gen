@@ -160,13 +160,22 @@ reference_mode == "none":
 
 ### 实现注记
 
-- **跨视角 cost 累计**：cmd_enhance 在视角循环开始前实例化一个 `LoopBudget(cost_cap_usd, n_views)` 对象（位于 `tools/jury_loop/orchestrator.py` 内或独立 `budget.py`，单视角 hook 接收并 mutate）。每次进入 `run_loop_if_eligible` 传入该对象；orchestrator 在 [3] Gate-5 检查 `budget.spent + estimate(retry_cost) > budget.cap` → 接受 baseline；retry 跑通后 `budget.spent += actual_cost`。budget 对象同时累计 `extra_cost_usd` 写入最终 `loop_summary`。
-- **v1_anchor 路径传递**：现有 `cmd_enhance` 已有 `reference_mode=v1_anchor` 处理逻辑（在 enhance_image 调用处用 V1 enhanced 路径）。SP1 闭环不改 anchor 决议机制——只确保 V1 闭环跑完后，V1 final 路径写入 manifest/rc 后，cmd_enhance 进入 V2 时拿到的是更新后的 V1 final 路径。orchestrator 不直接持 anchor，由 cmd_enhance 读盘后传给 enhance_image。
-- **视角串行约束**：reference_mode=v1_anchor 时 cmd_enhance 视角循环必须串行（V1 hook 完才进 V2）；reference_mode=none 时可保留现有并行实现。
+- **跨视角 cost 累计 + 模块归属（M-1 + M-13）**：LoopBudget 提升为通用模块 `src/cad_spec_gen/data/python_tools/enhance_budget.py`（**不**放在 jury_loop 命名空间内），跨 SP1 / SP3 / 未来 SP 共享。
+  - 接口：`LoopBudget(cost_cap_usd: float, n_views: int)` 构造；`budget.estimate_remaining()` / `budget.try_spend(amount: float) -> bool`（原子操作，返 True=允许并扣减、False=超 cap） / `budget.spent: float` 只读属性。
+  - 线程安全：内部用 `threading.Lock` 保护 spent 的读-改-写。`reference_mode=none` 并行模式下多视角并发调 `try_spend` 仍正确（不会出现"两个视角各估算 spent + retry_cost < cap，都放行，实际合计超 cap"）。
+  - cmd_enhance 在视角循环开始前实例化，单视角 hook 接收对象引用并 mutate；写入最终 `loop_summary.extra_cost_usd`。
+  - **N-9 (retry 中途失败)**：retry HTTP 失败但 fal API 可能已扣费——`try_spend` 在 retry 调用**前**估算扣减；retry 失败时不退还（fal 已扣费实情）。spec 在 user_friendly_summary 解释"重试调用失败但仍可能产生 fal 端费用，请到 fal.ai dashboard 核对"。
+- **v1_anchor 路径传递（BL-4 hero_image 状态）**：现有 `cmd_enhance` 已有 `reference_mode=v1_anchor` 处理逻辑（在 enhance_image 调用处用 V1 enhanced 路径，局部变量 `hero_image`）。SP1 必须保证：
+  - V1 orchestrator 完成 [10] 重命名（pick → `V1_enhanced.jpg`）后，**立即**把最终交付路径写回 cmd_enhance 局部 `hero_image` 变量（通过返回值或共享 state 对象）；orchestrator 接口签名包含 `out_hero_image: list | None` 或返回 `(delivered_path: Path, ...)`，cmd_enhance 接收后赋值给 hero_image。
+  - 这样 V2 进入时的 anchor 永远指向 `V1_enhanced.jpg`（即用户最终拿到的 V1 张），不会错误地指向已被重命名/删除的 `V1_enhanced_baseline.jpg`。
+  - L2 测试覆盖：retry 成功后 V2 anchor 路径 == `V1_enhanced.jpg`（path equality assertion）；retry 失败回 baseline 后 V2 anchor 路径 == `V1_enhanced.jpg`（即 baseline 被重命名为 final 名）。
+- **视角串行约束**：reference_mode=v1_anchor 时 cmd_enhance 视角循环必须串行（V1 hook 完才进 V2）；reference_mode=none 时可保留现有并行实现，依赖 LoopBudget 线程锁。
 
 ## §4 配置 schema
 
-### 4.1 `pipeline_config.json` 新增段
+### 4.1 `pipeline_config.json` 新增段（M-5 中文化 + M-6 advanced 折叠 + M-8 显式数字）
+
+顶层只暴露 2 个 key（主开关 + 紧急刹车），其他高级项收进 `advanced` 子段，外行用户默认无需触碰。
 
 ```jsonc
 {
@@ -174,23 +183,40 @@ reference_mode == "none":
     "backend": "fal_comfy",
     // ... 既有 fal/fal_comfy/comfyui/gemini/engineering 段不变 ...
     "jury_loop": {
-      "_doc": "Jury → prompt 反馈闭环。仅 fal/fal_comfy backend 有效，其他 backend NO-OP。",
+      "_doc": "AI 评分反馈闭环：跑完一次后若分数低于阈值，自动重试一次更好的图。仅 fal/fal_comfy 后端启用，其他后端忽略。",
+
       "enabled": true,
-      "threshold": 75,
-      "_threshold_doc": "photoreal_score < threshold 才触发 retry。独立于 jury 顶层 min_photoreal_score（默认 60，决定 jury status accepted/preview）。65=低槛 / 75=默认 / 85=严苛。",
-      "max_retries": 1,
-      "cost_cap_usd": null,
-      "_cost_cap_doc": "null = 自动按 n_views×0.25 USD；显式数值则锁死该值。每次 retry 前累计估算超过即接受 baseline。",
-      "llm_fallback": true,
-      "_llm_fallback_doc": "rule_table 未命中的 tags 是否找 LLM 翻译；关闭则未命中即放弃 retry。",
-      "rule_table_path": null,
-      "_rule_table_path_doc": "null = 用内置 photoreal_v1.yaml；显式路径则在内置之上 merge 用户 yaml。",
-      "score_select_strategy": "pick_max_jury",
-      "_strategy_doc": "二轮如何选张：pick_max_jury（二轮 jury 选高分，C-3 决议）/ force_retry（不二轮强制 retry，cost-1 jury 但有降分风险）。"
+      "_enabled_doc": "总开关。true = 启用闭环 / false = 跑一次就交付。",
+
+      "cost_cap_usd": 1.5,
+      "_cost_cap_doc": "全口径预算上限（含重试 + 二轮评分 + AI 兜底翻译 token 费）。约 ¥10 人民币 / 单次跑全 5 视角；超额自动停。默认 1.5 = 5 视角×0.25 + 安全余量。如视角数明显不同，可手动调。",
+
+      "advanced": {
+        "_advanced_doc": "高级项，默认请勿动。仅当你明确知道在做什么再调。",
+
+        "threshold": 75,
+        "_threshold_doc": "photoreal_score < threshold 才触发 retry。独立于 jury 顶层 min_photoreal_score（默认 60，决定 jury 自身 accepted/preview status）。65=低槛 / 75=默认 / 85=严苛。",
+
+        "max_retries": 1,
+        "_max_retries_doc": "重试轮数上限。SP1 仅支持 1，多轮在后续版本探索。",
+
+        "llm_fallback": true,
+        "_llm_fallback_doc": "规则库未匹配的反馈词是否找 AI 翻译成提示词。关闭则未匹配即放弃重试。约 ¥0.05/视角额外 LLM token 费用，已计入 cost_cap_usd 预算。",
+
+        "rule_table_path": null,
+        "_rule_table_path_doc": "null = 用内置 photoreal_v1.yaml；显式路径则在内置之上 merge 用户 yaml。yaml schema_version 不匹配时直接报错（不静默丢弃用户规则）。",
+
+        "score_select_strategy": "pick_max_jury",
+        "_strategy_doc": "重试后挑哪张：pick_max_jury = 再评分一次挑高分图（推荐，更安全）/ force_retry = 直接用重试图（省一次评分费但可能更差）。SP3 多 sample 落地时会扩第三种 pick_best_of_n。",
+
+        "_protocol_note": "score_select_strategy 在实现层是可插拔 Strategy Protocol（不是固定 enum），新增策略只需注册新 Protocol 实现，不破现有契约。"
+      }
     }
   }
 }
 ```
+
+**配置项可见性约束**：顶层 `enabled` + `cost_cap_usd` 在 wizard 默认配置生成时显式写入；`advanced.*` 全部由 schema default 兜底，不写入用户 pipeline_config.json，仅当用户主动 override 时才出现。这样外行用户的 config 文件极简。
 
 ### 4.2 内置规则表 schema (`rules/photoreal_v1.yaml`)
 
@@ -263,14 +289,32 @@ tag_dictionary:
 
 ### 4.3 用户覆写 yaml 合并语义
 - 内置 `photoreal_v1.yaml` 永远先加载（schema_version=1 锁）
-- 用户 `enhance.jury_loop.rule_table_path` 指向的 yaml schema_version 必须 == 1，否则 warn + 仅用内置（C-1）
 - 合并语义：
   - `rules`：同 id → 用户替换内置；新 id → 追加；不允许删除内置 rule（用户想关闭某条 rule 应在 yaml 里 `rules: [{id: foo, _disabled: true}]`，spec v1 不实现 disabled，留 v2）
-  - `tag_dictionary`：同 tag key → 用户 patterns 追加（不替换）；新 tag key → 追加
+  - `tag_dictionary`：同 tag key → 用户 patterns 追加（不替换）；新 tag key → 追加；不对称设计的理由是"内置 patterns 是该 tag 的官方判定基线，用户应当扩展而非替换；tag 含义本身（key）才允许重定义"
+- **schema_version 不匹配处理（BL-5 hard fail）**：用户 yaml `schema_version` 缺失或非 `1` → orchestrator **直接 hard fail**（exit 非零 + stderr 错误信息），不静默回退；rationale：用户付费 retry 闭环若静默丢弃用户规则，相当于功能性静默失效，比启动失败更难发现
+- **schema_version 演进策略（BL-1 向前兼容降级）**：
+  - 引擎 vN 加载 yaml schema_version=M 的兼容矩阵：N == M → 全字段生效；N > M（旧 yaml 在新引擎下） → **未知字段忽略**，已知字段全生效，引擎仅写一行 info "用户 yaml 为旧版 schema vM，已按兼容模式加载"；N < M（新 yaml 在旧引擎下） → hard fail（同上）
+  - "v1 yaml 永远可被 vN 引擎加载"是不可破坏的契约——这意味着 v2 引擎对 yaml 新增字段必须是可选的（缺省值能 fall back 到 v1 行为），不允许"v2 必填字段"破坏 v1 yaml
+  - SP1 实现仅锁 schema_version=1；vN 引擎的扩展由 SP2+ 落地时引入，但策略约束在此 spec 锁死，避免 SP2 写代码时偷懒破契约
 
-### 4.4 sidecar metadata schema (A-3)
+- **param_overrides 结构与合并约束（M-11 + M-12）**：
+  - **结构**：`param_overrides[backend]` 必须是 **flat key-value dict**（一级），值类型限定为 `int | float | str | bool`。**禁止**嵌套 dict（如 `{"controlnet": {"weight": 0.8}}` 不被接受），避免浅合并 vs 深合并的歧义。yaml 加载时若发现嵌套 dict 值，hard fail（schema 校验阶段，不延迟到 runtime）
+  - **合并语义**：base_config[backend] 与 rule_overrides[backend] 浅合并（rule 赢），等价 `{**base, **override}`；多规则同时命中时按规则在 yaml 中的出现顺序后到先得
+  - **值范围校验**（M-12）：rule_table 加载时对已知 param key 做范围校验，超界处理：
+    - `*_strength`（如 canny_strength / depth_strength）：合法 [0.0, 1.0]，越界 → clamp 到边界 + sidecar.warnings[] 加一条 `param_clamped: <key>=<orig>→<clamped>`
+    - `cfg_scale`：合法 [1.0, 30.0]，越界 → clamp + warning
+    - `denoise_strength`：合法 [0.0, 1.0]，越界 → clamp + warning
+    - `steps`：合法 [1, 200]，越界 → clamp + warning
+    - 已知 key 但值类型错（如 `canny_strength: "high"`） → hard fail（schema 阶段）
+    - 未知 key（如 `bogus_param`） → 静默忽略 + sidecar.warnings[] 加 `unknown_param: <key>`（**不**走 clamp）
+  - 已知 key 列表 + 范围常量在 `tools/jury_loop/rule_table.py` 顶部 `KNOWN_PARAMS = {...}` 维护，schema 校验函数复用此常量
+
+### 4.4 sidecar metadata schema (A-3 + BL-2 + BL-3 + M-9)
 
 文件：`<render_dir>/<view>_enhance_meta.json`，永远写。
+
+**schema 演进策略（BL-2 additive-only）**：sidecar 字段集采用 additive-only 演进。SP1 锁 `$schema_version=1` 字段集见下；后续 SP2-5 仅追加新字段、不删除旧字段、不改字段类型。`$schema_version` 仅在引入"语义不向后兼容变更"时才升大版（v1→v2 实际 SP1-5 内可能永不发生）。**所有消费方（包括内部 orchestrator、photo3d_autopilot、外部解析器）必须容忍未知字段**——这是契约级约束，写进 spec 不允许打破。
 
 ```jsonc
 {
@@ -300,47 +344,92 @@ tag_dictionary:
   "prompt_addons_applied": ["matte metallic finish, anodized aluminum", "studio softbox lighting from left, fill light from right"],
   "param_overrides_applied": {"fal_comfy": {"denoise_strength": 0.45, "cfg_scale": 7.5}},
   "user_friendly_summary": "已自动重试 1 次，画面质感分数从 58 提升到 78（提升 20）。",  // D-1 中文
-  "score_delta": 20,                         // int，0 当无 retry；负值表示 retry 后降分被舍弃
+  "loop_status_zh": "重试成功，已交付重试图",  // BL-3 中文化 loop_status，与 4.6 enum 一一映射
+  "retry_score_delta": 20,                   // int，retry 跑通后 retry.score - baseline.score；可正/0/负；retry 未跑则为 null
+  "delivered_score_delta": 20,               // int，最终交付张相对 baseline 的净收益；永远 ≥ 0（pick_max_jury 保证）
   "extra_cost_usd": 0.18,                    // float，retry+二轮 jury 累计估算
-  "warnings": [],                            // list[str]，e.g. "unknown_param: fal_comfy.bogus_param"
-  "errors": []                               // list[str]，retry/jury 失败堆栈摘要
+  "warnings": [                              // list[str]，e.g. "unknown_param: fal_comfy.bogus_param"
+    /* "rule_table:user_yaml_ignored: schema mismatch v=2 != 1" 当 BL-5 hard fail 触发不会到这；但 5.11 unknown_param 仍走这里 */
+  ],
+  "errors": [                                // list[ErrorEntry]，retry/jury 失败堆栈摘要 + 用户操作提示
+    /* {
+      "code": "retry_http_timeout",
+      "message_summary": "fal API 调用超时（≤200 字堆栈摘要）",
+      "user_action_hint": "网络超时，请检查代理/重试一次；持续失败可调高 enhance.fal_comfy.timeout"
+    } */
+  ]
 }
 ```
 
 #### sidecar 在特殊状态下的形态约定
-- `loop_status == "loop_disabled"`：`loop_eligible=false` / `delivered_kind="baseline"` / `baseline.image_path` 是最终交付名（无 `_baseline` 后缀，因为没有备份文件）/ `retry=null` / `tags_parsed=[]` / `prompt_addons_applied=[]` / `extra_cost_usd=0` / `user_friendly_summary="该 backend 不支持闭环优化"`
-- `loop_status == "above_threshold"`：`delivered_kind="baseline"` / `baseline` 含完整 jury verdict / `retry=null` / `user_friendly_summary` 形如 "首轮分数 78 已达标，无需重试"
-- `loop_status == "delivered_retry"`：`delivered_kind="retry"` / `baseline` 与 `retry` 字段都有完整 verdict / `score_delta = retry.photoreal_score - baseline.photoreal_score`（必为正）
-- 其他 `delivered_baseline` 系列状态：`delivered_kind="baseline"` / `retry` 视乎是否跑通可能为 null 或带值（带值时 `score_delta` 可能为 0 或负，表示 retry 跑通但选 baseline）
+- `loop_status == "loop_disabled"`：`loop_eligible=false` / `delivered_kind="baseline"` / `baseline.image_path` 是最终交付名 `V<i>_enhanced.jpg`（N-1 决议：Gate-1/Gate-2 提前退出时直接重命名 `_baseline.jpg → _enhanced.jpg`，等同步骤 [10] 简化路径）/ `retry=null` / `tags_parsed=[]` / `prompt_addons_applied=[]` / `extra_cost_usd=0` / `retry_score_delta=null` / `delivered_score_delta=0` / `user_friendly_summary="该 backend 不支持闭环优化"`
+- `loop_status == "above_threshold"`：`delivered_kind="baseline"` / `baseline` 含完整 jury verdict / `retry=null` / `retry_score_delta=null` / `delivered_score_delta=0` / `user_friendly_summary` 形如 "首轮分数 78 已达标，无需重试"
+- `loop_status == "delivered_retry"`：`delivered_kind="retry"` / `baseline` 与 `retry` 字段都有完整 verdict / `retry_score_delta = retry.photoreal_score - baseline.photoreal_score`（必为正） / `delivered_score_delta = retry_score_delta`
+- `loop_status == "delivered_baseline"`（retry 跑通但 baseline 高分被选）：`delivered_kind="baseline"` / `baseline` + `retry` 都有 verdict / `retry_score_delta` 可能为 0 或负（实际收益） / `delivered_score_delta = 0`（最终交付的是 baseline）
+- 其他 `delivered_baseline` 系列（jury_unavailable / no_tags_parsed / cost_capped / retry_failed 等）：`delivered_kind="baseline"` / `retry=null`（retry 未跑） / `retry_score_delta=null` / `delivered_score_delta=0`
 
-字段保持可序列化稳定结构——下游解析 JSON Schema 锁字段集；缺省值统一用 `null`/`[]`/`0` 而非省略。
+字段保持可序列化稳定结构——下游解析按 additive-only 契约容忍未知字段；缺省值统一用 `null`/`[]`/`0` 而非省略。`retry_score_delta` 与 `delivered_score_delta` 双字段设计（M-9）：前者度量 retry 实际效果（可负，做后续优化数据），后者度量用户实际拿到的提升（永非负，进 loop_summary 平均）。
 
-### 4.5 `score_select_strategy` 语义（C-3 决议下展开）
+### 4.5 `score_select_strategy` 语义（C-3 决议 + M-2 可插拔 Protocol）
+
+#### 4.5.1 SP1 内置两种策略
 
 | 取值 | 流程 | 适用 |
 |---|---|---|
 | `pick_max_jury`（**默认**） | retry 跑完后**再**调 jury 一次（§3 [8]）；比较 baseline / retry 的 `photoreal_score`；选高分张。retry 平/降分时选 baseline（保守）；二轮 jury 失败时选 baseline。 | 推荐：付一次额外 jury 调用换"不会降分"安全网 |
 | `force_retry` | retry 跑完后**不**再调 jury（§3 [8] 跳过）；强制选 retry 张。仅当 retry 本身失败（HTTP/timeout）才回退 baseline。 | cost 极敏感场景；接受"偶发降分"风险 |
 
-二选一在 `pipeline_config.json` 的 `enhance.jury_loop.score_select_strategy` 设置。MEDIUM 起步默认即可，只在用户实测大量数据后才考虑切 force_retry。
+二选一在 `pipeline_config.json` 的 `enhance.jury_loop.advanced.score_select_strategy` 设置。MEDIUM 起步默认即可，只在用户实测大量数据后才考虑切 force_retry。
 
-### 4.6 `loop_status` enum (A-4)
+#### 4.5.2 实现：可插拔 Strategy Protocol（不是 enum）
 
+```python
+# tools/jury_loop/score_select.py
+from typing import Protocol, NamedTuple
+
+class CandidateImage(NamedTuple):
+    image_path: str
+    verdict: ViewVerdict | None  # None 表示尚未评分
+
+class SelectionResult(NamedTuple):
+    pick: CandidateImage
+    extra_jury_calls: int   # 0 = 不需要额外 jury 调用，1+ = 实际调用次数
+    rationale: str          # 用于 sidecar.user_friendly_summary 拼接
+
+class ScoreSelectStrategy(Protocol):
+    def select(self,
+               candidates: list[CandidateImage],
+               jury_callable: Callable[[str], ViewVerdict],
+               budget: LoopBudget) -> SelectionResult: ...
+
+# SP1 实现两个策略：
+class PickMaxJuryStrategy: ...      # 二张候选 + 二轮 jury
+class ForceRetryStrategy: ...        # 二张候选 + 不二轮 jury，强选 retry
+# SP3 落地时新增（不破契约）：
+# class PickBestOfNStrategy: ...     # N 张候选 + N-1 轮 jury，挑最高
 ```
-delivered_baseline      // 接受 baseline 交付（多种原因之一）
-delivered_retry         // retry 跑通且选中
-loop_disabled           // jury_loop.enabled=false 或 backend 不在 fal/fal_comfy
-above_threshold         // baseline score ≥ threshold，无需 retry
-cost_capped             // 累计成本超 cap
-no_tags_parsed          // jury reason 里没有任何已知 tag 关键词
-no_rules_hit_no_llm     // rule_table 全 miss 且 llm_fallback 关闭
-jury_unavailable        // jury subprocess 失败/网络
-empty_reason            // jury 返回但 reason 字段空
-llm_fallback_failed     // 规则表全 miss + LLM 调用失败
-retry_failed            // retry enhance 调用失败
-```
 
-固化含义：以 `delivered_` 前缀的两个是终态成功；其余皆"接受 baseline" 的具体原因细分。
+config 层 `score_select_strategy` 字符串 → Strategy 实例的注册表在 `score_select.py` 维护：`STRATEGY_REGISTRY: dict[str, type[ScoreSelectStrategy]]`。新增策略只需注册新 key，orchestrator 调用方代码不改。
+
+**SP3 兼容性约束**：`candidates: list[CandidateImage]` 设计为列表（不是 Tuple[base, retry]），SP3 多 sample 时直接传 N 张；SP1 始终传 2 张（baseline + retry）。这是 SP1 必须遵守的接口契约，不能为方便临时改成 2-tuple。
+
+### 4.6 `loop_status` enum (A-4 + BL-3 中文化)
+
+| enum (英文，写代码 / 测试用) | 中文 (写 sidecar.loop_status_zh / log 用) | 含义 |
+|---|---|---|
+| `delivered_baseline` | "已交付首轮图（多种原因之一）" | 接受 baseline 交付的统称（具体原因看 `loop_skipped_reason` 字段） |
+| `delivered_retry` | "重试成功，已交付重试图" | retry 跑通且二轮 jury 选中（pick_max_jury 模式） |
+| `loop_disabled` | "该 backend 不支持闭环优化" | jury_loop.enabled=false 或 backend 不在 fal/fal_comfy |
+| `above_threshold` | "首轮分数已达标，无需重试" | baseline score ≥ threshold |
+| `cost_capped` | "闭环预算耗尽，剩余视角接受首轮图" | 累计成本超 cap |
+| `no_tags_parsed` | "评分反馈未识别已知问题，接受首轮图" | jury reason 里没有任何已知 tag 关键词 |
+| `no_rules_hit_no_llm` | "规则库未匹配，AI 兜底已关闭，接受首轮图" | rule_table 全 miss 且 llm_fallback 关闭 |
+| `jury_unavailable` | "AI 评分不可用，接受首轮图" | jury subprocess 失败/网络/API key 失效 |
+| `empty_reason` | "AI 评分未返回反馈文本，接受首轮图" | jury 返回但 reason 字段空 |
+| `llm_fallback_failed` | "AI 兜底翻译失败，接受首轮图" | 规则表**全** miss + LLM 调用失败；规则表部分命中时 LLM 失败不阻断 retry，落 warnings[] |
+| `retry_failed` | "重试调用失败，接受首轮图" | retry enhance 调用 HTTP / timeout / 写文件冲突 |
+
+固化含义：以 `delivered_` 前缀的两个是终态成功；其余皆"接受 baseline" 的具体原因细分。所有 sidecar 写出时 `loop_status_zh` 必须按此表机器映射，禁止自由翻译。
 
 ## §5 错误处理（共性 + 详细列）
 
@@ -382,38 +471,58 @@ python -m tools.photo3d_jury --subsystem lifting_platform [其他 flags]
 # 评所有视角；输出 PHOTO3D_JURY_REPORT.json 到 render dir
 ```
 
-### 新增两个 flag
+### 新增两个 flag（M-3 batch / M-10 失败语义 / N-3 隐藏 help / N-8 LLM key）
 
 ```
-python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path>
-# --single-view <V>: 只评指定视角；
-# --image <path>:    覆盖该视角默认从 manifest 取的图片路径（必填于 --single-view 模式）；
-# 输出 stdout 一段 JSON（与 PHOTO3D_JURY_REPORT.json 中该视角子结构同 schema），不写盘。
+python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path1> [<path2> ...]
+# --single-view <V>:    只评指定视角；
+# --image PATH [PATH ...]: 待评图片路径，nargs='+' 支持 batch（M-3：SP3 多 sample 时一次评 N 张，
+#                          SP1 闭环传单张时 list 长度 = 1，行为不变）。
+# 输出 stdout 一段 JSON（list[ViewVerdict]，每张图一项），不写盘。
 ```
 
-输出 JSON 结构（与 ViewVerdict 一一对应）：
+#### 输出 JSON 结构（一张图为列表的一个元素）
+
 ```json
-{
-  "view": "V1",
-  "image_path": "V1_enhanced_baseline.jpg",
-  "verdict": "preview",
-  "photoreal_score": 58,
-  "semantic_checks": {
-    "geometry_preserved": true,
-    "material_consistent": true,
-    "photorealistic": false,
-    "no_extra_parts": true,
-    "no_missing_parts": true
-  },
-  "reason": "plastic look, flat lighting",
-  "parse_status": "ok",
-  "parse_anomalies": []
-}
+[
+  {
+    "view": "V1",
+    "image_path": "V1_enhanced_baseline.jpg",
+    "verdict": "preview",
+    "photoreal_score": 58,
+    "semantic_checks": {
+      "geometry_preserved": true,
+      "material_consistent": true,
+      "photorealistic": false,
+      "no_extra_parts": true,
+      "no_missing_parts": true
+    },
+    "reason": "plastic look, flat lighting",
+    "parse_status": "ok",
+    "parse_anomalies": []
+  }
+  // 多张时此处会有多个 dict
+]
 ```
 
-实现：在 `_build_parser` 加 `--single-view` `--image` 两 flag；`main()` 检测到 `--single-view` 时跳过 batch 全视角循环 + 跳过 PHOTO3D_JURY_REPORT.json 写盘；只跑该视角的 LLM 调用 + verdict 解析；将单视角 dict 序列化打到 stdout。`--image` 在 `--single-view` 模式下必填，否则 argparse error。
+#### CLI 失败语义契约（M-10）
+- 成功：`exit code = 0`，stdout 必须是合法 JSON list；stderr 仅写人类可读 log（不影响调用方解析）
+- 失败：`exit code != 0`，stderr 含错误信息；stdout **不**保证有合法 JSON（可能为空或 partial）
+- 调用方（orchestrator）对**任一**情况走 `loop_status = jury_unavailable`：
+  - `subprocess` 返非 0 exit code
+  - stdout 不是合法 JSON（`json.JSONDecodeError`）
+  - stdout JSON 非 list 或 list 长度 != len(--image)
+  - 任一元素的 `verdict` 是 "needs_review"（按 jury v2 spec 表示 LLM 解析失败）
 
-约束：`--single-view` 模式不参与 `--budget` / `--max-retries` 的 batch 累计统计（只跑一次 LLM 调用，cost 由调用方累计到 enhance 闭环的 `loop_summary.extra_cost_usd`）。
+#### 实现细节
+- 在 `_build_parser` 加 `--single-view` 和 `--image` 两 flag
+- 两个 flag 都用 `argparse.SUPPRESS` 隐藏 help 输出（**N-3**：外行用户不会误用）；保留功能但 help 里不展示
+- `main()` 检测到 `--single-view` 时跳过 batch 全视角循环 + 跳过 PHOTO3D_JURY_REPORT.json 写盘；遍历 `--image` 列表，每张图跑一次 LLM 调用 + verdict 解析；最后把 list[dict] 序列化打到 stdout
+- `--image` 在 `--single-view` 模式下必填（argparse `required` 配合自定义 validator）
+- LLM 调用复用 `tools/jury/llm_client.py` 的现有 client（**N-8 jury LLM key 来源**：与 batch 模式同 key 来源，从 jury config profile 读，不需要用户额外配 key；与 enhance backend 的 FAL_KEY 是**两个不同账户**，wizard 与文档需明示这点）
+
+#### 与 batch 模式 budget 解耦
+`--single-view` 模式不参与 batch 模式的 `--budget` / `--max-retries` 统计（batch 累计是 photo3d_jury 自己的预算守门）；闭环 cost 由调用方 (orchestrator) 通过 `LoopBudget` 累计到 `loop_summary.extra_cost_usd`。两套 budget 在 SP1 不互通；如果有需要后续 SP 可统一。
 
 输出 JSON 结构：
 ```json
@@ -433,12 +542,26 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path>
 
 ## §7 顶层报告 `loop_summary` （D-3）
 
-### ENHANCEMENT_REPORT.json 顶层加段：
+### ENHANCEMENT_REPORT.json 顶层加段（M-4 loop_type + M-7 headline 置顶）：
+
 ```json
 {
   // ... 现有字段不变 ...
   "loop_summary": {
     "$schema_version": 1,
+    "loop_type": "single_retry",
+    /* loop_type ∈ {"single_retry", "multi_sample"}；SP1 始终 "single_retry"；
+       SP3 多 sample 落地后会出 "multi_sample"。下游解析按 loop_type 分支字段。 */
+
+    /* —— M-7 headline：用户最关心的三数字置顶 —— */
+    "headline": {
+      "improved_views": 1,
+      "score_gain_total": 20,
+      "extra_cost_cny": 1.30
+    },
+    "user_friendly_summary": "5 视角中：3 张 baseline 接受（已达标）/ 1 张闭环成功（提升 20 分）/ 1 张 AI 评分不可用回退 baseline。本次额外花费约 ¥1.30。",
+
+    /* —— 详细统计字段（外行可不看） —— */
     "n_views": 5,
     "loop_eligible_views": 5,
     "delivered_baseline_count": 3,
@@ -447,12 +570,19 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path>
     "skipped_reasons": {"jury_unavailable": 1},
     "total_retries": 1,
     "extra_cost_usd": 0.18,
-    "score_delta_avg": 4.0,
-    "score_delta_total": 20,
-    "user_friendly_summary": "5 视角中：3 张 baseline 接受（已达标）/ 1 张闭环成功（提升 20 分）/ 1 张 jury 不可用回退 baseline。"
+    "score_gain_avg": 4.0,
+    "score_gain_total": 20
+
+    /* score_gain_* 字段统计的是 delivered_score_delta（永非负，反映用户实际拿到的提升），
+       不是 retry_score_delta（可负，retry 实际效果）。
+       后者保留在视角级 sidecar 里供数据分析用。 */
   }
 }
 ```
+
+**字段顺序约束**：JSON 字段在序列化时按上述顺序写出（用 dict / OrderedDict 保序）。`headline` + `user_friendly_summary` 紧随 `$schema_version` / `loop_type` 之后，确保用户打开文件第一屏就能看到三数字 + 中文摘要；详细统计后置。
+
+**人民币换算（M-8）**：`extra_cost_cny = round(extra_cost_usd * 7.2, 2)`（汇率常量在 `enhance_budget.py` 模块顶部，写明"近似换算，参考用，实际以服务商账单为准"）。汇率漂移随时调整不视为 schema 变更。
 
 ### CLI / log 末尾摘要
 跑完 enhance 后 log info 一行（D-5）：
@@ -536,15 +666,44 @@ CI 默认 skip L4；本地 `pytest --run-slow` 触发。
 
 | 子项目 | 不做的内容 | 理由 |
 |---|---|---|
-| SP2 | reference 图库 / IP-Adapter / Flux Kontext 接入 | 需先 SP1 提供质量度量基线 |
-| SP3 | 多 sample 并行 + jury 选最高 | 不抢 SP1 retry-once 决议；SP1 落地后用 jury_loop 数据评估是否升 |
+| SP2 | reference 图库 / IP-Adapter / Flux Kontext 接入 | 需先 SP1 提供质量度量基线；rule yaml schema 演进按 BL-1 约定（v1 yaml 永远可加载） |
+| SP3 | 多 sample 并行 + jury 选最高 | 不抢 SP1 retry-once 决议；SP3 应**复用** `rule_table.lookup()` 接口（`enhance_budget.LoopBudget`、`score_select.ScoreSelectStrategy`、`photo3d-jury --image nargs='+' batch` 三处 SP1 已预留 SP3 兼容点） |
 | SP4 | wizard 引导选 backend / 配 key / 跑试验图 | 装即用 gate 闭合，需 SP1-3 都稳 |
 | SP5 | LoRA 微调 | 需 SP3 累积训练数据 |
 
+### N-7 photo3d_autopilot 集成影响评估
+
+photo3d_autopilot 现有逻辑（`tools/photo3d_autopilot.py`）输出 `enhancement_status` 状态机（`accepted` / `preview` / `blocked` / `not_run` / `enhancement_blocked` / `enhancement_preview` / `enhancement_accepted`），输入读 ENHANCEMENT_REPORT.json。SP1 落地后影响：
+
+| autopilot 行为 | SP1 落地是否影响 | 处理 |
+|---|---|---|
+| 读 ENHANCEMENT_REPORT.json 顶层既有字段 | 不影响（additive-only，§4.4 约束） | 不改 autopilot |
+| `enhancement_status` 状态机决策逻辑 | 不影响（autopilot 不读 sidecar 也不读 loop_summary） | 不改 autopilot |
+| 用户报告 / "下一步" 推荐文案 | **建议**显示 loop_summary.headline 让用户看到提分数据 | SP1 内**可选**追加：autopilot 在 "enhancement_accepted" 路径输出文案前先读 loop_summary.headline 拼到推荐报告里。如果 SP1 时间紧，可以推迟到 SP4 wizard 工作时一起做（登记 §11 follow-up） |
+| budget / cost 跨 SP 协调 | 不影响（LoopBudget 跨 SP 共享但 autopilot 不参与 budget） | 不改 |
+
+**SP1 决议**：autopilot 读 loop_summary 的可选文案集成**推迟**到 SP4 wizard，本 spec 仅写入 §11 follow-up；**autopilot 状态机本身保持透明**（即 SP1 对 autopilot 是只追加不修改的扩展）。
+
 ## §11 后续 follow-up（spec 内不办）
 
-- 用户 yaml `_disabled: true` 关闭某条 rule（v1 不实现，v2 加）
+### 推迟到 v2 / SP1.5
+- 用户 yaml `_disabled: true` 关闭某条 rule（v1 不实现）
 - per-backend 不同 threshold（v1 单 threshold 全局；某些 backend 可能本身分数偏低，v2 可分）
 - 跨视角学习：V1 改善的 prompt 是否能直接用到 V2-V5 baseline（v2 探索）
 - 三轮 retry：实证 max_retries=2 收益是否值得（v2 + cost 数据驱动）
 - 用户 in-loop：jury 打分后弹 UI 让用户自选"接受 / 重试 / 切 backend"（v2，违反 SP1 自动定位）
+
+### 推迟到 SP4 wizard（用户友好性）
+- **N-2** 终端 log warn vs info 区分外行无感 → SP4 wizard 安装时统一为"X 视角未优化"风格的中文聚合 log
+- **N-5** llm_fallback 默认开但需在 wizard 提示用户"AI 兜底翻译会产生 token 费"（spec §4.1 _doc 已写但 wizard 引导更直观）
+- **N-7 后半** photo3d_autopilot 推荐报告读 loop_summary.headline 拼接（SP1 透明扩展，SP4 集成）
+
+### 推迟到数据驱动决策
+- **N-10** rule_table yaml 加载 cache：SP1 实现按"每次视角调用都重新加载"以保正确性；性能瓶颈实测后再加 module-level cache
+- **N-12** L4-1 deterministic：SP1 跑 10 次取均值的 smoke 是人工质量回归，不进 CI；后续若有 ground-truth 数据集则升 deterministic
+- **N-13** tag_dictionary vs rule 同 key 的"追加 vs 替换"不对称：spec §4.3 已加注释解释，是否升级为对称设计在大量用户反馈后再决
+- **N-14** rule_table 部分命中 + LLM fallback 失败的边界：spec §4.6 enum 表已加注释（部分命中时 LLM 失败不阻断 retry，落 warnings[]），仍可能在实施时发现细节遗漏
+
+### 实施期可能浮现
+- 某规则触发后 prompt 长度爆炸（拼太长 token 超限）→ 实施 fallback 截断策略
+- LLM fallback 返回有害词（注入 prompt 攻击）→ 沿用 jury reason 净化机制（reason_sanitized 的同款过滤器）
