@@ -243,6 +243,29 @@ def _next_action(
     render_dir = _render_dir_from_manifest_path(artifacts.get("render_manifest"))
     if not render_dir:
         raise ValueError("Photo3D autopilot cannot recommend enhancement without render_manifest")
+
+    # v2.29.0 A1.1: jury config 已配 → 推荐 photo3d-handoff --with-jury 一条龙；
+    # 否则 fallback enhance（spec §3.4 inv 6 + §6.3）
+    if _jury_config_available():
+        jury_argv = [
+            "python",
+            "cad_pipeline.py",
+            "photo3d-handoff",
+            "--subsystem",
+            subsystem,
+            "--with-jury",
+            "--confirm",
+        ]
+        jury_action: dict[str, Any] = {
+            "kind": "run_handoff_with_jury",
+            "requires_user_confirmation": False,
+            "argv": jury_argv,
+        }
+        if _safe_cli_token(subsystem):
+            jury_action["cli"] = " ".join(jury_argv)
+        return ("ready_for_enhancement", jury_action)
+
+    # 现有 enhance 路径（v2.27.0 行为不变）
     argv = ["python", "cad_pipeline.py", "enhance", "--subsystem", subsystem]
     argv.extend(["--dir", render_dir])
     action = {
