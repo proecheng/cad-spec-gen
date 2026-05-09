@@ -10,6 +10,7 @@
 本函数只做纯校验 + freeze；lock 由 cli 顶层 contextmanager 管理；
 JuryLockBusy 在此重导出仅作类型/异常路径稳定性占位。
 """
+
 from __future__ import annotations
 
 import json
@@ -130,7 +131,9 @@ def run_layer0(
 
     views_obj = report.get("views", [])
     views: list[dict[str, Any]] = (
-        [v for v in views_obj if isinstance(v, dict)] if isinstance(views_obj, list) else []
+        [v for v in views_obj if isinstance(v, dict)]
+        if isinstance(views_obj, list)
+        else []
     )
     if not views:
         blocking.append({"code": "views_empty"})

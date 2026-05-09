@@ -1,4 +1,5 @@
 """中文人话提示模板覆盖测试 — 每 exit code × status 都填 placeholder 实际值。"""
+
 from __future__ import annotations
 
 from tools.jury.stderr_messages import format_stderr_message

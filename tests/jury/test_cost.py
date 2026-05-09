@@ -1,9 +1,10 @@
 """tools/jury/cost.py — 预估 + budget 守门 + cost=0 警告。"""
+
 from __future__ import annotations
 
 import pytest
 
-from tools.jury.cost import CostDecision, compute_cost_decision
+from tools.jury.cost import compute_cost_decision
 
 
 def test_estimate_under_budget_no_confirm() -> None:

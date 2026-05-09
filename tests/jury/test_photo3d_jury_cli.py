@@ -1,4 +1,5 @@
 """cli 薄壳测试 — argparse + exit code + stderr 中文 + 主流程串联 (Tasks 17+18, 6 case)。"""
+
 from __future__ import annotations
 
 import json
@@ -17,16 +18,25 @@ def _write_jury_config(home: Path, cost_per_call: float = 0.005) -> Path:
     """
     cfg = home / ".claude" / "cad_jury_config.json"
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({
-        "schema_version": 1,
-        "active_profile_id": "main",
-        "profiles": [{
-            "id": "main", "kind": "openai_compat",
-            "api_base_url": "https://api.example.com/v1",
-            "api_key": "dummy-not-a-real-key",
-            "model": "gpt-4o", "cost_per_call_usd": cost_per_call,
-        }],
-    }), encoding="utf-8")
+    cfg.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "active_profile_id": "main",
+                "profiles": [
+                    {
+                        "id": "main",
+                        "kind": "openai_compat",
+                        "api_base_url": "https://api.example.com/v1",
+                        "api_key": "dummy-not-a-real-key",
+                        "model": "gpt-4o",
+                        "cost_per_call_usd": cost_per_call,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     return cfg
 
 
@@ -45,21 +55,37 @@ def project_root_with_run(tmp_path: Path) -> Path:
     render_dir = tmp_path / "cad" / "output" / "renders" / sub / run_id
     render_dir.mkdir(parents=True)
     (render_dir / "iso_enhanced.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000)
-    (render_dir / "front_enhanced.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000)
+    (render_dir / "front_enhanced.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000
+    )
 
-    rm = json.loads((fixtures / "sample_render_manifest.json").read_text(encoding="utf-8"))
-    er = json.loads((fixtures / "sample_enhancement_report.json").read_text(encoding="utf-8"))
+    rm = json.loads(
+        (fixtures / "sample_render_manifest.json").read_text(encoding="utf-8")
+    )
+    er = json.loads(
+        (fixtures / "sample_enhancement_report.json").read_text(encoding="utf-8")
+    )
     for v in er["views"]:
-        v["enhanced_image"] = f"cad/output/renders/{sub}/{run_id}/{v['view']}_enhanced.png"
+        v["enhanced_image"] = (
+            f"cad/output/renders/{sub}/{run_id}/{v['view']}_enhanced.png"
+        )
     (render_dir / "render_manifest.json").write_text(json.dumps(rm), encoding="utf-8")
-    (render_dir / "ENHANCEMENT_REPORT.json").write_text(json.dumps(er), encoding="utf-8")
+    (render_dir / "ENHANCEMENT_REPORT.json").write_text(
+        json.dumps(er), encoding="utf-8"
+    )
 
-    ai = json.loads((fixtures / "sample_artifact_index.json").read_text(encoding="utf-8"))
-    (run_dir.parent.parent / "ARTIFACT_INDEX.json").write_text(json.dumps(ai), encoding="utf-8")
+    ai = json.loads(
+        (fixtures / "sample_artifact_index.json").read_text(encoding="utf-8")
+    )
+    (run_dir.parent.parent / "ARTIFACT_INDEX.json").write_text(
+        json.dumps(ai), encoding="utf-8"
+    )
     return tmp_path
 
 
-def test_missing_subsystem_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_subsystem_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """无 --subsystem 立即退 2（在 list-profiles 检查之后）。"""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
@@ -68,7 +94,9 @@ def test_missing_subsystem_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert code == 2
 
 
-def test_config_missing_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_missing_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """无 jury 配置文件 → exit 2 + config_missing。"""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
@@ -101,15 +129,23 @@ def test_dry_run_no_writes(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_jury_config(tmp_path)
-    code = main([
-        "--subsystem", "lifting_platform",
-        "--project-root", str(project_root_with_run),
-        "--dry-run",
-    ])
+    code = main(
+        [
+            "--subsystem",
+            "lifting_platform",
+            "--project-root",
+            str(project_root_with_run),
+            "--dry-run",
+        ]
+    )
     assert code == 0
     run_dir = (
-        project_root_with_run / "cad" / "lifting_platform"
-        / ".cad-spec-gen" / "runs" / "20260508-123456"
+        project_root_with_run
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
+        / "20260508-123456"
     )
     assert not (run_dir / "PHOTO3D_JURY_REPORT.json").exists()
 
@@ -123,11 +159,15 @@ def test_input_evidence_error_exits_1(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _write_jury_config(tmp_path)
-    code = main([
-        "--subsystem", "wrong_subsystem",
-        "--project-root", str(project_root_with_run),
-        "--dry-run",
-    ])
+    code = main(
+        [
+            "--subsystem",
+            "wrong_subsystem",
+            "--project-root",
+            str(project_root_with_run),
+            "--dry-run",
+        ]
+    )
     assert code == 1
 
 
@@ -139,10 +179,16 @@ def test_cost_over_budget_no_confirm_exits_3(
     """高 cost 触发超 budget；dry-run 仍走 cost gate；无 --confirm-cost → exit 3。"""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    _write_jury_config(tmp_path, cost_per_call=1.0)  # 2 视角 × 1.0 = 2.0 USD > 默认 budget 0.1
-    code = main([
-        "--subsystem", "lifting_platform",
-        "--project-root", str(project_root_with_run),
-        "--dry-run",
-    ])
+    _write_jury_config(
+        tmp_path, cost_per_call=1.0
+    )  # 2 视角 × 1.0 = 2.0 USD > 默认 budget 0.1
+    code = main(
+        [
+            "--subsystem",
+            "lifting_platform",
+            "--project-root",
+            str(project_root_with_run),
+            "--dry-run",
+        ]
+    )
     assert code == 3

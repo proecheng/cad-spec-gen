@@ -139,6 +139,8 @@ jobs:
         run: pip install "mypy>=1.10"
       - name: Run mypy strict on sw_config_broker.py (T18 等价 — 当前模块必 pass)
         run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py
+      - name: Run mypy strict on tools/jury (Tasks 25+27 — photo3d jury 模块必 pass)
+        run: mypy --strict tools/jury tools/photo3d_jury.py tools/_file_lock.py
       - name: Verify mypy fixture catches type errors (T17 等价 — gate 漂移防御)
         # 故意类型错的 fixture 必让 mypy fail。如果 fixture 通过 = gate 配置
         # 漂移（strict=false / exclude broker / 等），CI 立即 fail 提示修复。

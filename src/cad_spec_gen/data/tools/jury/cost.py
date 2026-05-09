@@ -1,4 +1,5 @@
 """budget 计算 + 阈值比较 + cost=0 警告。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

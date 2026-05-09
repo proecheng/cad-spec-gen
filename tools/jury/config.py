@@ -2,6 +2,7 @@
 
 不发 HTTP / 不读图 / 解析后立即丢 raw dict 防 key 通过返回值泄漏。
 """
+
 from __future__ import annotations
 
 import json
@@ -67,7 +68,9 @@ def load_jury_config(config_path: Path) -> tuple[JuryProfile, JuryCaps]:
 
     schema_version = raw.get("schema_version")
     if schema_version not in {1, 2}:
-        raise JuryConfigSchemaError(f"schema_version={schema_version} 不被支持（仅 1 或 2）")
+        raise JuryConfigSchemaError(
+            f"schema_version={schema_version} 不被支持（仅 1 或 2）"
+        )
     if schema_version == 2:
         sys.stderr.write(
             "警告：本 jury 版本是 v1，忽略 schema_version=2 中的未知字段。\n"
@@ -156,13 +159,17 @@ def _parse_caps(raw: dict[str, object]) -> JuryCaps:
     max_n_views = raw.get("max_n_views", _DEFAULT_MAX_N_VIEWS)
     min_photoreal_score = raw.get("min_photoreal_score", _DEFAULT_MIN_PHOTOREAL_SCORE)
 
-    if not isinstance(max_image_bytes, int) or not (1024 <= max_image_bytes <= (1 << 30)):
+    if not isinstance(max_image_bytes, int) or not (
+        1024 <= max_image_bytes <= (1 << 30)
+    ):
         raise JuryConfigSchemaError(
             f"max_image_bytes={max_image_bytes} 必须 int [1024, 1<<30]"
         )
     if not isinstance(max_n_views, int) or not (1 <= max_n_views <= 1024):
         raise JuryConfigSchemaError(f"max_n_views={max_n_views} 必须 int [1, 1024]")
-    if not isinstance(min_photoreal_score, int) or not (0 <= min_photoreal_score <= 100):
+    if not isinstance(min_photoreal_score, int) or not (
+        0 <= min_photoreal_score <= 100
+    ):
         raise JuryConfigSchemaError(
             f"min_photoreal_score={min_photoreal_score} 必须 int [0, 100]"
         )

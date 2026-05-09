@@ -7,6 +7,7 @@
 - redact_body：超过 max_chars 截断并加 '...truncated' 标记，不做 body 内语义剥离。
 - redact_traceback_str：从 traceback 字符串去 frame locals 含 api_key= / Bearer / Cookie 的整行。
 """
+
 from __future__ import annotations
 
 import re

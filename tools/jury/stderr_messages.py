@@ -6,6 +6,7 @@
 调用方应保证 ``context`` 中含模板所需键；缺键时使用空字符串/0 作为安全 fallback，
 但任何 placeholder 名（如 ``fallback_id``）不应出现在最终输出。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -97,9 +98,7 @@ def format_stderr_message(
             )
         if error_kind == "config_missing":
             path = context.get("config_path", "~/.claude/cad_jury_config.json")
-            return (
-                f"✗ 未找到 jury 配置文件 {path}。最小配置示例见 docs/cad-jury-config.md。"
-            )
+            return f"✗ 未找到 jury 配置文件 {path}。最小配置示例见 docs/cad-jury-config.md。"
         return f"✗ 配置错（{error_kind}）。详见 docs/cad-jury-config.md。"
 
     if exit_code == 3:
@@ -131,4 +130,6 @@ def format_stderr_message(
             "请提 issue 附 PHOTO3D_JURY_REPORT.json + 命令行参数（api_key 已 redact）。"
         )
 
-    return f"jury 已退出 (exit_code={exit_code}, status={status}, error_kind={error_kind})"
+    return (
+        f"jury 已退出 (exit_code={exit_code}, status={status}, error_kind={error_kind})"
+    )

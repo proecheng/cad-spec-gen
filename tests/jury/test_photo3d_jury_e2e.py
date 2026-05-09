@@ -5,6 +5,7 @@ Tasks 19+20+21 合并：
 - Task 20: 失败路径 1 视角 401 / 低 score / blocked (3 case)
 - Task 21: 重跑归档 / --force 固定后缀 (2 case)
 """
+
 from __future__ import annotations
 
 import io
@@ -77,9 +78,7 @@ def _ok_response_iter(views: list[str]) -> Any:
 
 
 @pytest.fixture
-def jury_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Path:
+def jury_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """完整 jury 测试环境：HOME / config / project_root + active_run。
 
     e2e 显式 opt-in：清掉 conftest autouse 的 CAD_JURY_DISABLE_LLM 让 mock urlopen 真触发。
@@ -118,9 +117,7 @@ def jury_env(
     run_dir.mkdir(parents=True)
     render_dir = tmp_path / "cad" / "output" / "renders" / sub / run_id
     render_dir.mkdir(parents=True)
-    (render_dir / "iso_enhanced.png").write_bytes(
-        b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000
-    )
+    (render_dir / "iso_enhanced.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000)
     (render_dir / "front_enhanced.png").write_bytes(
         b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000
     )
@@ -135,9 +132,7 @@ def jury_env(
         v["enhanced_image"] = (
             f"cad/output/renders/{sub}/{run_id}/{v['view']}_enhanced.png"
         )
-    (render_dir / "render_manifest.json").write_text(
-        json.dumps(rm), encoding="utf-8"
-    )
+    (render_dir / "render_manifest.json").write_text(json.dumps(rm), encoding="utf-8")
     (render_dir / "ENHANCEMENT_REPORT.json").write_text(
         json.dumps(er), encoding="utf-8"
     )
@@ -170,7 +165,11 @@ def test_full_happy_path_writes_two_reports(jury_env: Path) -> None:
         )
     assert code == 0
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
     rep_path = run_dir / "PHOTO3D_JURY_REPORT.json"
@@ -200,7 +199,11 @@ def test_api_key_not_in_report(jury_env: Path) -> None:
             ]
         )
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
     rep = (run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8")
@@ -235,9 +238,10 @@ def test_one_view_401_overall_needs_review(jury_env: Path) -> None:
             raise c
         return c
 
-    with patch(
-        "tools.jury.llm_client.urlopen", side_effect=side_effect
-    ), patch("tools.jury.llm_client.time.sleep"):
+    with (
+        patch("tools.jury.llm_client.urlopen", side_effect=side_effect),
+        patch("tools.jury.llm_client.time.sleep"),
+    ):
         code = main(
             [
                 "--subsystem",
@@ -248,16 +252,16 @@ def test_one_view_401_overall_needs_review(jury_env: Path) -> None:
         )
     assert code == 0
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
-    rep = json.loads(
-        (run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8")
-    )
+    rep = json.loads((run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8"))
     assert rep["status"] == "needs_review"
-    assert any(
-        v["llm_meta"]["error_kind"] == "auth_failed" for v in rep["views"]
-    )
+    assert any(v["llm_meta"]["error_kind"] == "auth_failed" for v in rep["views"])
     assert not (run_dir / "jury_review_input.json").exists()
 
 
@@ -338,12 +342,14 @@ def test_low_score_overall_preview(jury_env: Path) -> None:
         )
     assert code == 0
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
-    rep = json.loads(
-        (run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8")
-    )
+    rep = json.loads((run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8"))
     assert rep["status"] == "preview"
     assert not (run_dir / "jury_review_input.json").exists()
 
@@ -393,13 +399,15 @@ def test_rerun_archives_existing_report(jury_env: Path) -> None:
             ]
         )
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
     archived = list(run_dir.glob("PHOTO3D_JURY_REPORT.20*Z.*.json"))
-    assert len(archived) >= 1, (
-        f"应有归档文件，实际: {list(run_dir.iterdir())}"
-    )
+    assert len(archived) >= 1, f"应有归档文件，实际: {list(run_dir.iterdir())}"
     # 归档名无冒号（Windows NTFS 兼容）
     assert ":" not in archived[0].name
     # 新报告仍存在
@@ -436,7 +444,11 @@ def test_force_archives_with_fixed_suffix(jury_env: Path) -> None:
             ]
         )
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
     assert (run_dir / "PHOTO3D_JURY_REPORT.forced.json").exists()
@@ -470,15 +482,17 @@ def test_jury_review_input_feeds_enhance_review(jury_env: Path) -> None:
         )
     assert code == 0
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
     review_input_path = run_dir / "jury_review_input.json"
     assert review_input_path.exists()
 
-    review_input = json.loads(
-        review_input_path.read_text(encoding="utf-8")
-    )
+    review_input = json.loads(review_input_path.read_text(encoding="utf-8"))
 
     # enhance-review 兼容 schema：顶层
     assert review_input["schema_version"] == 1
@@ -537,9 +551,10 @@ def test_needs_review_no_review_input_writes(jury_env: Path) -> None:
             raise c
         return c
 
-    with patch(
-        "tools.jury.llm_client.urlopen", side_effect=side_effect
-    ), patch("tools.jury.llm_client.time.sleep"):
+    with (
+        patch("tools.jury.llm_client.urlopen", side_effect=side_effect),
+        patch("tools.jury.llm_client.time.sleep"),
+    ):
         main(
             [
                 "--subsystem",
@@ -549,11 +564,13 @@ def test_needs_review_no_review_input_writes(jury_env: Path) -> None:
             ]
         )
     run_dir = (
-        jury_env / "cad" / "lifting_platform" / ".cad-spec-gen" / "runs"
+        jury_env
+        / "cad"
+        / "lifting_platform"
+        / ".cad-spec-gen"
+        / "runs"
         / "20260508-123456"
     )
-    rep = json.loads(
-        (run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8")
-    )
+    rep = json.loads((run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8"))
     assert rep["status"] == "needs_review"
     assert not (run_dir / "jury_review_input.json").exists()

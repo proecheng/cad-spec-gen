@@ -10,6 +10,7 @@
   401/403/402/400 立即 fail-fast；max_retries 默认 2（共 3 次尝试）。
 - vendor_request_id 优先 header（x-request-id / openai-request-id / request-id），其次 body.id。
 """
+
 from __future__ import annotations
 
 import base64
@@ -96,9 +97,7 @@ def request_jury_verdict(
                         {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{b64}"
-                            },
+                            "image_url": {"url": f"data:image/png;base64,{b64}"},
                         },
                     ],
                 }
@@ -156,9 +155,7 @@ def _do_request(req: Request, attempt: int, start: float) -> LlmResponse:
             or resp.headers.get("openai-request-id")
             or resp.headers.get("request-id")
         )
-        vendor_id: Optional[str] = (
-            hdr_id if hdr_id else vendor_id_body
-        )
+        vendor_id: Optional[str] = hdr_id if hdr_id else vendor_id_body
         latency_ms = int((time.time() - start) * 1000)
         return LlmResponse(
             content_text=content_text,

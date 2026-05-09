@@ -8,6 +8,7 @@
 - finish_reason ∉ {"stop", None} → parse_anomalies "finish_reason_invalid" + needs_review。
 - 决策白名单：parse_anomalies ⊆ {reason_sanitized, clamped} 时仍走 5 bool + score 阈值正常路径。
 """
+
 from __future__ import annotations
 
 import json

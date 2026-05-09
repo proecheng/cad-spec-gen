@@ -15,6 +15,7 @@
    10) 写 PHOTO3D_JURY_REPORT.json + (accepted) jury_review_input.json
    11) 异常兜底（JuryDisabledByEnv / JuryLockBusy / 其它 → 99 + redact_traceback）
 """
+
 from __future__ import annotations
 
 import argparse
@@ -127,9 +128,7 @@ def _archive_existing_report(report_path: Path, force: bool) -> None:
     report_path.replace(archived)
 
 
-def _decide_status(
-    layer1_pass: bool, view_verdicts: list[dict[str, Any]]
-) -> str:
+def _decide_status(layer1_pass: bool, view_verdicts: list[dict[str, Any]]) -> str:
     """整体 status 决策（layer 0 已 pass 前提下）。
 
     层 1 fail → preview；任一视角 needs_review → needs_review；
@@ -220,14 +219,16 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             project_root=project_root, subsystem=args.subsystem, caps=caps
         )
         if not layer0.passed:
-            sys.stderr.write(
-                f"✗ Layer 0 blocked: {layer0.blocking_reasons}\n"
-            )
+            sys.stderr.write(f"✗ Layer 0 blocked: {layer0.blocking_reasons}\n")
             return 1
 
         run_dir = (
-            project_root / "cad" / args.subsystem / ".cad-spec-gen"
-            / "runs" / layer0.frozen_run_id
+            project_root
+            / "cad"
+            / args.subsystem
+            / ".cad-spec-gen"
+            / "runs"
+            / layer0.frozen_run_id
         )
         report_path = run_dir / "PHOTO3D_JURY_REPORT.json"
 
@@ -245,9 +246,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
         )
 
         if args.dry_run:
-            print(
-                f"[dry-run] estimated={cd.estimated_usd} USD, allowed={cd.allowed}"
-            )
+            print(f"[dry-run] estimated={cd.estimated_usd} USD, allowed={cd.allowed}")
             return 0 if cd.allowed else 3
 
         if not cd.allowed:
@@ -289,54 +288,63 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                             max_retries=args.max_retries,
                         )
                         actual_cost += (
-                            (profile.cost_per_call_usd or 0.0) * resp.attempts
-                        )
+                            profile.cost_per_call_usd or 0.0
+                        ) * resp.attempts
                         n_retries_total += resp.attempts - 1
                         vv = parse_view_verdict(
                             resp.content_text,
                             finish_reason=resp.finish_reason or "stop",
                             min_photoreal_score=caps.min_photoreal_score,
                         )
-                        view_verdicts.append({
-                            "view": view_name,
-                            "verdict": vv.verdict,
-                            "semantic_checks": vv.semantic_checks,
-                            "photoreal_score": vv.photoreal_score,
-                            "reason": vv.reason,
-                            "llm_meta": {
-                                "http_status": resp.http_status,
-                                "attempts": resp.attempts,
-                                "latency_ms": resp.latency_ms,
-                                "parse_status": vv.parse_status,
-                                "parse_anomalies": vv.parse_anomalies,
-                                "error_kind": None,
-                                "vendor_request_id": resp.vendor_request_id,
-                            },
-                        })
+                        view_verdicts.append(
+                            {
+                                "view": view_name,
+                                "verdict": vv.verdict,
+                                "semantic_checks": vv.semantic_checks,
+                                "photoreal_score": vv.photoreal_score,
+                                "reason": vv.reason,
+                                "llm_meta": {
+                                    "http_status": resp.http_status,
+                                    "attempts": resp.attempts,
+                                    "latency_ms": resp.latency_ms,
+                                    "parse_status": vv.parse_status,
+                                    "parse_anomalies": vv.parse_anomalies,
+                                    "error_kind": None,
+                                    "vendor_request_id": resp.vendor_request_id,
+                                },
+                            }
+                        )
                     except JuryLlmError as exc:
                         # 失败也保守计 1 次成本（vendor 通常已计费）
                         actual_cost += profile.cost_per_call_usd or 0.0
-                        view_verdicts.append({
-                            "view": view_name,
-                            "verdict": "needs_review",
-                            "semantic_checks": {},
-                            "photoreal_score": 0,
-                            "reason": "",
-                            "llm_meta": {
-                                "http_status": exc.http_status,
-                                "attempts": 1,
-                                "latency_ms": 0,
-                                "parse_status": "ok",
-                                "parse_anomalies": [],
-                                "error_kind": exc.error_kind,
-                                "vendor_request_id": None,
-                            },
-                        })
+                        view_verdicts.append(
+                            {
+                                "view": view_name,
+                                "verdict": "needs_review",
+                                "semantic_checks": {},
+                                "photoreal_score": 0,
+                                "reason": "",
+                                "llm_meta": {
+                                    "http_status": exc.http_status,
+                                    "attempts": 1,
+                                    "latency_ms": 0,
+                                    "parse_status": "ok",
+                                    "parse_anomalies": [],
+                                    "error_kind": exc.error_kind,
+                                    "vendor_request_id": None,
+                                },
+                            }
+                        )
 
         # === 写报告前 sha256 重读校验 ENHANCEMENT_REPORT.json ===
         er_path = (
-            project_root / "cad" / "output" / "renders" / args.subsystem
-            / layer0.frozen_run_id / "ENHANCEMENT_REPORT.json"
+            project_root
+            / "cad"
+            / "output"
+            / "renders"
+            / args.subsystem
+            / layer0.frozen_run_id
+            / "ENHANCEMENT_REPORT.json"
         )
         new_sha = file_sha256(er_path)
         sha_drift = new_sha != layer0.frozen_sha256.get("enhancement_report")
@@ -361,9 +369,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             ),
             "next_step": "",
             "source_reports": {
-                "render_manifest": (
-                    layer0.frozen_report.get("render_manifest") or ""
-                ),
+                "render_manifest": (layer0.frozen_report.get("render_manifest") or ""),
                 "render_manifest_sha256": layer0.frozen_sha256.get(
                     "render_manifest", ""
                 ),
@@ -382,9 +388,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                 "budget_per_run_usd": args.budget,
                 "min_photoreal_score": caps.min_photoreal_score,
                 "n_views": n_views,
-                "n_calls": sum(
-                    int(v["llm_meta"]["attempts"]) for v in view_verdicts
-                ),
+                "n_calls": sum(int(v["llm_meta"]["attempts"]) for v in view_verdicts),
                 "n_retries_total": n_retries_total,
                 "max_image_bytes": caps.max_image_bytes,
                 "max_n_views": caps.max_n_views,
@@ -399,9 +403,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                 "per_view_failures": layer1.per_view_failures,
             },
             "views": view_verdicts,
-            "blocking_reasons": (
-                [{"code": "freeze_drift"}] if sha_drift else []
-            ),
+            "blocking_reasons": ([{"code": "freeze_drift"}] if sha_drift else []),
         }
         write_json_atomic(report_path, report)
 

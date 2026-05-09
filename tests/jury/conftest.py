@@ -1,5 +1,6 @@
 # tests/jury/conftest.py
 """tests/jury/ 子树 autouse 配置：默认禁用真实 LLM 调用 + 提供 dummy fixture key。"""
+
 from __future__ import annotations
 
 import pytest

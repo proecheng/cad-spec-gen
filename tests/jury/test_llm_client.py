@@ -1,4 +1,5 @@
 """LLM HTTP 调用 + 重试 + redact + kill switch + vendor_request_id 提取 (13 case)。"""
+
 from __future__ import annotations
 
 import io
@@ -47,9 +48,7 @@ def _mock_response(
         body
         or {
             "id": "chatcmpl-Abc",
-            "choices": [
-                {"message": {"content": "{}"}, "finish_reason": "stop"}
-            ],
+            "choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}],
         }
     ).encode("utf-8")
     resp.headers = headers or {
@@ -79,9 +78,7 @@ def test_200_happy_returns_llm_response(
 ) -> None:
     with patch("tools.jury.llm_client.urlopen") as m:
         m.return_value = _make_cm(_mock_response())
-        resp = request_jury_verdict(
-            profile=profile, image_path=fake_image, prompt="x"
-        )
+        resp = request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
     assert isinstance(resp, LlmResponse)
     assert resp.http_status == 200
     assert resp.attempts == 1
@@ -119,9 +116,7 @@ def test_disable_llm_does_not_call_urlopen(
     monkeypatch.setenv("CAD_JURY_DISABLE_LLM", "1")
     with patch("tools.jury.llm_client.urlopen") as m:
         with pytest.raises(JuryDisabledByEnv):
-            request_jury_verdict(
-                profile=profile, image_path=fake_image, prompt="x"
-            )
+            request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
         m.assert_not_called()
 
 
@@ -132,7 +127,11 @@ def test_429_retries_then_succeeds(
     from urllib.error import HTTPError
 
     err_429 = HTTPError(
-        url="x", code=429, msg="too many", hdrs={}, fp=io.BytesIO(b"")  # type: ignore[arg-type]
+        url="x",
+        code=429,
+        msg="too many",
+        hdrs={},
+        fp=io.BytesIO(b""),  # type: ignore[arg-type]
     )
     ok = _make_cm(_mock_response())
     iterator = iter([err_429, ok])
@@ -143,8 +142,9 @@ def test_429_retries_then_succeeds(
             raise item
         return item
 
-    with patch("tools.jury.llm_client.urlopen", side_effect=side_effect), patch(
-        "tools.jury.llm_client.time.sleep"
+    with (
+        patch("tools.jury.llm_client.urlopen", side_effect=side_effect),
+        patch("tools.jury.llm_client.time.sleep"),
     ):
         resp = request_jury_verdict(
             profile=profile,
@@ -162,8 +162,9 @@ def test_429_exhausted_raises_rate_limited(
     from urllib.error import HTTPError
 
     err = HTTPError(url="x", code=429, msg="x", hdrs={}, fp=io.BytesIO(b""))  # type: ignore[arg-type]
-    with patch("tools.jury.llm_client.urlopen", side_effect=err), patch(
-        "tools.jury.llm_client.time.sleep"
+    with (
+        patch("tools.jury.llm_client.urlopen", side_effect=err),
+        patch("tools.jury.llm_client.time.sleep"),
     ):
         with pytest.raises(JuryLlmError) as ei:
             request_jury_verdict(
@@ -225,8 +226,9 @@ def test_500_retries(
             raise item
         return item
 
-    with patch("tools.jury.llm_client.urlopen", side_effect=side_effect), patch(
-        "tools.jury.llm_client.time.sleep"
+    with (
+        patch("tools.jury.llm_client.urlopen", side_effect=side_effect),
+        patch("tools.jury.llm_client.time.sleep"),
     ):
         resp = request_jury_verdict(
             profile=profile,
@@ -242,10 +244,13 @@ def test_url_error_dns_failure(
 ) -> None:
     from urllib.error import URLError
 
-    with patch(
-        "tools.jury.llm_client.urlopen",
-        side_effect=URLError("Name or service not known"),
-    ), patch("tools.jury.llm_client.time.sleep"):
+    with (
+        patch(
+            "tools.jury.llm_client.urlopen",
+            side_effect=URLError("Name or service not known"),
+        ),
+        patch("tools.jury.llm_client.time.sleep"),
+    ):
         with pytest.raises(JuryLlmError) as ei:
             request_jury_verdict(
                 profile=profile,
@@ -287,8 +292,6 @@ def test_timeout_kwarg_passed_to_urlopen(
 ) -> None:
     with patch("tools.jury.llm_client.urlopen") as m:
         m.return_value = _make_cm(_mock_response())
-        request_jury_verdict(
-            profile=profile, image_path=fake_image, prompt="x"
-        )
+        request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
     _, kwargs = m.call_args
     assert kwargs.get("timeout") == 60
