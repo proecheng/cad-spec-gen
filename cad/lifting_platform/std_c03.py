@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C03_KFL001_4382d87cb411.step
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:4382d87cb411fa890af7f13dc832a58c07652476640f76ef18951ecc9156b5b9
+Hash: sha256:cc7abd38d7bbdab6f7d12820fd597320154a99441fe86b4be06edce390fd02fc
 Path kind: project_relative
 Requires model review: false
 

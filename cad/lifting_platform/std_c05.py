@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C05_GT2-310-6mm_带_39aa9700b0f4.step
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:39aa9700b0f43960902687db1792736644294d91069460d2c121f92e92fe1d52
+Hash: sha256:31af6591f85bbee01e4ce1cd815527a0dd2bcab4bf44b26243b47c42c3325184
 Path kind: project_relative
 Requires model review: false
 

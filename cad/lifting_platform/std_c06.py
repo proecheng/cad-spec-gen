@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C06_L070_联轴器_f5cf200c6ae3.step
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:f5cf200c6ae3bfd90efe729352883fc8cbc229f4fbf1b30a924b84a36018a841
+Hash: sha256:c1062a128a6c6297dc79c6228cd519a9b7cbb8464613631823531856fc54a01c
 Path kind: project_relative
 Requires model review: false
 

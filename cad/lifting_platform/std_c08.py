@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C08_CL57T_闭环驱动器_3b7731817315.
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:3b77318173158704456f7e5df4be661f6e24af28efb73f6ccdc972ee7f5f6ed3
+Hash: sha256:b6c9161268f65fc15effaa47ede3adf625c6f3a992d0676ad787ce0117853bcd
 Path kind: project_relative
 Requires model review: false
 

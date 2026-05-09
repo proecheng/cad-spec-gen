@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-F11_PU_缓冲垫_20_20_3_f884caee24ee.s
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:f884caee24eeb2fb3b5b345a3b2fb9941db8aebc34a8d955f290c4524b443906
+Hash: sha256:d99808d537055c7471258339e521432c5917c66e77e4998a3aa889070363d6d4
 Path kind: project_relative
 Requires model review: false
 

@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-F13_导向轴保护帽_φ10_76fe217b5d0
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:76fe217b5d0570d5077c9f8b29ef9ff45757925a9712bd9246d3b5efa954b7d8
+Hash: sha256:6d3ab0dadfd9b7ad55f2086176795883dc74969ccefcd91d3599311b9e55f3cf
 Path kind: project_relative
 Requires model review: false
 

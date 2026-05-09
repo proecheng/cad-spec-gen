@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C04_GT2_20T_开式带轮_φ12_19acab231
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:19acab231e838749b4ad6f56d137b7339f2d725260b6df761611866e106e2313
+Hash: sha256:e66039355c5c1b4657551ab8224edd4e55bfa5f1ba0ebb592dffc4f89aee75dd
 Path kind: project_relative
 Requires model review: false
 

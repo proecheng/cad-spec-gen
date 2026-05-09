@@ -8,7 +8,7 @@ Source: STEP:std_parts/user_provided/SLP-C01_T16_螺母_C7_4edfe101b181.step
 Geometry source: REAL_STEP
 Geometry quality: A
 Validated: true
-Hash: sha256:4edfe101b181f58bf83c061fbb8d72670556012d2e8dcc96eceeaf46cfa227a5
+Hash: sha256:b610b121a0ac3fab81aa766e88639fde0a50db88073f53da6d5723bcf29eb96a
 Path kind: project_relative
 Requires model review: false
 
