@@ -94,7 +94,8 @@ src/cad_spec_gen/data/tools/jury_loop/
        │     → loop_status: cost_capped；接受 baseline
        │
        ▼
-[4] tags = reason_parser(verdict.reason)
+[4] sanitized_reason = reason_sanitized(verdict.reason)   # SEC-MAJOR-3 防 prompt injection
+       tags = reason_parser(sanitized_reason)
        │ Gate-6: tags == ∅
        │     → loop_status: no_tags_parsed；接受 baseline
        │
@@ -102,7 +103,7 @@ src/cad_spec_gen/data/tools/jury_loop/
 [5] hits = rule_table.lookup(tags, backend)
        │ misses = tags - hits.matched_tags
        │ if misses 且 enhance.jury_loop.llm_fallback==true:
-       │     extra_addons = llm_fallback.translate(misses, verdict.reason)
+       │     extra_addons = llm_fallback.translate(misses, sanitized_reason)  # 同样传净化版
        │ else:
        │     extra_addons = []
        │ Gate-7: hits == ∅ and extra_addons == []
@@ -170,6 +171,26 @@ reference_mode == "none":
   - 这样 V2 进入时的 anchor 永远指向 `V1_enhanced.jpg`（即用户最终拿到的 V1 张），不会错误地指向已被重命名/删除的 `V1_enhanced_baseline.jpg`。
   - L2 测试覆盖：retry 成功后 V2 anchor 路径 == `V1_enhanced.jpg`（path equality assertion）；retry 失败回 baseline 后 V2 anchor 路径 == `V1_enhanced.jpg`（即 baseline 被重命名为 final 名）。
 - **视角串行约束**：reference_mode=v1_anchor 时 cmd_enhance 视角循环必须串行（V1 hook 完才进 V2）；reference_mode=none 时可保留现有并行实现，依赖 LoopBudget 线程锁。
+- **视角级异常隔离（DRIFT-MAJOR-7）**：cmd_enhance 视角循环必须以 try/except 包住 orchestrator 调用，捕获**所有** Exception（不仅 IOError）：
+  ```python
+  for view in views:
+      try:
+          orchestrator.run_loop_if_eligible(view, backend, rc, baseline_path, budget, hero_image)
+      except Exception as e:
+          # 写降级 sidecar：loop_status=retry_failed, errors[] 含 scrub_secrets(traceback)
+          metadata.write_degraded_sidecar(view, error=e)
+          # 不重新抛——继续 V<i+1>
+  ```
+  L2 测试覆盖：orchestrator raise 任意 Exception 时其他视角不受影响 + sidecar 写降级形态。
+- **跨平台 rename（DRIFT-MAJOR-2）**：§3 [10] 文件重命名禁用 `os.rename`（Windows dst 已存在抛 FileExistsError，Linux 静默覆盖）。强制语义：`Path(dst).unlink(missing_ok=True); Path(src).replace(dst)`。L2 fixture 加"dst 已存在"case 锁跨平台行为。
+- **subprocess 解释器（DRIFT-MAJOR-5）**：所有 subprocess 调 `python -m tools.photo3d_jury` 必须用 `[sys.executable, "-m", ...]`（继承父进程解释器与 sys.path），禁用 `["python", ...]`。否则 wizard 创建的 venv 会被绕过去找系统 Python。
+- **retry 成本常量表（TRAP-10）**：LoopBudget 估算金额来自 `enhance_budget.py` 顶部常量：
+  ```python
+  BACKEND_RETRY_COST_USD = {"fal": 0.20, "fal_comfy": 0.18}
+  JURY_LLM_CALL_COST_USD = 0.005
+  # TODO: 实测后调；fal API 若返回 actual billing 字段，可在 budget.record_actual() 修正
+  ```
+  pick_max_jury 模式下单视角 try_spend 估算 = `BACKEND_RETRY_COST_USD[backend] + JURY_LLM_CALL_COST_USD`；force_retry = `BACKEND_RETRY_COST_USD[backend]`。retry 完成后若 fal 返回 actual_usd 字段则 `budget.record_actual(actual_usd)` 修正 spent；若 API 无 billing 字段则在 sidecar.warnings 加 `cost_estimated_only`。
 
 ## §4 配置 schema
 
@@ -217,6 +238,10 @@ reference_mode == "none":
 ```
 
 **配置项可见性约束**：顶层 `enabled` + `cost_cap_usd` 在 wizard 默认配置生成时显式写入；`advanced.*` 全部由 schema default 兜底，不写入用户 pipeline_config.json，仅当用户主动 override 时才出现。这样外行用户的 config 文件极简。
+
+**顶层 vs advanced 同名禁共存（DRIFT-MAJOR-4）**：用户配置中**禁止**在顶层与 advanced 中同时指定同名 key（如 `enabled` 既出现在顶层又出现在 advanced 内）。schema 校验阶段 hard fail 提示 "key '<name>' 同时出现在顶层与 advanced，请移除其一"。这避免实施层因合并优先级歧义引入隐性 bug。L1 测试加 fixture 锁此契约。
+
+**LLM fallback vendor 明示（OPS-MAJOR-4）**：`llm_fallback` 默认复用 jury 的 LLM 服务（`jury_config` 里的 `model`，gemini 系或后续 swap）—— 即 vision 与 text 同 vendor 同 client。**SP1 不支持单独配置 fallback LLM**（如想用不同 vendor 须等 SP1.5）。如果 jury vendor 服务挂，jury_unavailable 与 llm_fallback_failed 同时触发——`loop_status` 优先级取 `jury_unavailable`（因为 [3] Gate-3 已经早跳出，根本进不到 [5]）。一旦 SP1.5 引入 `llm_fallback_model` 单独配置，spec 须更新此条说明。
 
 ### 4.2 内置规则表 schema (`rules/photoreal_v1.yaml`)
 
@@ -289,10 +314,18 @@ tag_dictionary:
 
 ### 4.3 用户覆写 yaml 合并语义
 - 内置 `photoreal_v1.yaml` 永远先加载（schema_version=1 锁）
+- **YAML 加载安全（SEC-MAJOR-1）**：所有 yaml 加载必须用 `yaml.safe_load`；禁用 `yaml.load`（默认 Loader 反序列化任意 Python 对象 = RCE 漏洞 CVE-2017-18342）。`rule_table.py` import 时通过 lint 锁住（添加 ruff rule `UP` 类 yaml.unsafe-load 或自定义 grep guard 测试）
+- **用户 yaml 路径限制（SEC-MAJOR-1）**：`enhance.jury_loop.advanced.rule_table_path` 必须解析为 `project_root` 子路径内（用 `Path(path).resolve().is_relative_to(project_root.resolve())` 校验）；超出范围 hard fail "rule_table_path 必须在项目目录内"
 - 合并语义：
-  - `rules`：同 id → 用户替换内置；新 id → 追加；不允许删除内置 rule（用户想关闭某条 rule 应在 yaml 里 `rules: [{id: foo, _disabled: true}]`，spec v1 不实现 disabled，留 v2）
+  - `rules`：同 id → 用户替换内置（**保持内置在合并 list 中的位置不变**）；新 id → **追加到 list 末尾**；用户 rules 内部相对顺序保留；不允许删除内置 rule（用户想关闭某条 rule 应在 yaml 里 `rules: [{id: foo, _disabled: true}]`，spec v1 不实现 disabled，留 v2）
   - `tag_dictionary`：同 tag key → 用户 patterns 追加（不替换）；新 tag key → 追加；不对称设计的理由是"内置 patterns 是该 tag 的官方判定基线，用户应当扩展而非替换；tag 含义本身（key）才允许重定义"
-- **schema_version 不匹配处理（BL-5 hard fail）**：用户 yaml `schema_version` 缺失或非 `1` → orchestrator **直接 hard fail**（exit 非零 + stderr 错误信息），不静默回退；rationale：用户付费 retry 闭环若静默丢弃用户规则，相当于功能性静默失效，比启动失败更难发现
+  - **多规则同时命中合并顺序（DRIFT-MAJOR-1）**：合并后的 list 顺序 = 内置规则按 yaml 出现顺序（替换不动位置） + 用户新增规则按 yaml 末尾追加。`rule_table.lookup()` 遍历此顺序应用 prompt_addons / param_overrides，"后到先得"覆盖语义按合并 list 顺序判定。L1 测试加 3 条 fixture 锁此契约（替换/追加/混合）
+- **schema_version 不匹配处理（BL-5 + SEC-MINOR-3 修正）**：用户 yaml `schema_version` 缺失或不被引擎支持时，**降级为 `loop_status=loop_disabled`** + 显式 warn 写到 sidecar.warnings[] 与 stderr，**而不是 orchestrator 全程 exit 非零**。rationale：CI 环境用户提交错误 config 不应阻塞整个 enhance/CI（避免 DoS）；但失败必须显式可见——`loop_status=loop_disabled` 配合 warn 既不静默丢用户规则，也不让单一配置错误拖垮整个 pipeline。**唯一**例外：内置 `photoreal_v1.yaml` 加载失败仍然 hard fail（这是 packaging bug 不是 user 输入问题）—— 但见下条懒加载策略
+- **内置 yaml 懒加载（OPS-MINOR-6）**：内置 `photoreal_v1.yaml` 不在模块 import 时 parse；模块 import 时仅检查包内资源**存在**（`importlib.resources.files("cad_spec_gen.data.tools.jury_loop.rules") / "photoreal_v1.yaml"` 调 `.is_file()`），实际 parse 推到 `orchestrator.run_loop_if_eligible()` 首次调用。这样：
+  - pip 装包漏 yaml 不会让整个 cad_pipeline import 失败（只阻塞 enhance 闭环路径）
+  - codegen / render / 普通 jury 等无关功能不受影响
+  - 闭环首次调用时 yaml 缺失 → 降级 `loop_disabled` + warn "内置 photoreal_v1.yaml 缺失，请重装 cad-spec-gen 修复 packaging"
+  - 内置 yaml 解析失败（语法错）仍 hard fail 抛 import-time exception——这种情况是 dev 改 yaml 写错语法的开发期事故，应阻塞 release 而非 silently degrade
 - **schema_version 演进策略（BL-1 向前兼容降级）**：
   - 引擎 vN 加载 yaml schema_version=M 的兼容矩阵：N == M → 全字段生效；N > M（旧 yaml 在新引擎下） → **未知字段忽略**，已知字段全生效，引擎仅写一行 info "用户 yaml 为旧版 schema vM，已按兼容模式加载"；N < M（新 yaml 在旧引擎下） → hard fail（同上）
   - "v1 yaml 永远可被 vN 引擎加载"是不可破坏的契约——这意味着 v2 引擎对 yaml 新增字段必须是可选的（缺省值能 fall back 到 v1 行为），不允许"v2 必填字段"破坏 v1 yaml
@@ -309,6 +342,12 @@ tag_dictionary:
     - 已知 key 但值类型错（如 `canny_strength: "high"`） → hard fail（schema 阶段）
     - 未知 key（如 `bogus_param`） → 静默忽略 + sidecar.warnings[] 加 `unknown_param: <key>`（**不**走 clamp）
   - 已知 key 列表 + 范围常量在 `tools/jury_loop/rule_table.py` 顶部 `KNOWN_PARAMS = {...}` 维护，schema 校验函数复用此常量
+
+- **yaml 字段集 closed schema（DRIFT-MINOR-6）**：rule yaml 是 closed schema，即仅允许下列字段集：
+  - 顶层：`schema_version` / `rules` / `tag_dictionary` / `_*` (任意下划线开头字段允许，作扩展位)
+  - rules item：`id` / `when_tags` / `prompt_addons` / `param_overrides` / `_*` / `_disabled`（v2 启用）
+  - 任何**非下划线开头**的未知字段 → **hard fail** 提示"unknown field <name>，是否拼写错误？"。下划线开头字段（如 `_doc` / `_notes`）允许，作 yaml 注释/扩展位
+  - rationale：拼写错误（如 `prompt_addon` 漏 s）会被 schema 校验立即抓到，不会静默丢用户配置；下划线规则给未来扩展留位且不破现有契约
 
 ### 4.4 sidecar metadata schema (A-3 + BL-2 + BL-3 + M-9)
 
@@ -335,7 +374,13 @@ tag_dictionary:
     "image_path": "V1_enhanced_retry.jpg",
     "photoreal_score": 78,
     "semantic_checks": { /* 同上结构 */ },
-    "reason": "improved metallic finish"
+    "reason": "improved metallic finish",
+    "final_prompt": "<完整 prompt 字符串>",     // OPS-MAJOR-1 实拼后传给 fal 的 prompt（≤4000 字截断）
+    "backend_payload": {                       // OPS-MAJOR-1 实发 fal payload（API key 已 redact）
+      /* fal_comfy 时含 cfg_scale / steps / canny_strength / depth_strength / seed / ...；
+         force_retry 模式下也写（虽然没二轮 jury，但实拼 payload 必须留）；
+         经 scrub_secrets() 后写出，永不含 FAL_KEY / OPENAI_API_KEY / GEMINI_API_KEY */
+    }
   },
   "tags_parsed": ["plastic_look", "flat_light"],
   "rules_hit": ["plastic_look_to_metallic", "flat_lighting_to_studio"],
@@ -345,8 +390,8 @@ tag_dictionary:
   "param_overrides_applied": {"fal_comfy": {"denoise_strength": 0.45, "cfg_scale": 7.5}},
   "user_friendly_summary": "已自动重试 1 次，画面质感分数从 58 提升到 78（提升 20）。",  // D-1 中文
   "loop_status_zh": "重试成功，已交付重试图",  // BL-3 中文化 loop_status，与 4.6 enum 一一映射
-  "retry_score_delta": 20,                   // int，retry 跑通后 retry.score - baseline.score；可正/0/负；retry 未跑则为 null
-  "delivered_score_delta": 20,               // int，最终交付张相对 baseline 的净收益；永远 ≥ 0（pick_max_jury 保证）
+  "retry_score_delta": 20,                   // int|null，retry 跑通后 retry.score - baseline.score；可正/0/负；retry 未跑或 force_retry 未二轮评分则为 null
+  "delivered_score_delta": 20,               // int|null，最终交付张相对 baseline 的净收益；pick_max_jury 模式下永 ≥ 0；force_retry 模式下永为 null（无法对比）；retry 未跑时为 0
   "extra_cost_usd": 0.18,                    // float，retry+二轮 jury 累计估算
   "warnings": [                              // list[str]，e.g. "unknown_param: fal_comfy.bogus_param"
     /* "rule_table:user_yaml_ignored: schema mismatch v=2 != 1" 当 BL-5 hard fail 触发不会到这；但 5.11 unknown_param 仍走这里 */
@@ -354,17 +399,25 @@ tag_dictionary:
   "errors": [                                // list[ErrorEntry]，retry/jury 失败堆栈摘要 + 用户操作提示
     /* {
       "code": "retry_http_timeout",
-      "message_summary": "fal API 调用超时（≤200 字堆栈摘要）",
+      "message_summary": "fal API 调用超时（≤200 字堆栈摘要，已经过 scrub_secrets 净化）",
       "user_action_hint": "网络超时，请检查代理/重试一次；持续失败可调高 enhance.fal_comfy.timeout"
     } */
   ]
 }
 ```
 
+#### 写盘前必须经过的安全过滤（SEC-MAJOR-2 + SEC-MINOR-2）
+
+`metadata.write_sidecar(view, ...)` 实现层强制：
+- **路径净化（SEC-MAJOR-2）**：sidecar 文件名中嵌入的 `<view>` 字段先调 `Path(view).name` 取 basename + 验证不含 `..` / 路径分隔符 / 绝对路径前缀；不通过则抛 ValueError 拒绝写入。同样适用于 `<view>_enhanced_retry.jpg` / `<view>_enhanced_baseline.jpg` / `<view>_enhanced.jpg` 一切以 view 为前缀的文件名。这阻止 manifest-controlled 的 `view: "../../etc/passwd"` 攻击
+- **secrets 净化（SEC-MINOR-2）**：`errors[].message_summary` 写入前必须经 `scrub_secrets(text, env_prefixes=["FAL", "OPENAI", "GEMINI", "ANTHROPIC"])` 处理——按已知 env var 前缀正则替换 `<KEY>=<value>` 与 `Bearer <token>` 形式为 `[REDACTED]`；同样适用于 `backend_payload`（fal 请求体可能含 Authorization header 残留）
+- 工具函数：`tools/jury_loop/secrets_scrubber.py`，纯函数，单独 L1 测试覆盖（10+ 个 fixture：FAL_KEY 直接出现 / Bearer token / Authorization header / 嵌套 dict 内的 key 字段）
+
 #### sidecar 在特殊状态下的形态约定
 - `loop_status == "loop_disabled"`：`loop_eligible=false` / `delivered_kind="baseline"` / `baseline.image_path` 是最终交付名 `V<i>_enhanced.jpg`（N-1 决议：Gate-1/Gate-2 提前退出时直接重命名 `_baseline.jpg → _enhanced.jpg`，等同步骤 [10] 简化路径）/ `retry=null` / `tags_parsed=[]` / `prompt_addons_applied=[]` / `extra_cost_usd=0` / `retry_score_delta=null` / `delivered_score_delta=0` / `user_friendly_summary="该 backend 不支持闭环优化"`
 - `loop_status == "above_threshold"`：`delivered_kind="baseline"` / `baseline` 含完整 jury verdict / `retry=null` / `retry_score_delta=null` / `delivered_score_delta=0` / `user_friendly_summary` 形如 "首轮分数 78 已达标，无需重试"
-- `loop_status == "delivered_retry"`：`delivered_kind="retry"` / `baseline` 与 `retry` 字段都有完整 verdict / `retry_score_delta = retry.photoreal_score - baseline.photoreal_score`（必为正） / `delivered_score_delta = retry_score_delta`
+- `loop_status == "delivered_retry"` (pick_max_jury)：`delivered_kind="retry"` / `baseline` 与 `retry` 字段都有完整 verdict / `retry_score_delta = retry.photoreal_score - baseline.photoreal_score`（必为正，因为 pick_max_jury 选了 retry 必然 retry.score > baseline.score） / `delivered_score_delta = retry_score_delta`
+- `loop_status == "delivered_retry"` (force_retry)：`delivered_kind="retry"` / `baseline` 含完整 verdict 但 `retry.photoreal_score=null` + `retry.semantic_checks=null` + `retry.reason=null`（force_retry 不二轮评分） / `retry.final_prompt` + `retry.backend_payload` 仍写（OPS-MAJOR-1 复盘需要） / `retry_score_delta=null` / `delivered_score_delta=null`
 - `loop_status == "delivered_baseline"`（retry 跑通但 baseline 高分被选）：`delivered_kind="baseline"` / `baseline` + `retry` 都有 verdict / `retry_score_delta` 可能为 0 或负（实际收益） / `delivered_score_delta = 0`（最终交付的是 baseline）
 - 其他 `delivered_baseline` 系列（jury_unavailable / no_tags_parsed / cost_capped / retry_failed 等）：`delivered_kind="baseline"` / `retry=null`（retry 未跑） / `retry_score_delta=null` / `delivered_score_delta=0`
 
@@ -427,9 +480,20 @@ config 层 `score_select_strategy` 字符串 → Strategy 实例的注册表在 
 | `jury_unavailable` | "AI 评分不可用，接受首轮图" | jury subprocess 失败/网络/API key 失效 |
 | `empty_reason` | "AI 评分未返回反馈文本，接受首轮图" | jury 返回但 reason 字段空 |
 | `llm_fallback_failed` | "AI 兜底翻译失败，接受首轮图" | 规则表**全** miss + LLM 调用失败；规则表部分命中时 LLM 失败不阻断 retry，落 warnings[] |
-| `retry_failed` | "重试调用失败，接受首轮图" | retry enhance 调用 HTTP / timeout / 写文件冲突 |
+| `retry_failed` | "重试调用失败，接受首轮图" | retry enhance 调用泛化失败（HTTP / timeout / 写文件冲突 / 未识别错误） |
+| `retry_rate_limited` | "服务限流，请稍后重试" | retry 收到 429 / Too Many Requests / Retry-After header |
+| `retry_quota_exceeded` | "服务账户余额不足，请充值后重试" | retry 收到 402 / Payment Required / quota exceeded 错误码 |
+| `retry_auth_failed` | "API key 无效，请检查配置" | retry 收到 401 / 403 / Invalid API key |
 
 固化含义：以 `delivered_` 前缀的两个是终态成功；其余皆"接受 baseline" 的具体原因细分。所有 sidecar 写出时 `loop_status_zh` 必须按此表机器映射，禁止自由翻译。
+
+**retry 错误码细分映射规则（OPS-MAJOR-5）**：fal API 返回错误时 orchestrator 按下列优先级匹配状态：
+- HTTP 401/403 + body 含 "invalid" / "auth" → `retry_auth_failed`
+- HTTP 402 / body 含 "quota" / "balance" / "insufficient" → `retry_quota_exceeded`
+- HTTP 429 / 含 Retry-After header → `retry_rate_limited`
+- 其他 HTTP 4xx/5xx / timeout / 网络错误 → `retry_failed`（兜底）
+
+`user_action_hint` 按上表中文文案给出（写进 errors[].user_action_hint）。
 
 ## §5 错误处理（共性 + 详细列）
 
@@ -505,7 +569,7 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path1>
 ]
 ```
 
-#### CLI 失败语义契约（M-10）
+#### CLI 失败语义契约（M-10 + SEC-MINOR-4）
 - 成功：`exit code = 0`，stdout 必须是合法 JSON list；stderr 仅写人类可读 log（不影响调用方解析）
 - 失败：`exit code != 0`，stderr 含错误信息；stdout **不**保证有合法 JSON（可能为空或 partial）
 - 调用方（orchestrator）对**任一**情况走 `loop_status = jury_unavailable`：
@@ -513,6 +577,7 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path1>
   - stdout 不是合法 JSON（`json.JSONDecodeError`）
   - stdout JSON 非 list 或 list 长度 != len(--image)
   - 任一元素的 `verdict` 是 "needs_review"（按 jury v2 spec 表示 LLM 解析失败）
+  - **stdout 字节超过 1 MiB**（SEC-MINOR-4 防 OOM）：orchestrator 必须用 `subprocess.Popen` + 手动 `read(MAX_STDOUT_BYTES)` 循环代替 `subprocess.run(capture_output=True)`，超出立即 kill 子进程并走 `jury_unavailable`
 
 #### 实现细节
 - 在 `_build_parser` 加 `--single-view` 和 `--image` 两 flag
@@ -523,6 +588,18 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path1>
 
 #### 与 batch 模式 budget 解耦
 `--single-view` 模式不参与 batch 模式的 `--budget` / `--max-retries` 统计（batch 累计是 photo3d_jury 自己的预算守门）；闭环 cost 由调用方 (orchestrator) 通过 `LoopBudget` 累计到 `loop_summary.extra_cost_usd`。两套 budget 在 SP1 不互通；如果有需要后续 SP 可统一。
+
+### `cad-spec-gen enhance` 入口 CLI 加 `--rerun-loop` flag（OPS-MAJOR-3）
+
+cmd_enhance 加 `--rerun-loop` 命令行 flag（默认 false），语义：
+- false（默认，幂等模式）：检测到视角对应的 sidecar `<view>_enhance_meta.json` 已存在且 `loop_status` ∈ {`delivered_baseline`, `delivered_retry`} → **跳过该视角的 enhance + 闭环**，直接复用既有产物（fast path，避免重复花钱）
+- true（强制重跑）：忽略既有 sidecar，所有视角全部重新跑 baseline + 闭环；旧 sidecar 被覆盖
+
+用户场景：
+- 修改 rule yaml 后想重刷 5 视角 → `cad-spec-gen enhance --rerun-loop`
+- 普通跑 = 默认幂等，重复执行不烧钱
+
+幂等性约束：sidecar `loop_status ∈ {jury_unavailable, retry_failed, retry_rate_limited, ...}` 这类**临时性失败**状态默认**仍然重试**（不进 fast path），相当于"上次失败这次再试"；持久性失败（`retry_auth_failed` / `retry_quota_exceeded`）默认进 fast path（避免无意义重试），用 `--rerun-loop` 才能重试。
 
 输出 JSON 结构：
 ```json
@@ -584,6 +661,10 @@ python -m tools.photo3d_jury --subsystem <name> --single-view V1 --image <path1>
 
 **人民币换算（M-8）**：`extra_cost_cny = round(extra_cost_usd * 7.2, 2)`（汇率常量在 `enhance_budget.py` 模块顶部，写明"近似换算，参考用，实际以服务商账单为准"）。汇率漂移随时调整不视为 schema 变更。
 
+**回滚兼容性（OPS-MAJOR-2）**：当 `enhance.jury_loop.enabled == false` 时，**整段 `loop_summary` 完全省略不写入** ENHANCEMENT_REPORT.json（不是写空对象 / 不是写 `loop_summary: null`）。rationale：用户从 SP1 回退到 SP0 (v2.31.x) 二进制时，老版解析器 (autopilot / 用户脚本) 没有"容忍未知字段"契约（那是 SP1 引入的契约），多出 `loop_summary` 段会被当作 schema drift 报错。enabled=false 时不写该段，回滚路径 = "改 enabled=false 即可"，无需手动清理 ENHANCEMENT_REPORT。
+
+L3 契约测试加 fixture：enabled=false 跑完 enhance 后 ENHANCEMENT_REPORT.json **不**应包含 `loop_summary` key（用 `assert "loop_summary" not in report`）。
+
 ### CLI / log 末尾摘要
 跑完 enhance 后 log info 一行（D-5）：
 ```
@@ -608,7 +689,7 @@ Loop summary: 5 views, 3 baseline-accept, 1 retry-success (+20), 1 jury-skip; ex
 - 大小写不敏感
 - 用户 tag_dictionary extend 追加，不替换内置
 - 边界：空字符串 / 极长字符串 / 中文 reason（防御）
-- **L1-prop-1** `@hypothesis.given(text=text())` reason_parser 总返 `set[str]`，元素 ⊆ `BUILTIN_TAGS`，纯函数（同输入同输出）
+- **L1-prop-1** `@hypothesis.given(text=text(alphabet=string.ascii_letters+string.digits+" .,;-", max_size=80))` reason_parser 总返 `set[str]`，元素 ⊆ `BUILTIN_TAGS`，纯函数（同输入同输出）。**alphabet 必须限定**为 jury 实际可能输出的字符集（≤80 字英文字母+数字+标点）—— 否则默认 `text()` 会喂代理对/控制字符，把 reason_parser 测崩，但那不是真实使用场景，反而会被实施者用"宽容 catch all"绕过去掩盖真 bug
 
 **rule_table**
 - 单/多规则命中合并；prompt_addons 顺序保留 + 去重
@@ -632,6 +713,14 @@ Loop summary: 5 views, 3 baseline-accept, 1 retry-success (+20), 1 jury-skip; ex
 - LLM fallback mock → addons 注入流程
 - retry mock fal_comfy → 文件写出 + sidecar metadata
 - enhance_image 用 monkeypatch（不起本地 ComfyUI / 不调真 fal）
+- **视角异常隔离（DRIFT-MAJOR-7）**：orchestrator raise 任意 Exception 时其他视角不受影响 + sidecar 写降级形态（`retry_failed` + `errors[]` 含 scrub_secrets 后的 traceback）
+- **跨平台 rename（DRIFT-MAJOR-2）**：dst 已存在的 fixture 验证 Path.replace 行为正确（不抛 FileExistsError）
+- **顶层/advanced 同名（DRIFT-MAJOR-4）**：fixture 同时写顶层与 advanced 中的 enabled，验证 schema 校验阶段 hard fail
+- **stdout cap（SEC-MINOR-4）**：subprocess 模拟返回 > 1 MiB stdout，验证 orchestrator kill 子进程 + 走 jury_unavailable
+- **secrets scrub（SEC-MINOR-2）**：errors message 含 FAL_KEY=xxx 时，sidecar 写出后字符串经 `assert "FAL_KEY" not in sidecar_text and "[REDACTED]" in sidecar_text`
+- **路径净化（SEC-MAJOR-2）**：manifest 含 `view: "../../etc/passwd"` 触发 ValueError 拒绝写入，不写 sidecar 到非法位置
+- **rule_table_path 范围（SEC-MAJOR-1）**：用户 yaml 指向 project_root 外路径触发 hard fail
+- **rerun-loop fast path（OPS-MAJOR-3）**：sidecar 已存在 + loop_status=delivered_retry 时默认 skip；--rerun-loop=true 时强制重跑
 
 ### L3 契约
 - 内置 photoreal_v1.yaml 加载 schema 自检
@@ -706,4 +795,10 @@ photo3d_autopilot 现有逻辑（`tools/photo3d_autopilot.py`）输出 `enhancem
 
 ### 实施期可能浮现
 - 某规则触发后 prompt 长度爆炸（拼太长 token 超限）→ 实施 fallback 截断策略
-- LLM fallback 返回有害词（注入 prompt 攻击）→ 沿用 jury reason 净化机制（reason_sanitized 的同款过滤器）
+- LLM fallback 返回有害词（注入 prompt 攻击）→ SP1 已对 jury reason 做 sanitize（§3 [4]），但 LLM fallback 返回值进 prompt 前**也**应 sanitize（实施期补强；spec §3 [5] 应在 SP1 实施时直接补这一步）
+
+### 推迟到 SP4 / 后续 release
+- **OPS-MINOR-7** 跨次运行规则命中率 / 提分分布聚合（dashboard / SQLite/CSV 落库），SP1.5 / SP4 wizard 收尾时做
+- **OPS-MINOR-8** sidecar 与 ENHANCEMENT_REPORT 导出诊断包时自动 redact `C:\\Users\\<姓名>\\...` / SW 项目元数据中的作者名（在 SEC-MINOR-2 secrets_scrubber 之上扩 user_redactor 模块；SP1 仅做 secrets，OPS-MINOR-8 加 PII redact 在后续）
+- **DRIFT-MINOR-8** L4-1 fixture 用 git LFS 提交固定 PNG（path: `tests/fixtures/jury_loop/known_low_score_v1.jpg`） + commit `expected_baseline_verdict.json` 锁基线 score；SP1 实施时如果有现成低分图可临时本地 fixture，正式入 git LFS 推迟 SP4
+- **DRIFT-MINOR-13 (UX N-13)** tag_dictionary vs rule 同 key 的"追加 vs 替换"不对称设计：spec §4.3 已加注释解释，是否升级为对称设计在大量用户反馈后再决
