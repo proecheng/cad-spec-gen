@@ -832,3 +832,20 @@ def test_h23_crash_mid_step() -> None:
     由现有 _run_enhancement_followup `except (FileNotFoundError, OSError, ValueError)` 路径覆盖。
     """
     # placeholder pass
+
+
+# === v2.30.0 §11 follow-up M-2: review_failed fallback 守门 ===
+
+def test_command_return_code_review_failed_with_missing_raw_returns_20() -> None:
+    """v2.30.0 §11 M-2 — review_raw_exit 字段缺失 → fallback 20（不与 review_input_corrupt 23 撞码）"""
+    from tools.photo3d_handoff import command_return_code
+    report = {"jury_handoff_status": "review_failed"}  # 无 review_raw_exit
+    assert command_return_code(report) == 20
+
+
+def test_command_return_code_review_failed_with_non_int_raw_returns_20() -> None:
+    """v2.30.0 §11 M-2 — review_raw_exit 非 int（None/str/float/list/dict）→ fallback 20"""
+    from tools.photo3d_handoff import command_return_code
+    for raw in (None, "1", 1.5, [], {}):
+        report = {"jury_handoff_status": "review_failed", "review_raw_exit": raw}
+        assert command_return_code(report) == 20, f"review_raw_exit={raw!r} should fallback 20"

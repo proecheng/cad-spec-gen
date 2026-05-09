@@ -3,6 +3,14 @@
 > 本文件是每轮工作结束后给用户看的进度入口。
 > 更新规则：每轮完成实现、审查、合并或重要验证后，更新「最新状态」「看板」「下一步建议」「验证记录」。
 
+## v2.30.0 — 2026-05-09 jury §11 follow-up cleanup（M-1 + M-2 closed）
+
+- v2.28.0 PR #61 Task 13 标的 2 项 MINOR follow-up 闭合：
+  - **M-1**：`crashed_mid_orchestration` exit code spec 改 99（与 internal_error 同段；实现保持现状）+ 加注释说明 KeyboardInterrupt 走 Python 默认 130 不进 command_return_code
+  - **M-2**：`review_failed` fallback 23→20（review_failed clamp 段最低位；不与 review_input_corrupt 23 撞码）+ 加 2 测试守门
+- 用户从 exit code 能区分"review failed"vs"review input corrupt"
+- 全量回归 ≥2725 PASS / 0 regression（v2.29.0 基线 2723 + 2 新加）
+
 ## v2.29.0 — 2026-05-09 photo3d-autopilot 自动检测 jury config（A1.1）
 
 - photo3d-autopilot 静默检测 `~/.claude/cad_jury_config.json`；已配 jury 用户在 ready_for_enhancement 状态自动获得 `photo3d-handoff --with-jury --confirm` 推荐

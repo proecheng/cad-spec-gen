@@ -17,6 +17,7 @@
 | 1.2 | 2026-05-09 | 5 角色并行对抗审查（API / Edge / UX / Test / Security）合并 26 CRITICAL + 19 MAJOR：重写 §3.2 (orchestrator 在 `tools/photo3d_handoff.py:run_photo3d_handoff` 不在 cad_pipeline.py)；§3.3 命令归属 + command_return_code 接口扩展；§3.4 invariants 重写（jury blocked 走 status 字段 / dry-run 不取锁 / handoff 自加 .handoff.lock / path traversal 防御 / subprocess argv list / env 不注入 / stderr redact 透传 / PHOTO3D_HANDOFF.json 落盘契约）；§4.1 加 step 0 fail-fast jury config 预检；§4.2 决策表加 unexpected exit code / review_exit clamp；§5.1-5.3 错误矩阵 + redact 链；§6 测试用例 H1 加 golden snapshot / H16-H22 补 path traversal/损坏 review_input/unexpected exit/工具故障类 strict×双向；§9 race window 假设修正；§10 DoD cov source / platform split 显式 cite |
 | 1.3 | 2026-05-09 | 第 3 层"代码-spec 对照实测"抓 5 大 BLOCKER（v1.0/v1.1/v1.2 共同的 brainstorm 事实错误，对抗审都没抓到）：(1) `format_stderr_message` 签名是 keyword-only `(*, exit_code, status, error_kind, context)`，分派维度三元组是 `(exit_code, status, error_kind)` 而非 spec 写的 `(exit_code, error_kind, context)`；内部是 if/elif 分支，不是 `_TEMPLATES` 字典；(2) autopilot `next_action` 字段是 `argv` list (+ 可选 `cli` string)，不是 `command` string；且 autopilot ready_for_enhancement 推荐 `enhance` subcommand 而非 `photo3d-handoff` — 整个 autopilot 集成基于错误前提，**v1.3 把 autopilot 文案变更全部移出范围**（推到独立 PR）；(3) `photo3d-handoff` cli 不是固定 5 步串联，是 `next_action.kind` driven dispatcher — jury 应嵌入 `_run_enhancement_followup` 在 enhance-check follow-up 之后；(4) 输出文件名是 `PHOTO3D_HANDOFF.json` 不是 `HANDOFF_RUN.json`；(5) PHOTO3D_HANDOFF.json 现有 `status` 字段命名冲突 — `handoff_status` 字段更名为 `jury_handoff_status` 与现有 `status` 字段共存（不同维度，前者是 jury 验收维度，后者是 handoff 执行阶段维度） |
 | 1.4 | 2026-05-09 | 第 4 层"holistic dry-run + 常犯错误"4 角度并行审（Impl Dry-Run / 用户旅程 / State Lifecycle / TDD Fixture）合并 19 CRITICAL + 24 MAJOR：**新增 §6.0 fixture 与 fake 子进程模板**钉死 fake_run_factory + golden snapshot 来源 + review_input 三态工厂 + autouse kill switch 作用域 + @regression marker 划分；**§3.3 加函数签名钉死**（`_run_jury_followup` / `_validate_run_id_format` / `clamp_review_exit` 完整签名）+ argv token 完整模板 + subprocess timeout 钉死值（enhance=1800s / jury=600s / review=300s）+ creationflags；**§3.4 加 inv 16 (KeyboardInterrupt + SIGKILL Windows 路径) + inv 17 (active_run_id freeze 语义) + inv 18 (Windows .handoff.lock msvcrt.locking 实现细节) + inv 19 (subprocess 级联 kill 策略)**；**§4.1 加 step 4.0 既有 PHOTO3D_JURY_REPORT.json 归档 / step 5 read_text FileNotFoundError 归 corrupt**；**§4.2 决策表加 crashed_mid_orchestration 类目**；**§5.1 加 awaiting_confirmation_with_jury 类目**；**§5.2 13 个 error_kind 各自 context 字段表 + minimal jury config 示例 + lock age 查看命令 + 强制清 lock 动作 + 账单来源 / 修 enhance config 入口**；**§7.2 schema 兼容性 .get() 默认 None 指引**；**§7.4 README 示例钉死**（首跑预览 + 加 --confirm 实跑双行）；**§8 拆 C6 jury 实跑 13 用例为 C6a-C6e 5 段**；**§10 DoD 加 cov source explicit list**（`tools.photo3d_handoff.run_jury_followup` 等子模块） |
+| 1.5 | 2026-05-09 | §11 follow-up M-1 + M-2 closed by v2.30.0：(1) §4.2 决策表 `crashed_mid_orchestration` exit 由"透传 OS 信号原值"修正为 99（与 internal_error 同段；KeyboardInterrupt 走 Python 默认 130 路径不进 command_return_code）+ 加注释说明；(2) §4.2 决策表 `review_failed` exit 加注释说明 review_raw_exit 缺时 fallback 20（review_failed clamp 段最低位；不与 review_input_corrupt 23 撞码）+ 实现 `command_return_code` line 247 改 fallback 23→20 + 加 2 测试守门 |
 
 ---
 
@@ -472,10 +473,21 @@ clamp_review_exit:
 | unexpected_exit | * | n/a (skip) | unexpected_jury_exit | 25 |
 | (handoff 自身) | * | n/a (skip) | handoff_lock_busy | 24 |
 | (handoff preflight) | * | n/a (skip) | preflight_config_missing | 2 |
-| (handoff 崩溃 mid-step) | * | n/a (skip) | crashed_mid_orchestration | (透传 KeyboardInterrupt = 130 / OS 信号原值) |
+| (handoff 崩溃 mid-step) | * | n/a (skip) | crashed_mid_orchestration | 99（与 internal_error 同段；详见下注释；v2.30.0 §11 M-1 修正）|
 | (handoff awaiting_confirm) | * | n/a (skip) | awaiting_confirmation | 0（沿用现有 status 字段路径）|
 
 **jury_handoff_status 字段值钉死**：上表 `jury_handoff_status` 列字符串值是契约；测试 H1-H23 必须 assert PHOTO3D_HANDOFF.json 写出的 `jury_handoff_status` 字符串与表完全一致（防拼写错如 `config_err` vs `config_error`）。
+
+**crashed_mid_orchestration exit code 注释（v2.30.0 §11 M-1 修订）**：
+- `KeyboardInterrupt`（用户 Ctrl-C）→ Python 不调 `command_return_code`，进程默认 exit=130
+- `SIGTERM` / `SIGKILL` → 进程被强制终止，不调 `command_return_code`
+- 其他主流程没崩但 jury hook 留 partial state（如 finally 块写完报告后 main 流程仍正常 return）→ `command_return_code` 看 `jury_handoff_status="crashed_mid_orchestration"` → 返 99（与 `internal_error` 同段）
+- 故 spec rev 1.4 "透传 OS 信号原值" 在 v1.5 修订为 99（实现现状对齐；signal 透传由 Python 自然路径处理，不经过 `command_return_code`）
+
+**review_failed exit code 注释（v2.30.0 §11 M-2 修订）**：
+- `review_raw_exit` 是 int → `clamp_review_exit` 映射（0→0 / 1→20 / 2→21 / 3→22 / 其他→23）
+- `review_raw_exit` 缺 / 非 int → fallback 20（review_failed clamp 段最低位；不与 `review_input_corrupt` 23 撞码）
+- 测试守门：`test_command_return_code_review_failed_with_missing_raw_returns_20` / `test_command_return_code_review_failed_with_non_int_raw_returns_20`
 
 ### 4.3 不带 --with-jury 的回归路径
 
