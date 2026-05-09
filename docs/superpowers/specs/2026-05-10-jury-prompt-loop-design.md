@@ -19,7 +19,7 @@
 SP1 不绑定 fal.ai 或任何单一 vendor。设计为**可插拔 BackendAdapter Protocol**：用户在 pipeline_config 里写 `backend_kind` + `base_url` + `api_key_env` + `model_name` 即可接入任意兼容的画图代理模型。SP1 内置 3 个 adapter 起步：
 - `gemini_chat_image`：chat-completions 传图式（适配 gemini banana pro 系 / openai gpt-4o vision-image / 类 chat-completions 多模态 API）
 - `openai_images_edit`：`/v1/images/edits` REST 风格（适配 gpt-image-2 / stability.ai img2img / 兼容 endpoints）
-- `fal_comfy`：保留原有 fal.ai ComfyUI workflow + ControlNet hard lock 实现（高质量 geometry 锁路径，保留作内置选项之一）
+- `comfyui_workflow_cloud`：ComfyUI workflow JSON 上传到任意兼容云（默认 base_url 指向 fal.ai 的 ComfyUI 服务；用户可改 base_url 接 RunComfy / Comfy Cloud / 自部署 ComfyUI server / 任何兼容 vendor）；**支持 ControlNet hard lock**（canny + depth），适合需要严格几何锁的场景
 
 第三方 vendor adapter 由用户 plugin 注入（SP1.5 工作）。SP1 锁住"内置 3 adapter + 注册表 + 用户配置接入新 vendor 必须实现 BackendAdapter Protocol"的形态契约。
 
@@ -29,7 +29,7 @@ SP1 不绑定 fal.ai 或任何单一 vendor。设计为**可插拔 BackendAdapte
 |---|---|
 | 零配置 | `enhance.jury_loop.enabled=true` 默认开启；threshold/cost_cap 有 sane defaults；用户接入新 backend 仅需 base_url + api_key_env + model_name |
 | 稳定可靠 | 任何失败路径回退 baseline，**永不阻塞交付**（§5） |
-| 结果准确 | retry 优先走支持 ControlNet hard lock 的 backend (`fal_comfy` 内置)；通用 backend 靠 jury 二轮评分兜底"不会降分"语义 |
+| 结果准确 | retry 优先走支持 ControlNet hard lock 的 backend (`comfyui_workflow_cloud` 内置，可指任何 ComfyUI 兼容云)；通用 backend 靠 jury 二轮评分兜底"不会降分"语义 |
 | SW 装即用 | 闭环只跑 cloud backend，与 SolidWorks 解耦；engineering / comfyui 本地 backend 不参与闭环（NO-OP） |
 | 傻瓜式 | 用户感知 = "score 低自动重试一次更好的"；中文 summary 写进顶层报告；vendor 切换无须改代码仅改 config |
 
@@ -58,7 +58,7 @@ src/cad_spec_gen/data/tools/jury_loop/
 │   ├── protocol.py        # BackendAdapter Protocol + BackendRequest/Response NamedTuple
 │   ├── gemini_chat_image.py     # chat-completions 传图式（gemini banana / gpt-4o vision-image）
 │   ├── openai_images_edit.py    # /v1/images/edits REST 风格（gpt-image-2 / stability.ai）
-│   └── fal_comfy_adapter.py     # 包装现有 fal_comfy_enhancer.py，保 ControlNet hard lock
+│   └── comfyui_workflow_cloud.py  # 包装现有 fal_comfy_enhancer.py（baseline 模块名保留）；base_url 默认 fal.ai 但用户可改 RunComfy / Comfy Cloud / 自部署 ComfyUI 等任意兼容 vendor；保 ControlNet hard lock
 └── rules/
     └── photoreal_v1.yaml  # 内置规则表（≈15-20 tags 起步）
 ```
@@ -79,7 +79,7 @@ src/cad_spec_gen/data/tools/jury_loop/
 - **metadata**：sidecar `<view>_enhance_meta.json` 的 schema 守门 + 写出
 - **rules/photoreal_v1.yaml**：内置规则表，schema_version=1，~15-20 tag 起步
 - **backends/protocol.py**：定义 `BackendAdapter` Protocol（详见 §2.1）+ `BackendRequest` / `BackendResponse` NamedTuple
-- **backends/{gemini_chat_image,openai_images_edit,fal_comfy_adapter}.py**：3 内置 adapter，封装协议差异
+- **backends/{gemini_chat_image,openai_images_edit,comfyui_workflow_cloud}.py**：3 内置 adapter，封装协议差异
 - **backends/__init__.py**：`BACKEND_REGISTRY: dict[str, BackendAdapter]` 注册表，启动时自动注册内置 3 adapter；`register_backend(kind, adapter)` 函数给未来 plugin 用
 
 ### §2.1 BackendAdapter Protocol
@@ -112,7 +112,7 @@ class BackendAdapter(Protocol):
 
     @property
     def kind(self) -> str:
-        """注册到 BACKEND_REGISTRY 的字符串 key。如 'gemini_chat_image' / 'openai_images_edit' / 'fal_comfy'。"""
+        """注册到 BACKEND_REGISTRY 的字符串 key。如 'gemini_chat_image' / 'openai_images_edit' / 'comfyui_workflow_cloud'。"""
         ...
 
     @property
@@ -121,7 +121,7 @@ class BackendAdapter(Protocol):
         ...
 
     def supports_controlnet(self) -> bool:
-        """是否支持 ControlNet 几何 hard lock。fal_comfy=True；其他通用=False。
+        """是否支持 ControlNet 几何 hard lock。comfyui_workflow_cloud=True；其他通用=False。
         rule_table 在 supports_controlnet=False 时不会注入 canny/depth_strength 这类 ControlNet 参数。"""
         ...
 
@@ -164,7 +164,7 @@ class BackendCallError(BackendError): ...                # → retry_failed (兜
        │ Gate-1: backend_kind ∉ BACKEND_REGISTRY
        │     → 重命名 baseline 为最终交付名 V<i>_enhanced.jpg；return loop_status=loop_disabled
        │     注：local-only backend (engineering / comfyui) 不注册到 REGISTRY；
-       │     云端 generic backend (gemini_chat_image / openai_images_edit / fal_comfy / 用户 plugin) 都注册。
+       │     云端 generic backend (gemini_chat_image / openai_images_edit / comfyui_workflow_cloud / 用户 plugin) 都注册。
        │ Gate-2: enhance.jury_loop.enabled == false
        │     → 同 Gate-1
        │
@@ -271,9 +271,9 @@ reference_mode == "none":
 - **subprocess 解释器（DRIFT-MAJOR-5）**：所有 subprocess 调 `python -m tools.photo3d_jury` 必须用 `[sys.executable, "-m", ...]`（继承父进程解释器与 sys.path），禁用 `["python", ...]`。否则 wizard 创建的 venv 会被绕过去找系统 Python。
 - **retry 成本估算（TRAP-10）**：每个 BackendAdapter 自己实现 `estimate_cost_usd(request) -> float`，LoopBudget 调用之而非读硬编码常量表。`enhance_budget.py` 仅保留 `JURY_LLM_CALL_COST_USD = 0.005` 常量（jury LLM 调用成本与 backend 无关）。
   ```python
-  # backends/fal_comfy_adapter.py 示例：
+  # backends/comfyui_workflow_cloud.py 示例：
   def estimate_cost_usd(self, request: BackendRequest) -> float:
-      return 0.18   # TODO: 实测后调；若 fal 返回 actual billing 字段，由 budget.record_actual 修正
+      return 0.18   # TODO: 实测后调；若 vendor 返回 actual billing 字段，由 budget.record_actual 修正
 
   # backends/gemini_chat_image.py 示例（按 model 分价）：
   def estimate_cost_usd(self, request: BackendRequest) -> float:
@@ -294,7 +294,7 @@ reference_mode == "none":
     "backend": "fal_comfy",
     // ... 既有 fal/fal_comfy/comfyui/gemini/engineering 段不变 ...
     "jury_loop": {
-      "_doc": "AI 评分反馈闭环：跑完一次后若分数低于阈值，自动重试一次更好的图。需 backend 注册到 BACKEND_REGISTRY（云端 generic backend / fal_comfy / 用户 plugin），本地 backend (engineering / comfyui local) 不参与，自动忽略。",
+      "_doc": "AI 评分反馈闭环：跑完一次后若分数低于阈值，自动重试一次更好的图。需 backend_kind 注册到 BACKEND_REGISTRY（gemini_chat_image / openai_images_edit / comfyui_workflow_cloud / 用户 plugin），本地 backend (engineering / 本机 comfyui server) 不参与，自动忽略。",
 
       "enabled": true,
       "_enabled_doc": "总开关。true = 启用闭环 / false = 跑一次就交付。",
@@ -305,13 +305,13 @@ reference_mode == "none":
       "backend": {
         "_backend_doc": "闭环 retry 调用的 backend 配置。SP1 内置 3 种 kind；用户切 vendor 仅改这个段。",
         "kind": "gemini_chat_image",
-        "_kind_doc": "可选值：gemini_chat_image (chat-completions 传图，适配 gemini banana / openai gpt-4o vision-image) / openai_images_edit (REST /v1/images/edits，适配 gpt-image-2 / stability.ai img2img) / fal_comfy (fal.ai ComfyUI workflow + ControlNet 几何 hard lock) / 用户 plugin 注册的其他 kind。",
+        "_kind_doc": "可选值：gemini_chat_image (chat-completions 传图，适配 gemini banana / openai gpt-4o vision-image) / openai_images_edit (REST /v1/images/edits，适配 gpt-image-2 / stability.ai img2img) / comfyui_workflow_cloud (ComfyUI workflow JSON 上传到任意兼容云：fal.ai / RunComfy / Comfy Cloud / 自部署，唯一支持 ControlNet 几何 hard lock 的内置选项) / 用户 plugin 注册的其他 kind。",
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "_base_url_doc": "API endpoint URL。default 是 gemini chat-completions endpoint；切其他 vendor 改这里。",
         "api_key_env": "GEMINI_API_KEY",
         "_api_key_env_doc": "API key 来自哪个环境变量名。建议用 env 不直接写明文 key 进 config 防误提交。常见值：GEMINI_API_KEY / OPENAI_API_KEY / FAL_KEY / 自定义。",
         "model_name": "gemini-3-pro-image-preview",
-        "_model_name_doc": "vendor 模型 ID。kind=gemini_chat_image 用 gemini-* / kind=openai_images_edit 用 gpt-image-2 / kind=fal_comfy 不需要（用 workflow 决定）。",
+        "_model_name_doc": "vendor 模型 ID。kind=gemini_chat_image 用 gemini-* / kind=openai_images_edit 用 gpt-image-2 / kind=comfyui_workflow_cloud 不需要（用 workflow JSON 内嵌的 checkpoint 决定）。",
         "timeout_s": 180,
         "_timeout_doc": "单次 retry 调用超时（秒）。"
       },
@@ -359,9 +359,9 @@ rules:
       - "subtle anisotropic reflections"
     param_overrides:
       # 顶层 key 是 backend_kind（注册到 BACKEND_REGISTRY 的字符串），不限内置 3 种
-      gemini_chat_image:    { temperature: 0.3, top_p: 0.9 }
-      openai_images_edit:   { quality: "hd", style: "natural" }
-      fal_comfy:            { denoise_strength: 0.45, cfg_scale: 7.5 }
+      gemini_chat_image:        { temperature: 0.3, top_p: 0.9 }
+      openai_images_edit:       { quality: "hd", style: "natural" }
+      comfyui_workflow_cloud:   { denoise_strength: 0.45, cfg_scale: 7.5 }
       # rule 在某 backend_kind 下没参数可调时，省略该 key 即可（参见下条 rule）
 
   - id: flat_lighting_to_studio
@@ -376,8 +376,8 @@ rules:
     prompt_addons:
       - "razor-sharp product edges, crisp specular highlights"
     param_overrides:
-      # 仅 fal_comfy 支持 ControlNet 边缘锁；其他 backend 此规则只贡献 prompt_addons
-      fal_comfy:  { canny_strength: 0.95, canny_end_pct: 0.95 }
+      # 仅 comfyui_workflow_cloud 支持 ControlNet 边缘锁；其他 backend 此规则只贡献 prompt_addons
+      comfyui_workflow_cloud:   { canny_strength: 0.95, canny_end_pct: 0.95 }
 
   - id: dull_color_to_vibrant
     when_tags: [dull_color, washed_out]
@@ -389,8 +389,8 @@ rules:
     when_tags: [dark_overall]
     prompt_addons: ["bright key light, high-key product photography"]
     param_overrides:
-      fal_comfy:           { denoise_strength: 0.4 }
-      gemini_chat_image:   { temperature: 0.4 }
+      comfyui_workflow_cloud:   { denoise_strength: 0.4 }
+      gemini_chat_image:        { temperature: 0.4 }
 
   - id: cluttered_bg_to_clean
     when_tags: [cluttered_bg, distracting_bg]
@@ -448,7 +448,7 @@ tag_dictionary:
     3. 该 backend 段下的未知 key（不在 known_params 表）→ 静默忽略 + sidecar.warnings[] 加 `unknown_param: <kind>.<key>`
     4. 已知 key 但值类型错（如 `canny_strength: "high"`） → hard fail（schema 阶段）
   - 内置 adapter 的 known_params 示例：
-    - `fal_comfy`：`{"denoise_strength": (0.0, 1.0), "cfg_scale": (1.0, 30.0), "canny_strength": (0.0, 1.0), "canny_end_pct": (0.0, 1.0), "depth_strength": (0.0, 1.0), "steps": (1, 200), "guidance_scale": (1.0, 30.0)}`
+    - `comfyui_workflow_cloud`：`{"denoise_strength": (0.0, 1.0), "cfg_scale": (1.0, 30.0), "canny_strength": (0.0, 1.0), "canny_end_pct": (0.0, 1.0), "depth_strength": (0.0, 1.0), "steps": (1, 200), "guidance_scale": (1.0, 30.0)}`
     - `gemini_chat_image`：`{"temperature": (0.0, 2.0), "top_p": (0.0, 1.0), "top_k": (1, 100)}`
     - `openai_images_edit`：`{"quality": (None, None), "style": (None, None), "n": (1, 4), "size": (None, None)}`（None 表示非数值参数，仅做存在性 + 类型校验，不 clamp）
   - 用户 plugin adapter 自管 `known_params`，与内置同等地位
@@ -487,7 +487,7 @@ tag_dictionary:
     "reason": "improved metallic finish",
     "final_prompt": "<完整 prompt 字符串>",     // OPS-MAJOR-1 实拼后传给 fal 的 prompt（≤4000 字截断）
     "backend_payload": {                       // OPS-MAJOR-1 实发 fal payload（API key 已 redact）
-      /* fal_comfy 时含 cfg_scale / steps / canny_strength / depth_strength / seed / ...；
+      /* comfyui_workflow_cloud 时含 cfg_scale / steps / canny_strength / depth_strength / seed / ...；
          force_retry 模式下也写（虽然没二轮 jury，但实拼 payload 必须留）；
          经 scrub_secrets() 后写出，永不含 FAL_KEY / OPENAI_API_KEY / GEMINI_API_KEY */
     }
@@ -497,13 +497,13 @@ tag_dictionary:
   "rules_missed_tags": [],
   "llm_fallback_used": false,
   "prompt_addons_applied": ["matte metallic finish, anodized aluminum", "studio softbox lighting from left, fill light from right"],
-  "param_overrides_applied": {"fal_comfy": {"denoise_strength": 0.45, "cfg_scale": 7.5}},
+  "param_overrides_applied": {"comfyui_workflow_cloud": {"denoise_strength": 0.45, "cfg_scale": 7.5}},
   "user_friendly_summary": "已自动重试 1 次，画面质感分数从 58 提升到 78（提升 20）。",  // D-1 中文
   "loop_status_zh": "重试成功，已交付重试图",  // BL-3 中文化 loop_status，与 4.6 enum 一一映射
   "retry_score_delta": 20,                   // int|null，retry 跑通后 retry.score - baseline.score；可正/0/负；retry 未跑或 force_retry 未二轮评分则为 null
   "delivered_score_delta": 20,               // int|null，最终交付张相对 baseline 的净收益；pick_max_jury 模式下永 ≥ 0；force_retry 模式下永为 null（无法对比）；retry 未跑时为 0
   "extra_cost_usd": 0.18,                    // float，retry+二轮 jury 累计估算
-  "warnings": [                              // list[str]，e.g. "unknown_param: fal_comfy.bogus_param"
+  "warnings": [                              // list[str]，e.g. "unknown_param: comfyui_workflow_cloud.bogus_param"
     /* "rule_table:user_yaml_ignored: schema mismatch v=2 != 1" 当 BL-5 hard fail 触发不会到这；但 5.11 unknown_param 仍走这里 */
   ],
   "errors": [                                // list[ErrorEntry]，retry/jury 失败堆栈摘要 + 用户操作提示
