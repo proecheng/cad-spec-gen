@@ -28,11 +28,21 @@ class CandidateImage(NamedTuple):
 
 
 class SelectionResult(NamedTuple):
-    """选张结果：picked 张 + 实际 jury 调用次数 + 中文 rationale。"""
+    """选张结果：picked 张 + 实际 jury 调用次数 + 中文 rationale + retry verdict 出口。
+
+    retry_verdict 出口（rev 3 决议 #12）：orchestrator 写 sidecar.retry 字段需要
+    retry candidate 的二轮 verdict；即使最终 pick=baseline（retry 降分被拒），
+    retry verdict 仍要原样保留以便观测（默认 None 兼容既有 3 字段调用点）。
+
+    - PickMaxJuryStrategy：jury_callable 成功 → retry_verdict 为二轮 verdict
+      （无论 pick 是 retry 还是 baseline）；jury_callable 抛异常 → None
+    - ForceRetryStrategy：不二轮评分 → 始终 None
+    """
 
     pick: CandidateImage
     extra_jury_calls: int
     rationale: str
+    retry_verdict: ViewVerdict | None = None
 
 
 @runtime_checkable
@@ -74,14 +84,17 @@ class PickMaxJuryStrategy:
         try:
             retry_verdict = jury_callable(retry.image_path)
         except Exception:
+            # 二轮 jury 失败 fallback：无 retry verdict 可填，retry_verdict=None
             return SelectionResult(
                 pick=baseline,
                 extra_jury_calls=0,
                 rationale="二轮 jury 失败，保守退 baseline",
+                retry_verdict=None,
             )
 
         retry_with_verdict = retry._replace(verdict=retry_verdict)
         if retry_verdict.photoreal_score > baseline.verdict.photoreal_score:
+            # 选 retry 路径：retry_verdict 出口同二轮 verdict（rev 3 决议 #12）
             return SelectionResult(
                 pick=retry_with_verdict,
                 extra_jury_calls=1,
@@ -89,7 +102,9 @@ class PickMaxJuryStrategy:
                     f"retry 提分 {baseline.verdict.photoreal_score} → "
                     f"{retry_verdict.photoreal_score}，选 retry"
                 ),
+                retry_verdict=retry_verdict,
             )
+        # 保守退 baseline 路径：retry verdict 仍出口（写 sidecar.retry 用，rev 3 决议 #12 关键点）
         return SelectionResult(
             pick=baseline,
             extra_jury_calls=1,
@@ -97,6 +112,7 @@ class PickMaxJuryStrategy:
                 f"retry 平/降分 {retry_verdict.photoreal_score} ≤ "
                 f"{baseline.verdict.photoreal_score}，保守退 baseline"
             ),
+            retry_verdict=retry_verdict,
         )
 
 
@@ -116,10 +132,12 @@ class ForceRetryStrategy:
             raise ValueError(
                 f"ForceRetryStrategy 期望 2 张候选（baseline + retry），实际 {len(candidates)}"
             )
+        # force_retry 不二轮评分（spec §4.4 line 530）→ retry_verdict 必为 None
         return SelectionResult(
             pick=candidates[1],
             extra_jury_calls=0,
             rationale="force_retry: 强选 retry 不二轮评分",
+            retry_verdict=None,
         )
 
 

@@ -160,3 +160,62 @@ def test_pick_max_jury_candidates_length_not_two_raises_value_error(
     one = [CandidateImage(image_path="/x.jpg", verdict=_v(60))]
     with pytest.raises(ValueError):
         strat.select(one, MagicMock(), fake_budget)  # type: ignore[arg-type]
+
+
+# ============ Task 5.1.1：retry_verdict 出口（rev 3 决议 #12） ============
+
+
+def test_pick_max_jury_keeps_retry_verdict_in_result(
+    baseline: CandidateImage, retry: CandidateImage, fake_budget: object
+) -> None:
+    """rev 3 决议 #12：SelectionResult.retry_verdict 保留 retry candidate 的 verdict。
+
+    pick=retry 路径下 retry_verdict 必含完整二轮 verdict（写 sidecar.retry 用）。
+    """
+    retry_v = _v(80)  # retry 提分 60 → 80，会被选中
+    jury_callable: Callable[[str], ViewVerdict] = MagicMock(return_value=retry_v)
+    result = PickMaxJuryStrategy().select(
+        [baseline, retry], jury_callable, fake_budget  # type: ignore[arg-type]
+    )
+    assert result.pick.image_path == "/fake/retry.jpg"
+    assert result.retry_verdict is retry_v
+
+
+def test_pick_max_jury_keeps_retry_verdict_when_baseline_picked(
+    baseline: CandidateImage, retry: CandidateImage, fake_budget: object
+) -> None:
+    """retry 降分被选 baseline 时 retry_verdict 仍出口（rev 3 决议 #12 关键点）。
+
+    sidecar.retry 写盘需要 retry verdict 即使最终 pick=baseline。
+    """
+    retry_v = _v(50)  # retry 降分 60 → 50，不会被选中
+    jury_callable: Callable[[str], ViewVerdict] = MagicMock(return_value=retry_v)
+    result = PickMaxJuryStrategy().select(
+        [baseline, retry], jury_callable, fake_budget  # type: ignore[arg-type]
+    )
+    assert result.pick.image_path == "/fake/baseline.jpg"  # 选 baseline
+    assert result.retry_verdict is retry_v  # retry verdict 仍出口
+
+
+def test_force_retry_returns_none_retry_verdict(
+    baseline: CandidateImage, retry: CandidateImage, fake_budget: object
+) -> None:
+    """force_retry 不二轮 jury，retry_verdict 必为 None（spec §4.4 line 530）。"""
+    jury_callable = MagicMock()  # 不应被调
+    result = ForceRetryStrategy().select(
+        [baseline, retry], jury_callable, fake_budget  # type: ignore[arg-type]
+    )
+    assert result.retry_verdict is None
+    jury_callable.assert_not_called()
+
+
+def test_pick_max_jury_callable_raises_returns_none_retry_verdict(
+    baseline: CandidateImage, retry: CandidateImage, fake_budget: object
+) -> None:
+    """jury_callable 抛异常 fallback 路径下 retry_verdict 必为 None（无 retry verdict 可填）。"""
+    jury_callable = MagicMock(side_effect=RuntimeError("jury offline"))
+    result = PickMaxJuryStrategy().select(
+        [baseline, retry], jury_callable, fake_budget  # type: ignore[arg-type]
+    )
+    assert result.pick.image_path == "/fake/baseline.jpg"
+    assert result.retry_verdict is None
