@@ -400,3 +400,104 @@ def test_write_sidecar_scrubs_secrets_in_backend_payload(tmp_path: Path) -> None
 def test_schema_version_is_locked_to_1() -> None:
     """spec §4.4 BL-2：SP1 锁 $schema_version=1。"""
     assert SidecarSchema.SCHEMA_VERSION == 1
+
+
+# ---------------------------------------------------------------------------
+# Code review fixups（CP-3+CP-4 batch quality review 2026-05-10）
+# ---------------------------------------------------------------------------
+
+
+def test_delivered_retry_without_explicit_delivered_kind_raises(tmp_path: Path) -> None:
+    """Important #1：spec §4.4 line 529-530 锁 delivered_retry → delivered_kind="retry"；
+    调用方漏传 delivered_kind 时必须 ValueError 而非静默生成 baseline 不一致 sidecar。"""
+    with pytest.raises(ValueError, match="delivered_retry"):
+        write_sidecar(
+            view="V1",
+            render_dir=tmp_path,
+            backend="fal_comfy",
+            loop_status="delivered_retry",
+            # 故意漏传 delivered_kind
+            baseline={
+                "image_path": "V1_enhanced_baseline.jpg",
+                "photoreal_score": 58,
+                "semantic_checks": {},
+                "reason": "x",
+            },
+        )
+
+
+def test_delivered_retry_with_baseline_delivered_kind_raises(tmp_path: Path) -> None:
+    """Important #1：显式传 delivered_kind="baseline" 给 delivered_retry status 也应拒绝。"""
+    with pytest.raises(ValueError, match="delivered_retry"):
+        write_sidecar(
+            view="V1",
+            render_dir=tmp_path,
+            backend="fal_comfy",
+            loop_status="delivered_retry",
+            delivered_kind="baseline",  # 与 status 不一致
+            baseline={
+                "image_path": "V1_enhanced_baseline.jpg",
+                "photoreal_score": 58,
+                "semantic_checks": {},
+                "reason": "x",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_view",
+    [
+        "-V1",          # 前导短横（CLI flag 注入风险）
+        "-rf",
+        "--help",
+    ],
+)
+def test_validate_view_basename_rejects_leading_dash(bad_view: str) -> None:
+    """Important #2：前导短横 V1_enhanced.jpg 会被下游 CLI 误读为 flag；收紧首字符。"""
+    with pytest.raises(ValueError):
+        _validate_view_basename(bad_view)
+
+
+def test_above_threshold_summary_excludes_bool_photoreal_score(tmp_path: Path) -> None:
+    """Important #4：isinstance(True, int) 为 True；不应让 bool 进入 '首轮分数 True'。"""
+    write_sidecar(
+        view="V1",
+        render_dir=tmp_path,
+        backend="fal_comfy",
+        loop_status="above_threshold",
+        baseline={
+            "image_path": "V1_enhanced_baseline.jpg",
+            "photoreal_score": True,  # 病态输入，但仍要 graceful
+            "semantic_checks": {},
+            "reason": "x",
+        },
+    )
+    parsed = json.loads((tmp_path / "V1_enhance_meta.json").read_text("utf-8"))
+    # bool 不当 int 用：摘要回退到通用文案，不出 "首轮分数 True"
+    assert "True" not in parsed["user_friendly_summary"]
+    assert parsed["user_friendly_summary"] == "首轮分数已达标，无需重试"
+
+
+def test_secrets_scrub_preserves_surrounding_message_context(tmp_path: Path) -> None:
+    """Minor #10：净化只替换 secret 本身，保留周围有用上下文。"""
+    write_sidecar(
+        view="V1",
+        render_dir=tmp_path,
+        backend="fal_comfy",
+        loop_status="retry_failed",
+        baseline={
+            "image_path": "V1_enhanced_baseline.jpg",
+            "photoreal_score": 50,
+            "semantic_checks": {},
+            "reason": "x",
+        },
+        errors=[{
+            "code": "retry_http_401",
+            "message_summary": "auth fail FAL_KEY=sk-real-leaked retry-after=30s",
+            "user_action_hint": "检查 API key",
+        }],
+    )
+    raw = (tmp_path / "V1_enhance_meta.json").read_text("utf-8")
+    assert "sk-real-leaked" not in raw
+    assert "auth fail" in raw  # 上下文保留
+    assert "retry-after=30s" in raw

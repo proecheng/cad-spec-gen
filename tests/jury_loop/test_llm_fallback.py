@@ -192,3 +192,22 @@ def test_translate_does_not_scrub_secrets_caller_responsibility(
         "fallback 自身不 scrub；secret 必须原样返给调用方，由 metadata "
         "层 scrub_secrets 统一去除（SEC-MINOR-2）"
     )
+
+
+def test_parse_addons_caps_huge_llm_output_at_4k(profile: JuryProfile) -> None:
+    """Important #5：恶意/异常 LLM 返回 1MB 文本时，先 cap 到 4096 字再 split。
+
+    max_tokens=256 已限定正常路径，但纯字符限定是更稳的兜底（防御性深度）。
+    """
+    huge_payload = ("addon" + "," * 200_000 + "tail")  # ~1MB 逗号雪崩
+    with patch(
+        "tools.jury_loop.llm_fallback.urlopen",
+        return_value=_fake_urlopen_text(huge_payload).__enter__(),
+    ):
+        addons = translate(
+            unmapped_reason="x", sanitized_reason="x", profile=profile,
+        )
+    # 输出仍切到前 _MAX_ADDONS=3 项；不会因 split 1M 字符消耗内存
+    assert len(addons) <= 3
+    # 每条仍 ≤ _MAX_ADDON_CHARS=80
+    assert all(len(a) <= 80 for a in addons)

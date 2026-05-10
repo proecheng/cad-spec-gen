@@ -21,6 +21,9 @@ from tools.jury.config import JuryProfile
 _TIMEOUT_SEC = 60
 _MAX_ADDONS = 3
 _MAX_ADDON_CHARS = 80
+#: 防御性深度：max_tokens=256 已限正常路径；纯字符上限兜异常 LLM 返巨量逗号
+#: 雪崩等边角，避免 split 在 1MB+ 字符串上分配大数组（review Important #5）。
+_MAX_RAW_OUTPUT_CHARS = 4096
 _PROMPT_TEMPLATE = (
     "你是产品摄影术导。基于此 jury 反馈：{reason}，给出 ≤3 个英文 prompt "
     "增强词，逗号分隔，不解释。"
@@ -108,8 +111,13 @@ def _extract_content(resp_body: bytes) -> str:
 
 
 def _parse_addons(content_text: str) -> list[str]:
-    """逗号拆分 + strip + 去空 + cap 长度 + cap 个数。"""
-    parts = [p.strip() for p in content_text.split(",")]
+    """逗号拆分 + strip + 去空 + cap 长度 + cap 个数。
+
+    先把整体字符串截到 `_MAX_RAW_OUTPUT_CHARS` 再 split，防御异常 LLM 返巨量
+    分隔符导致内存级浪费。
+    """
+    text = content_text[:_MAX_RAW_OUTPUT_CHARS]
+    parts = [p.strip() for p in text.split(",")]
     parts = [p for p in parts if p]
     parts = [p[:_MAX_ADDON_CHARS] for p in parts]
     return parts[:_MAX_ADDONS]

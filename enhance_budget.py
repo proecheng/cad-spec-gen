@@ -104,6 +104,11 @@ class LoopBudget:
 
         实现：撤销 `_last_spent` 后写入 `amount`；调用前必先有一次成功的
         try_spend（否则等价于直接 += amount 也无害，但语义不当）。
+
+        **调用约定**：必须遵循 1×try_spend → 0-or-1×record_actual 的配对；
+        连续 record_actual 会撤销前一次而非本次 try_spend，账目偏离。
+        SP3 多 sample 落地时若需要并发多笔 actual 修正，请用每笔独立的
+        LoopBudget 实例或显式管理 `_last_spent` 历史栈。
         """
         amt = float(amount)
         with self._lock:

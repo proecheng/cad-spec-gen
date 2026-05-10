@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Protocol, runtime_checka
 from tools.jury.verdict import ViewVerdict
 
 if TYPE_CHECKING:
-    # Task 4.1 才创建 enhance_budget；当前两策略均不读 budget，仅作类型注解占位
+    # Task 4.1 已落地 enhance_budget.LoopBudget；保留 TYPE_CHECKING 是为了避免
+    # 循环导入风险（enhance_budget 后续可能 import jury_loop 工具），
+    # 而非 Task 4.1 之前那样作为运行时占位（review Minor #7）。
     from enhance_budget import LoopBudget
-else:
-    LoopBudget = object  # 运行时占位，Protocol 不强制
 
 
 class CandidateImage(NamedTuple):

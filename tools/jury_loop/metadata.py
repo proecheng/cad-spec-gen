@@ -110,8 +110,9 @@ _LOOP_STATUS_ZH_MAP: dict[str, str] = {
 # 路径净化（SEC-MAJOR-2）
 # ---------------------------------------------------------------------------
 
-#: 合法 view basename：字母/数字/下划线/连字符；长度 1-64。
-_VIEW_BASENAME_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+#: 合法 view basename：首字符必须字母/数字/下划线（拒前导短横，避免下游 CLI
+#: 把 `-V1_enhanced.jpg` 误解为 flag）；后续字符可含连字符；总长 1-64。
+_VIEW_BASENAME_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
 
 
 def _validate_view_basename(view: str) -> str:
@@ -196,9 +197,15 @@ def _resolve_status_defaults(loop_status: str) -> dict[str, Any]:
 
 
 def _build_above_threshold_summary(baseline: dict[str, Any] | None) -> str:
-    """spec line 528：'首轮分数 78 已达标，无需重试'。"""
-    if baseline and isinstance(baseline.get("photoreal_score"), (int, float)):
-        return f"首轮分数 {baseline['photoreal_score']} 已达标，无需重试"
+    """spec line 528：'首轮分数 78 已达标，无需重试'。
+
+    注意：`isinstance(True, int)` 在 Python 中为 True；显式排除 bool，避免
+    病态输入产生 '首轮分数 True 已达标' 这类无意义文案。
+    """
+    if baseline:
+        score = baseline.get("photoreal_score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            return f"首轮分数 {score} 已达标，无需重试"
     return "首轮分数已达标，无需重试"
 
 
@@ -240,6 +247,16 @@ def write_sidecar(
     - 缺省字段按 `_STATUS_DEFAULTS` + loop_status 表填；调用方显式传参覆盖。
     """
     safe_view = _validate_view_basename(view)
+
+    # spec §4.4 line 529-530：delivered_retry 必须配 delivered_kind="retry"
+    # （pick_max_jury 与 force_retry 两形态均如此）；否则下游 loop_summary 与
+    # photo3d_autopilot 会基于 delivered_kind 误分类。提前拒绝静默不一致。
+    if loop_status == "delivered_retry" and delivered_kind != "retry":
+        raise ValueError(
+            f"loop_status='delivered_retry' 必须显式 delivered_kind='retry'，"
+            f"得到 delivered_kind={delivered_kind!r}（spec §4.4 line 529-530）"
+        )
+
     defaults = _resolve_status_defaults(loop_status)
 
     # 生成最终字段值——调用方显式传入则用之，否则取 defaults，否则给最终缺省。
