@@ -41,7 +41,9 @@ class BackendAdapter(Protocol):
         ...
 
     @property
-    def known_params(self) -> dict[str, tuple[float, float]]:
+    def known_params(self) -> dict[str, tuple[float | None, float | None]]:
+        """该 backend 支持的参数 → (min, max)。(None, None) 表示非数值字段
+        （如 openai 的 quality/style/size），rule_table 仅做存在性 + 类型校验，不 clamp。"""
         ...
 
     def supports_controlnet(self) -> bool:

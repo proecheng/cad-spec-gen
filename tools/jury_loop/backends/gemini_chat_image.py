@@ -25,7 +25,7 @@ from .protocol import (
     BackendResponse,
 )
 
-_KNOWN_PARAMS: dict[str, tuple[float, float]] = {
+_KNOWN_PARAMS: dict[str, tuple[float | None, float | None]] = {
     "temperature": (0.0, 2.0),
     "top_p": (0.0, 1.0),
     "top_k": (1, 100),
@@ -151,16 +151,23 @@ def _extract_image_b64(parsed: dict[str, Any]) -> str:
 
 
 def _classify_http_error(status: int, body_text: str) -> Exception:
-    """HTTP 状态码 + body 关键字 → 4 类 BackendError。"""
+    """HTTP 状态码 + body 关键字 → 4 类 BackendError。
+
+    分类顺序（与 openai_images_edit 一致）：
+    1. 401/403 → Auth；2. 402 → Quota；3. body 含 quota 关键字 → Quota（优先于 429）；
+    4. 429（无关键字）→ RateLimit；5. 其他 → CallError 兜底。
+    """
     body_lower = body_text.lower()
     if status in (401, 403):
         return BackendAuthError(f"HTTP {status}: 认证失败（API key 错误 / 无权限）")
     if status == 402:
         return BackendQuotaExceededError(f"HTTP 402: 余额不足（{body_text[:200]}）")
+    if "quota" in body_lower or "billing" in body_lower or "insufficient" in body_lower:
+        return BackendQuotaExceededError(
+            f"HTTP {status}: quota/billing 关键字命中（{body_text[:200]}）"
+        )
     if status == 429:
         return BackendRateLimitError(f"HTTP 429: rate limited（{body_text[:200]}）")
-    if "quota" in body_lower or "billing" in body_lower or "insufficient" in body_lower:
-        return BackendQuotaExceededError(f"HTTP {status}: quota/billing 关键字命中")
     return BackendCallError(f"HTTP {status}: {body_text[:200]}")
 
 
@@ -172,7 +179,7 @@ class GeminiChatImageAdapter:
         return "gemini_chat_image"
 
     @property
-    def known_params(self) -> dict[str, tuple[float, float]]:
+    def known_params(self) -> dict[str, tuple[float | None, float | None]]:
         return dict(_KNOWN_PARAMS)
 
     def supports_controlnet(self) -> bool:

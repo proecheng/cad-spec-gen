@@ -39,7 +39,7 @@ class _CompleteAdapter:
         return self._kind
 
     @property
-    def known_params(self) -> dict[str, tuple[float, float]]:
+    def known_params(self) -> dict[str, tuple[float | None, float | None]]:
         return {"x": (0.0, 1.0)}
 
     def supports_controlnet(self) -> bool:
@@ -64,7 +64,7 @@ class _IncompleteAdapter:
         return "fake_incomplete"
 
     @property
-    def known_params(self) -> dict[str, tuple[float, float]]:
+    def known_params(self) -> dict[str, tuple[float | None, float | None]]:
         return {}
 
     def supports_controlnet(self) -> bool:
