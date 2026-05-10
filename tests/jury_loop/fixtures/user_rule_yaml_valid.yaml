@@ -1,0 +1,13 @@
+schema_version: 1
+rules:
+  - id: plastic_look_to_metallic   # 替换内置 (DRIFT-MAJOR-1 同 id 替换保留位置)
+    when_tags: [plastic_look]
+    prompt_addons: ["custom premium metallic finish"]
+    param_overrides: {}
+  - id: user_custom_rule           # 新增追加到末尾
+    when_tags: [oversaturated]
+    prompt_addons: ["balanced color grading"]
+    param_overrides:
+      comfyui_workflow_cloud: { cfg_scale: 6.0 }
+tag_dictionary:
+  plastic_look: ["fake plastic", "vinyl"]   # 追加而非替换
