@@ -42,13 +42,24 @@ def reason_sanitized(text: str) -> str:
     return cleaned[:_REASON_MAX_LEN]
 
 
-def parse_reason(text: str) -> set[str]:
-    """jury reason → tag 集合。大小写不敏感；纯函数。"""
+def parse_reason(
+    text: str,
+    tag_dictionary: dict[str, list[str]] | None = None,
+) -> set[str]:
+    """jury reason → tag 集合。大小写不敏感；纯函数。
+
+    参数：
+        text: jury 反馈文本（建议先经 reason_sanitized 净化）
+        tag_dictionary: 可选自定义 tag→patterns 映射。None 时默认使用
+            BUILTIN_TAG_DICTIONARY；orchestrator 可传 rule_table.load_rule_table
+            合并后的 RuleTable.tag_dictionary 让用户 yaml 扩 tag 生效（spec §5 #8）。
+    """
     if not isinstance(text, str) or not text:
         return set()
+    table = BUILTIN_TAG_DICTIONARY if tag_dictionary is None else tag_dictionary
     lowered = text.lower()
     hits: set[str] = set()
-    for tag, patterns in BUILTIN_TAG_DICTIONARY.items():
+    for tag, patterns in table.items():
         for pat in patterns:
             if pat.lower() in lowered:
                 hits.add(tag)

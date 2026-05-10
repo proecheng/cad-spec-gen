@@ -212,15 +212,18 @@ def tiny_loop_config():
 
 @pytest.fixture
 def user_yaml_with_tag_no_rule(tmp_path) -> Path:
-    """测试 #8 专用：用户 yaml 扩 tag_dictionary 但不加 rule。"""
+    """测试 #8 专用：用户 yaml 扩 tag_dictionary 但不加 rule。
+
+    schema 对齐 photoreal_v1.yaml 的 tag_dictionary（直接 tag → list[str]，
+    不嵌套 `patterns:` 子键），rule_table._merge 才能识别 patterns 列表。
+    """
     p = tmp_path / "user_rules.yaml"
     p.write_text(
         "schema_version: 1\n"
         "tag_dictionary:\n"
         "  unknown_aesthetic_tag:\n"
-        "    patterns:\n"
-        '      - "weird vibe"\n'
-        '      - "off feeling"\n'
+        '    - "weird vibe"\n'
+        '    - "off feeling"\n'
         "rules: []\n",
         encoding="utf-8",
     )

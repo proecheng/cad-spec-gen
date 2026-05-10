@@ -226,3 +226,190 @@ def test_gate3_5_empty_reason(
     )
     assert sidecar["baseline"]["photoreal_score"] == 50
     assert sidecar["baseline"]["reason"] == ""
+
+
+# ==== Task 5.1.7：Gate-4/5/6/7（above_threshold / cost_capped / no_tags_parsed /
+# no_rules_hit_no_llm）顶层 Step 4-7 集成测试 ==== #
+
+
+def test_gate4_score_above_threshold(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #5：score=80 ≥ threshold=75 → above_threshold。"""
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (fake_view_verdict(score=80, reason="quite good"), None),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind, threshold=75)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "above_threshold"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    # spec §4.4 line 528 锁动态摘要含 score 数字
+    assert "80" in sidecar["user_friendly_summary"]
+
+
+def test_gate4_score_equals_threshold(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #5b：score=75=threshold 边界，锁 ≥ 而非 >。"""
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (fake_view_verdict(score=75, reason="exact threshold"), None),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind, threshold=75)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "above_threshold"
+
+
+def test_gate5_budget_capped(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #6：budget cap 极小让 try_spend 返 False → cost_capped。"""
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (fake_view_verdict(score=58, reason="plastic look"), None),
+    )
+    # cap 0.001 远低于 estimate (0.05 base + 0.005 jury) → try_spend 必 False
+    tiny_budget = LoopBudget(cap_usd=0.001, n_views=1)
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=tiny_budget,
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "cost_capped"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    # try_spend 返 False 未扣额度，sidecar.extra_cost_usd 必为 0
+    assert sidecar["extra_cost_usd"] == 0
+
+
+def test_gate6_no_tags_parsed(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #7：reason 全 ASCII 不含已知 tag → no_tags_parsed。"""
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (fake_view_verdict(score=58, reason="abc xyz blah"), None),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "no_tags_parsed"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["tags_parsed"] == []
+
+
+def test_gate7_all_miss_llm_fallback_off(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    user_yaml_with_tag_no_rule,
+    monkeypatch,
+):
+    """spec §5 #8：reason 含用户 yaml 扩展的 tag (无 rule) + llm_fallback=False
+    → no_rules_hit_no_llm。
+    """
+    # reason 含 "weird vibe" 命中 user_yaml_with_tag_no_rule 中的
+    # unknown_aesthetic_tag 但 rules: [] 故无规则匹配
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (
+            fake_view_verdict(score=58, reason="weird vibe everywhere"),
+            None,
+        ),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(
+            backend_kind=kind,
+            llm_fallback=False,
+            rule_table_path=user_yaml_with_tag_no_rule,
+        )
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "no_rules_hit_no_llm"

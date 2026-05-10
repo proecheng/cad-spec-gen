@@ -11,16 +11,18 @@
 from __future__ import annotations
 
 import json as _json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import enhance_budget
 from enhance_budget import LoopBudget
 from tools.jury.config import JuryProfile
 from tools.jury.verdict import ViewVerdict, parse_view_verdict
-from tools.jury_loop import metadata
+from tools.jury_loop import llm_fallback, metadata, reason_parser, rule_table
 from tools.jury_loop.backends import (
     BACKEND_REGISTRY,
     BackendAuthError,
@@ -28,6 +30,7 @@ from tools.jury_loop.backends import (
     BackendError,
     BackendQuotaExceededError,
     BackendRateLimitError,
+    BackendRequest,
 )
 from tools.jury_loop.config import JuryLoopConfig
 from tools.jury_loop.metadata import _validate_view_basename
@@ -312,6 +315,108 @@ def run_loop_if_eligible(
             local_extra_cost=0,
         )
 
+    # Step 4: above_threshold（spec rev 3 §3 主流程；锁 ≥ 而非 >，spec §5 #5b）
+    threshold: int = config.advanced["threshold"]
+    if verdict.photoreal_score >= threshold:
+        # user_friendly_summary 由 metadata._build_above_threshold_summary
+        # 动态生成（含 score 数字，spec §4.4 line 528）；不显式传 summary。
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="above_threshold",
+            baseline_path=baseline_path,
+            baseline=verdict,
+            local_extra_cost=0,
+        )
+
+    # Step 5: 估算 retry cost + try_spend（spec rev 3 §3 line 218+）
+    # Gate-1 已守 backend_kind 在 BACKEND_REGISTRY，此处直取 adapter
+    adapter = BACKEND_REGISTRY[backend_kind]
+    request = BackendRequest(
+        input_image_path=baseline_path,
+        prompt=str(rc.get("prompt", "")),
+        params=base_params,
+        base_url=config.backend.base_url,
+        api_key=os.environ.get(config.backend.api_key_env, ""),
+        model_name=config.backend.model_name,
+    )
+    estimate = enhance_budget.estimate_retry_cost(
+        adapter,
+        request,
+        with_jury=(config.advanced["score_select_strategy"] == "pick_max_jury"),
+    )
+    local_extra_cost: float = 0.0
+    if not budget.try_spend(estimate):
+        # 预算不够 retry：写 cost_capped；try_spend 返 False 时未扣额度
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="cost_capped",
+            baseline_path=baseline_path,
+            baseline=verdict,
+            local_extra_cost=0,
+        )
+    local_extra_cost += estimate
+
+    # Step 6: tag 解析（spec rev 3 §3 line 226+）
+    # 先 load rule_table 取合并后的 tag_dictionary，传给 parse_reason 让用户
+    # yaml 扩 tag 也能被识别（spec §5 #8 锁）。rule_table.load_rule_table 的
+    # 用户 yaml 路径校验失败会抛 RuleTableLoadError，由顶层 try/except 兜。
+    rule_path = config.advanced.get("rule_table_path")
+    rule_tbl = rule_table.load_rule_table(
+        user_yaml_path=rule_path,
+        project_root=project_root,
+    )
+    sanitized_reason = reason_parser.reason_sanitized(verdict.reason)
+    tags = reason_parser.parse_reason(
+        sanitized_reason,
+        tag_dictionary=rule_tbl.tag_dictionary,
+    )
+    if not tags:
+        # 已知问题集合外的 reason，无法转 prompt addon → 接受首轮图
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="no_tags_parsed",
+            baseline_path=baseline_path,
+            baseline=verdict,
+            local_extra_cost=local_extra_cost,
+            tags_parsed=[],
+        )
+
+    # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
+    hits = rule_table.lookup(rule_tbl, tags, backend_kind)
+    # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
+    misses = tags - set(hits.matched_tags)
+    if misses and config.advanced["llm_fallback"]:
+        try:
+            extra_addons = llm_fallback.translate(
+                unmapped_reason=sanitized_reason,
+                sanitized_reason=sanitized_reason,
+                profile=jury_profile,
+            )
+        except Exception:  # noqa: BLE001 — LLM 任何异常降级为空 addons，保 Gate-7 路径
+            extra_addons = []
+    else:
+        extra_addons = []
+
+    if not hits.prompt_addons and not extra_addons:
+        # 规则未命中且 llm_fallback 关 / 也没产出 addon → 接受首轮图
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="no_rules_hit_no_llm",
+            baseline_path=baseline_path,
+            baseline=verdict,
+            local_extra_cost=local_extra_cost,
+            tags_parsed=sorted(tags),
+        )
+
     raise NotImplementedError(
-        f"Task 5.1.7+ 完整 jury 后续流程；当前 view={safe_view} 实现到 Gate-3.5"
+        f"Task 5.1.8+ retry 调用 + score_select + _finalize；"
+        f"当前 view={safe_view} 已到 Step 7 末"
     )
