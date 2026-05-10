@@ -1,6 +1,8 @@
 """规则表加载 + 用户 yaml override + 范围校验。
 
 安全：yaml.safe_load 强制；用户 yaml 路径限定在 project_root 内（SEC-MAJOR-1）。
+范围 clamp：通过 BACKEND_REGISTRY[backend_kind].known_params 拿白名单 + 范围
+（Task 2.5.5）；非数值字段 (None, None) 仅做存在性 + 类型校验不 clamp。
 """
 from __future__ import annotations
 
@@ -12,26 +14,10 @@ from typing import Any
 
 import yaml
 
+from tools.jury_loop.backends import BACKEND_REGISTRY
+
 SCHEMA_VERSION = 1
 _BUILTIN_RESOURCE = "photoreal_v1.yaml"
-
-# M-12 范围常量：(min, max)。已知 key 在此声明，未知 key 静默忽略。
-# 注：Task 2.5.5 会接入 BACKEND_REGISTRY[kind].known_params 动态拿白名单；
-# 此静态表是 CP-2 临时占位（spec §4.3 明示）。
-KNOWN_PARAMS: dict[str, tuple[float, float]] = {
-    "canny_strength":   (0.0, 1.0),
-    "depth_strength":   (0.0, 1.0),
-    "canny_end_pct":    (0.0, 1.0),
-    "denoise_strength": (0.0, 1.0),
-    "img2img_strength": (0.0, 1.0),
-    "guidance_scale":   (1.0, 30.0),
-    "cfg_scale":        (1.0, 30.0),
-    "steps":            (1, 200),
-    # gemini_chat_image
-    "temperature":      (0.0, 2.0),
-    "top_p":            (0.0, 1.0),
-    "top_k":            (1, 100),
-}
 
 # DRIFT-MINOR-6 closed schema 允许字段集
 _TOP_KEYS_ALLOWED = {"schema_version", "rules", "tag_dictionary"}
@@ -222,8 +208,16 @@ def lookup(
 ) -> RuleTableLookupResult:
     """规则表查询：返回合并后的 prompt_addons + param_overrides。
 
-    注：Task 2.5.5 会改 _clamp_param 走 BACKEND_REGISTRY[backend_kind].known_params。
+    Task 2.5.5 改：从 BACKEND_REGISTRY[backend_kind].known_params 动态拿
+    白名单 + 范围；backend_kind 未注册时抛 ValueError（与 orchestrator
+    Gate-1 配合，lookup 是兜底守门）。
     """
+    if backend_kind not in BACKEND_REGISTRY:
+        raise ValueError(
+            f"backend_kind {backend_kind!r} 未注册到 BACKEND_REGISTRY；"
+            f"已注册：{sorted(BACKEND_REGISTRY.keys())}"
+        )
+
     result = RuleTableLookupResult()
     seen_addons: set[str] = set()
 
@@ -240,7 +234,7 @@ def lookup(
 
         backend_params = rule.param_overrides.get(backend_kind, {})
         for pkey, pval in backend_params.items():
-            clamped, warn = _clamp_param(pkey, pval)
+            clamped, warn = _clamp_param(pkey, pval, backend_kind)
             if warn:
                 result.warnings.append(warn)
             result.param_overrides[pkey] = clamped
@@ -248,13 +242,38 @@ def lookup(
     return result
 
 
-def _clamp_param(key: str, value: Any) -> tuple[Any, str | None]:
-    """对已知 param 做范围 clamp，越界写 warning；未知 key 透传写 unknown_param warning。"""
-    if key not in KNOWN_PARAMS:
-        return value, f"unknown_param: {key}"
-    lo, hi = KNOWN_PARAMS[key]
-    if not isinstance(value, (int, float)):
+def _clamp_param(
+    key: str,
+    value: Any,
+    backend_kind: str,
+) -> tuple[Any, str | None]:
+    """对已知 param 做范围 clamp（按 BACKEND_REGISTRY[backend_kind].known_params）。
+
+    分支：
+    - backend_kind 不在 REGISTRY → ValueError（不应该到这里，lookup 已守门）
+    - key 不在该 backend 的 known_params → unknown_param warning，透传 value
+    - known_params[key] == (None, None)（非数值字段如 quality/style）→ 透传不 clamp
+    - 数值范围 (lo, hi)：value 越界 clamp 到 [lo, hi] 并 warning
+    - 非 int/float 值（如 str）即使在数值范围 key 上也不 clamp（透传无 warning）
+    """
+    if backend_kind not in BACKEND_REGISTRY:
+        raise ValueError(
+            f"backend_kind {backend_kind!r} 未注册到 BACKEND_REGISTRY"
+        )
+
+    known_params = BACKEND_REGISTRY[backend_kind].known_params
+    if key not in known_params:
+        return value, f"unknown_param: {key} (backend={backend_kind})"
+
+    lo, hi = known_params[key]
+    # 非数值字段（quality/style/size 用 (None, None) 标记），仅做存在性校验
+    if lo is None or hi is None:
         return value, None
+
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        # bool 是 int 子类但语义不同；透传不 clamp
+        return value, None
+
     if value < lo:
         return lo, f"param_clamped: {key}={value}→{lo}"
     if value > hi:
