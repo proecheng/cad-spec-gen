@@ -1,0 +1,67 @@
+# 内置规则表 v1。spec §4.2 起步集 6 条规则 + 19 tag dictionary。
+schema_version: 1
+
+rules:
+  - id: plastic_look_to_metallic
+    when_tags: [plastic_look]
+    prompt_addons:
+      - "matte metallic finish, anodized aluminum"
+      - "subtle anisotropic reflections"
+    param_overrides:
+      gemini_chat_image:        { temperature: 0.3, top_p: 0.9 }
+      openai_images_edit:       { quality: "hd", style: "natural" }
+      comfyui_workflow_cloud:   { denoise_strength: 0.45, cfg_scale: 7.5 }
+
+  - id: flat_lighting_to_studio
+    when_tags: [flat_light]
+    prompt_addons:
+      - "studio softbox lighting from left, fill light from right"
+      - "subtle rim light, gradient seamless backdrop"
+    param_overrides: {}
+
+  - id: soft_edge_to_sharp
+    when_tags: [soft_edge, blurry]
+    prompt_addons:
+      - "razor-sharp product edges, crisp specular highlights"
+    param_overrides:
+      # 仅 comfyui_workflow_cloud 支持 ControlNet 边缘锁
+      comfyui_workflow_cloud:   { canny_strength: 0.95, canny_end_pct: 0.95 }
+
+  - id: dull_color_to_vibrant
+    when_tags: [dull_color, washed_out]
+    prompt_addons:
+      - "vivid saturated product colors, professional color grading"
+    param_overrides: {}
+
+  - id: dark_to_brighter
+    when_tags: [dark_overall]
+    prompt_addons: ["bright key light, high-key product photography"]
+    param_overrides:
+      comfyui_workflow_cloud:   { denoise_strength: 0.4 }
+      gemini_chat_image:        { temperature: 0.4 }
+
+  - id: cluttered_bg_to_clean
+    when_tags: [cluttered_bg, distracting_bg]
+    prompt_addons: ["seamless white backdrop, isolated product, clean studio background"]
+    param_overrides: {}
+
+tag_dictionary:
+  plastic_look:    ["plastic", "toy-like", "rubbery", "matte plastic"]
+  flat_light:      ["flat lighting", "no shadows", "ambient only", "diffuse"]
+  soft_edge:       ["soft edge", "blurry edge", "out of focus", "fuzzy"]
+  blurry:          ["blurry", "low resolution"]
+  dull_color:      ["dull", "muted", "low contrast"]
+  washed_out:      ["washed out", "faded", "desaturated"]
+  dark_overall:    ["too dark", "underexposed", "low light"]
+  cluttered_bg:    ["cluttered background", "busy background"]
+  distracting_bg:  ["distracting background", "noisy backdrop"]
+  dull_metal: []
+  fake_glass: []
+  missing_pbr: []
+  harsh_shadow: []
+  blown_highlights: []
+  jagged: []
+  oversharpened: []
+  oversaturated: []
+  color_cast: []
+  dirty_bg: []
