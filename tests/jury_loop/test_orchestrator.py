@@ -102,3 +102,52 @@ def test_gate2_enabled_false(
     assert (fake_render_dir / "V1_enhanced.jpg").is_file()
     sidecar = json.loads((fake_render_dir / "V1_enhance_meta.json").read_text("utf-8"))
     assert sidecar["loop_eligible"] is False
+
+
+# ==== Task 5.1.5：_classify_backend_error 4 路 + errors[] 构造 unit 测试 ==== #
+# 注意：本批仅 unit 测试 helper 纯函数；集成测试 #9-#12（用 run_loop_if_eligible
+# 触发 BackendError）等 Task 5.1.8 retry 路径落地后才能 GREEN。
+
+from tools.jury_loop.backends import (  # noqa: E402  集成测试与 helper 测试 imports 分组
+    BackendAuthError,
+    BackendCallError,
+    BackendError,
+    BackendQuotaExceededError,
+    BackendRateLimitError,
+)
+from tools.jury_loop.orchestrator import _classify_backend_error  # noqa: E402
+
+
+@pytest.mark.parametrize("exc_cls, expected_status, expected_code", [
+    (BackendAuthError, "retry_auth_failed", "backend_auth_error"),
+    (BackendRateLimitError, "retry_rate_limited", "backend_rate_limited"),
+    (BackendQuotaExceededError, "retry_quota_exceeded", "backend_quota_exceeded"),
+    (BackendCallError, "retry_failed", "backend_call_error"),
+])
+def test_classify_backend_error_4_known_subclasses(
+    exc_cls: type[BackendError], expected_status: str, expected_code: str,
+) -> None:
+    """spec rev 3 决议 #10：4 类已知 BackendError 子类的分类与 errors[].code 对齐。"""
+    loop_status, error_entry = _classify_backend_error(exc_cls("vendor 错误"))
+    assert loop_status == expected_status
+    assert error_entry["code"] == expected_code
+    assert "vendor 错误" in error_entry["message_summary"]
+    assert error_entry["user_action_hint"]  # 非空
+
+
+def test_classify_backend_error_unknown_subclass_falls_back_to_retry_failed() -> None:
+    """未知 BackendError 子类（仅继承 BackendError）→ retry_failed + backend_unknown_error。"""
+    class _CustomBackendError(BackendError):
+        pass
+
+    loop_status, error_entry = _classify_backend_error(_CustomBackendError("奇怪错误"))
+    assert loop_status == "retry_failed"
+    assert error_entry["code"] == "backend_unknown_error"
+    assert "奇怪错误" in error_entry["message_summary"]
+
+
+def test_classify_backend_error_message_summary_truncated_at_200() -> None:
+    """message_summary 长度 ≤ 200 字符（避免 sidecar 文件膨胀）。"""
+    huge_msg = "x" * 500
+    _, error_entry = _classify_backend_error(BackendCallError(huge_msg))
+    assert len(error_entry["message_summary"]) <= 200

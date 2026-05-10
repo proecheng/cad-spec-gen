@@ -17,7 +17,14 @@ from typing import Any
 from enhance_budget import LoopBudget
 from tools.jury.config import JuryProfile
 from tools.jury_loop import metadata
-from tools.jury_loop.backends import BACKEND_REGISTRY
+from tools.jury_loop.backends import (
+    BACKEND_REGISTRY,
+    BackendAuthError,
+    BackendCallError,
+    BackendError,
+    BackendQuotaExceededError,
+    BackendRateLimitError,
+)
 from tools.jury_loop.config import JuryLoopConfig
 from tools.jury_loop.metadata import _validate_view_basename
 
@@ -48,6 +55,50 @@ def _rename_baseline_as_final(
     final_path.unlink(missing_ok=True)
     Path(baseline_path).replace(final_path)
     return final_path
+
+
+def _classify_backend_error(exc: BackendError) -> tuple[str, dict[str, str]]:
+    """4 路异常分类 → (loop_status, error_entry)（spec rev 3 决议 #10）。
+
+    错误条目（error_entry）字段集（父 spec §4.4 line 511-514）：
+    - code: 机器可读分类标识符（backend_auth_error / backend_rate_limited /
+      backend_quota_exceeded / backend_call_error / backend_unknown_error）
+    - message_summary: 异常字符串截到 200 字（防 sidecar 膨胀）
+    - user_action_hint: 中文用户操作提示（父 spec §4.6 BL-3 中文化）
+
+    fallback：未识别 BackendError 子类（仅继承基类未走 4 已知子类） →
+    retry_failed + backend_unknown_error，避免 helper 抛异常使 sidecar 写入丢失。
+    """
+    msg_summary = str(exc)[:200]
+    if isinstance(exc, BackendAuthError):
+        return ("retry_auth_failed", {
+            "code": "backend_auth_error",
+            "message_summary": msg_summary,
+            "user_action_hint": "API key 无效，请检查配置后重试",
+        })
+    if isinstance(exc, BackendRateLimitError):
+        return ("retry_rate_limited", {
+            "code": "backend_rate_limited",
+            "message_summary": msg_summary,
+            "user_action_hint": "服务限流，请稍后重试",
+        })
+    if isinstance(exc, BackendQuotaExceededError):
+        return ("retry_quota_exceeded", {
+            "code": "backend_quota_exceeded",
+            "message_summary": msg_summary,
+            "user_action_hint": "服务账户余额不足，请充值后重试",
+        })
+    if isinstance(exc, BackendCallError):
+        return ("retry_failed", {
+            "code": "backend_call_error",
+            "message_summary": msg_summary,
+            "user_action_hint": "重试调用失败，请查看 sidecar.errors[]",
+        })
+    return ("retry_failed", {
+        "code": "backend_unknown_error",
+        "message_summary": msg_summary,
+        "user_action_hint": "未知 backend 错误；请提交 issue 附完整日志",
+    })
 
 
 @dataclass(frozen=True)
