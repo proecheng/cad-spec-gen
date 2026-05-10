@@ -91,7 +91,8 @@ class TestSwInspectNoNewExtras:
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         extras = set(data["project"].get("optional-dependencies", {}).keys())
-        # allowed 来自 Step 1 实际探查结果（2026-04-16，Task 16）
+        # allowed 来自 Step 1 实际探查结果（2026-04-16，Task 16）；
+        # "test" 由 SP1 session 1 commit 2ca25d3 加入，承载 pytest/pytest-cov 等测试依赖
         allowed = {
             "cad",
             "render",
@@ -99,6 +100,7 @@ class TestSwInspectNoNewExtras:
             "parts_library_bd",
             "parts_library_pc",
             "solidworks",
+            "test",
             "all",
         }
         # 断言语义：extras 集合没有扩大（超出预期范围的新 extras 须明确更新此测试）
