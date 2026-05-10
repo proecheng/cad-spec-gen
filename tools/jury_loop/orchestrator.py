@@ -16,8 +16,38 @@ from typing import Any
 
 from enhance_budget import LoopBudget
 from tools.jury.config import JuryProfile
+from tools.jury_loop import metadata
+from tools.jury_loop.backends import BACKEND_REGISTRY
 from tools.jury_loop.config import JuryLoopConfig
 from tools.jury_loop.metadata import _validate_view_basename
+
+
+def _check_pre_jury_gates(backend_kind: str, config: JuryLoopConfig) -> str | None:
+    """Gate-1/2 检查（spec §3 [2]）：返 loop_status 字符串或 None。
+
+    - Gate-1：backend_kind 不在 BACKEND_REGISTRY → loop_disabled
+    - Gate-2：config.enabled == False → loop_disabled
+    - 通过则返 None，进 jury 阶段
+    """
+    if backend_kind not in BACKEND_REGISTRY:
+        return "loop_disabled"
+    if not config.enabled:
+        return "loop_disabled"
+    return None
+
+
+def _rename_baseline_as_final(
+    baseline_path: Path, view: str, render_dir: Path,
+) -> Path:
+    """父 spec line 165 N-1 决议：Gate-1/2 退出路径 baseline → V<view>_enhanced.jpg。
+
+    跨平台安全：先 dst.unlink(missing_ok=True) 再 src.replace(dst)（父 spec line 270）。
+    OSError 向上抛（顶层 try/except 兜）。
+    """
+    final_path = render_dir / f"{view}_enhanced.jpg"
+    final_path.unlink(missing_ok=True)
+    Path(baseline_path).replace(final_path)
+    return final_path
 
 
 @dataclass(frozen=True)
@@ -71,6 +101,24 @@ def run_loop_if_eligible(
     if not baseline_path.is_file():
         raise FileNotFoundError(f"baseline_path 不存在：{baseline_path}")
     safe_view = _validate_view_basename(view)
+    render_dir = baseline_path.parent
+
+    # Gate-1/2：spec §3 [2]
+    gate_status = _check_pre_jury_gates(backend_kind, config)
+    if gate_status is not None:
+        final_path = _rename_baseline_as_final(baseline_path, safe_view, render_dir)
+        metadata.write_sidecar(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status=gate_status,
+            baseline=None,
+            retry=None,
+            extra_cost_usd=0,
+            loop_eligible=False,  # rev 3 spec §5 #1 / #2 验收锁
+        )
+        return LoopResult(final_path, gate_status)
+
     raise NotImplementedError(
-        f"Task 5.1.4+ 完整实现 view={safe_view}；当前为骨架"
+        f"Task 5.1.5+ 完整 jury 流程；当前 view={safe_view} 仅 Gate-1/2 路径"
     )
