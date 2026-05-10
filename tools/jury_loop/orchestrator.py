@@ -10,12 +10,16 @@
 """
 from __future__ import annotations
 
+import json as _json
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from enhance_budget import LoopBudget
 from tools.jury.config import JuryProfile
+from tools.jury.verdict import ViewVerdict, parse_view_verdict
 from tools.jury_loop import metadata
 from tools.jury_loop.backends import (
     BACKEND_REGISTRY,
@@ -101,6 +105,69 @@ def _classify_backend_error(exc: BackendError) -> tuple[str, dict[str, str]]:
     })
 
 
+def _call_jury_subprocess(
+    *,
+    view: str,
+    image_path: Path,
+    project_root: Path,
+    jury_profile_path: Path,
+    timeout_s: int,
+) -> tuple[ViewVerdict | None, str | None]:
+    """调 photo3d-jury --single-view 子进程，返 (verdict, error_code)。
+
+    spec rev 3 决议 #9：失败时不丢信息——返第二元素 error_code 让上层填 sidecar.errors[]。
+
+    错误码（4 种）：
+    - "timeout"：subprocess.TimeoutExpired
+    - "exit_nonzero"：returncode != 0
+    - "json_parse_failed"：stdout 非 JSON 或 list 形状不符（非 list / len != 1）
+    - "needs_review"：parse_view_verdict 返 verdict.verdict == "needs_review"
+
+    注意：CP-6 Task 6.1 才落地 photo3d-jury --single-view flag；CP-5 测试用
+    monkeypatch.setattr 整体替换本 helper，生产 path 暂跑不通（spec §1 非目标）。
+    """
+    cmd = [
+        sys.executable, "-m", "tools.photo3d_jury",
+        "--single-view", view,
+        "--image", str(image_path),
+        "--config", str(jury_profile_path),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=project_root,
+            timeout=timeout_s,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return (None, "timeout")
+    if proc.returncode != 0:
+        return (None, "exit_nonzero")
+    try:
+        items = _json.loads(proc.stdout)
+    except _json.JSONDecodeError:
+        return (None, "json_parse_failed")
+    if not isinstance(items, list) or len(items) != 1:
+        return (None, "json_parse_failed")
+    verdict = parse_view_verdict(_json.dumps(items[0]))
+    if verdict.verdict == "needs_review":
+        return (None, "needs_review")
+    return (verdict, None)
+
+
+def _view_verdict_to_baseline_dict(
+    verdict: ViewVerdict, image_path: Path,
+) -> dict[str, Any]:
+    """ViewVerdict → sidecar.baseline 4 字段投影（父 spec §4.4 line 478-482）。"""
+    return {
+        "image_path": str(image_path),
+        "photoreal_score": verdict.photoreal_score,
+        "semantic_checks": dict(verdict.semantic_checks),
+        "reason": verdict.reason,
+    }
+
+
 @dataclass(frozen=True)
 class LoopResult:
     """单视角闭环结果（最小契约 / spec rev 3 决议 #3）。
@@ -115,6 +182,44 @@ class LoopResult:
 
     final_path: Path
     loop_status: str
+
+
+def _finalize_baseline_only(
+    *,
+    view: str,
+    render_dir: Path,
+    backend: str,
+    loop_status: str,
+    baseline_path: Path,
+    baseline: ViewVerdict | None = None,
+    errors: list[dict[str, Any]] | None = None,
+    local_extra_cost: float = 0,
+    tags_parsed: list[str] | None = None,
+    warnings: list[str] | None = None,
+) -> LoopResult:
+    """所有 baseline-only 退出路径共用：rename baseline → V<view>_enhanced.jpg + 写 sidecar。
+
+    spec rev 3 §3 主流程的"baseline 退出"分支统一收口（Gate-3 / 3.5 / 4 / 5 / 6 / 7 / 8 路径）。
+    后续 Task 5.1.7+ 复用本 helper。
+    """
+    final_path = _rename_baseline_as_final(baseline_path, view, render_dir)
+    metadata.write_sidecar(
+        view=view,
+        render_dir=render_dir,
+        backend=backend,
+        loop_status=loop_status,
+        baseline=(
+            _view_verdict_to_baseline_dict(baseline, final_path)
+            if baseline is not None
+            else None
+        ),
+        retry=None,
+        errors=errors or [],
+        tags_parsed=tags_parsed or [],
+        extra_cost_usd=local_extra_cost,
+        warnings=warnings or [],
+    )
+    return LoopResult(final_path, loop_status)
 
 
 def run_loop_if_eligible(
@@ -170,6 +275,43 @@ def run_loop_if_eligible(
         )
         return LoopResult(final_path, gate_status)
 
+    # Step 2: jury 第一次评 baseline（spec rev 3 §3 line 195+）
+    verdict, jury_err = _call_jury_subprocess(
+        view=safe_view,
+        image_path=baseline_path,
+        project_root=project_root,
+        jury_profile_path=jury_profile_path,
+        timeout_s=config.backend.timeout_s,
+    )
+    if verdict is None:
+        # Gate-3：jury 不可用 → jury_unavailable + sidecar.errors[0].code 保留 4 错误码之一
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="jury_unavailable",
+            baseline_path=baseline_path,
+            errors=[{
+                "code": jury_err or "unknown",
+                "message_summary": f"jury subprocess 调用失败：{jury_err}",
+                "user_action_hint": "查看 sidecar.errors[].code 排查",
+            }],
+            local_extra_cost=0,
+        )
+
+    # Gate-3.5：spec rev 3 决议 #11 empty_reason 锁
+    # 用 .strip() == "" 而非 == ""，防全空白字符（"\n  \t"）误判为有内容
+    if verdict.reason.strip() == "":
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status="empty_reason",
+            baseline_path=baseline_path,
+            baseline=verdict,
+            local_extra_cost=0,
+        )
+
     raise NotImplementedError(
-        f"Task 5.1.5+ 完整 jury 流程；当前 view={safe_view} 仅 Gate-1/2 路径"
+        f"Task 5.1.7+ 完整 jury 后续流程；当前 view={safe_view} 实现到 Gate-3.5"
     )

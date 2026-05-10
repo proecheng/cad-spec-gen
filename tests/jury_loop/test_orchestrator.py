@@ -151,3 +151,78 @@ def test_classify_backend_error_message_summary_truncated_at_200() -> None:
     huge_msg = "x" * 500
     _, error_entry = _classify_backend_error(BackendCallError(huge_msg))
     assert len(error_entry["message_summary"]) <= 200
+
+
+# ==== Task 5.1.6：Gate-3（jury 不可用） + Gate-3.5（empty_reason）==== #
+
+
+def test_gate3_jury_returns_none_maps_to_jury_unavailable(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    monkeypatch,
+):
+    """spec §5 #3：_call_jury_subprocess 返 (None, code) → jury_unavailable + sidecar.errors[0].code。"""
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (None, "exit_nonzero"),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "jury_unavailable"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["delivered_kind"] == "baseline"
+    assert sidecar["errors"][0]["code"] == "exit_nonzero"
+
+
+def test_gate3_5_empty_reason(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #4：jury 返非 None 但 reason='' → empty_reason（Gate-3.5）。"""
+    verdict = fake_view_verdict(score=50, reason="")
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (verdict, None),
+    )
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=_stub_budget(),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "empty_reason"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["baseline"]["photoreal_score"] == 50
+    assert sidecar["baseline"]["reason"] == ""
