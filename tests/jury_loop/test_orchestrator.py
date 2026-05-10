@@ -682,3 +682,72 @@ def test_force_retry_strategy_skips_second_jury(
     assert sidecar["retry"]["backend_payload"]  # 非空
     assert sidecar["retry_score_delta"] is None
     assert sidecar["delivered_score_delta"] is None
+
+
+def test_unknown_exception_invokes_degraded_sidecar(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #22：未知 Exception (rule_table.lookup 抛 ValueError) →
+    write_degraded_sidecar 被调一次后 re-raise；防 cmd_enhance 视角级 try/except
+    再 write 一次形成无限循环（spec rev 3 决议 #6）。
+    """
+    # 拦截 metadata.write_degraded_sidecar，统计调用次数 + 透传给原函数保留副作用
+    write_degraded_calls: list[dict] = []
+    from tools.jury_loop import metadata as _metadata
+
+    original = _metadata.write_degraded_sidecar
+
+    def _mock_degraded(*args, **kwargs):
+        write_degraded_calls.append(dict(kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator.metadata.write_degraded_sidecar",
+        _mock_degraded,
+    )
+    # 让 jury 第一次评 baseline 返低分 verdict（驱动主流程进 Step 5/6/7）
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (
+            fake_view_verdict(score=58, reason="plastic look, flat lighting"),
+            None,
+        ),
+    )
+    # 让 rule_table.lookup 抛未知 ValueError（不在 BackendError 4 类内 → 落到顶层 except）
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator.rule_table.lookup",
+        lambda *a, **kw: (_ for _ in ()).throw(ValueError("oops 内部错误")),
+    )
+
+    with fake_backend_adapter() as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        with pytest.raises(ValueError, match="oops 内部错误"):
+            run_loop_if_eligible(
+                view="V1",
+                backend_kind=kind,
+                rc={"prompt": "test"},
+                baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+                base_params={},
+                budget=LoopBudget(cap_usd=1.5, n_views=1),
+                project_root=tmp_path,
+                config=config,
+                jury_profile=tiny_jury_profile,
+                jury_profile_path=tmp_path / "profile.yaml",
+            )
+    assert (
+        len(write_degraded_calls) == 1
+    ), "未知 Exception 应触发 write_degraded_sidecar 仅 1 次"
+    # 校验落地 sidecar 内容（透传 original 已写）：retry_failed + 错误码记录
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["loop_status"] == "retry_failed"
+    assert any(
+        e.get("code") == "cmd_enhance_uncaught_exception" for e in sidecar["errors"]
+    )

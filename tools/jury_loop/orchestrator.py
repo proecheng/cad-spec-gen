@@ -394,271 +394,295 @@ def run_loop_if_eligible(
     safe_view = _validate_view_basename(view)
     render_dir = baseline_path.parent
 
-    # Gate-1/2：spec §3 [2]
-    gate_status = _check_pre_jury_gates(backend_kind, config)
-    if gate_status is not None:
-        final_path = _rename_baseline_as_final(baseline_path, safe_view, render_dir)
-        metadata.write_sidecar(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status=gate_status,
-            baseline=None,
-            retry=None,
-            extra_cost_usd=0,
-            loop_eligible=False,  # rev 3 spec §5 #1 / #2 验收锁
-        )
-        return LoopResult(final_path, gate_status)
-
-    # Step 2: jury 第一次评 baseline（spec rev 3 §3 line 195+）
-    verdict, jury_err = _call_jury_subprocess(
-        view=safe_view,
-        image_path=baseline_path,
-        project_root=project_root,
-        jury_profile_path=jury_profile_path,
-        timeout_s=config.backend.timeout_s,
-    )
-    if verdict is None:
-        # Gate-3：jury 不可用 → jury_unavailable + sidecar.errors[0].code 保留 4 错误码之一
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="jury_unavailable",
-            baseline_path=baseline_path,
-            errors=[{
-                "code": jury_err or "unknown",
-                "message_summary": f"jury subprocess 调用失败：{jury_err}",
-                "user_action_hint": "查看 sidecar.errors[].code 排查",
-            }],
-            local_extra_cost=0,
-        )
-
-    # Gate-3.5：spec rev 3 决议 #11 empty_reason 锁
-    # 用 .strip() == "" 而非 == ""，防全空白字符（"\n  \t"）误判为有内容
-    if verdict.reason.strip() == "":
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="empty_reason",
-            baseline_path=baseline_path,
-            baseline=verdict,
-            local_extra_cost=0,
-        )
-
-    # Step 4: above_threshold（spec rev 3 §3 主流程；锁 ≥ 而非 >，spec §5 #5b）
-    threshold: int = config.advanced["threshold"]
-    if verdict.photoreal_score >= threshold:
-        # user_friendly_summary 由 metadata._build_above_threshold_summary
-        # 动态生成（含 score 数字，spec §4.4 line 528）；不显式传 summary。
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="above_threshold",
-            baseline_path=baseline_path,
-            baseline=verdict,
-            local_extra_cost=0,
-        )
-
-    # Step 5: 估算 retry cost + try_spend（spec rev 3 §3 line 218+）
-    # Gate-1 已守 backend_kind 在 BACKEND_REGISTRY，此处直取 adapter
-    adapter = BACKEND_REGISTRY[backend_kind]
-    request = BackendRequest(
-        input_image_path=baseline_path,
-        prompt=str(rc.get("prompt", "")),
-        params=base_params,
-        base_url=config.backend.base_url,
-        api_key=os.environ.get(config.backend.api_key_env, ""),
-        model_name=config.backend.model_name,
-    )
-    estimate = enhance_budget.estimate_retry_cost(
-        adapter,
-        request,
-        with_jury=(config.advanced["score_select_strategy"] == "pick_max_jury"),
-    )
-    local_extra_cost: float = 0.0
-    if not budget.try_spend(estimate):
-        # 预算不够 retry：写 cost_capped；try_spend 返 False 时未扣额度
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="cost_capped",
-            baseline_path=baseline_path,
-            baseline=verdict,
-            local_extra_cost=0,
-        )
-    local_extra_cost += estimate
-
-    # Step 6: tag 解析（spec rev 3 §3 line 226+）
-    # 先 load rule_table 取合并后的 tag_dictionary，传给 parse_reason 让用户
-    # yaml 扩 tag 也能被识别（spec §5 #8 锁）。rule_table.load_rule_table 的
-    # 用户 yaml 路径校验失败会抛 RuleTableLoadError，由顶层 try/except 兜。
-    rule_path = config.advanced.get("rule_table_path")
-    rule_tbl = rule_table.load_rule_table(
-        user_yaml_path=rule_path,
-        project_root=project_root,
-    )
-    sanitized_reason = reason_parser.reason_sanitized(verdict.reason)
-    tags = reason_parser.parse_reason(
-        sanitized_reason,
-        tag_dictionary=rule_tbl.tag_dictionary,
-    )
-    if not tags:
-        # 已知问题集合外的 reason，无法转 prompt addon → 接受首轮图
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="no_tags_parsed",
-            baseline_path=baseline_path,
-            baseline=verdict,
-            local_extra_cost=local_extra_cost,
-            tags_parsed=[],
-        )
-
-    # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
-    hits = rule_table.lookup(rule_tbl, tags, backend_kind)
-    # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
-    misses = tags - set(hits.matched_tags)
-    if misses and config.advanced["llm_fallback"]:
-        try:
-            extra_addons = llm_fallback.translate(
-                unmapped_reason=sanitized_reason,
-                sanitized_reason=sanitized_reason,
-                profile=jury_profile,
-            )
-        except Exception:  # noqa: BLE001 — LLM 任何异常降级为空 addons，保 Gate-7 路径
-            extra_addons = []
-    else:
-        extra_addons = []
-
-    if not hits.prompt_addons and not extra_addons:
-        # 规则未命中且 llm_fallback 关 / 也没产出 addon → 接受首轮图
-        return _finalize_baseline_only(
-            view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status="no_rules_hit_no_llm",
-            baseline_path=baseline_path,
-            baseline=verdict,
-            local_extra_cost=local_extra_cost,
-            tags_parsed=sorted(tags),
-        )
-
-    # Step 7: 应用 prompt addons + param overrides（spec rev 3 §3 [6]）
-    new_prompt, retry_params = _apply_overrides(
-        prompt=str(rc.get("prompt", "")),
-        prompt_addons=list(hits.prompt_addons) + extra_addons,
-        param_overrides=hits.param_overrides,
-        base_params=base_params,
-    )
-
-    # Step 8: 调 backend（4 类 BackendError → Gate-8 分类，spec rev 3 决议 #10）
-    retry_request = BackendRequest(
-        input_image_path=baseline_path,
-        prompt=new_prompt,
-        params=retry_params,
-        base_url=config.backend.base_url,
-        api_key=os.environ.get(config.backend.api_key_env, ""),
-        model_name=config.backend.model_name,
-    )
     try:
-        response = adapter.call(retry_request, timeout=config.backend.timeout_s)
-    except BackendError as exc:
-        loop_status, error_entry = _classify_backend_error(exc)
-        return _finalize_baseline_only(
+        # ===== 主流程：Gate-1/2 / Step 2/3/3.5/4/5/6/7/8/9/10（spec rev 3 §3） =====
+        # 已知失败（BackendError 4 子类 + jury subprocess err）内层捕获写富 sidecar
+        # 后 return；只有未知 Exception（rule_table ValueError / OSError / 其他）
+        # 会冒泡到下方 except 写 degraded sidecar。
+        # Gate-1/2：spec §3 [2]
+        gate_status = _check_pre_jury_gates(backend_kind, config)
+        if gate_status is not None:
+            final_path = _rename_baseline_as_final(baseline_path, safe_view, render_dir)
+            metadata.write_sidecar(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status=gate_status,
+                baseline=None,
+                retry=None,
+                extra_cost_usd=0,
+                loop_eligible=False,  # rev 3 spec §5 #1 / #2 验收锁
+            )
+            return LoopResult(final_path, gate_status)
+
+        # Step 2: jury 第一次评 baseline（spec rev 3 §3 line 195+）
+        verdict, jury_err = _call_jury_subprocess(
             view=safe_view,
-            render_dir=render_dir,
-            backend=backend_kind,
-            loop_status=loop_status,
-            baseline_path=baseline_path,
-            baseline=verdict,
-            errors=[error_entry],
-            local_extra_cost=local_extra_cost,
-            tags_parsed=sorted(tags),
-        )
-
-    # cost actual / estimate（spec §4.4 line 502 warnings.cost_estimated_only）
-    warnings: list[str] = []
-    if response.actual_cost_usd is not None:
-        budget.record_actual(response.actual_cost_usd)
-        # local_extra_cost 同步用 actual 替换刚才的 estimate（spent 已被 record_actual 修正）
-        local_extra_cost = local_extra_cost - estimate + response.actual_cost_usd
-    else:
-        # adapter 不报实际费用 → 保留 estimate；提示 sidecar 用户
-        warnings.append("cost_estimated_only")
-
-    # Step 9: score_select 选张（spec §4.5.2 / 决议 #12 retry_verdict 出口）
-    retry_path = response.output_image_path
-    candidates = [
-        CandidateImage(str(baseline_path), verdict),
-        CandidateImage(str(retry_path), None),
-    ]
-    strategy_cls = STRATEGY_REGISTRY[config.advanced["score_select_strategy"]]
-    strategy = strategy_cls()
-
-    def _jury_callable(image_path: str) -> ViewVerdict:
-        v, _ = _call_jury_subprocess(
-            view=safe_view,
-            image_path=Path(image_path),
+            image_path=baseline_path,
             project_root=project_root,
             jury_profile_path=jury_profile_path,
             timeout_s=config.backend.timeout_s,
         )
-        if v is None:
-            # 让 PickMaxJuryStrategy 内 catch Exception 走 baseline fallback
-            raise RuntimeError("二轮 jury 调用失败")
-        return v
+        if verdict is None:
+            # Gate-3：jury 不可用 → jury_unavailable + sidecar.errors[0].code 保留 4 错误码之一
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="jury_unavailable",
+                baseline_path=baseline_path,
+                errors=[{
+                    "code": jury_err or "unknown",
+                    "message_summary": f"jury subprocess 调用失败：{jury_err}",
+                    "user_action_hint": "查看 sidecar.errors[].code 排查",
+                }],
+                local_extra_cost=0,
+            )
 
-    selection = strategy.select(candidates, _jury_callable, budget)
+        # Gate-3.5：spec rev 3 决议 #11 empty_reason 锁
+        # 用 .strip() == "" 而非 == ""，防全空白字符（"\n  \t"）误判为有内容
+        if verdict.reason.strip() == "":
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="empty_reason",
+                baseline_path=baseline_path,
+                baseline=verdict,
+                local_extra_cost=0,
+            )
 
-    # Step 10: finalize rename + 写富 sidecar
-    pick_image_path = Path(selection.pick.image_path)
-    final_path = _finalize(
-        pick_image_path=pick_image_path,
-        baseline_path=baseline_path,
-        retry_path=retry_path,
-        view=safe_view,
-        render_dir=render_dir,
-    )
+        # Step 4: above_threshold（spec rev 3 §3 主流程；锁 ≥ 而非 >，spec §5 #5b）
+        threshold: int = config.advanced["threshold"]
+        if verdict.photoreal_score >= threshold:
+            # user_friendly_summary 由 metadata._build_above_threshold_summary
+            # 动态生成（含 score 数字，spec §4.4 line 528）；不显式传 summary。
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="above_threshold",
+                baseline_path=baseline_path,
+                baseline=verdict,
+                local_extra_cost=0,
+            )
 
-    delivered_kind = "retry" if pick_image_path == retry_path else "baseline"
-    loop_status_final = (
-        "delivered_retry" if delivered_kind == "retry" else "delivered_baseline"
-    )
-    retry_score_delta, delivered_score_delta = _compute_score_deltas(
-        retry_verdict=selection.retry_verdict,
-        baseline_verdict=verdict,
-        pick_image_path=pick_image_path,
-        retry_path=retry_path,
-    )
+        # Step 5: 估算 retry cost + try_spend（spec rev 3 §3 line 218+）
+        # Gate-1 已守 backend_kind 在 BACKEND_REGISTRY，此处直取 adapter
+        adapter = BACKEND_REGISTRY[backend_kind]
+        request = BackendRequest(
+            input_image_path=baseline_path,
+            prompt=str(rc.get("prompt", "")),
+            params=base_params,
+            base_url=config.backend.base_url,
+            api_key=os.environ.get(config.backend.api_key_env, ""),
+            model_name=config.backend.model_name,
+        )
+        estimate = enhance_budget.estimate_retry_cost(
+            adapter,
+            request,
+            with_jury=(config.advanced["score_select_strategy"] == "pick_max_jury"),
+        )
+        local_extra_cost: float = 0.0
+        if not budget.try_spend(estimate):
+            # 预算不够 retry：写 cost_capped；try_spend 返 False 时未扣额度
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="cost_capped",
+                baseline_path=baseline_path,
+                baseline=verdict,
+                local_extra_cost=0,
+            )
+        local_extra_cost += estimate
 
-    metadata.write_sidecar(
-        view=safe_view,
-        render_dir=render_dir,
-        backend=backend_kind,
-        loop_status=loop_status_final,
-        delivered_kind=delivered_kind,
-        baseline=_view_verdict_to_baseline_dict(verdict, baseline_path),
-        retry=_build_retry_dict(
+        # Step 6: tag 解析（spec rev 3 §3 line 226+）
+        # 先 load rule_table 取合并后的 tag_dictionary，传给 parse_reason 让用户
+        # yaml 扩 tag 也能被识别（spec §5 #8 锁）。rule_table.load_rule_table 的
+        # 用户 yaml 路径校验失败会抛 RuleTableLoadError，由顶层 try/except 兜。
+        rule_path = config.advanced.get("rule_table_path")
+        rule_tbl = rule_table.load_rule_table(
+            user_yaml_path=rule_path,
+            project_root=project_root,
+        )
+        sanitized_reason = reason_parser.reason_sanitized(verdict.reason)
+        tags = reason_parser.parse_reason(
+            sanitized_reason,
+            tag_dictionary=rule_tbl.tag_dictionary,
+        )
+        if not tags:
+            # 已知问题集合外的 reason，无法转 prompt addon → 接受首轮图
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="no_tags_parsed",
+                baseline_path=baseline_path,
+                baseline=verdict,
+                local_extra_cost=local_extra_cost,
+                tags_parsed=[],
+            )
+
+        # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
+        hits = rule_table.lookup(rule_tbl, tags, backend_kind)
+        # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
+        misses = tags - set(hits.matched_tags)
+        if misses and config.advanced["llm_fallback"]:
+            try:
+                extra_addons = llm_fallback.translate(
+                    unmapped_reason=sanitized_reason,
+                    sanitized_reason=sanitized_reason,
+                    profile=jury_profile,
+                )
+            except Exception:  # noqa: BLE001 — LLM 任何异常降级为空 addons，保 Gate-7 路径
+                extra_addons = []
+        else:
+            extra_addons = []
+
+        if not hits.prompt_addons and not extra_addons:
+            # 规则未命中且 llm_fallback 关 / 也没产出 addon → 接受首轮图
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status="no_rules_hit_no_llm",
+                baseline_path=baseline_path,
+                baseline=verdict,
+                local_extra_cost=local_extra_cost,
+                tags_parsed=sorted(tags),
+            )
+
+        # Step 7: 应用 prompt addons + param overrides（spec rev 3 §3 [6]）
+        new_prompt, retry_params = _apply_overrides(
+            prompt=str(rc.get("prompt", "")),
+            prompt_addons=list(hits.prompt_addons) + extra_addons,
+            param_overrides=hits.param_overrides,
+            base_params=base_params,
+        )
+
+        # Step 8: 调 backend（4 类 BackendError → Gate-8 分类，spec rev 3 决议 #10）
+        retry_request = BackendRequest(
+            input_image_path=baseline_path,
+            prompt=new_prompt,
+            params=retry_params,
+            base_url=config.backend.base_url,
+            api_key=os.environ.get(config.backend.api_key_env, ""),
+            model_name=config.backend.model_name,
+        )
+        try:
+            response = adapter.call(retry_request, timeout=config.backend.timeout_s)
+        except BackendError as exc:
+            loop_status, error_entry = _classify_backend_error(exc)
+            return _finalize_baseline_only(
+                view=safe_view,
+                render_dir=render_dir,
+                backend=backend_kind,
+                loop_status=loop_status,
+                baseline_path=baseline_path,
+                baseline=verdict,
+                errors=[error_entry],
+                local_extra_cost=local_extra_cost,
+                tags_parsed=sorted(tags),
+            )
+
+        # cost actual / estimate（spec §4.4 line 502 warnings.cost_estimated_only）
+        warnings: list[str] = []
+        if response.actual_cost_usd is not None:
+            budget.record_actual(response.actual_cost_usd)
+            # local_extra_cost 同步用 actual 替换刚才的 estimate（spent 已被 record_actual 修正）
+            local_extra_cost = local_extra_cost - estimate + response.actual_cost_usd
+        else:
+            # adapter 不报实际费用 → 保留 estimate；提示 sidecar 用户
+            warnings.append("cost_estimated_only")
+
+        # Step 9: score_select 选张（spec §4.5.2 / 决议 #12 retry_verdict 出口）
+        retry_path = response.output_image_path
+        candidates = [
+            CandidateImage(str(baseline_path), verdict),
+            CandidateImage(str(retry_path), None),
+        ]
+        strategy_cls = STRATEGY_REGISTRY[config.advanced["score_select_strategy"]]
+        strategy = strategy_cls()
+
+        def _jury_callable(image_path: str) -> ViewVerdict:
+            v, _ = _call_jury_subprocess(
+                view=safe_view,
+                image_path=Path(image_path),
+                project_root=project_root,
+                jury_profile_path=jury_profile_path,
+                timeout_s=config.backend.timeout_s,
+            )
+            if v is None:
+                # 让 PickMaxJuryStrategy 内 catch Exception 走 baseline fallback
+                raise RuntimeError("二轮 jury 调用失败")
+            return v
+
+        selection = strategy.select(candidates, _jury_callable, budget)
+
+        # Step 10: finalize rename + 写富 sidecar
+        pick_image_path = Path(selection.pick.image_path)
+        final_path = _finalize(
+            pick_image_path=pick_image_path,
+            baseline_path=baseline_path,
             retry_path=retry_path,
+            view=safe_view,
+            render_dir=render_dir,
+        )
+
+        delivered_kind = "retry" if pick_image_path == retry_path else "baseline"
+        loop_status_final = (
+            "delivered_retry" if delivered_kind == "retry" else "delivered_baseline"
+        )
+        retry_score_delta, delivered_score_delta = _compute_score_deltas(
             retry_verdict=selection.retry_verdict,
-            request=retry_request,
-            response=response,
-        ),
-        tags_parsed=sorted(tags),
-        rules_hit=list(hits.matched_rule_ids),
-        prompt_addons_applied=list(hits.prompt_addons) + extra_addons,
-        param_overrides_applied={
-            backend_kind: hits.param_overrides,
-        },
-        retry_score_delta=retry_score_delta,
-        delivered_score_delta=delivered_score_delta,
-        extra_cost_usd=local_extra_cost,
-        warnings=warnings,
-        llm_fallback_used=bool(extra_addons),
-    )
-    return LoopResult(final_path, loop_status_final)
+            baseline_verdict=verdict,
+            pick_image_path=pick_image_path,
+            retry_path=retry_path,
+        )
+
+        metadata.write_sidecar(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status=loop_status_final,
+            delivered_kind=delivered_kind,
+            baseline=_view_verdict_to_baseline_dict(verdict, baseline_path),
+            retry=_build_retry_dict(
+                retry_path=retry_path,
+                retry_verdict=selection.retry_verdict,
+                request=retry_request,
+                response=response,
+            ),
+            tags_parsed=sorted(tags),
+            rules_hit=list(hits.matched_rule_ids),
+            prompt_addons_applied=list(hits.prompt_addons) + extra_addons,
+            param_overrides_applied={
+                backend_kind: hits.param_overrides,
+            },
+            retry_score_delta=retry_score_delta,
+            delivered_score_delta=delivered_score_delta,
+            extra_cost_usd=local_extra_cost,
+            warnings=warnings,
+            llm_fallback_used=bool(extra_addons),
+        )
+        return LoopResult(final_path, loop_status_final)
+    except Exception as e:  # noqa: BLE001 — spec rev 3 决议 #6：未知 Exception 兜底写 degraded
+        # 已知失败（BackendError / jury 子进程 err）已在内层捕获并 return；
+        # 进到此分支的只剩"未知 Exception"——含：
+        #   - rule_table.lookup / load_rule_table 抛 ValueError
+        #   - _finalize / _rename_baseline_as_final 的 OSError（rename 失败）
+        #   - 任何 RuntimeError / 其他异常
+        # 写 degraded sidecar 后向上抛；cmd_enhance 视角级 try/except 仅 log
+        # 不重写 sidecar（防无限循环：cmd_enhance 再 write_degraded 一次）。
+        try:
+            metadata.write_degraded_sidecar(
+                view=safe_view,
+                render_dir=render_dir,
+                error=e,
+            )
+        except OSError:
+            # write_degraded_sidecar 自身 OSError（磁盘满 / 权限）静默吞掉——
+            # 上层 cmd_enhance 只能看到原始异常，符合"事实优先于美化"
+            pass
+        raise
