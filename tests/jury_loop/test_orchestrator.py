@@ -413,3 +413,272 @@ def test_gate7_all_miss_llm_fallback_off(
             jury_profile_path=tmp_path / "profile.yaml",
         )
     assert result.loop_status == "no_rules_hit_no_llm"
+
+
+# ==== Task 5.1.8：retry 调用 + Gate-8 + score_select + _finalize 主流程 ==== #
+# spec §5 矩阵 #9-#16：
+#   #9-#12：4 类 BackendError 通过集成路径分类
+#   #13：retry 提分 → delivered_retry
+#   #14：retry 降分 → delivered_baseline + retry verdict 仍含完整字段
+#   #15：actual_cost_usd=None → warnings 含 cost_estimated_only
+#   #16：force_retry 策略不二轮评分（5 字段约束）
+
+from tools.jury_loop.backends import BackendResponse  # noqa: E402  Task 5.1.8 集成路径需要
+
+
+@pytest.mark.parametrize("exc_cls, expected_status, expected_code", [
+    (BackendAuthError, "retry_auth_failed", "backend_auth_error"),
+    (BackendRateLimitError, "retry_rate_limited", "backend_rate_limited"),
+    (BackendQuotaExceededError, "retry_quota_exceeded", "backend_quota_exceeded"),
+    (BackendCallError, "retry_failed", "backend_call_error"),
+])
+def test_gate8_backend_error_classification_integration(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+    exc_cls,
+    expected_status,
+    expected_code,
+):
+    """spec §5 #9-#12：4 类 BackendError 通过 orchestrator 集成路径分类。
+
+    reason='plastic look, flat lighting' 命中内置规则 → 走到 Step 8 adapter.call →
+    raises 触发 Gate-8 分类 → 写富 sidecar.errors[]。
+    """
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (
+            fake_view_verdict(score=58, reason="plastic look, flat lighting"),
+            None,
+        ),
+    )
+    with fake_backend_adapter(raises=exc_cls("vendor 错误")) as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={"prompt": "test"},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=LoopBudget(cap_usd=1.5, n_views=1),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == expected_status
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["errors"][0]["code"] == expected_code
+    # baseline-only 退出路径：delivered_kind="baseline" + final 文件存在
+    assert sidecar["delivered_kind"] == "baseline"
+    assert (fake_render_dir / "V1_enhanced.jpg").is_file()
+
+
+def test_normal_retry_improves_score(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_jury_sequence,
+    monkeypatch,
+):
+    """spec §5 #13：retry score=80 > baseline=58 → delivered_retry + score_delta=22。"""
+    next_jury = fake_jury_sequence(
+        [(58, "plastic look, flat lighting"), (80, "metallic finish")]
+    )
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (next_jury(), None),
+    )
+    response = BackendResponse(
+        output_image_path=fake_render_dir / "V1_enhanced_retry.jpg",
+        actual_cost_usd=0.04,
+        raw_request_summary={"cfg_scale": 7.5},
+    )
+    # _finalize rename 需要 retry 文件存在
+    (fake_render_dir / "V1_enhanced_retry.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
+    with fake_backend_adapter(call_returns=response) as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={"prompt": "test"},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=LoopBudget(cap_usd=1.5, n_views=1),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "delivered_retry"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["delivered_kind"] == "retry"
+    assert sidecar["retry_score_delta"] == 22
+    assert sidecar["delivered_score_delta"] == 22
+
+
+def test_normal_retry_degrades_score(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_jury_sequence,
+    monkeypatch,
+):
+    """spec §5 #14：retry=50 < baseline=58 → delivered_baseline + retry 字段含完整 verdict。
+
+    父 spec line 531：保守退 baseline 时 sidecar.retry 仍含 retry candidate 的
+    完整 verdict（observability：让用户知道二轮跑了什么），不该写 None。
+    """
+    next_jury = fake_jury_sequence(
+        [(58, "plastic look, flat lighting"), (50, "still plastic")]
+    )
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (next_jury(), None),
+    )
+    response = BackendResponse(
+        output_image_path=fake_render_dir / "V1_enhanced_retry.jpg",
+        actual_cost_usd=0.04,
+        raw_request_summary={},
+    )
+    (fake_render_dir / "V1_enhanced_retry.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
+    with fake_backend_adapter(call_returns=response) as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={"prompt": "test"},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=LoopBudget(cap_usd=1.5, n_views=1),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "delivered_baseline"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert sidecar["delivered_kind"] == "baseline"
+    assert sidecar["retry_score_delta"] == -8
+    assert sidecar["delivered_score_delta"] == 0
+    # 父 spec line 531：retry 字段仍含完整 verdict
+    assert sidecar["retry"] is not None
+    assert sidecar["retry"]["photoreal_score"] == 50
+
+
+def test_actual_cost_none_adds_cost_estimated_only_warning(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_jury_sequence,
+    monkeypatch,
+):
+    """spec §5 #15：BackendResponse.actual_cost_usd=None → sidecar.warnings 含 cost_estimated_only。"""
+    next_jury = fake_jury_sequence(
+        [(58, "plastic look, flat lighting"), (80, "metallic")]
+    )
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (next_jury(), None),
+    )
+    response = BackendResponse(
+        output_image_path=fake_render_dir / "V1_enhanced_retry.jpg",
+        actual_cost_usd=None,  # 关键：不调 record_actual + 加 warning
+        raw_request_summary={},
+    )
+    (fake_render_dir / "V1_enhanced_retry.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
+    with fake_backend_adapter(call_returns=response) as kind:
+        config = tiny_loop_config(backend_kind=kind)
+        run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={"prompt": "test"},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=LoopBudget(cap_usd=1.5, n_views=1),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    assert "cost_estimated_only" in sidecar["warnings"]
+
+
+def test_force_retry_strategy_skips_second_jury(
+    tmp_path,
+    fake_render_dir,
+    fake_backend_adapter,
+    tiny_loop_config,
+    tiny_jury_profile,
+    fake_view_verdict,
+    monkeypatch,
+):
+    """spec §5 #16：force_retry → retry.photoreal_score=null + final_prompt 非空 + score_delta=null。
+
+    父 spec line 530 force_retry 5 字段约束：
+    - retry.photoreal_score=null
+    - retry.semantic_checks=null
+    - retry.reason=null
+    - retry.final_prompt 非空（写实际发给 backend 的 prompt）
+    - retry.backend_payload 非空（adapter response.raw_request_summary）
+    """
+    monkeypatch.setattr(
+        "tools.jury_loop.orchestrator._call_jury_subprocess",
+        lambda **kw: (
+            fake_view_verdict(score=58, reason="plastic look, flat lighting"),
+            None,
+        ),
+    )
+    response = BackendResponse(
+        output_image_path=fake_render_dir / "V1_enhanced_retry.jpg",
+        actual_cost_usd=0.04,
+        raw_request_summary={"cfg_scale": 7.5},
+    )
+    (fake_render_dir / "V1_enhanced_retry.jpg").write_bytes(b"\x89PNG\r\n\x1a\n")
+    with fake_backend_adapter(call_returns=response) as kind:
+        config = tiny_loop_config(
+            backend_kind=kind, score_select_strategy="force_retry"
+        )
+        result = run_loop_if_eligible(
+            view="V1",
+            backend_kind=kind,
+            rc={"prompt": "test"},
+            baseline_path=fake_render_dir / "V1_enhanced_baseline.jpg",
+            base_params={},
+            budget=LoopBudget(cap_usd=1.5, n_views=1),
+            project_root=tmp_path,
+            config=config,
+            jury_profile=tiny_jury_profile,
+            jury_profile_path=tmp_path / "profile.yaml",
+        )
+    assert result.loop_status == "delivered_retry"
+    sidecar = json.loads(
+        (fake_render_dir / "V1_enhance_meta.json").read_text("utf-8")
+    )
+    # force_retry 5 字段约束（父 spec line 530）
+    assert sidecar["retry"]["photoreal_score"] is None
+    assert sidecar["retry"]["semantic_checks"] is None
+    assert sidecar["retry"]["reason"] is None
+    assert sidecar["retry"]["final_prompt"]  # 非空
+    assert sidecar["retry"]["backend_payload"]  # 非空
+    assert sidecar["retry_score_delta"] is None
+    assert sidecar["delivered_score_delta"] is None

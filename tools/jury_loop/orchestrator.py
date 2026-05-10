@@ -31,9 +31,14 @@ from tools.jury_loop.backends import (
     BackendQuotaExceededError,
     BackendRateLimitError,
     BackendRequest,
+    BackendResponse,
 )
 from tools.jury_loop.config import JuryLoopConfig
 from tools.jury_loop.metadata import _validate_view_basename
+from tools.jury_loop.score_select import (
+    STRATEGY_REGISTRY,
+    CandidateImage,
+)
 
 
 def _check_pre_jury_gates(backend_kind: str, config: JuryLoopConfig) -> str | None:
@@ -223,6 +228,133 @@ def _finalize_baseline_only(
         warnings=warnings or [],
     )
     return LoopResult(final_path, loop_status)
+
+
+def _apply_overrides(
+    *,
+    prompt: str,
+    prompt_addons: list[str],
+    param_overrides: dict[str, Any],
+    base_params: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """spec rev 3 §3 [6]：合并 rule_table.lookup 命中的 addon/override 到 prompt + params。
+
+    返 (new_prompt, retry_params)；不动 rc（rc 由 cmd_enhance 管，本函数只做局部派生）。
+
+    入参契约：
+    - ``param_overrides`` 是 ``RuleTableLookupResult.param_overrides``——已被 lookup
+      按 backend_kind 过滤 + clamp 后的扁平 ``{pkey: clamped_val}`` dict，不再嵌套
+      ``{backend_kind: {...}}``（rule_table.py:235 验证）。
+
+    new_prompt 拼装：
+    - prompt_addons 为空 → 原样返回 prompt
+    - 非空 → ``prompt + " | " + ", ".join(prompt_addons)``（spec rev 3 决议：addons
+      用 ``, `` join，与 prompt 主干用 `` | `` 隔，下游 backend 可直接拼到 system prompt）
+
+    retry_params 合并语义：
+    - ``base_params`` 浅合并 ``param_overrides``
+    - 同 key rule 赢（spec rev 3 决议 A-1：规则覆盖 base 默认）
+    """
+    new_prompt = (
+        prompt + " | " + ", ".join(prompt_addons)
+        if prompt_addons
+        else prompt
+    )
+    retry_params: dict[str, Any] = {
+        **base_params,
+        **param_overrides,
+    }
+    return new_prompt, retry_params
+
+
+def _finalize(
+    *,
+    pick_image_path: Path,
+    baseline_path: Path,
+    retry_path: Path,
+    view: str,
+    render_dir: Path,
+) -> Path:
+    """spec rev 3 §3 [10]：把选中张 rename 为 V<view>_enhanced.jpg。
+
+    路径策略（父 spec line 165 N-1 决议 + 跨平台 atomic 守门）：
+    - dst.unlink(missing_ok=True) 先清旧 final（防 Windows 上 replace 文件已存在拒绝）
+    - Path.replace 原子 rename
+    - 选 retry：retry_path → final_path；baseline 保留为 V<view>_enhanced_baseline.jpg
+      （命名已是该形态，不动）
+    - 选 baseline：baseline → final_path；retry 保留为 V<view>_enhanced_retry.jpg
+      （命名已是该形态，不动）
+
+    OSError 不 catch 让顶层 try/except 写 degraded sidecar。
+    """
+    final_path = render_dir / f"{view}_enhanced.jpg"
+    final_path.unlink(missing_ok=True)
+    if pick_image_path == retry_path:
+        Path(retry_path).replace(final_path)
+    else:
+        Path(baseline_path).replace(final_path)
+    return final_path
+
+
+def _build_retry_dict(
+    *,
+    retry_path: Path,
+    retry_verdict: ViewVerdict | None,
+    request: BackendRequest,
+    response: BackendResponse,
+) -> dict[str, Any]:
+    """spec §4.4 line 530/531：sidecar.retry 字段双形态投影。
+
+    形态 1（retry_verdict is None）—— force_retry 策略：
+    - photoreal_score / semantic_checks / reason 全 null（未二轮评分）
+    - final_prompt：实际发送给 backend 的 prompt（spec line 530）
+    - backend_payload：response.raw_request_summary（用户排障用）
+
+    形态 2（retry_verdict 非 None）—— pick_max_jury 策略：
+    - retry verdict 完整投影（无论 pick 是 retry 还是 baseline，spec line 531）；
+      让用户能在 sidecar 里观测到二轮评分实际分数与原因，即使最终选回 baseline。
+    """
+    if retry_verdict is None:
+        return {
+            "image_path": str(retry_path),
+            "photoreal_score": None,
+            "semantic_checks": None,
+            "reason": None,
+            "final_prompt": request.prompt,
+            "backend_payload": dict(response.raw_request_summary),
+        }
+    return {
+        "image_path": str(retry_path),
+        "photoreal_score": retry_verdict.photoreal_score,
+        "semantic_checks": dict(retry_verdict.semantic_checks),
+        "reason": retry_verdict.reason,
+        "final_prompt": request.prompt,
+        "backend_payload": dict(response.raw_request_summary),
+    }
+
+
+def _compute_score_deltas(
+    *,
+    retry_verdict: ViewVerdict | None,
+    baseline_verdict: ViewVerdict,
+    pick_image_path: Path,
+    retry_path: Path,
+) -> tuple[int | None, int | None]:
+    """spec §4.4 line 503-504：retry/delivered score delta 计算。
+
+    返 (retry_score_delta, delivered_score_delta)：
+    - retry_verdict is None（force_retry 策略，未二轮评分）：返 (None, None)，
+      让 sidecar 字段保持 null（spec line 530：force_retry 不可比较所以不打分差）
+    - retry_verdict 非 None（pick_max_jury 策略，二轮已评）：
+      - retry_score_delta = retry.score - baseline.score（可正/0/负，含降分情况）
+      - delivered_score_delta：pick==retry 时 = retry_score_delta；
+        pick==baseline（保守退回）时 = 0（实际交付的图就是 baseline，无变化）
+    """
+    if retry_verdict is None:
+        return None, None
+    retry_delta = retry_verdict.photoreal_score - baseline_verdict.photoreal_score
+    delivered_delta = retry_delta if pick_image_path == retry_path else 0
+    return retry_delta, delivered_delta
 
 
 def run_loop_if_eligible(
@@ -416,7 +548,117 @@ def run_loop_if_eligible(
             tags_parsed=sorted(tags),
         )
 
-    raise NotImplementedError(
-        f"Task 5.1.8+ retry 调用 + score_select + _finalize；"
-        f"当前 view={safe_view} 已到 Step 7 末"
+    # Step 7: 应用 prompt addons + param overrides（spec rev 3 §3 [6]）
+    new_prompt, retry_params = _apply_overrides(
+        prompt=str(rc.get("prompt", "")),
+        prompt_addons=list(hits.prompt_addons) + extra_addons,
+        param_overrides=hits.param_overrides,
+        base_params=base_params,
     )
+
+    # Step 8: 调 backend（4 类 BackendError → Gate-8 分类，spec rev 3 决议 #10）
+    retry_request = BackendRequest(
+        input_image_path=baseline_path,
+        prompt=new_prompt,
+        params=retry_params,
+        base_url=config.backend.base_url,
+        api_key=os.environ.get(config.backend.api_key_env, ""),
+        model_name=config.backend.model_name,
+    )
+    try:
+        response = adapter.call(retry_request, timeout=config.backend.timeout_s)
+    except BackendError as exc:
+        loop_status, error_entry = _classify_backend_error(exc)
+        return _finalize_baseline_only(
+            view=safe_view,
+            render_dir=render_dir,
+            backend=backend_kind,
+            loop_status=loop_status,
+            baseline_path=baseline_path,
+            baseline=verdict,
+            errors=[error_entry],
+            local_extra_cost=local_extra_cost,
+            tags_parsed=sorted(tags),
+        )
+
+    # cost actual / estimate（spec §4.4 line 502 warnings.cost_estimated_only）
+    warnings: list[str] = []
+    if response.actual_cost_usd is not None:
+        budget.record_actual(response.actual_cost_usd)
+        # local_extra_cost 同步用 actual 替换刚才的 estimate（spent 已被 record_actual 修正）
+        local_extra_cost = local_extra_cost - estimate + response.actual_cost_usd
+    else:
+        # adapter 不报实际费用 → 保留 estimate；提示 sidecar 用户
+        warnings.append("cost_estimated_only")
+
+    # Step 9: score_select 选张（spec §4.5.2 / 决议 #12 retry_verdict 出口）
+    retry_path = response.output_image_path
+    candidates = [
+        CandidateImage(str(baseline_path), verdict),
+        CandidateImage(str(retry_path), None),
+    ]
+    strategy_cls = STRATEGY_REGISTRY[config.advanced["score_select_strategy"]]
+    strategy = strategy_cls()
+
+    def _jury_callable(image_path: str) -> ViewVerdict:
+        v, _ = _call_jury_subprocess(
+            view=safe_view,
+            image_path=Path(image_path),
+            project_root=project_root,
+            jury_profile_path=jury_profile_path,
+            timeout_s=config.backend.timeout_s,
+        )
+        if v is None:
+            # 让 PickMaxJuryStrategy 内 catch Exception 走 baseline fallback
+            raise RuntimeError("二轮 jury 调用失败")
+        return v
+
+    selection = strategy.select(candidates, _jury_callable, budget)
+
+    # Step 10: finalize rename + 写富 sidecar
+    pick_image_path = Path(selection.pick.image_path)
+    final_path = _finalize(
+        pick_image_path=pick_image_path,
+        baseline_path=baseline_path,
+        retry_path=retry_path,
+        view=safe_view,
+        render_dir=render_dir,
+    )
+
+    delivered_kind = "retry" if pick_image_path == retry_path else "baseline"
+    loop_status_final = (
+        "delivered_retry" if delivered_kind == "retry" else "delivered_baseline"
+    )
+    retry_score_delta, delivered_score_delta = _compute_score_deltas(
+        retry_verdict=selection.retry_verdict,
+        baseline_verdict=verdict,
+        pick_image_path=pick_image_path,
+        retry_path=retry_path,
+    )
+
+    metadata.write_sidecar(
+        view=safe_view,
+        render_dir=render_dir,
+        backend=backend_kind,
+        loop_status=loop_status_final,
+        delivered_kind=delivered_kind,
+        baseline=_view_verdict_to_baseline_dict(verdict, baseline_path),
+        retry=_build_retry_dict(
+            retry_path=retry_path,
+            retry_verdict=selection.retry_verdict,
+            request=retry_request,
+            response=response,
+        ),
+        tags_parsed=sorted(tags),
+        rules_hit=list(hits.matched_rule_ids),
+        prompt_addons_applied=list(hits.prompt_addons) + extra_addons,
+        param_overrides_applied={
+            backend_kind: hits.param_overrides,
+        },
+        retry_score_delta=retry_score_delta,
+        delivered_score_delta=delivered_score_delta,
+        extra_cost_usd=local_extra_cost,
+        warnings=warnings,
+        llm_fallback_used=bool(extra_addons),
+    )
+    return LoopResult(final_path, loop_status_final)
