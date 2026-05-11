@@ -97,6 +97,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--debug-output", type=Path)
     p.add_argument("--force", action="store_true")
     p.add_argument("--project-root", type=Path, default=Path.cwd())
+    # CP-6 Task 6.1：jury_loop orchestrator 调本工具单视角调度（隐藏 help，外行用户不误用）
+    p.add_argument("--single-view", help=argparse.SUPPRESS)
+    p.add_argument("--image", nargs="+", help=argparse.SUPPRESS)
     return p
 
 
