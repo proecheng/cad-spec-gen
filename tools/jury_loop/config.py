@@ -28,6 +28,31 @@ _ADVANCED_KEYS = frozenset(
 )
 
 
+#: approach A（pipeline_config.json 带 skip-worktree per-machine override 不能加新字段）：
+#: 用户未在 pipeline_config["enhance"]["jury_loop"] 配置时，cmd_enhance / enhance_consistency
+#: fall back 至此默认。用户可在 pipeline_config.json 自行写 enhance.jury_loop 段覆盖。
+#: 字段对齐 spec §4.1；backend.kind ∈ BACKEND_REGISTRY 三 key 集（gemini_chat_image / openai_images_edit /
+#: comfyui_workflow_cloud），默认 gemini_chat_image（云上 LLM-as-judge + 重写最自然）。
+DEFAULT_JURY_LOOP_DICT: dict[str, Any] = {
+    "enabled": True,
+    "cost_cap_usd": 1.5,
+    "backend": {
+        "kind": "gemini_chat_image",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "api_key_env": "GEMINI_API_KEY",
+        "model_name": "gemini-2.5-flash-image",
+        "timeout_s": 180,
+    },
+    "advanced": {
+        "threshold": 75,
+        "max_retries": 1,
+        "llm_fallback": False,
+        "rule_table_path": None,
+        "score_select_strategy": "pick_max_jury",
+    },
+}
+
+
 @dataclass(frozen=True)
 class BackendConfig:
     """retry backend 配置（spec §4.1 backend 子段 5 字段）。"""
