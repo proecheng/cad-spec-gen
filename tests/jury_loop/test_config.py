@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import pytest
 
@@ -79,9 +78,10 @@ def test_load_rejects_top_level_advanced_key_collision() -> None:
 
 def test_load_missing_api_key_env_warns_not_raise(
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """api_key_env 指向不存在的环境变量 → warn 不抛（启动期柔性，首次 retry 时再 hard fail）。"""
-    os.environ.pop("NON_EXIST_KEY", None)
+    monkeypatch.delenv("NON_EXIST_KEY", raising=False)
     with caplog.at_level(logging.WARNING):
         config = load_jury_loop_config(
             {

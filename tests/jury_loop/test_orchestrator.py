@@ -118,21 +118,24 @@ from tools.jury_loop.backends import (  # noqa: E402  集成测试与 helper 测
 from tools.jury_loop.orchestrator import _classify_backend_error  # noqa: E402
 
 
-@pytest.mark.parametrize("exc_cls, expected_status, expected_code", [
-    (BackendAuthError, "retry_auth_failed", "backend_auth_error"),
-    (BackendRateLimitError, "retry_rate_limited", "backend_rate_limited"),
-    (BackendQuotaExceededError, "retry_quota_exceeded", "backend_quota_exceeded"),
-    (BackendCallError, "retry_failed", "backend_call_error"),
+@pytest.mark.parametrize("exc_cls, expected_status, expected_code, expected_hint", [
+    (BackendAuthError, "retry_auth_failed", "backend_auth_error", "API key 无效，请检查配置后重试"),
+    (BackendRateLimitError, "retry_rate_limited", "backend_rate_limited", "服务限流，请稍后重试"),
+    (BackendQuotaExceededError, "retry_quota_exceeded", "backend_quota_exceeded", "服务账户余额不足，请充值后重试"),
+    (BackendCallError, "retry_failed", "backend_call_error", "重试调用失败，请查看 sidecar.errors[]"),
 ])
 def test_classify_backend_error_4_known_subclasses(
-    exc_cls: type[BackendError], expected_status: str, expected_code: str,
+    exc_cls: type[BackendError],
+    expected_status: str,
+    expected_code: str,
+    expected_hint: str,
 ) -> None:
-    """spec rev 3 决议 #10：4 类已知 BackendError 子类的分类与 errors[].code 对齐。"""
+    """spec rev 3 决议 #10：4 类已知 BackendError 子类的分类、errors[].code、user_action_hint 文案锁。"""
     loop_status, error_entry = _classify_backend_error(exc_cls("vendor 错误"))
     assert loop_status == expected_status
     assert error_entry["code"] == expected_code
     assert "vendor 错误" in error_entry["message_summary"]
-    assert error_entry["user_action_hint"]  # 非空
+    assert error_entry["user_action_hint"] == expected_hint  # 父 spec §4.6 BL-3 中文文案锁
 
 
 def test_classify_backend_error_unknown_subclass_falls_back_to_retry_failed() -> None:
@@ -720,9 +723,12 @@ def test_unknown_exception_invokes_degraded_sidecar(
         ),
     )
     # 让 rule_table.lookup 抛未知 ValueError（不在 BackendError 4 类内 → 落到顶层 except）
+    def _raise_unknown(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("oops 内部错误")
+
     monkeypatch.setattr(
         "tools.jury_loop.orchestrator.rule_table.lookup",
-        lambda *a, **kw: (_ for _ in ()).throw(ValueError("oops 内部错误")),
+        _raise_unknown,
     )
 
     with fake_backend_adapter() as kind:
