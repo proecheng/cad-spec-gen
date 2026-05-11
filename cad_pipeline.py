@@ -2515,6 +2515,8 @@ def _configured_glb_path(config_path: str) -> str | None:
 
 def cmd_enhance(args):
     """Run AI enhancement on rendered PNGs (Gemini, ComfyUI, fal, or fal_comfy backend)."""
+    from pathlib import Path
+
     from tools.render_qa import manifest_blocks_enhance, manifest_image_paths, require_render_manifest
 
     from enhance_prompt import (
@@ -2734,6 +2736,20 @@ def cmd_enhance(args):
     v1_done = False
     hero_image = None  # V1 enhanced result for multi-view anchoring
 
+    # ── CP-7 jury loop hook 前置：加载 jury_loop config + JuryProfile + LoopBudget ──
+    # 失败时整体禁用（视为 loop_disabled）；视角循环里的 hook 调用按 None 守卫跳过。
+    from tools.jury_loop.cmd_enhance_hook import (
+        prepare_jury_loop_state,
+        run_loop_hook_for_view,
+    )
+
+    (
+        jury_loop_config,
+        loop_budget,
+        jury_profile,
+        jury_profile_path,
+    ) = prepare_jury_loop_state(pipeline_config=_pcfg, n_views=len(pngs))
+
     # ── Multi-view consistency settings from pipeline_config ──
     _enhance_cfg = _pcfg.get("enhance", {})
     _ref_mode = _enhance_cfg.get("reference_mode", "none")
@@ -2948,6 +2964,22 @@ def cmd_enhance(args):
                     if backend in ("fal", "comfyui", "fal_comfy"):
                         hero_image = new_path
                         log.info("  Hero image set (FAL/ComfyUI): %s", os.path.basename(new_path))
+                # CP-7 视角级 jury loop hook（table-driven backend 路径）
+                _hero_from_loop = run_loop_hook_for_view(
+                    view_key=view_key,
+                    new_path=new_path,
+                    render_dir=Path(render_dir),
+                    rc=rc,
+                    rerun_loop=getattr(args, "rerun_loop", False),
+                    jury_loop_config=jury_loop_config,
+                    loop_budget=loop_budget,
+                    jury_profile=jury_profile,
+                    jury_profile_path=jury_profile_path,
+                    reference_mode=_ref_mode,
+                    project_root=Path(PROJECT_ROOT),
+                )
+                if _hero_from_loop is not None:
+                    hero_image = _hero_from_loop
                 continue  # skip Gemini block
 
             # ── Gemini backend ───────────────────────────────────────────
@@ -3114,6 +3146,23 @@ def cmd_enhance(args):
             if prompt_file and os.path.isfile(prompt_file):
                 os.unlink(prompt_file)
             # Note: _compressed_tmp cleanup deferred until after labeled call
+
+        # CP-7 视角级 jury loop hook（gemini backend 路径）
+        _hero_from_loop = run_loop_hook_for_view(
+            view_key=view_key,
+            new_path=new_path,
+            render_dir=Path(render_dir),
+            rc=rc,
+            rerun_loop=getattr(args, "rerun_loop", False),
+            jury_loop_config=jury_loop_config,
+            loop_budget=loop_budget,
+            jury_profile=jury_profile,
+            jury_profile_path=jury_profile_path,
+            reference_mode=_ref_mode,
+            project_root=Path(PROJECT_ROOT),
+        )
+        if _hero_from_loop is not None:
+            hero_image = _hero_from_loop
 
         # ── Labeled version (second Gemini call, --labeled only) ────────────
         _has_labels = bool(rc.get("labels", {}).get(view_key))
