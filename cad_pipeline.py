@@ -4400,6 +4400,14 @@ def main():
         default=None,
         help="Override model key from pipeline_config.json (e.g. nano_banana_2)",
     )
+    p_enhance.add_argument(
+        "--rerun-loop",
+        action="store_true",
+        help=(
+            "强制重跑 jury loop 即使 sidecar 已存在 delivered_retry"
+            "（OPS-MAJOR-3 fast-path skip 的反向开关，SP1 CP-7）"
+        ),
+    )
 
     # enhance-check
     p_enhance_check = sub.add_parser(
