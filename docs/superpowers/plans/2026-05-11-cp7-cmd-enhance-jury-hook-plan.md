@@ -96,10 +96,34 @@ if not _should_skip_jury_loop_for_view(view_key, Path(render_dir), getattr(args,
 ```
 
 **前置常量** 在 cmd_enhance 顶部（视角循环之前）：
-- `jury_loop_config = load_jury_loop_config(_pcfg)`（Task 7.2.1 落地 pipeline_config.json `jury_loop` 段后此调用才可用）
-- `jury_profile, jury_profile_path = load_jury_profile_from_config(...)`
-- `loop_budget = LoopBudget(cap_usd=jury_loop_config.cost_cap_usd)`
-- `baseline_backend_params = ...`（baseline enhance_image 实际生效的 backend params）
+
+```python
+from enhance_budget import LoopBudget                            # 顶层模块（不在 jury_loop 下）
+from tools.jury.config import JuryProfile                        # 注意 tools.jury 不是 tools.jury_loop
+from tools.jury_loop import orchestrator
+from tools.jury_loop.config import JuryLoopConfig, load_jury_loop_config
+
+# 加载 jury_loop 段（位置：enhance.jury_loop）
+_jury_loop_dict = _pcfg.get("enhance", {}).get("jury_loop")
+jury_loop_config: JuryLoopConfig | None = None
+loop_budget: LoopBudget | None = None
+jury_profile: JuryProfile | None = None
+jury_profile_path: Path | None = None
+if _jury_loop_dict:
+    try:
+        jury_loop_config = load_jury_loop_config(_jury_loop_dict)
+        loop_budget = LoopBudget(cap_usd=jury_loop_config.cost_cap_usd)
+        # jury_profile 加载：grep `tools/jury/` 现有 loader 函数名；若无 thin wrapper 则本 PR 新增
+        jury_profile_path = Path(...)  # 实施时定位 jury_profile.yaml 路径
+        jury_profile = JuryProfile.from_yaml(jury_profile_path)  # 占位 — 实际函数名 grep 后填
+    except (ValueError, FileNotFoundError) as e:
+        log.warning("jury_loop 加载失败，本次跑跳过 hook：%s", e)
+        jury_loop_config = None  # hook 整体跳过的标记
+
+baseline_backend_params = {...}  # baseline enhance_image 实际生效的 backend params dict
+```
+
+视角循环里 hook 条件：`if jury_loop_config and jury_loop_config.enabled and not _should_skip_jury_loop_for_view(...):`
 
 **降级守卫**：`jury_loop_config.enabled` 为 False 或 config 加载失败 → hook 整体跳过；当前 Task 7.1.2 此守卫返"None loop_result"分支 OK（不调 hook 即可），不需 raise。
 
@@ -133,39 +157,47 @@ if not _should_skip_jury_loop_for_view(view_key, Path(render_dir), getattr(args,
 
 ---
 
-## Task 7.2.1：pipeline_config.json `jury_loop` 段 + 集成测试
+## Task 7.2.1：pipeline_config.json `enhance.jury_loop` 段 + 集成测试
 
-**RED 测试**（`tests/jury_loop/test_config_load_integration.py` 新建或扩 existing test_config）：
+> **漂移修正**（Task 0 grep 实测）：段位置是 `pipeline_config["enhance"]["jury_loop"]`（嵌套在 enhance 段，**不是顶层**）；`advanced` 允许 5 key 是 `threshold / max_retries / llm_fallback / rule_table_path / score_select_strategy`（出处：`tools/jury_loop/config.py:20 _ADVANCED_KEYS`）；`load_jury_loop_config(d)` 接 enhance.jury_loop 子 dict 单参。
 
-1. `test_pipeline_config_jury_loop_section_loadable`：读真实 `pipeline_config.json` → `load_jury_loop_config(json.load(...))` 返 `JuryLoopConfig` 实例（不 raise），`enabled=True` / `cost_cap_usd=1.5` / `backend.kind` 在 BACKEND_REGISTRY
+**RED 测试**（`tests/jury_loop/test_config_load_integration.py` 新建）：
 
-**GREEN 实现**（`pipeline_config.json` 顶层加段，参考 spec §4.1）：
+1. `test_pipeline_config_enhance_jury_loop_section_loadable`：读真实 `pipeline_config.json` → `load_jury_loop_config(pcfg["enhance"]["jury_loop"])` 返 `JuryLoopConfig` 实例（不 raise），`enabled=True` / `cost_cap_usd=1.5` / `backend.kind` 在 BACKEND_REGISTRY / `advanced` dict 不与顶层 key 冲突
+
+**GREEN 实现**（`pipeline_config.json` 在 `enhance` 段下加 `jury_loop` 子段，字段以 `tools/jury_loop/config.py` 实际 schema 为准）：
 
 ```json
 {
-  ...,
-  "jury_loop": {
-    "enabled": true,
-    "cost_cap_usd": 1.5,
-    "backend": {
-      "kind": "fal_comfy",
-      "base_url": "https://queue.fal.run",
-      "api_key_env": "FAL_KEY",
-      "model_name": "fal-ai/flux-realism",
-      "timeout_s": 180
-    },
-    "advanced": {
-      "max_retries_per_view": 2,
-      "score_select_strategy": "highest",
-      "fallback_to_baseline": true,
-      "min_score_threshold": 75,
-      "needs_review_window_sec": 600
+  "enhance": {
+    "model": "...",
+    "models": { ... },
+    "jury_loop": {
+      "enabled": true,
+      "cost_cap_usd": 1.5,
+      "backend": {
+        "kind": "fal_comfy",
+        "base_url": "https://queue.fal.run",
+        "api_key_env": "FAL_KEY",
+        "model_name": "fal-ai/flux-realism",
+        "timeout_s": 180
+      },
+      "advanced": {
+        "threshold": 75,
+        "max_retries": 2,
+        "llm_fallback": false,
+        "rule_table_path": "tools/jury_loop/rule_table.yaml",
+        "score_select_strategy": "highest"
+      }
     }
   }
 }
 ```
 
-具体字段值以 spec §4.1 为准；实施时 grep 现有 `pipeline_config.json` 顶层 key 不冲突。
+实施时：
+- `kind` 必须 in `BACKEND_REGISTRY.keys()`（grep `tools/jury_loop/backends/__init__.py` 当前注册）
+- `model_name` 选已知 fal/comfyui 模型 ID（grep `fal_enhancer.py` / `fal_comfy_enhancer.py` 现有 prod 值；本 PR 用 placeholder OK，spec §4.1 用户 override）
+- `rule_table_path` 若 yaml 真实文件不存在，advanced 可暂留默认（spec 允许 advanced 缺失，5 key 都 optional）
 
 **验收**：1 PASS / 全套件 0 regression / config schema 加载验证 / ruff / mypy strict
 
