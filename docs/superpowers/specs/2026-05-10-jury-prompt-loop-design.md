@@ -180,7 +180,7 @@ class BackendCallError(BackendError): ...                # → retry_failed (兜
        │
        ▼
 [4] sanitized_reason = reason_sanitized(verdict.reason)   # SEC-MAJOR-3 防 prompt injection
-       tags = reason_parser(sanitized_reason)
+       tags = reason_parser.parse_reason(sanitized_reason, tag_dictionary=rule_tbl.tag_dictionary)
        │ Gate-6: tags == ∅
        │     → loop_status: no_tags_parsed；接受 baseline
        │
@@ -188,7 +188,7 @@ class BackendCallError(BackendError): ...                # → retry_failed (兜
 [5] hits = rule_table.lookup(tags, backend)
        │ misses = tags - hits.matched_tags
        │ if misses 且 enhance.jury_loop.llm_fallback==true:
-       │     extra_addons = llm_fallback.translate(misses, sanitized_reason)  # 同样传净化版
+       │     extra_addons = llm_fallback.translate(unmapped_reason=sanitized_reason, sanitized_reason=sanitized_reason, profile=jury_profile)  # 三参 kwarg + JuryProfile
        │ else:
        │     extra_addons = []
        │ Gate-7: hits == ∅ and extra_addons == []
@@ -469,7 +469,7 @@ tag_dictionary:
 {
   "$schema_version": 1,
   "view": "V1",                              // string，与 manifest view key 一致
-  "backend": "fal_comfy",                    // string ∈ {gemini, comfyui, fal, fal_comfy, engineering}
+  "backend": "fal_comfy",                    // string ∈ {gemini, comfyui, fal, fal_comfy, engineering, unknown}  // "unknown" 由 write_degraded_sidecar 兜未分类 backend
   "loop_eligible": true,                     // bool，false 表示 backend 不在 {fal, fal_comfy} 或 jury_loop.enabled=false
   "loop_status": "delivered_retry",          // enum，见 §4.5
   "loop_skipped_reason": null,               // string | null，loop_status != delivered_* 时填
@@ -609,7 +609,7 @@ config 层 `score_select_strategy` 字符串 → Strategy 实例的注册表在 
 
 ### 共性原则
 1. **永不阻塞交付**：任何失败回退 baseline，至少让用户拿到 baseline
-2. **metadata.json 是事实来源**：每个视角写一份 sidecar；`errors[]` 内是堆栈摘要（≤200 字/条）
+2. **metadata.json 是事实来源**：每个视角写一份 sidecar；`errors[]` 内是堆栈摘要（≤200 字/条）。**fail-safe 链断**：orchestrator 抛未知 `Exception` 时先调 `metadata.write_degraded_sidecar(view, error)` 再 re-raise；cmd_enhance 接 `Exception` 仅 log 不重写 sidecar（防无限循环）；`FileNotFoundError`（baseline 缺失）/ `ValueError`（view 名注入）走 fail-fast 不写 sidecar，cmd_enhance 仅 log + 跳过该视角
 3. **顶层报告也要可见**：ENHANCEMENT_REPORT.json 顶层 `loop_summary` 段聚合所有视角的 `loop_status`（§7）
 4. **log level 层次**：fatal/error 不存在；warn = jury/yaml schema 不可用；info = loop_skipped_*；debug = tag 命中详情
 5. **预算守门次序**：每次 retry 前估算成本 → 累计 > cap → 接受 baseline；cap 默认固定 `1.5 USD`（约 5 视角×0.25 + 安全余量；视角数明显不同时用户手动调，§4.1）；用户显式数值锁死
