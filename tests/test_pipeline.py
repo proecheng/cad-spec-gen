@@ -16,6 +16,64 @@ import cad_pipeline
 from cad_paths import get_blender_path, get_subsystem_dir
 
 
+def test_cmd_spec_review_only_with_out_dir_deploys_review_artifacts(tmp_path, monkeypatch):
+    """spec --review-only --out-dir 应把 DESIGN_REVIEW.{md,json} 拷到 --out-dir 指定目录。
+
+    回归：v2.32.0 前 review_only 路径在 deploy 之前 return 0，--out-dir 失效。
+    """
+    import json
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    design_doc = tmp_path / "19-demo.md"
+    design_doc.write_text("# demo\n", encoding="utf-8")
+    config_path = tmp_path / "gisbot.json"
+    config_path.write_text(
+        json.dumps({"output_dir": "./output", "subsystems": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    spec_gen = tmp_path / "cad_spec_gen.py"
+    spec_gen.write_text("# fake spec generator\n", encoding="utf-8")
+
+    monkeypatch.setattr(cad_pipeline, "PROJECT_ROOT", str(project_root))
+    monkeypatch.setattr(cad_pipeline, "CAD_DIR", str(project_root / "cad"))
+    monkeypatch.setattr(cad_pipeline, "CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(cad_pipeline, "SKILL_ROOT", str(tmp_path))
+    monkeypatch.setattr(cad_pipeline, "get_subsystem_dir", lambda _name: None)
+
+    def fake_run(_cmd, _label, **_kwargs):
+        out_dir = project_root / "output" / "end_effector"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "DESIGN_REVIEW.json").write_text(
+            json.dumps({"critical": 0, "warning": 0, "auto_fill": 0, "items": []}),
+            encoding="utf-8",
+        )
+        (out_dir / "DESIGN_REVIEW.md").write_text("# review\n", encoding="utf-8")
+        return True, 0.1
+
+    monkeypatch.setattr(cad_pipeline, "_run_subprocess", fake_run)
+
+    out_dir = tmp_path / "external_out"
+    args = SimpleNamespace(
+        subsystem="end_effector",
+        design_doc=str(design_doc),
+        force=False,
+        force_spec=False,
+        dry_run=False,
+        review_only=True,
+        auto_fill=False,
+        proceed=False,
+        supplements=None,
+        out_dir=str(out_dir),
+    )
+
+    assert cad_pipeline.cmd_spec(args) == 0
+    deployed_md = out_dir / "end_effector" / "DESIGN_REVIEW.md"
+    deployed_json = out_dir / "end_effector" / "DESIGN_REVIEW.json"
+    assert deployed_md.is_file(), f"DESIGN_REVIEW.md 未拷到 --out-dir: {deployed_md}"
+    assert deployed_json.is_file(), f"DESIGN_REVIEW.json 未拷到 --out-dir: {deployed_json}"
+
+
 def test_cmd_spec_proceed_infers_subsystem_from_design_doc(tmp_path, monkeypatch):
     """spec --design-doc 19-*.md --proceed should not require --subsystem."""
     import json

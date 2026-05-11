@@ -1822,6 +1822,18 @@ def cmd_spec(args):
     parsed_supplements = None
     if review_only:
         # Agent mode: just generate review, no spec generation
+        # --out-dir 适用：把 DESIGN_REVIEW.{md,json} 拷到指定目录（CAD_SPEC.md 在 review-only 模式下不生成）
+        _out_dir_override = getattr(args, "out_dir", None)
+        if _out_dir_override and args.subsystem:
+            _output_sub = os.path.join(PROJECT_ROOT, "output", args.subsystem)
+            _cad_sub = os.path.join(_out_dir_override, args.subsystem)
+            os.makedirs(_cad_sub, exist_ok=True)
+            if os.path.isdir(_output_sub):
+                for _fname in ("DESIGN_REVIEW.md", "DESIGN_REVIEW.json"):
+                    _src = os.path.join(_output_sub, _fname)
+                    if os.path.isfile(_src):
+                        shutil.copy2(_src, os.path.join(_cad_sub, _fname))
+                        log.info("  Deployed (review-only): %s → %s", _fname, _cad_sub)
         log.info("--review-only: 审查报告已生成，等待 Agent 逐项审查。")
         log.info("  DESIGN_REVIEW.json: %s", review_json)
         return 0
