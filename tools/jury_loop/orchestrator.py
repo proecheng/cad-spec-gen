@@ -69,6 +69,16 @@ def _rename_baseline_as_final(
     return final_path
 
 
+# BackendError 子类 → (loop_status, error_entry 模板) 表驱动映射。
+# 表驱动替代 4 个 isinstance 分支：新增 backend 错误类型时只需扩表，无需改 helper 主体。
+_BACKEND_ERROR_MAPPING: tuple[tuple[type[BackendError], str, str, str], ...] = (
+    (BackendAuthError,          "retry_auth_failed",     "backend_auth_error",     "API key 无效，请检查配置后重试"),
+    (BackendRateLimitError,     "retry_rate_limited",    "backend_rate_limited",   "服务限流，请稍后重试"),
+    (BackendQuotaExceededError, "retry_quota_exceeded",  "backend_quota_exceeded", "服务账户余额不足，请充值后重试"),
+    (BackendCallError,          "retry_failed",          "backend_call_error",     "重试调用失败，请查看 sidecar.errors[]"),
+)
+
+
 def _classify_backend_error(exc: BackendError) -> tuple[str, dict[str, str]]:
     """4 路异常分类 → (loop_status, error_entry)（spec rev 3 决议 #10）。
 
@@ -82,30 +92,13 @@ def _classify_backend_error(exc: BackendError) -> tuple[str, dict[str, str]]:
     retry_failed + backend_unknown_error，避免 helper 抛异常使 sidecar 写入丢失。
     """
     msg_summary = str(exc)[:200]
-    if isinstance(exc, BackendAuthError):
-        return ("retry_auth_failed", {
-            "code": "backend_auth_error",
-            "message_summary": msg_summary,
-            "user_action_hint": "API key 无效，请检查配置后重试",
-        })
-    if isinstance(exc, BackendRateLimitError):
-        return ("retry_rate_limited", {
-            "code": "backend_rate_limited",
-            "message_summary": msg_summary,
-            "user_action_hint": "服务限流，请稍后重试",
-        })
-    if isinstance(exc, BackendQuotaExceededError):
-        return ("retry_quota_exceeded", {
-            "code": "backend_quota_exceeded",
-            "message_summary": msg_summary,
-            "user_action_hint": "服务账户余额不足，请充值后重试",
-        })
-    if isinstance(exc, BackendCallError):
-        return ("retry_failed", {
-            "code": "backend_call_error",
-            "message_summary": msg_summary,
-            "user_action_hint": "重试调用失败，请查看 sidecar.errors[]",
-        })
+    for exc_cls, loop_status, code, hint in _BACKEND_ERROR_MAPPING:
+        if isinstance(exc, exc_cls):
+            return (loop_status, {
+                "code": code,
+                "message_summary": msg_summary,
+                "user_action_hint": hint,
+            })
     return ("retry_failed", {
         "code": "backend_unknown_error",
         "message_summary": msg_summary,
@@ -201,7 +194,7 @@ def _finalize_baseline_only(
     baseline_path: Path,
     baseline: ViewVerdict | None = None,
     errors: list[dict[str, Any]] | None = None,
-    local_extra_cost: float = 0,
+    local_extra_cost: float = 0.0,
     tags_parsed: list[str] | None = None,
     warnings: list[str] | None = None,
 ) -> LoopResult:
@@ -527,7 +520,7 @@ def run_loop_if_eligible(
         # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
         hits = rule_table.lookup(rule_tbl, tags, backend_kind)
         # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
-        misses = tags - set(hits.matched_tags)
+        misses = tags - hits.matched_tags  # matched_tags 已是 set[str]，无需 set() 转换
         if misses and config.advanced["llm_fallback"]:
             try:
                 extra_addons = llm_fallback.translate(
