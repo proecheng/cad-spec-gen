@@ -1,0 +1,6 @@
+schema_version: 1
+rules:
+  - id: typo_rule
+    when_tags: [plastic_look]
+    prompt_addon: ["拼错的字段（漏 s）"]    # closed schema 应 hard fail
+    param_overrides: {}

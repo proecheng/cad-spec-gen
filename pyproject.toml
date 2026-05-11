@@ -49,6 +49,13 @@ all = [
     "Pillow>=9.0",
     "PyYAML>=6.0",
 ]
+# 开发/测试依赖（CI 与本地开发用 `pip install -e .[test]` 装）。
+# pytest 是基础测试运行器；hypothesis 是 property-based 测试库
+# （SP1 jury_loop 的 reason_parser TRAP-3 alphabet property 用之）。
+test = [
+    "pytest>=7.0",
+    "hypothesis>=6.0",
+]
 
 [project.scripts]
 cad-skill-setup = "cad_spec_gen.cli:main_setup"

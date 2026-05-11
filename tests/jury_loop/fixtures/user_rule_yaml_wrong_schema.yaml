@@ -1,0 +1,2 @@
+schema_version: 999   # SEC-MINOR-3 降级 loop_disabled 而非 hard fail
+rules: []
