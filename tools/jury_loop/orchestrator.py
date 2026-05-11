@@ -106,6 +106,11 @@ def _classify_backend_error(exc: BackendError) -> tuple[str, dict[str, str]]:
     })
 
 
+# SEC-MINOR-4 stdout 上限（防 OOM）：spec §6 line 690 锁 1 MiB
+_MAX_STDOUT_BYTES = 1 * 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
+
+
 def _call_jury_subprocess(
     *,
     view: str,
@@ -118,14 +123,15 @@ def _call_jury_subprocess(
 
     spec rev 3 决议 #9：失败时不丢信息——返第二元素 error_code 让上层填 sidecar.errors[]。
 
-    错误码（4 种）：
-    - "timeout"：subprocess.TimeoutExpired
+    错误码（5 种）：
+    - "timeout"：subprocess.TimeoutExpired（wait 阶段超时）
     - "exit_nonzero"：returncode != 0
     - "json_parse_failed"：stdout 非 JSON 或 list 形状不符（非 list / len != 1）
     - "needs_review"：parse_view_verdict 返 verdict.verdict == "needs_review"
+    - "stdout_overflow"：stdout > 1 MiB（SEC-MINOR-4 防 OOM，立即 kill 子进程）
 
-    注意：CP-6 Task 6.1 才落地 photo3d-jury --single-view flag；CP-5 测试用
-    monkeypatch.setattr 整体替换本 helper，生产 path 暂跑不通（spec §1 非目标）。
+    CP-6 Task 6.1.3 升级：subprocess.run(capture_output=True) → Popen +
+    手动 read loop + 1 MiB cap + kill on overflow。
     """
     cmd = [
         sys.executable, "-m", "tools.photo3d_jury",
@@ -134,20 +140,51 @@ def _call_jury_subprocess(
         "--config", str(jury_profile_path),
     ]
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=project_root,
-            timeout=timeout_s,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-    except subprocess.TimeoutExpired:
-        return (None, "timeout")
+    except OSError:
+        return (None, "exit_nonzero")
+
+    stdout_chunks: list[bytes] = []
+    total_bytes = 0
+    overflow = False
+    try:
+        # 边读边检 cap：超 1 MiB 立刻 kill 子进程 + 返 stdout_overflow
+        while True:
+            chunk = proc.stdout.read(_READ_CHUNK_BYTES) if proc.stdout else b""
+            if not chunk:
+                break
+            stdout_chunks.append(chunk)
+            total_bytes += len(chunk)
+            if total_bytes > _MAX_STDOUT_BYTES:
+                overflow = True
+                proc.kill()
+                break
+
+        try:
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+            return (None, "timeout")
+    finally:
+        # 确保 cleanup；overflow 已 kill，其他路径 poll 兜底
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    if overflow:
+        return (None, "stdout_overflow")
     if proc.returncode != 0:
         return (None, "exit_nonzero")
+    stdout_bytes = b"".join(stdout_chunks)
     try:
-        items = _json.loads(proc.stdout)
-    except _json.JSONDecodeError:
+        items = _json.loads(stdout_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, _json.JSONDecodeError):
         return (None, "json_parse_failed")
     if not isinstance(items, list) or len(items) != 1:
         return (None, "json_parse_failed")

@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import math
 import os
+import re
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -97,6 +99,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--debug-output", type=Path)
     p.add_argument("--force", action="store_true")
     p.add_argument("--project-root", type=Path, default=Path.cwd())
+    # CP-6 Task 6.1：jury_loop orchestrator 调本工具单视角调度（隐藏 help，外行用户不误用）
+    p.add_argument("--single-view", help=argparse.SUPPRESS)
+    p.add_argument("--image", nargs="+", help=argparse.SUPPRESS)
     return p
 
 
@@ -141,6 +146,88 @@ def _decide_status(layer1_pass: bool, view_verdicts: list[dict[str, Any]]) -> st
     if any(v.get("verdict") == "preview" for v in view_verdicts):
         return "preview"
     return "accepted"
+
+
+# CP-6 Task 6.1.2: --single-view view 名校验（防 path traversal；与 metadata 模块同 pattern）
+_SINGLE_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
+
+
+def _handle_single_view_mode(
+    args: argparse.Namespace, profile: Any, caps: Any,  # noqa: ANN401
+) -> int:
+    """--single-view 分支：单视角调度 LLM 评 N 张图，stdout JSON list，不写盘。
+
+    契约（spec §6）：
+    - exit 0 + stdout 必为合法 JSON list[dict]（即使某些图 LLM 失败也作 needs_review item 写入）
+    - exit 2 + stderr 表参数错（缺 --image / view 名非法）
+    - 任一 LLM 调用失败 → 该项 verdict=needs_review + parse_anomalies 含 "llm_call_failed"
+      调用方（orchestrator）检测到 needs_review 走 loop_status=jury_unavailable
+    """
+    if not args.image:
+        sys.stderr.write("✗ --single-view 要求 --image PATH [PATH ...]\n")
+        return 2
+    if not _SINGLE_VIEW_NAME_PATTERN.fullmatch(args.single_view):
+        sys.stderr.write(
+            f"✗ --single-view 名非法（必须匹配 {_SINGLE_VIEW_NAME_PATTERN.pattern}）：{args.single_view}\n"
+        )
+        return 2
+
+    results: list[dict[str, Any]] = []
+    for img in args.image:
+        img_path = Path(img).resolve()
+        if not img_path.is_file():
+            results.append(_single_view_needs_review_item(
+                args.single_view, img, reason=f"图片不存在: {img}",
+                anomaly="image_not_found",
+            ))
+            continue
+        try:
+            resp = request_jury_verdict(
+                profile=profile,
+                image_path=img_path,
+                prompt=_JURY_PROMPT,
+                max_retries=args.max_retries,
+            )
+            vv = parse_view_verdict(
+                resp.content_text,
+                finish_reason=resp.finish_reason or "stop",
+                min_photoreal_score=caps.min_photoreal_score,
+            )
+            results.append({
+                "view": args.single_view,
+                "image_path": img,
+                "verdict": vv.verdict,
+                "photoreal_score": vv.photoreal_score,
+                "semantic_checks": vv.semantic_checks,
+                "reason": vv.reason,
+                "parse_status": vv.parse_status,
+                "parse_anomalies": list(vv.parse_anomalies),
+            })
+        except Exception as exc:  # noqa: BLE001 — 任何 LLM/parse 失败 → needs_review 由调用方处理
+            results.append(_single_view_needs_review_item(
+                args.single_view, img,
+                reason=f"LLM call failed: {type(exc).__name__}: {exc}",
+                anomaly="llm_call_failed",
+            ))
+
+    sys.stdout.write(json.dumps(results, ensure_ascii=False) + "\n")
+    return 0
+
+
+def _single_view_needs_review_item(
+    view: str, image_path: str, *, reason: str, anomaly: str,
+) -> dict[str, Any]:
+    """构造单视角 needs_review item（图缺失 / LLM 失败共用）。"""
+    return {
+        "view": view,
+        "image_path": image_path,
+        "verdict": "needs_review",
+        "photoreal_score": 0,
+        "semantic_checks": {},
+        "reason": reason,
+        "parse_status": "ok",
+        "parse_anomalies": [anomaly],
+    }
 
 
 def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PLR0915
@@ -210,6 +297,11 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
     except JuryConfigError as exc:
         sys.stderr.write(f"✗ 配置错: {exc}\n")
         return 2
+
+    # CP-6 Task 6.1.2：--single-view 模式（跳过 Layer 0 / cost gate / batch / 写盘）
+    # 必须在 project_root resolve / Layer 0 之前短路，闭环 retry 不依赖 ARTIFACT_INDEX
+    if args.single_view:
+        return _handle_single_view_mode(args, profile, caps)
 
     project_root = Path(args.project_root).resolve()
 

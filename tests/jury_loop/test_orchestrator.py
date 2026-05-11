@@ -757,3 +757,53 @@ def test_unknown_exception_invokes_degraded_sidecar(
     assert any(
         e.get("code") == "cmd_enhance_uncaught_exception" for e in sidecar["errors"]
     )
+
+
+# ==== Task 6.1.3：SEC-MINOR-4 stdout cap 防 OOM ==== #
+
+
+def test_call_jury_subprocess_stdout_overflow_kills_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SEC-MINOR-4：stdout > 1 MiB → 立即 kill 子进程 + 返 (None, "stdout_overflow")。"""
+    import subprocess
+    from unittest.mock import MagicMock
+    from tools.jury_loop import orchestrator as orch
+
+    # 制造 > 1 MiB stdout（按 64 KiB chunk 分段，模拟真实子进程渐进输出）
+    overflow_bytes = b"x" * (1024 * 1024 + 1024)  # 1 MiB + 1 KiB
+    chunks = [overflow_bytes[i:i + 65536] for i in range(0, len(overflow_bytes), 65536)]
+    chunks.append(b"")  # EOF sentinel
+
+    fake_proc = MagicMock()
+    fake_proc.stdout.read.side_effect = chunks
+    fake_proc.stderr.read.return_value = b""
+    fake_proc.returncode = 0
+    fake_proc.poll.return_value = None
+
+    captured_popen_args: dict = {}
+
+    def _fake_popen(cmd, **kwargs):  # noqa: ANN001
+        captured_popen_args["cmd"] = cmd
+        captured_popen_args["kwargs"] = kwargs
+        return fake_proc
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    img = tmp_path / "img.jpg"
+    img.write_bytes(b"")
+
+    verdict, err_code = orch._call_jury_subprocess(
+        view="V1",
+        image_path=img,
+        project_root=tmp_path,
+        jury_profile_path=tmp_path / "profile.yaml",
+        timeout_s=30,
+    )
+
+    assert verdict is None
+    assert err_code == "stdout_overflow"
+    fake_proc.kill.assert_called()  # 溢出时必须 kill
+    # 校验 Popen 用 PIPE 收 stdout/stderr（不是 capture_output）
+    assert captured_popen_args["kwargs"].get("stdout") == subprocess.PIPE
+    assert captured_popen_args["kwargs"].get("stderr") == subprocess.PIPE
