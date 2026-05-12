@@ -42,10 +42,9 @@ Expected: `orchestrator.py` 里 `rc` 只见 `rc.get("prompt", "")`（3 处）；
 Run: `grep -n "retry_score_delta\|baseline_score\|loop_status\|above_threshold\|_enhance_meta" tools/jury_loop/metadata.py tools/jury_loop/orchestrator.py`
 Expected: `metadata.write_sidecar` 写 `<render_dir>/<view>_enhance_meta.json`，字段含 `loop_status` / `retry_score_delta`（`int | None`，retry 发生则是 delta、没发生则 None）；`orchestrator.py` 里 `loop_status="above_threshold"` 是「baseline 分数 ≥ threshold、不 retry」的状态。确认 sidecar 里读 baseline 分数的字段名（可能在嵌套的 `baseline` dict 里——记下精确路径，如 `sidecar["baseline"]["photoreal_score"]`）。**不符就停下报告。**
 
-- [ ] **Step 4：B2 — 确认 jury config 路径怎么传给 `photo3d-jury --single-view` 子进程 + 是否要 `--allow-external-config`**
+- [x] **Step 4：B2 — jury config 路径怎么传给 `photo3d-jury --single-view` 子进程**（已确认）
 
-Run: `grep -n "single-view\|--config\|allow-external\|allow_external\|jury_profile_path\|subprocess\|Popen" tools/jury_loop/orchestrator.py`
-看 orchestrator 调 jury 子进程时把 `jury_profile_path` 怎么传（`--config <path>`？）、子进程对 config 路径有没有「必须在 ~/.claude/ 或当前项目」的限制 → 若有，L4 test 要么把临时 config 写到 `project_root`（当作「当前项目」）、要么传 `--allow-external-config`（看 orchestrator 支不支持透传）。记下结论，Task 2 的 test 据此放 config 文件位置。**这是 B2 最大的不确定点——若发现 orchestrator 不透传 config 路径、或限制太死无法绕 → 报告，可能要把 test 改成 mock jury 子进程（那就不是 e2e 了，降级；与用户确认）。**
+确认结果：orchestrator 的 `_call_jury_subprocess` 调 `[sys.executable, "-m", "tools.photo3d_jury", "--single-view", view, ..., "--config", str(jury_profile_path), ...]`——**不**传 `--allow-external-config`，所以 `photo3d_jury` 只接受 config 在「`~/.claude/` 下」或「当前项目内」。conftest 的 autouse fixture 把 `HOME`/`USERPROFILE` env 替成假 tmp 目录（`photo3d_jury.py` 用 `os.environ.get("USERPROFILE") or os.environ.get("HOME")` 算 `~`）。**结论**：L4 test 把临时 `cad_jury_config.json` 写到 `Path(os.environ["USERPROFILE"] or os.environ["HOME"]) / ".claude" / "cad_jury_config.json"`（假 home 的 `.claude/`，子进程认它在 `~/.claude/` 下）——已 bake 进 Task 2 的 `_write_temp_jury_config()`。无需改 orchestrator、无需 `--allow-external-config`、无需降级成 mock。
 
 - [ ] **Step 5：B2 — 确认 `_parse_profile` / `load_jury_config` 要的最小 config 字段**
 
@@ -200,12 +199,19 @@ def _require_jury_env() -> None:
         pytest.skip("CAD_JURY_LLM_BASE_URL 未设")
 
 
-def _write_temp_jury_config(dir_: Path) -> Path:
-    """写 test 自带的临时 cad_jury_config.json（绕开 conftest 的 autouse home-fake）。
+def _write_temp_jury_config() -> Path:
+    """写 test 自带的临时 cad_jury_config.json 到 **假 home 的 ~/.claude/** 下。
 
-    放哪 = Task 0 Step 4 结论决定：若 orchestrator 限制 config 必须在「当前项目」→ 放 project_root；
-    否则放 dir_ 即可（如需 --allow-external-config 透传则 Task 0 确认 orchestrator 支持）。
+    为什么这个位置（Task 0 Step 4 已确认）：orchestrator 的 _call_jury_subprocess 调
+    `python -m tools.photo3d_jury --single-view ... --config <path>` 时**不**传
+    --allow-external-config，所以 photo3d_jury 只接受 config 在「~/.claude/ 下」或
+    「当前项目内」。conftest 的 autouse fixture 把 HOME/USERPROFILE env 替成假 tmp 目录
+    （photo3d_jury.py 用 `os.environ.get("USERPROFILE") or os.environ.get("HOME")` 算 ~），
+    所以写到那个假 home 的 .claude/ 下、子进程就认它在 ~/.claude/ 下。
     """
+    fake_home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~")
+    claude_dir = fake_home / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
     cfg = {
         "schema_version": 1,
         "active_profile_id": "l4_smoke",
@@ -219,14 +225,14 @@ def _write_temp_jury_config(dir_: Path) -> Path:
             }
         ],
     }
-    path = dir_ / "cad_jury_config.json"
+    path = claude_dir / "cad_jury_config.json"
     path.write_text(json.dumps(cfg), encoding="utf-8")
     return path
 
 
 def _run_one_view_loop(*, render_dir: Path, project_root: Path, view: str, baseline_png: Path, threshold: int | None = None):
     """跑一遍单视角闭环 → 返 (LoopResult, sidecar_dict)。threshold=None 用 DEFAULT(75)。"""
-    cfg_path = _write_temp_jury_config(project_root)  # 或 render_dir，按 Task 0 Step 4
+    cfg_path = _write_temp_jury_config()
     jury_profile, _caps = load_jury_config(cfg_path)
     loop_dict = dict(DEFAULT_JURY_LOOP_DICT)
     if threshold is not None:
@@ -293,7 +299,7 @@ def test_l4_3_v1_anchor_hook_returns_final_path(tmp_path):
     render_dir = tmp_path / "render"
     render_dir.mkdir()
     _make_rough_render_png(render_dir / "V1_enhanced_baseline.jpg")
-    cfg_path = _write_temp_jury_config(project_root)
+    cfg_path = _write_temp_jury_config()
     jury_profile, _caps = load_jury_config(cfg_path)
     jury_loop_config = load_jury_loop_config(DEFAULT_JURY_LOOP_DICT)
     loop_budget = LoopBudget(n_views=2)
