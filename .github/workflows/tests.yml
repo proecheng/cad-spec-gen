@@ -141,6 +141,13 @@ jobs:
         run: mypy --platform=win32 adapters/solidworks/sw_config_broker.py
       - name: Run mypy strict on tools/jury (Tasks 25+27 — photo3d jury 模块必 pass)
         run: mypy --strict tools/jury tools/photo3d_jury.py tools/_file_lock.py
+      # cleanup PR：render QA / path_policy 3 文件清理后纳入 gate 防回归。装 pillow
+      # 让 mypy 用真 PIL 类型（pyproject ignore_missing_imports=true，不装也不会红，
+      # 但那样 PIL=Any、看不见 PixelAccess 那类错）。
+      - name: Install Pillow for render-QA mypy check
+        run: pip install pillow
+      - name: Run mypy strict on render QA / path_policy (cleanup PR — 防回归)
+        run: mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py
       - name: Verify mypy fixture catches type errors (T17 等价 — gate 漂移防御)
         # 故意类型错的 fixture 必让 mypy fail。如果 fixture 通过 = gate 配置
         # 漂移（strict=false / exclude broker / 等），CI 立即 fail 提示修复。
