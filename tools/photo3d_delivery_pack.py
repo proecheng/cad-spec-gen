@@ -826,6 +826,85 @@ def _status_badge(status: object) -> str:
     return f"· {key}" if key else "· 未知"
 
 
+def _readme_headline(report: dict[str, Any]) -> list[str]:
+    """生成 README 头条区块：标题行 + 状态徽章行 + 通用人话句引用块。"""
+    subsystem = report.get("subsystem") or "?"
+    run_id = report.get("run_id") or "?"
+    final = "是" if report.get("final_deliverable") is True else "否"
+    lines = [
+        f"# 交付包验收 — {subsystem} / {run_id}",
+        "",
+        f"**状态**：{_status_badge(report.get('status'))}  ·  "
+        f"增强：{_status_badge(report.get('enhancement_status'))}  ·  "
+        f"最终交付物：{final}",
+    ]
+    message = report.get("ordinary_user_message") or ""
+    if message:
+        lines += ["", f"> {message}"]
+    return lines
+
+
+def _readme_images_section(report: dict[str, Any]) -> list[str]:
+    """生成渲染图区块：每个视角一个子标题 + 内嵌图 + 零件数 + 带标注版链接。
+
+    若无 enhanced_images 则返回空列表（整段省略）。
+    """
+    deliverables = report.get("deliverables") or {}
+    enhanced = deliverables.get("enhanced_images") or []
+    if not enhanced:
+        return []
+    delivery_dir = str(report.get("delivery_dir") or "")
+    labeled_by_view = {
+        str(item.get("view")): item
+        for item in (deliverables.get("labeled_images") or [])
+        if isinstance(item, dict) and item.get("view")
+    }
+    per_view = (report.get("view_evidence") or {}).get("per_view") or {}
+    lines: list[str] = ["", "## 渲染图（增强后）"]
+    for item in enhanced:
+        if not isinstance(item, dict):
+            continue
+        view = str(item.get("view") or "")
+        rel = _pkg_path_relative_to_delivery(str(item.get("package_path") or ""), delivery_dir)
+        lines += ["", f"### {view}", f"![{view} 增强图]({rel})"]
+        ids = per_view.get(view)
+        if isinstance(ids, list):
+            lines.append(f"- 本图标着含 {len(ids)} 个零件")
+        labeled = labeled_by_view.get(view)
+        if isinstance(labeled, dict):
+            lab_rel = _pkg_path_relative_to_delivery(
+                str(labeled.get("package_path") or ""), delivery_dir
+            )
+            lines.append(f"- [带标注版]({lab_rel})")
+    return lines
+
+
+def _readme_view_evidence_section(report: dict[str, Any]) -> list[str]:
+    """生成完整性证据区块：证据方式 + 各视角实例计数 + 详细说明。
+
+    若 view_evidence 为 None 或缺失则返回空列表（整段省略）。
+    """
+    view_evidence = report.get("view_evidence")
+    if not view_evidence:
+        return []
+    method = view_evidence.get("evidence_method") or "?"
+    per_view = view_evidence.get("per_view") or {}
+    counts = "、".join(
+        f"{view}={len(ids)}"
+        for view, ids in sorted(per_view.items())
+        if isinstance(ids, list)
+    )
+    lines: list[str] = ["", "## 完整性证据", f"- 证据方式：{method}"]
+    if counts:
+        lines.append(f"- 各视角实例计数：{counts}")
+    lines.append(
+        "- 详细逐视角实例清单见 `DELIVERY_PACKAGE.json` 的 `view_evidence` 字段 / "
+        "`render_manifest.json`；完整性 PASS/BLOCKED 判定见 `RENDER_VISUAL_REGRESSION.json`"
+        "（若已跑过 `photo3d-render-check`）"
+    )
+    return lines
+
+
 def _write_readme(path: Path, report: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [

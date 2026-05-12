@@ -592,3 +592,99 @@ def test_pkg_path_relative_to_delivery_falls_back_to_basename_on_bad_path():
         )
         == "img.jpg"
     )
+
+
+# === 队列 D Task 4: README section builders（headline / images / view_evidence）===
+
+
+def test_readme_headline_basic():
+    from tools.photo3d_delivery_pack import _readme_headline
+
+    lines = _readme_headline(
+        {
+            "subsystem": "demo",
+            "run_id": "RUN001",
+            "status": "delivered",
+            "enhancement_status": "accepted",
+            "final_deliverable": True,
+            "ordinary_user_message": "最终交付包已生成。",
+        }
+    )
+    text = "\n".join(lines)
+    assert text.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✓ 已交付  ·  增强：✓ 已验收  ·  最终交付物：是" in text
+    assert "> 最终交付包已生成。" in text
+
+
+def test_readme_images_section_embeds_relative_path_and_part_count_and_labeled():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    report = {
+        "delivery_dir": "cad/demo/.cad-spec-gen/runs/RUN001/delivery",
+        "deliverables": {
+            "enhanced_images": [
+                {
+                    "view": "V1",
+                    "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_e.jpg",
+                }
+            ],
+            "labeled_images": [
+                {
+                    "view": "V1",
+                    "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/labeled/V1_l.jpg",
+                }
+            ],
+        },
+        "view_evidence": {"evidence_method": "instance_bbox_presence", "per_view": {"V1": ["A", "B", "C"]}},
+    }
+    text = "\n".join(_readme_images_section(report))
+    assert "## 渲染图（增强后）" in text
+    assert "### V1" in text
+    assert "![V1 增强图](enhanced/V1_e.jpg)" in text
+    assert "- 本图标着含 3 个零件" in text
+    assert "[带标注版](labeled/V1_l.jpg)" in text
+
+
+def test_readme_images_section_empty_when_no_enhanced_images():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    assert _readme_images_section({"deliverables": {"enhanced_images": []}}) == []
+    assert _readme_images_section({}) == []
+
+
+def test_readme_images_section_omits_part_count_when_no_view_evidence():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    report = {
+        "delivery_dir": "cad/demo/.cad-spec-gen/runs/RUN001/delivery",
+        "deliverables": {
+            "enhanced_images": [
+                {"view": "V1", "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_e.jpg"}
+            ]
+        },
+        "view_evidence": None,
+    }
+    text = "\n".join(_readme_images_section(report))
+    assert "![V1 增强图](enhanced/V1_e.jpg)" in text
+    assert "本图标着含" not in text
+
+
+def test_readme_view_evidence_section_counts_and_none():
+    from tools.photo3d_delivery_pack import _readme_view_evidence_section
+
+    text = "\n".join(
+        _readme_view_evidence_section(
+            {
+                "view_evidence": {
+                    "evidence_method": "instance_bbox_presence",
+                    "per_view": {"V2": ["A"], "V1": ["A", "B"]},
+                }
+            }
+        )
+    )
+    assert "## 完整性证据" in text
+    assert "证据方式：instance_bbox_presence" in text
+    assert "各视角实例计数：V1=2、V2=1" in text  # 按 view 名排序
+    assert "RENDER_VISUAL_REGRESSION.json" in text
+    assert _readme_view_evidence_section({"view_evidence": None}) == []
+    assert _readme_view_evidence_section({}) == []
