@@ -13,6 +13,7 @@ content mutation regardless of timestamp resolution.
 
 import hashlib
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -139,6 +140,12 @@ def pytest_collection_modifyitems(config, items):
     异常不吞：sw_detect 导入失败 → collection 失败，不 silent skip。
     """
     _mark_photo3d_contract_tests(items)
+
+    needs_jury_e2e = [it for it in items if it.get_closest_marker("requires_jury_loop_e2e")]
+    if needs_jury_e2e and not os.environ.get("GEMINI_API_KEY"):
+        skip_jury = pytest.mark.skip(reason="requires_jury_loop_e2e：GEMINI_API_KEY 未设")
+        for it in needs_jury_e2e:
+            it.add_marker(skip_jury)
 
     needs_sw = [it for it in items if it.get_closest_marker("requires_solidworks")]
     if not needs_sw:
