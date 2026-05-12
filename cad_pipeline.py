@@ -3541,6 +3541,19 @@ def cmd_full(args):
     return 0
 
 
+def _derive_subsystem_status(*, has_spec: bool, has_build: bool, has_steps: bool, has_pngs: bool) -> str:
+    """根据子系统目录里有哪些产物推导状态标签（纯函数，便于单测）。"""
+    if has_pngs:
+        return "rendered"
+    if has_steps:
+        return "built"
+    if has_build:
+        return "buildable"
+    if has_spec:
+        return "spec-only"
+    return "empty"
+
+
 def cmd_status(args):
     """Show pipeline status for all subsystems."""
     log.info("=" * 60)
@@ -3567,15 +3580,15 @@ def cmd_status(args):
             else []
         )
 
-        status = "spec-only"
-        if has_build:
-            status = "buildable"
-        if steps:
-            status = "built"
-        if pngs:
-            status = "rendered"
+        status = _derive_subsystem_status(
+            has_spec=has_spec,
+            has_build=has_build,
+            has_steps=bool(steps),
+            has_pngs=bool(pngs),
+        )
 
         icon = {
+            "empty": "[-]",
             "spec-only": "[ ]",
             "buildable": "[B]",
             "built": "[*]",
