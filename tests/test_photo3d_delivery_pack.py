@@ -195,8 +195,9 @@ def test_photo3d_delivery_pack_includes_active_run_model_quality_summary(tmp_pat
     readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(
         encoding="utf-8"
     )
-    assert "model_quality_summary" in readme
-    assert "needs_review" in readme
+    assert "## 模型质量" in readme
+    assert summary["ordinary_user_message"] in readme
+    assert "就绪状态：needs_review" in readme
 
 
 def test_photo3d_delivery_pack_rejects_report_from_non_active_run(tmp_path):
@@ -482,3 +483,453 @@ def test_cmd_photo3d_deliver_writes_delivery_package(tmp_path, monkeypatch):
 
     assert rc == 0
     assert (fixture["run_dir"] / "delivery" / "DELIVERY_PACKAGE.json").is_file()
+
+
+# === 队列 D Task 1: view_evidence 字段 ===
+
+
+def test_delivery_package_includes_view_evidence_when_manifest_has_visible_instance_ids(tmp_path):
+    """render_manifest 带 evidence_method / visible_instance_ids（队列 C）时，
+    DELIVERY_PACKAGE.json 与 report 都带 view_evidence（evidence_method + per_view）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+
+    assert report["view_evidence"] == {
+        "evidence_method": "instance_bbox_presence",
+        "per_view": {"V1": ["P-100-01#01", "P-100-02#01"]},
+    }
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"] == report["view_evidence"]
+
+
+def test_delivery_package_view_evidence_is_none_when_manifest_lacks_evidence(tmp_path):
+    """老 run / 缺 assembly_signature → render_manifest 无 evidence_method / visible_instance_ids
+    → view_evidence 为 None（向后兼容）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    manifest_path = fixture["paths"]["render_manifest"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("evidence_method", None)
+    for entry in manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+
+    assert report["view_evidence"] is None
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"] is None
+
+
+# === 队列 D Task 2: _status_badge ===
+
+
+def test_status_badge_positive_warn_block():
+    from tools.photo3d_delivery_pack import _status_badge
+
+    assert _status_badge("delivered") == "✓ 已交付"
+    assert _status_badge("accepted") == "✓ 已验收"
+    assert _status_badge("preview") == "⚠ 预览"
+    assert _status_badge("not_run") == "⚠ 未做"
+    assert _status_badge("needs_review") == "⚠ 建议复核"
+    assert _status_badge("blocked") == "✗ 阻断"
+    assert _status_badge("not_deliverable") == "✗ 未交付"
+
+
+def test_status_badge_unknown_is_neutral_never_block():
+    from tools.photo3d_delivery_pack import _status_badge
+
+    assert _status_badge("weird_state") == "· weird_state"
+    assert _status_badge("") == "· 未知"
+    assert _status_badge(None) == "· 未知"
+
+
+# === 队列 D Task 3: _pkg_path_relative_to_delivery ===
+
+
+def test_pkg_path_relative_to_delivery_strips_delivery_prefix():
+    from tools.photo3d_delivery_pack import _pkg_path_relative_to_delivery
+
+    delivery_dir = "cad/demo/.cad-spec-gen/runs/RUN001/delivery"
+    assert (
+        _pkg_path_relative_to_delivery(
+            "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_enhanced.jpg",
+            delivery_dir,
+        )
+        == "enhanced/V1_enhanced.jpg"
+    )
+    assert (
+        _pkg_path_relative_to_delivery(
+            "cad/demo/.cad-spec-gen/runs/RUN001/delivery/labeled/V1_labeled.jpg",
+            delivery_dir,
+        )
+        == "labeled/V1_labeled.jpg"
+    )
+
+
+def test_pkg_path_relative_to_delivery_falls_back_to_basename_on_bad_path():
+    from tools.photo3d_delivery_pack import _pkg_path_relative_to_delivery
+
+    # package_path 不在 delivery_dir 内 → 不抛，退化为 basename
+    assert (
+        _pkg_path_relative_to_delivery(
+            "some/other/place/img.jpg", "cad/demo/.cad-spec-gen/runs/RUN001/delivery"
+        )
+        == "img.jpg"
+    )
+
+
+# === 队列 D Task 4: README section builders（headline / images / view_evidence）===
+
+
+def test_readme_headline_basic():
+    from tools.photo3d_delivery_pack import _readme_headline
+
+    lines = _readme_headline(
+        {
+            "subsystem": "demo",
+            "run_id": "RUN001",
+            "status": "delivered",
+            "enhancement_status": "accepted",
+            "final_deliverable": True,
+            "ordinary_user_message": "最终交付包已生成。",
+        }
+    )
+    text = "\n".join(lines)
+    assert text.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✓ 已交付  ·  增强：✓ 已验收  ·  最终交付物：是" in text
+    assert "> 最终交付包已生成。" in text
+
+
+def test_readme_images_section_embeds_relative_path_and_part_count_and_labeled():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    report = {
+        "delivery_dir": "cad/demo/.cad-spec-gen/runs/RUN001/delivery",
+        "deliverables": {
+            "enhanced_images": [
+                {
+                    "view": "V1",
+                    "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_e.jpg",
+                }
+            ],
+            "labeled_images": [
+                {
+                    "view": "V1",
+                    "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/labeled/V1_l.jpg",
+                }
+            ],
+        },
+        "view_evidence": {"evidence_method": "instance_bbox_presence", "per_view": {"V1": ["A", "B", "C"]}},
+    }
+    text = "\n".join(_readme_images_section(report))
+    assert "## 渲染图（增强后）" in text
+    assert "### V1" in text
+    assert "![V1 增强图](enhanced/V1_e.jpg)" in text
+    assert "- 本图标着含 3 个零件" in text
+    assert "[带标注版](labeled/V1_l.jpg)" in text
+
+
+def test_readme_images_section_empty_when_no_enhanced_images():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    assert _readme_images_section({"deliverables": {"enhanced_images": []}}) == []
+    assert _readme_images_section({}) == []
+
+
+def test_readme_images_section_omits_part_count_when_no_view_evidence():
+    from tools.photo3d_delivery_pack import _readme_images_section
+
+    report = {
+        "delivery_dir": "cad/demo/.cad-spec-gen/runs/RUN001/delivery",
+        "deliverables": {
+            "enhanced_images": [
+                {"view": "V1", "package_path": "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_e.jpg"}
+            ]
+        },
+        "view_evidence": None,
+    }
+    text = "\n".join(_readme_images_section(report))
+    assert "![V1 增强图](enhanced/V1_e.jpg)" in text
+    assert "本图标着含" not in text
+
+
+def test_readme_view_evidence_section_counts_and_none():
+    from tools.photo3d_delivery_pack import _readme_view_evidence_section
+
+    text = "\n".join(
+        _readme_view_evidence_section(
+            {
+                "view_evidence": {
+                    "evidence_method": "instance_bbox_presence",
+                    "per_view": {"V2": ["A"], "V1": ["A", "B"]},
+                }
+            }
+        )
+    )
+    assert "## 完整性证据" in text
+    assert "证据方式：instance_bbox_presence" in text
+    assert "各视角实例计数：V1=2、V2=1" in text  # 按 view 名排序
+    assert "RENDER_VISUAL_REGRESSION.json" in text
+    assert _readme_view_evidence_section({"view_evidence": None}) == []
+    assert _readme_view_evidence_section({}) == []
+
+
+# === 队列 D Task 5: README section builders（model_quality / review_status / next_step / blocking / appendix）===
+
+
+def test_readme_model_quality_section():
+    from tools.photo3d_delivery_pack import _readme_model_quality_section
+
+    text = "\n".join(
+        _readme_model_quality_section(
+            {
+                "model_quality_summary": {
+                    "ordinary_user_message": "模型质量摘要发现 2 个零件建议复核。",
+                    "readiness_status": "needs_review",
+                    "photoreal_risk": "high",
+                    "review_recommended_count": 2,
+                    "blocking_count": 0,
+                }
+            }
+        )
+    )
+    assert "## 模型质量" in text
+    assert "> 模型质量摘要发现 2 个零件建议复核。" in text
+    assert "就绪状态：needs_review  ·  照片级风险：high" in text
+    assert "建议复核 2 个零件  ·  阻断 0 个" in text
+    assert _readme_model_quality_section({"model_quality_summary": None}) == []
+    assert _readme_model_quality_section({}) == []
+
+
+def test_readme_review_status_section_semantic_required_and_jury_none():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "accepted"},
+                "enhancement_status": "accepted",
+                "semantic_material_review": {"status": "not_run", "required": True},
+                "jury": None,
+            }
+        )
+    )
+    assert "## 复核状态" in text
+    assert "| 增强图质量（quality_summary）| ✓ 已验收 |" in text
+    assert "| AI 增强（enhancement）| ✓ 已验收 |" in text
+    assert "| 语义/材质复核（semantic_material_review）| ⚠ 必需但未做 |" in text
+    assert "| AI 视觉评分（jury）| ⚠ 未运行 |" in text
+
+
+def test_readme_review_status_section_semantic_not_required_and_jury_accepted():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "unknown"},
+                "enhancement_status": "preview",
+                "semantic_material_review": {"status": "not_run", "required": False},
+                "jury": {"status": "accepted", "actual_cost_usd": 0.02},
+            }
+        )
+    )
+    assert "| 增强图质量（quality_summary）| ⚠ 未知 |" in text
+    assert "| AI 增强（enhancement）| ⚠ 预览 |" in text
+    assert "| 语义/材质复核（semantic_material_review）| ⚠ 未做（非强制） |" in text
+    assert "| AI 视觉评分（jury）| ✓ 已验收（成本 $0.02） |" in text
+
+
+def test_readme_review_status_section_semantic_blocked_shows_report_path():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "accepted"},
+                "enhancement_status": "accepted",
+                "semantic_material_review": {
+                    "status": "blocked",
+                    "required": False,
+                    "review_report": "cad/x/ENHANCEMENT_REVIEW_REPORT.json",
+                },
+                "jury": None,
+            }
+        )
+    )
+    assert "✗ 阻断（见 `cad/x/ENHANCEMENT_REVIEW_REPORT.json`）" in text
+
+
+def test_readme_next_step_section_three_branches():
+    from tools.photo3d_delivery_pack import _readme_next_step_section
+
+    # 1. 有阻断项
+    text = "\n".join(_readme_next_step_section({"blocking_reasons": [{"code": "x"}]}))
+    assert "## 下一步" in text
+    assert "✗ 当前有阻断项" in text
+    # 2. recommended_next_action.kind == review_models
+    text = "\n".join(
+        _readme_next_step_section(
+            {
+                "blocking_reasons": [],
+                "model_quality_summary": {"recommended_next_action": {"kind": "review_models"}},
+                "status": "preview_package",
+            }
+        )
+    )
+    assert "⚠ 建议先复核标黄的零件，再交付。" in text
+    # 3. delivered 且无阻断、无建议动作
+    text = "\n".join(
+        _readme_next_step_section(
+            {
+                "blocking_reasons": [],
+                "model_quality_summary": {"recommended_next_action": {"kind": "continue_photo3d"}},
+                "status": "delivered",
+            }
+        )
+    )
+    assert "✓ 交付完成，无需进一步动作。" in text
+
+
+def test_readme_blocking_section():
+    from tools.photo3d_delivery_pack import _readme_blocking_section
+
+    text = "\n".join(
+        _readme_blocking_section({"blocking_reasons": [{"code": "photo_quality_not_accepted", "message": "质量未验收"}]})
+    )
+    assert "## 阻断项" in text
+    assert "- photo_quality_not_accepted: 质量未验收" in text
+    assert _readme_blocking_section({"blocking_reasons": []}) == []
+    assert _readme_blocking_section({}) == []
+
+
+def test_readme_evidence_appendix():
+    from tools.photo3d_delivery_pack import _readme_evidence_appendix
+
+    text = "\n".join(
+        _readme_evidence_appendix(
+            {
+                "source_reports": {
+                    "render_manifest": "cad/.../render_manifest.json",
+                    "artifact_index": "cad/.../ARTIFACT_INDEX.json",
+                },
+                "deliverables": {
+                    "source_images": [{"view": "V1"}],
+                    "enhanced_images": [{"view": "V1"}],
+                    "labeled_images": [],
+                },
+                "evidence_files": [{"package_path": "cad/.../delivery/evidence/x.json"}],
+                "delivery_dir": "cad/.../delivery",
+            }
+        )
+    )
+    assert "## 证据清单（供审计）" in text
+    assert "- artifact_index: `cad/.../ARTIFACT_INDEX.json`" in text
+    assert "- render_manifest: `cad/.../render_manifest.json`" in text
+    assert "- 源渲染：1 张" in text
+    assert "- 增强图：1 张" in text
+    assert "- 标注图：0 张" in text
+    assert "- `cad/.../delivery/evidence/x.json`" in text
+    assert "cad/.../delivery" in text  # 末尾说明里有 delivery_dir
+
+
+# === 队列 D Task 6: _write_readme 验收页集成 ===
+
+
+def test_delivery_readme_is_acceptance_page(tmp_path):
+    """accepted run → README 是结构化验收页：头条 / 内嵌 enhanced 图 / 完整性证据 /
+    模型质量 / 复核状态 / 下一步 / 证据清单；DELIVERY_PACKAGE.json 带 view_evidence。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+    readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(encoding="utf-8")
+
+    # 头条
+    assert readme.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✓ 已交付" in readme
+    assert report["ordinary_user_message"] in readme
+    # 渲染图段（内嵌 enhanced 图相对路径 + 零件数 + 带标注版）
+    assert "## 渲染图（增强后）" in readme
+    assert "### V1" in readme
+    assert "![V1 增强图](enhanced/V1_front_20260505_1200_enhanced.jpg)" in readme
+    assert "- 本图标着含 2 个零件" in readme
+    assert "[带标注版](labeled/V1_front_20260505_1200_enhanced_labeled_en.jpg)" in readme
+    # 完整性证据段
+    assert "## 完整性证据" in readme
+    assert "证据方式：instance_bbox_presence" in readme
+    assert "各视角实例计数：V1=2" in readme
+    # 模型质量段
+    assert "## 模型质量" in readme
+    assert report["model_quality_summary"]["ordinary_user_message"] in readme
+    assert "就绪状态：needs_review" in readme
+    # 复核状态段
+    assert "## 复核状态" in readme
+    assert "增强图质量（quality_summary）" in readme
+    assert "AI 视觉评分（jury）| ⚠ 未运行" in readme  # jury 未跑
+    # 下一步段（recommended_next_action.kind == review_models）
+    assert "## 下一步" in readme
+    assert "先复核标黄的零件" in readme
+    # 证据清单（供审计）
+    assert "## 证据清单（供审计）" in readme
+    assert "render_manifest:" in readme
+    assert "- 增强图：1 张" in readme
+    assert "DELIVERY_PACKAGE.json" in readme
+    # DELIVERY_PACKAGE.json 的 view_evidence
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"]["per_view"]["V1"] == ["P-100-01#01", "P-100-02#01"]
+
+
+def test_delivery_readme_degrades_gracefully_on_blocked_and_missing_evidence(tmp_path):
+    """blocked run（无 enhanced 图）+ 剥去 render_manifest 逐视角证据 → README 仍是合法 markdown：
+    无「渲染图」段、无「完整性证据」段、有「阻断项」段、「下一步」指向阻断项。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_enhancement_report(fixture, "blocked")
+    manifest_path = fixture["paths"]["render_manifest"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("evidence_method", None)
+    for entry in manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+    assert report["view_evidence"] is None
+    readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(encoding="utf-8")
+
+    assert readme.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✗ 未交付" in readme
+    assert "## 渲染图（增强后）" not in readme  # 无 enhanced 图
+    assert "## 完整性证据" not in readme        # 无 view_evidence
+    assert "## 阻断项" in readme
+    assert "- blocked_reason" in readme
+    assert "## 下一步" in readme
+    assert "✗ 当前有阻断项" in readme
+    assert "## 证据清单（供审计）" in readme   # 底部清单总在

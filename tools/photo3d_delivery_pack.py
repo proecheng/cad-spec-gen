@@ -24,6 +24,29 @@ RUN_REPORTS = {
     "enhancement_review": "ENHANCEMENT_REVIEW_REPORT.json",
 }
 
+_BADGE_POSITIVE = {"delivered", "accepted", "ready", "continue_photo3d"}
+_BADGE_WARN = {"preview", "preview_package", "needs_review", "unknown", "not_run"}
+_BADGE_BLOCK = {"not_deliverable", "blocked", "not_available"}
+_BADGE_LABELS = {
+    "delivered": "已交付",
+    "accepted": "已验收",
+    "ready": "就绪",
+    "continue_photo3d": "可继续",
+    "preview": "预览",
+    "preview_package": "预览包",
+    "needs_review": "建议复核",
+    "unknown": "未知",
+    "not_run": "未做",
+    "not_deliverable": "未交付",
+    "blocked": "阻断",
+    "not_available": "无数据",
+}
+
+_NEXT_ACTION_LABELS = {
+    "import_missing_models": "先导入缺失的 3D 模型",
+    "review_models": "先复核标黄的零件",
+}
+
 
 def run_photo3d_delivery_pack(
     project_root: str | Path,
@@ -193,6 +216,7 @@ def run_photo3d_delivery_pack(
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
         "deliverables": deliverables,
+        "view_evidence": _view_evidence_summary(manifest),
         "evidence_files": evidence_files,
         "warnings": warnings,
         "blocking_reasons": blocking_reasons,
@@ -320,6 +344,24 @@ def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
         "view_count": enhancement_report.get("enhanced_view_count") or 0,
         "warnings": [],
     }
+
+
+def _view_evidence_summary(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """从 render_manifest 提取逐视角可见实例证据（队列 C 的 evidence_method / visible_instance_ids）。
+
+    manifest 既没 evidence_method 也没任何 per-view visible_instance_ids → 返 None（向后兼容）。
+    """
+    method = manifest.get("evidence_method")
+    per_view = {
+        str(f.get("view")): list(f.get("visible_instance_ids"))
+        for f in (manifest.get("files") or [])
+        if isinstance(f, dict)
+        and f.get("view")
+        and isinstance(f.get("visible_instance_ids"), list)
+    }
+    if not method and not per_view:
+        return None
+    return {"evidence_method": method, "per_view": per_view}
 
 
 def _build_jury_section(
@@ -763,38 +805,241 @@ def _ordinary_user_message(status: str) -> str:
     return messages.get(status, "Photo3D delivery package report generated.")
 
 
-def _write_readme(path: Path, report: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _pkg_path_relative_to_delivery(package_path: str, delivery_dir: str) -> str:
+    """把 project-relative 的 package_path 转成相对 delivery_dir 的 posix 路径。
+
+    README 写在 delivery/ 下，所以图链接要相对 delivery_dir。两个入参都是 project-relative；
+    正常情况 package_path 在 delivery_dir 内（cad/.../runs/RUN001/delivery/enhanced/V1.jpg →
+    enhanced/V1.jpg）。路径异常（不在 delivery_dir 内）时退化为 basename，绝不抛异常。
+    """
+    try:
+        return Path(package_path).relative_to(Path(delivery_dir)).as_posix()
+    except ValueError:
+        return Path(package_path).name
+
+
+def _status_badge(status: object) -> str:
+    """状态枚举值 → 「图标 中文」徽章。未知值用中性「·」+原值，绝不误判成 ✗。"""
+    key = str(status or "").strip()
+    label = _BADGE_LABELS.get(key, key or "未知")
+    if key in _BADGE_POSITIVE:
+        return f"✓ {label}"
+    if key in _BADGE_WARN:
+        return f"⚠ {label}"
+    if key in _BADGE_BLOCK:
+        return f"✗ {label}"
+    return f"· {key}" if key else "· 未知"
+
+
+def _readme_headline(report: dict[str, Any]) -> list[str]:
+    """生成 README 头条区块：标题行 + 状态徽章行 + 通用人话句引用块。"""
+    subsystem = report.get("subsystem") or "?"
+    run_id = report.get("run_id") or "?"
+    final = "是" if report.get("final_deliverable") is True else "否"
     lines = [
-        "# Photo3D Delivery Package",
+        f"# 交付包验收 — {subsystem} / {run_id}",
         "",
-        f"- subsystem: {report.get('subsystem')}",
-        f"- run_id: {report.get('run_id')}",
-        f"- status: {report.get('status')}",
-        f"- final_deliverable: {report.get('final_deliverable')}",
-        f"- enhancement_status: {report.get('enhancement_status')}",
-        "",
-        "## Reports",
+        f"**状态**：{_status_badge(report.get('status'))}  ·  "
+        f"增强：{_status_badge(report.get('enhancement_status'))}  ·  "
+        f"最终交付物：{final}",
     ]
+    message = report.get("ordinary_user_message") or ""
+    if message:
+        lines += ["", f"> {message}"]
+    return lines
+
+
+def _readme_images_section(report: dict[str, Any]) -> list[str]:
+    """生成渲染图区块：每个视角一个子标题 + 内嵌图 + 零件数 + 带标注版链接。
+
+    若无 enhanced_images 则返回空列表（整段省略）。
+    """
+    deliverables = report.get("deliverables") or {}
+    enhanced = deliverables.get("enhanced_images") or []
+    if not enhanced:
+        return []
+    delivery_dir = str(report.get("delivery_dir") or "")
+    labeled_by_view = {
+        str(item.get("view")): item
+        for item in (deliverables.get("labeled_images") or [])
+        if isinstance(item, dict) and item.get("view")
+    }
+    per_view = (report.get("view_evidence") or {}).get("per_view") or {}
+    lines: list[str] = ["", "## 渲染图（增强后）"]
+    for item in enhanced:
+        if not isinstance(item, dict):
+            continue
+        view = str(item.get("view") or "")
+        rel = _pkg_path_relative_to_delivery(str(item.get("package_path") or ""), delivery_dir)
+        lines += ["", f"### {view}", f"![{view} 增强图]({rel})"]
+        ids = per_view.get(view)
+        if isinstance(ids, list):
+            lines.append(f"- 本图标着含 {len(ids)} 个零件")
+        labeled = labeled_by_view.get(view)
+        if isinstance(labeled, dict):
+            lab_rel = _pkg_path_relative_to_delivery(
+                str(labeled.get("package_path") or ""), delivery_dir
+            )
+            lines.append(f"- [带标注版]({lab_rel})")
+    return lines
+
+
+def _readme_view_evidence_section(report: dict[str, Any]) -> list[str]:
+    """生成完整性证据区块：证据方式 + 各视角实例计数 + 详细说明。
+
+    若 view_evidence 为 None 或缺失则返回空列表（整段省略）。
+    """
+    view_evidence = report.get("view_evidence")
+    if not view_evidence:
+        return []
+    method = view_evidence.get("evidence_method") or "?"
+    per_view = view_evidence.get("per_view") or {}
+    counts = "、".join(
+        f"{view}={len(ids)}"
+        for view, ids in sorted(per_view.items())
+        if isinstance(ids, list)
+    )
+    lines: list[str] = ["", "## 完整性证据", f"- 证据方式：{method}"]
+    if counts:
+        lines.append(f"- 各视角实例计数：{counts}")
+    lines.append(
+        "- 详细逐视角实例清单见 `DELIVERY_PACKAGE.json` 的 `view_evidence` 字段 / "
+        "`render_manifest.json`；完整性 PASS/BLOCKED 判定见 `RENDER_VISUAL_REGRESSION.json`"
+        "（若已跑过 `photo3d-render-check`）"
+    )
+    return lines
+
+
+def _readme_model_quality_section(report: dict[str, Any]) -> list[str]:
+    """生成模型质量区块：用户可读摘要 + 就绪状态 + 照片级风险 + 复核/阻断计数。
+
+    若 model_quality_summary 为 None 或缺失则返回空列表（整段省略）。
+    """
+    summary = report.get("model_quality_summary")
+    if not summary:
+        return []
+    lines = ["", "## 模型质量"]
+    message = summary.get("ordinary_user_message") or ""
+    if message:
+        lines.append(f"> {message}")
+    lines += [
+        f"- 就绪状态：{summary.get('readiness_status') or '?'}  ·  "
+        f"照片级风险：{summary.get('photoreal_risk') or '?'}",
+        f"- 建议复核 {summary.get('review_recommended_count') or 0} 个零件  ·  "
+        f"阻断 {summary.get('blocking_count') or 0} 个",
+        "（来源：`MODEL_CONTRACT.json`，与本 run 绑定）",
+    ]
+    return lines
+
+
+def _readme_review_status_section(report: dict[str, Any]) -> list[str]:
+    """生成复核状态四行表：质量 / AI 增强 / 语义复核 / jury 评分。"""
+    quality_status = (report.get("quality_summary") or {}).get("status")
+    semantic = report.get("semantic_material_review") or {}
+    semantic_status = semantic.get("status")
+    if semantic_status == "accepted":
+        semantic_cell = _status_badge("accepted")
+    elif semantic_status == "not_run":
+        semantic_cell = "⚠ 必需但未做" if semantic.get("required") else "⚠ 未做（非强制）"
+    else:
+        semantic_cell = _status_badge(semantic_status)
+        review_report = semantic.get("review_report")
+        if review_report:
+            semantic_cell += f"（见 `{review_report}`）"
+    jury = report.get("jury")
+    if not jury:
+        jury_cell = "⚠ 未运行"
+    else:
+        jury_status = jury.get("status")
+        jury_cell = _status_badge(jury_status)
+        if jury_status == "accepted":
+            cost = jury.get("actual_cost_usd")
+            if cost is not None:
+                jury_cell += f"（成本 ${cost}）"
+    return [
+        "",
+        "## 复核状态",
+        "| 项 | 状态 |",
+        "|---|---|",
+        f"| 增强图质量（quality_summary）| {_status_badge(quality_status)} |",
+        f"| AI 增强（enhancement）| {_status_badge(report.get('enhancement_status'))} |",
+        f"| 语义/材质复核（semantic_material_review）| {semantic_cell} |",
+        f"| AI 视觉评分（jury）| {jury_cell} |",
+    ]
+
+
+def _readme_next_step_section(report: dict[str, Any]) -> list[str]:
+    """生成下一步指引：阻断 → 建议动作 → 已交付 → 兜底，三层决策树。"""
+    lines = ["", "## 下一步"]
+    if report.get("blocking_reasons"):
+        lines.append("✗ 当前有阻断项（见下方「阻断项」），处理后重新运行 `photo3d-deliver`。")
+        return lines
+    summary = report.get("model_quality_summary") or {}
+    kind = str((summary.get("recommended_next_action") or {}).get("kind") or "").strip()
+    if kind in _NEXT_ACTION_LABELS:
+        lines.append(f"⚠ 建议{_NEXT_ACTION_LABELS[kind]}，再交付。")
+        return lines
+    if report.get("status") == "delivered":
+        lines.append("✓ 交付完成，无需进一步动作。")
+        return lines
+    lines.append("⚠ 见上方各项状态。")
+    return lines
+
+
+def _readme_blocking_section(report: dict[str, Any]) -> list[str]:
+    """生成阻断项清单。阻断列表为空或缺失时返回空列表（整段省略）。"""
+    reasons = report.get("blocking_reasons") or []
+    if not reasons:
+        return []
+    lines = ["", "## 阻断项"]
+    for reason in reasons:
+        if not isinstance(reason, dict):
+            lines.append(f"- {reason}")
+            continue
+        code = reason.get("code") or "unknown"
+        message = reason.get("message") or ""
+        lines.append(f"- {code}: {message}" if message else f"- {code}")
+    return lines
+
+
+def _readme_evidence_appendix(report: dict[str, Any]) -> list[str]:
+    """生成证据清单附录：报告文件 + 交付物计数 + 证据文件列表 + delivery_dir 说明。"""
+    lines = ["", "---", "## 证据清单（供审计）", "", "**报告**"]
     for kind, rel_path in sorted((report.get("source_reports") or {}).items()):
         lines.append(f"- {kind}: `{rel_path}`")
-    lines.extend(["", "## Deliverables"])
-    for category, items in (report.get("deliverables") or {}).items():
-        lines.append(f"- {category}: {len(items)}")
-    if report.get("blocking_reasons"):
-        lines.extend(["", "## Blocking Reasons"])
-        for reason in report["blocking_reasons"]:
-            code = reason.get("code", "unknown")
-            message = reason.get("message", "")
-            lines.append(f"- {code}: {message}")
-    model_quality = report.get("model_quality_summary")
-    if model_quality:
-        lines.extend([
-            "",
-            "## Model Quality",
-            f"- model_quality_summary: {model_quality.get('readiness_status')}",
-            f"- photoreal_risk: {model_quality.get('photoreal_risk')}",
-            f"- review_recommended_count: {model_quality.get('review_recommended_count')}",
-            f"- blocking_count: {model_quality.get('blocking_count')}",
-        ])
+    deliverables = report.get("deliverables") or {}
+    lines += [
+        "",
+        "**交付物**",
+        f"- 源渲染：{len(deliverables.get('source_images') or [])} 张",
+        f"- 增强图：{len(deliverables.get('enhanced_images') or [])} 张",
+        f"- 标注图：{len(deliverables.get('labeled_images') or [])} 张",
+        "",
+        "**证据文件**",
+    ]
+    for item in report.get("evidence_files") or []:
+        package_path = item.get("package_path") if isinstance(item, dict) else None
+        if package_path:
+            lines.append(f"- `{package_path}`")
+    lines += [
+        "",
+        f"*本文件由 `photo3d-deliver` 自动生成于交付包目录"
+        f"（`{report.get('delivery_dir') or ''}`）。"
+        "`DELIVERY_PACKAGE.json` 是机器可读的完整证据清单。*",
+    ]
+    return lines
+
+
+def _write_readme(path: Path, report: dict[str, Any]) -> None:
+    """把交付包 report 渲染成外行用户可读的验收页 README.md。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    lines += _readme_headline(report)
+    lines += _readme_images_section(report)
+    lines += _readme_view_evidence_section(report)
+    lines += _readme_model_quality_section(report)
+    lines += _readme_review_status_section(report)
+    lines += _readme_next_step_section(report)
+    lines += _readme_blocking_section(report)
+    lines += _readme_evidence_appendix(report)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
