@@ -13,6 +13,8 @@
 
 > 这份文档是 `cad_pipeline.py photo3d-jury` 的唯一权威配置说明；其他文档（cad-help-guide / spec rev 5）只引用本文档的字段定义，不在那里复述细节。
 
+> **相关**：`cad-spec-gen enhance` 的 AI 自动重试闭环（`enhance.jury_loop`）复用本文件配的评分服务——见 [jury-loop-config.md](jury-loop-config.md)。没配本文件 → 闭环自动跳过。
+
 ---
 
 ## 1. 文件位置
