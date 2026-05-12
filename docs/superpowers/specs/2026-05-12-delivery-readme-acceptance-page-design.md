@@ -4,7 +4,7 @@
 - **基线**：main@f20e5fa（队列 C merge 后）
 - **分支**：`feat/delivery-readme-acceptance-page`
 - **规模**：小-中型 单 PR（重写 `tools/photo3d_delivery_pack.py::_write_readme` + 往 `report` dict 加一个 `view_evidence` 字段 + 测试；不动交付逻辑、不动 `cad_pipeline.py`、不加 CI mypy gate、不 bump `DELIVERY_PACKAGE.json` schema）
-- **状态**：brainstorming 完成（含 grep+实跑核 5 个调查项）；待用户复审 → writing-plans
+- **状态**：brainstorming 完成（含 3 轮自审 + grep 核实 8 个调查项，见 §7）；待用户复审 → writing-plans
 
 ---
 
@@ -23,23 +23,23 @@ roadmap（`docs/PROGRESS.md` L192）："最终交付报告可视化 | Phase 6 | 
 ```markdown
 # 交付包验收 — <subsystem> / <run_id>
 
-**状态**：<status 图标+中文，如 ✓ 已交付>  ·  增强：<enhancement_status 图标+中文>  ·  最终交付物：<是/否>
-> <report["ordinary_user_message"]>          ← 通用状态句
+**状态**：<_status_badge(report["status"])：delivered → ✓ 已交付 / preview_package → ⚠ 预览包 / not_deliverable → ✗ 未交付>  ·  增强：<_status_badge(report["enhancement_status"])：accepted → ✓ 已验收 / preview → ⚠ 预览 / 其它 → 见 _status_badge 映射>  ·  最终交付物：<report["final_deliverable"] ? "是" : "否">
+> <report["ordinary_user_message"]>          ← 通用状态句（= _ordinary_user_message(status)，delivered/preview_package/not_deliverable 各一句中文）
 
-## 渲染图（增强后）
+## 渲染图（增强后）                            ← 整段仅当 deliverables["enhanced_images"] 非空（blocked/无图 run 省略）
 ### V1
-![V1 增强图](enhanced/<V1 enhanced 文件名>)
-- 本图标着含 <N> 个零件                       ← 来自 view_evidence.per_view["V1"] 的长度；无 view_evidence 则省略此行
-- [带标注版](labeled/<V1 labeled 文件名>)      ← 若 labeled_images 里有 V1
+![V1 增强图](<rel>)                            ← <rel> = _pkg_path_relative_to_delivery(item["package_path"], report["delivery_dir"]) = `Path(package_path).relative_to(Path(delivery_dir)).as_posix()`（两者都 project-relative），final 模式 → "enhanced/V1_..._enhanced.jpg"，preview 模式 → "preview/V1_..._enhanced.jpg"（path 由 package_path 派生、**不硬编码** "enhanced/"；headline 已说明是 final 还是 preview；relative_to 抛 ValueError 时退化为 package_path 的 basename）
+- 本图标着含 <N> 个零件                        ← N = len(view_evidence["per_view"]["V1"])；无 view_evidence 则省略此行
+- [带标注版](<labeled rel>)                     ← 若 deliverables["labeled_images"] 里有同 view（rel = relative_to(delivery_dir) → "labeled/..."）
 ### V2
 ...
-（每个 enhanced_images 视角一段；视角名取 image_item["view"]，路径取 image_item["package_path"] 相对 delivery_dir 的部分——见 §3 路径细节）
+（按 deliverables["enhanced_images"] 顺序，每个 item 一段；视角名 item["view"]）
 
 ## 完整性证据                                  ← 整段仅当 view_evidence 不为 None
-- 证据方式：<evidence_method>（如 instance_bbox_presence）
-- 各视角实例计数：V1=12, V2=12, V3=12, ...
-- 详细逐视角实例清单见 `DELIVERY_PACKAGE.json` 的 `view_evidence` 字段 / `render_manifest.json`
-（"必需零件覆盖 N/M + 缺哪些" 留作未来增强——需 product_graph，本 MVP 不读；见 §6 范围外）
+- 证据方式：<view_evidence["evidence_method"]>（如 instance_bbox_presence）
+- 各视角实例计数：V1=12, V2=12, V3=12, ...   ← len(view_evidence["per_view"][view])
+- 详细逐视角实例清单见 `DELIVERY_PACKAGE.json` 的 `view_evidence` 字段 / `render_manifest.json`；完整性 PASS/BLOCKED 判定见 `RENDER_VISUAL_REGRESSION.json`（若已跑过 `photo3d-render-check`）
+（**不读** `RENDER_VISUAL_REGRESSION.json` 本身——它不在 `source_reports`（`ACTIVE_RUN_ARTIFACTS` 只有 product_graph/model_contract/assembly_signature，已确认），`_write_readme` 只拿到 `report` 没拿到 `run_dir`；要读它得再加 report 字段、超 scope。契约层 block 已由 `render_visual_regression.py` 完成，README 不必复述。"必需零件覆盖 N/M（需 product_graph）" 同理留作未来增强——见 §6 范围外）
 
 ## 模型质量
 > <model_quality_summary["ordinary_user_message"]>     ← 人话句子，重点
@@ -51,17 +51,18 @@ roadmap（`docs/PROGRESS.md` L192）："最终交付报告可视化 | Phase 6 | 
 ## 复核状态
 | 项 | 状态 |
 |---|---|
-| 增强图质量（quality_summary）| <status：✓ accepted / ⚠ <status>> |
-| AI 增强（enhancement）| <enhancement_status：✓ accepted / ...> |
-| 语义/材质复核（semantic_material_review）| <✓ accepted / ⚠ 未做（required=<true/false>）/ ✗ <status> — `<review_report>`> |
-| AI 视觉评分（jury）| <✓ accepted（成本 $<actual_cost_usd>）/ ⚠ 未运行（jury 为 None）/ <其它 verdict>> |
+| 增强图质量（quality_summary）| <quality_summary["status"]：✓ accepted / ⚠ <status>（如 unknown）> |
+| AI 增强（enhancement）| <enhancement_status：✓ accepted / ⚠ preview / ✗ <其它>> |
+| 语义/材质复核（semantic_material_review）| <按 semantic_material_review["status"]：✓ accepted / ⚠ 未做（not_run；当前 `["required"]` 恒为 `False`——不写「必需但未做」分支）/ ✗ <status>（含 review_report 路径 `<review_report>` 若有）> |
+| AI 视觉评分（jury）| <jury 为 None → ⚠ 未运行；否则按 jury["status"]（= PHOTO3D_JURY_REPORT.json 的 status，即 verdict accepted/needs_review/blocked，已确认 `_build_jury_section` 返 `"status": rep.get("status")`）：✓ accepted（成本 $<jury["actual_cost_usd"]>）/ ⚠ needs_review / ✗ blocked> |
 
 ## 下一步
-<基于 status / blocking_reasons / model_quality_summary.recommended_next_action：
- - status == "delivered" 且无 blocking_reasons：✓ 交付完成，无需进一步动作。
- - 有 blocking_reasons：✗ 当前有阻断项（见下方「阻断项」），处理后重新 photo3d-deliver。
- - model_quality_summary.recommended_next_action.kind 不是 "ready"/"none"/"done"：⚠ 建议先 <kind>（如 review_models）再交付。
- - 其它：⚠ 见上方各项状态。>
+<决策树：
+ - report["blocking_reasons"] 非空：✗ 当前有阻断项（见下方「阻断项」），处理后重新 `photo3d-deliver`。
+ - 否则若 model_quality_summary 不为 None 且 model_quality_summary["recommended_next_action"]["kind"] ∈ {import_missing_models, review_models}：⚠ 建议先 <中文动作>（import_missing_models→「先导入缺失的 3D 模型」/ review_models→「先复核标黄的零件」）再交付。
+ - 否则若 report["status"] == "delivered"：✓ 交付完成，无需进一步动作。
+ - 否则（preview_package / not_deliverable 且无 blocking_reasons——少见）：⚠ 见上方各项状态。>
+（`recommended_next_action` 结构 = `{"kind": ...}`，kind ∈ {`import_missing_models`（readiness=blocked/not_available）, `review_models`（needs_review）, `continue_photo3d`（ready）, `none`（unknown/兜底）}，已确认；后两个算「无需先做动作」。`report` 没有 `next_action` 字段——不用它。）
 
 ## 阻断项                                       ← 仅当 report["blocking_reasons"] 非空
 - <code>: <message>
@@ -88,8 +89,8 @@ roadmap（`docs/PROGRESS.md` L192）："最终交付报告可视化 | Phase 6 | 
 ```
 
 要点：
-- 「图标+中文」用一个小映射 helper（如 `_status_badge(status: str) -> str` 返回 `"✓ 已交付"` / `"⚠ ..."` / `"✗ ..."`）；状态值用现有的（`delivered`/`accepted`/`preview`/`blocked` 等）。
-- 内嵌图用相对路径：enhanced 图已被 `_copy_view_images` 复制进 `delivery/enhanced/`（`final` 时）或 `delivery/preview/`（preview 时），`image_item["package_path"]` 是 project-relative 路径——README 在 `delivery/README.md`，所以路径要转成「相对 delivery_dir」（如 `package_path` 是 `cad/.../runs/RUN001/delivery/enhanced/V1_enhanced.jpg` → README 里写 `enhanced/V1_enhanced.jpg`）。**plan 查 `_copy_view_images` / `_image_item` 给的路径是 `enhanced/` 还是 `preview/`、以及怎么稳妥取「相对 delivery_dir 的尾段」**（`Path(package_path).relative_to(delivery_dir_rel)` 之类）。labeled 同理（`delivery/labeled/`）。
+- 「图标+中文」用一个小映射 helper（`_status_badge(status: str) -> str`）：正向集 `{delivered, accepted, ready, continue_photo3d}` → `"✓ <中文>"`；告警集 `{preview, preview_package, needs_review, unknown, not_run}` → `"⚠ <中文>"`；阻断集 `{not_deliverable, blocked, not_available}` → `"✗ <中文>"`；其它未知值 → `"· <原值>"`（中性，不误判成 ✗）。状态值都用现有的，不新造。
+- 内嵌图用相对路径（细节见 §7.6，已确认）：enhanced 图被 `_copy_view_images` 复制进 `delivery/enhanced/`（`final` 时）或 `delivery/preview/`（preview 时），`image_item["package_path"]` 是 project-relative；README 在 `delivery/README.md`，路径转「相对 delivery_dir」= `_pkg_path_relative_to_delivery(package_path, report["delivery_dir"])`（如 `cad/.../runs/RUN001/delivery/enhanced/V1_enhanced.jpg` → `enhanced/V1_enhanced.jpg`）。labeled 同理（`delivery/labeled/`），source 不内嵌（只计数）。
 - 所有「整段仅当 X 不为 None/非空」的条件分支：X 缺时整段省略（不写空标题）——graceful degradation，老 run / 缺数据时 README 仍是合法 markdown。
 
 ## 3. 文件结构
@@ -132,17 +133,20 @@ roadmap（`docs/PROGRESS.md` L192）："最终交付报告可视化 | Phase 6 | 
 ## 6. 范围外
 - 生成单独的缩略图文件（PIL resize）—— 用户选了「内嵌 enhanced 图（markdown ![](path)）」，不做。
 - HTML 报告 —— 只做 markdown README。
-- 「必需零件覆盖 N/M + 缺哪些必需零件」—— 需 load `product_graph`（`photo3d_delivery_pack` 当前没 load，只有 `render_manifest`）或读 `RENDER_VISUAL_REGRESSION.json` 的 verdict（不确定在不在 `source_reports`，见 plan #2）；MVP 只显示 per-view 计数 + `evidence_method`，N/M 留未来增强。
+- 「必需零件覆盖 N/M + 缺哪些必需零件」/「完整性 PASS/BLOCKED」—— 需 load `product_graph`（`photo3d_delivery_pack` 当前没 load，只有 `render_manifest`）或读 `RENDER_VISUAL_REGRESSION.json`（已确认**不在** `source_reports`/`ACTIVE_RUN_ARTIFACTS`，且 `_write_readme` 只拿到 `report` 没 `run_dir`，要读得再加 report 字段——超 scope）；MVP 只显示 per-view 计数 + `evidence_method` + 指向 `RENDER_VISUAL_REGRESSION.json` 的一行说明，N/M 与完整性 verdict 留未来增强（契约层 block 已由 `render_visual_regression.py` 完成，README 复述非必需）。
 - `model_quality_summary` / `semantic_material_review` / `jury` 本身的内容/逻辑改动 —— 只 surface 已有数据。
 - 把 `tools/photo3d_delivery_pack.py` 加进 CI mypy-strict gate —— 800 行非 strict-clean，超本 PR scope。
 - bump `DELIVERY_PACKAGE.json` schema_version —— 不做（`view_evidence` 可选 additive）。
 - 改 `cad_pipeline.py::cmd_photo3d_deliver` —— 薄包装，不动。
 - B3/B4（§11 命名统一 / fast-path 扩展）/ E（真实 AI adapter）—— 不在本 PR。
 
-## 7. Plan 第 0 task 调查项（已确认的标 ✓；剩下的 plan Task 0 跑）
-1. ✓ `_write_readme(path, report)` 现状 = 项目符号 dump（`subsystem`/`run_id`/`status`/`final_deliverable`/`enhancement_status` + `## Reports` source_reports 路径 + `## Deliverables` 计数 + `## Blocking Reasons` + `## Model Quality` enum）。✓ `report` dict 字段：`schema_version:1` / `generated_at` / `run_id` / `subsystem` / `status` / `final_deliverable` / `ordinary_user_message`（= `_ordinary_user_message(status)` 通用句）/ `enhancement_status` / `quality_summary`（`status`/`view_count`/`warnings`?）/ `model_quality_summary`（`readiness_status`/`photoreal_risk`/`ordinary_user_message`/`recommended_next_action`/`review_recommended_count`/`blocking_count`/`source_report`...）/ `semantic_material_review`（`status`/`review_report`/`required`...）/ `jury`（`report`/`actual_cost_usd`/verdict?/... 或 None）/ `delivery_dir` / `source_reports`（dict）/ `deliverables`（`source_images`/`enhanced_images`/`labeled_images` 各 `[{view,source_path,package_path,sha256}]`）/ `evidence_files`（list of `{...,package_path}`）/ `blocking_reasons`（list）/ `artifacts`（含 `delivery_package`/`delivery_readme`）。**无 `next_action`**——「下一步」用 `model_quality_summary.recommended_next_action` + status/blocking 推。Plan 复核：`recommended_next_action` 的精确结构（`{"kind": "..."}`？）；`jury` 的 verdict 字段名（`_build_jury_section` 返的 dict 里有没有 verdict——grep 显示有 `report`/`actual_cost_usd`/`jury_report_schema_version`，verdict 可能在里面或要从 `PHOTO3D_JURY_REPORT.json` 读；MVP 能拿到啥显示啥）。
-2. `_source_reports` 收集 `artifact_index` + `render_manifest` + `enhancement_report` + `for key in sorted(ACTIVE_RUN_ARTIFACTS): artifacts.get(key)` —— grep `ACTIVE_RUN_ARTIFACTS` 看 `render_visual_regression` 在不在里面（在 → README 可链 `RENDER_VISUAL_REGRESSION.json`、甚至读它的 `status`/`blocking_reasons` 显示「完整性检查 PASS/BLOCKED + 缺 N 件」；不在 → MVP 只 per-view 计数 + `evidence_method`）。
-3. `tests/test_photo3d_delivery_pack.py` —— 只有 `test_photo3d_delivery_pack_includes_active_run_model_quality_summary`（L195-199）断 README 内容（`"model_quality_summary" in readme` + `"needs_review" in readme`）；`test_photo3d_delivery_pack_packages_accepted_run_evidence`（L162）只断文件存在。改前者的断言。grep `DELIVERY_PACKAGE\|delivery_package` 在 `tests/` 看有没有别处硬断言 `DELIVERY_PACKAGE.json` 的字段集（加 `view_evidence` additive 会不会炸）。
-4. ✓ `photo3d_delivery_pack.py` 不在 CI `mypy-strict` 那行（`tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py tools/view_instance_evidence.py`）—— 本 PR 不加。✓ `pyproject.toml` 是 `H`。
-5. ✓ `src/cad_spec_gen/data/tools/photo3d_delivery_pack.py` 是 gitignored 镜像（`.gitignore:29 src/cad_spec_gen/data/tools/`）—— 改 canonical + `dev_sync.py`。
-6. `_copy_view_images` / `_image_item` —— enhanced 图复制进 `delivery/enhanced/`（final）还是 `delivery/preview/`（preview）？`image_item["package_path"]` 是 project-relative 还是 delivery-relative？怎么稳妥取「相对 delivery_dir 的尾段」（README 里的相对路径）？labeled 同理（`delivery/labeled/`）。`source_images` 也有（`delivery/source/`？）但 README 不内嵌它们（只计数）。
+## 7. Plan 第 0 task 调查项（✓ = 本 brainstorm 已 grep+实跑核实；剩下的 plan Task 0 复核）
+
+1. ✓ **`_write_readme(path, report)` 现状** = 项目符号 dump（`subsystem`/`run_id`/`status`/`final_deliverable`/`enhancement_status` + `## Reports` source_reports 路径 + `## Deliverables` 计数 + `## Blocking Reasons`（若有）+ `## Model Quality` enum：`readiness_status`/`photoreal_risk`/`review_recommended_count`/`blocking_count`）。✓ **`report` dict 字段**（`tools/photo3d_delivery_pack.py:180-203` 实读）：`schema_version:1` / `generated_at` / `run_id` / `subsystem` / `status` / `final_deliverable` / `ordinary_user_message`（= `_ordinary_user_message(status)` 通用句）/ `enhancement_status` / `quality_summary` / `model_quality_summary` / `semantic_material_review` / `jury` / `delivery_dir`（= `project_relative(delivery_dir, root)`，**project-relative**）/ `source_reports`（dict）/ `deliverables` / `evidence_files` / `warnings` / `blocking_reasons` / `artifacts`（`delivery_package`/`delivery_readme`）。**无 `next_action`、无 `run_dir`**——「下一步」用 `model_quality_summary["recommended_next_action"]` + status/blocking 推；要读 `RENDER_VISUAL_REGRESSION.json` 得加 report 字段（超 scope，§6）。
+2. ✓ **`_build_jury_section`**（`:362-369`）返 `{"report":<rel>, "review_input":<rel|None>, "status": rep.get("status"), "actual_cost_usd": jury_meta.get("actual_cost_usd"), "vendor_request_ids":[...], "jury_report_schema_version":...}` 或 `None`（PHOTO3D_JURY_REPORT.json 不存在/解析失败）。**`jury["status"]` 就是 verdict**（PHOTO3D_JURY_REPORT.json 的 `status` ∈ accepted/needs_review/blocked）——README 直接用，不用再读 jury 报告。
+3. ✓ **`model_quality_summary`**（`tools/model_audit.py::build_model_quality_summary`）：`schema_version:1` / `source` / `source_report` / `binding_status` / `readiness_status`（∈ {ready, needs_review, blocked, not_available}）/ `photoreal_risk` / `ordinary_user_message`（中文人话句）/ `recommended_next_action`（= `{"kind": ...}`，kind ∈ {`import_missing_models`（blocked/not_available）, `review_models`（needs_review）, `continue_photo3d`（ready）, `none`（兜底）}）/ `review_recommended_count` / `blocking_count`。`model_quality_summary` 可能为 `None`（源报告缺/绑定失败时 `_model_quality_summary_from_source_reports` 返 None）→ 整段省略。
+4. ✓ **状态 enum 汇总**（README 各 badge 用）：`report["status"]` ∈ {delivered, preview_package, not_deliverable}（`_package_status`）；`enhancement_status` = `ENHANCEMENT_REPORT.delivery_status or status`（典型 accepted/preview/...）；`quality_summary["status"]` ∈ {accepted, unknown, ...}（来自 ENHANCEMENT_REPORT.quality_summary.status，缺则 accepted/unknown 兜底）；`semantic_material_review["status"]` ∈ {not_run, accepted, blocked, ...}，`["required"]` **恒为 `False`**（当前实现写死）；`jury["status"]` ∈ {accepted, needs_review, blocked}（或 None=未跑）。
+5. ✓ **`ACTIVE_RUN_ARTIFACTS`**（`:14-18`）= `{product_graph: PRODUCT_GRAPH.json, model_contract: MODEL_CONTRACT.json, assembly_signature: ASSEMBLY_SIGNATURE.json}`——**`render_visual_regression` 不在里面**，即 `RENDER_VISUAL_REGRESSION.json` 不进 `source_reports`。MVP「完整性证据」段只 per-view 计数 + `evidence_method` + 指向 `RENDER_VISUAL_REGRESSION.json`/`render_manifest.json` 的一行（不读其内容）。
+6. ✓ **图路径**：`_copy_view_images`（`:507-516`）把 source→`delivery/source/`、enhanced→`delivery/enhanced/`（`final=True`）或 `delivery/preview/`（preview）、labeled→`delivery/labeled/`；`_image_item`（`:567-572`）的 `package_path` = `project_relative(copied, root)`，**project-relative**（如 `cad/.../runs/RUN001/delivery/enhanced/V1_enhanced.jpg`）。README 在 `delivery/README.md`，相对路径 = `Path(item["package_path"]).relative_to(Path(report["delivery_dir"])).as_posix()` → `enhanced/V1_enhanced.jpg`（两者都 project-relative，`relative_to` 安全）。helper `_pkg_path_relative_to_delivery(package_path: str, delivery_dir: str) -> str` 封装；万一 `relative_to` ValueError（路径异常）→ 退化用 `Path(package_path).name`（不内嵌也不崩）。`source_images` 也复制了（`delivery/source/`）但 README 不内嵌（只计数）。
+7. **（待 plan Task 0 复核）** `grep -rn "DELIVERY_PACKAGE\|delivery_package" tests/` —— 确认没别处硬断言 `DELIVERY_PACKAGE.json` 的字段集（加 `view_evidence` additive 不会炸现有断言）。`tests/conftest.py` 的 `PHOTO3D_CONTRACT_TEST_FILES` 含 `test_photo3d_delivery_pack.py` + `test_photo3d_gate_contract.py`——改这两个文件的测试时确认 conftest 钩子不会漏跑。
+8. ✓ **CI / 镜像**：`photo3d_delivery_pack.py` **不在** CI `mypy-strict` 那行（`tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py tools/view_instance_evidence.py`）——本 PR 不加（800 行非 strict-clean）。本 PR 不动 `pyproject.toml` / `.github/workflows/`。`src/cad_spec_gen/data/tools/photo3d_delivery_pack.py` 是 gitignored 镜像（`.gitignore:29`）——改 canonical（`tools/`）+ 跑 `python scripts/dev_sync.py` + `--check` + `git diff --exit-code -- AGENTS.md`。
