@@ -29,15 +29,19 @@ _BASE_PROMPT = "photorealistic product render, studio lighting, neutral backgrou
 pytestmark = [pytest.mark.requires_jury_loop_e2e, pytest.mark.slow]
 
 
-def _make_rough_render_png(path: Path, size: tuple[int, int] = (512, 512)) -> Path:
-    """合成一张「未完成的 Blender 渲染」样子的低保真 PNG（平涂背景 + 单个简单几何体）。"""
+def _make_rough_render_image(path: Path, size: tuple[int, int] = (512, 512)) -> Path:
+    """合成一张「未完成的 Blender 渲染」样子的低保真图（平涂背景 + 单个简单几何体）。
+
+    存成 JPEG（路径用 *_enhanced_baseline.jpg、内容也是真 JPEG，与真实管线产物一致——
+    免得手动跑的人撞上「.jpg 扩展名 / PNG 字节」不一致）。
+    """
     from PIL import Image, ImageDraw
 
     img = Image.new("RGB", size, (200, 200, 205))  # 平涂浅灰背景
     d = ImageDraw.Draw(img)
     cx, cy = size[0] // 2, size[1] // 2
     d.rectangle([cx - 90, cy - 60, cx + 90, cy + 60], fill=(120, 120, 130))  # 平涂方块，无着色/贴图/阴影
-    img.save(path, "PNG")
+    img.save(path, "JPEG")
     return path
 
 
@@ -119,7 +123,7 @@ def test_l4_1_score_improves(tmp_path):
     render_dir.mkdir()
     deltas: list[int] = []
     for i in range(_SMOKE_RUNS):
-        baseline = _make_rough_render_png(render_dir / "V1_enhanced_baseline.jpg")
+        baseline = _make_rough_render_image(render_dir / "V1_enhanced_baseline.jpg")
         _result, sidecar = _run_one_view_loop(
             render_dir=render_dir,
             project_root=project_root,
@@ -144,7 +148,7 @@ def test_l4_2_no_trigger_when_score_above_threshold(tmp_path):
     project_root = tmp_path
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    baseline = _make_rough_render_png(render_dir / "V1_enhanced_baseline.jpg")
+    baseline = _make_rough_render_image(render_dir / "V1_enhanced_baseline.jpg")
     result, sidecar = _run_one_view_loop(
         render_dir=render_dir,
         project_root=project_root,
@@ -173,7 +177,7 @@ def test_l4_3_v1_anchor_hook_returns_final_path(tmp_path):
     project_root = tmp_path
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    _make_rough_render_png(render_dir / "V1_enhanced_baseline.jpg")
+    _make_rough_render_image(render_dir / "V1_enhanced_baseline.jpg")
     cfg_path = _write_temp_jury_config()
     jury_profile, _caps = load_jury_config(cfg_path)
     jury_loop_config = load_jury_loop_config(DEFAULT_JURY_LOOP_DICT)
