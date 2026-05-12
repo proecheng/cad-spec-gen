@@ -24,6 +24,24 @@ RUN_REPORTS = {
     "enhancement_review": "ENHANCEMENT_REVIEW_REPORT.json",
 }
 
+_BADGE_POSITIVE = {"delivered", "accepted", "ready", "continue_photo3d"}
+_BADGE_WARN = {"preview", "preview_package", "needs_review", "unknown", "not_run"}
+_BADGE_BLOCK = {"not_deliverable", "blocked", "not_available"}
+_BADGE_LABELS = {
+    "delivered": "已交付",
+    "accepted": "已验收",
+    "ready": "就绪",
+    "continue_photo3d": "可继续",
+    "preview": "预览",
+    "preview_package": "预览包",
+    "needs_review": "建议复核",
+    "unknown": "未知",
+    "not_run": "未做",
+    "not_deliverable": "未交付",
+    "blocked": "阻断",
+    "not_available": "无数据",
+}
+
 
 def run_photo3d_delivery_pack(
     project_root: str | Path,
@@ -780,6 +798,19 @@ def _ordinary_user_message(status: str) -> str:
         "not_deliverable": "增强验收未通过或证据不完整，未生成最终交付图片。",
     }
     return messages.get(status, "Photo3D delivery package report generated.")
+
+
+def _status_badge(status: object) -> str:
+    """状态枚举值 → 「图标 中文」徽章。未知值用中性「·」+原值，绝不误判成 ✗。"""
+    key = str(status or "").strip()
+    label = _BADGE_LABELS.get(key, key or "未知")
+    if key in _BADGE_POSITIVE:
+        return f"✓ {label}"
+    if key in _BADGE_WARN:
+        return f"⚠ {label}"
+    if key in _BADGE_BLOCK:
+        return f"✗ {label}"
+    return f"· {key}" if key else "· 未知"
 
 
 def _write_readme(path: Path, report: dict[str, Any]) -> None:

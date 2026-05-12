@@ -534,3 +534,26 @@ def test_delivery_package_view_evidence_is_none_when_manifest_lacks_evidence(tmp
         (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
     )
     assert pkg["view_evidence"] is None
+
+
+# === 队列 D Task 2: _status_badge ===
+
+
+def test_status_badge_positive_warn_block():
+    from tools.photo3d_delivery_pack import _status_badge
+
+    assert _status_badge("delivered") == "✓ 已交付"
+    assert _status_badge("accepted") == "✓ 已验收"
+    assert _status_badge("preview") == "⚠ 预览"
+    assert _status_badge("not_run") == "⚠ 未做"
+    assert _status_badge("needs_review") == "⚠ 建议复核"
+    assert _status_badge("blocked") == "✗ 阻断"
+    assert _status_badge("not_deliverable") == "✗ 未交付"
+
+
+def test_status_badge_unknown_is_neutral_never_block():
+    from tools.photo3d_delivery_pack import _status_badge
+
+    assert _status_badge("weird_state") == "· weird_state"
+    assert _status_badge("") == "· 未知"
+    assert _status_badge(None) == "· 未知"
