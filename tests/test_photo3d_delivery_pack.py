@@ -688,3 +688,162 @@ def test_readme_view_evidence_section_counts_and_none():
     assert "RENDER_VISUAL_REGRESSION.json" in text
     assert _readme_view_evidence_section({"view_evidence": None}) == []
     assert _readme_view_evidence_section({}) == []
+
+
+# === 队列 D Task 5: README section builders（model_quality / review_status / next_step / blocking / appendix）===
+
+
+def test_readme_model_quality_section():
+    from tools.photo3d_delivery_pack import _readme_model_quality_section
+
+    text = "\n".join(
+        _readme_model_quality_section(
+            {
+                "model_quality_summary": {
+                    "ordinary_user_message": "模型质量摘要发现 2 个零件建议复核。",
+                    "readiness_status": "needs_review",
+                    "photoreal_risk": "high",
+                    "review_recommended_count": 2,
+                    "blocking_count": 0,
+                }
+            }
+        )
+    )
+    assert "## 模型质量" in text
+    assert "> 模型质量摘要发现 2 个零件建议复核。" in text
+    assert "就绪状态：needs_review  ·  照片级风险：high" in text
+    assert "建议复核 2 个零件  ·  阻断 0 个" in text
+    assert _readme_model_quality_section({"model_quality_summary": None}) == []
+    assert _readme_model_quality_section({}) == []
+
+
+def test_readme_review_status_section_semantic_required_and_jury_none():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "accepted"},
+                "enhancement_status": "accepted",
+                "semantic_material_review": {"status": "not_run", "required": True},
+                "jury": None,
+            }
+        )
+    )
+    assert "## 复核状态" in text
+    assert "| 增强图质量（quality_summary）| ✓ 已验收 |" in text
+    assert "| AI 增强（enhancement）| ✓ 已验收 |" in text
+    assert "| 语义/材质复核（semantic_material_review）| ⚠ 必需但未做 |" in text
+    assert "| AI 视觉评分（jury）| ⚠ 未运行 |" in text
+
+
+def test_readme_review_status_section_semantic_not_required_and_jury_accepted():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "unknown"},
+                "enhancement_status": "preview",
+                "semantic_material_review": {"status": "not_run", "required": False},
+                "jury": {"status": "accepted", "actual_cost_usd": 0.02},
+            }
+        )
+    )
+    assert "| 增强图质量（quality_summary）| ⚠ 未知 |" in text
+    assert "| AI 增强（enhancement）| ⚠ 预览 |" in text
+    assert "| 语义/材质复核（semantic_material_review）| ⚠ 未做（非强制） |" in text
+    assert "| AI 视觉评分（jury）| ✓ 已验收（成本 $0.02） |" in text
+
+
+def test_readme_review_status_section_semantic_blocked_shows_report_path():
+    from tools.photo3d_delivery_pack import _readme_review_status_section
+
+    text = "\n".join(
+        _readme_review_status_section(
+            {
+                "quality_summary": {"status": "accepted"},
+                "enhancement_status": "accepted",
+                "semantic_material_review": {
+                    "status": "blocked",
+                    "required": False,
+                    "review_report": "cad/x/ENHANCEMENT_REVIEW_REPORT.json",
+                },
+                "jury": None,
+            }
+        )
+    )
+    assert "✗ 阻断（见 `cad/x/ENHANCEMENT_REVIEW_REPORT.json`）" in text
+
+
+def test_readme_next_step_section_three_branches():
+    from tools.photo3d_delivery_pack import _readme_next_step_section
+
+    # 1. 有阻断项
+    text = "\n".join(_readme_next_step_section({"blocking_reasons": [{"code": "x"}]}))
+    assert "## 下一步" in text
+    assert "✗ 当前有阻断项" in text
+    # 2. recommended_next_action.kind == review_models
+    text = "\n".join(
+        _readme_next_step_section(
+            {
+                "blocking_reasons": [],
+                "model_quality_summary": {"recommended_next_action": {"kind": "review_models"}},
+                "status": "preview_package",
+            }
+        )
+    )
+    assert "⚠ 建议先复核标黄的零件，再交付。" in text
+    # 3. delivered 且无阻断、无建议动作
+    text = "\n".join(
+        _readme_next_step_section(
+            {
+                "blocking_reasons": [],
+                "model_quality_summary": {"recommended_next_action": {"kind": "continue_photo3d"}},
+                "status": "delivered",
+            }
+        )
+    )
+    assert "✓ 交付完成，无需进一步动作。" in text
+
+
+def test_readme_blocking_section():
+    from tools.photo3d_delivery_pack import _readme_blocking_section
+
+    text = "\n".join(
+        _readme_blocking_section({"blocking_reasons": [{"code": "photo_quality_not_accepted", "message": "质量未验收"}]})
+    )
+    assert "## 阻断项" in text
+    assert "- photo_quality_not_accepted: 质量未验收" in text
+    assert _readme_blocking_section({"blocking_reasons": []}) == []
+    assert _readme_blocking_section({}) == []
+
+
+def test_readme_evidence_appendix():
+    from tools.photo3d_delivery_pack import _readme_evidence_appendix
+
+    text = "\n".join(
+        _readme_evidence_appendix(
+            {
+                "source_reports": {
+                    "render_manifest": "cad/.../render_manifest.json",
+                    "artifact_index": "cad/.../ARTIFACT_INDEX.json",
+                },
+                "deliverables": {
+                    "source_images": [{"view": "V1"}],
+                    "enhanced_images": [{"view": "V1"}],
+                    "labeled_images": [],
+                },
+                "evidence_files": [{"package_path": "cad/.../delivery/evidence/x.json"}],
+                "delivery_dir": "cad/.../delivery",
+            }
+        )
+    )
+    assert "## 证据清单（供审计）" in text
+    assert "- artifact_index: `cad/.../ARTIFACT_INDEX.json`" in text
+    assert "- render_manifest: `cad/.../render_manifest.json`" in text
+    assert "- 源渲染：1 张" in text
+    assert "- 增强图：1 张" in text
+    assert "- 标注图：0 张" in text
+    assert "- `cad/.../delivery/evidence/x.json`" in text
+    assert "cad/.../delivery" in text  # 末尾说明里有 delivery_dir
