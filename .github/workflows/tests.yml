@@ -147,7 +147,7 @@ jobs:
       - name: Install Pillow for render-QA mypy check
         run: pip install "pillow>=10"
       - name: Run mypy strict on render QA / path_policy (cleanup PR — 防回归)
-        run: mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py
+        run: mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py tools/view_instance_evidence.py
       - name: Verify mypy fixture catches type errors (T17 等价 — gate 漂移防御)
         # 故意类型错的 fixture 必让 mypy fail。如果 fixture 通过 = gate 配置
         # 漂移（strict=false / exclude broker / 等），CI 立即 fail 提示修复。

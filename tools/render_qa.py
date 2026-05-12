@@ -9,6 +9,7 @@ from PIL import Image, ImageChops, UnidentifiedImageError
 
 from tools.contract_io import file_sha256, load_json_required, stable_json_hash, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
+from tools.view_instance_evidence import compute_view_visible_instances
 
 
 MIN_WIDTH = 128
@@ -135,8 +136,17 @@ def build_render_manifest(
             },
         })
 
+    view_ids: list[str] = sorted({str(entry["view"]) for entry in manifest_files})
+    view_evidence: dict[str, list[str]] | None = compute_view_visible_instances(
+        assembly_signature_payload if assembly_signature_payload is not None else {},
+        view_ids,
+    )
+    if view_evidence is not None:
+        for entry in manifest_files:
+            entry["visible_instance_ids"] = view_evidence[str(entry["view"])]
+
     status = "blocked" if blocking_reasons else "pass"
-    return {
+    manifest: dict[str, Any] = {
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -170,6 +180,9 @@ def build_render_manifest(
         "files": manifest_files,
         "legacy_files": legacy_files,
     }
+    if view_evidence is not None:
+        manifest["evidence_method"] = "instance_bbox_presence"
+    return manifest
 
 
 def write_render_manifest(
