@@ -1031,37 +1031,15 @@ def _readme_evidence_appendix(report: dict[str, Any]) -> list[str]:
 
 
 def _write_readme(path: Path, report: dict[str, Any]) -> None:
+    """把交付包 report 渲染成外行用户可读的验收页 README.md。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "# Photo3D Delivery Package",
-        "",
-        f"- subsystem: {report.get('subsystem')}",
-        f"- run_id: {report.get('run_id')}",
-        f"- status: {report.get('status')}",
-        f"- final_deliverable: {report.get('final_deliverable')}",
-        f"- enhancement_status: {report.get('enhancement_status')}",
-        "",
-        "## Reports",
-    ]
-    for kind, rel_path in sorted((report.get("source_reports") or {}).items()):
-        lines.append(f"- {kind}: `{rel_path}`")
-    lines.extend(["", "## Deliverables"])
-    for category, items in (report.get("deliverables") or {}).items():
-        lines.append(f"- {category}: {len(items)}")
-    if report.get("blocking_reasons"):
-        lines.extend(["", "## Blocking Reasons"])
-        for reason in report["blocking_reasons"]:
-            code = reason.get("code", "unknown")
-            message = reason.get("message", "")
-            lines.append(f"- {code}: {message}")
-    model_quality = report.get("model_quality_summary")
-    if model_quality:
-        lines.extend([
-            "",
-            "## Model Quality",
-            f"- model_quality_summary: {model_quality.get('readiness_status')}",
-            f"- photoreal_risk: {model_quality.get('photoreal_risk')}",
-            f"- review_recommended_count: {model_quality.get('review_recommended_count')}",
-            f"- blocking_count: {model_quality.get('blocking_count')}",
-        ])
+    lines: list[str] = []
+    lines += _readme_headline(report)
+    lines += _readme_images_section(report)
+    lines += _readme_view_evidence_section(report)
+    lines += _readme_model_quality_section(report)
+    lines += _readme_review_status_section(report)
+    lines += _readme_next_step_section(report)
+    lines += _readme_blocking_section(report)
+    lines += _readme_evidence_appendix(report)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

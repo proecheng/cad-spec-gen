@@ -195,8 +195,9 @@ def test_photo3d_delivery_pack_includes_active_run_model_quality_summary(tmp_pat
     readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(
         encoding="utf-8"
     )
-    assert "model_quality_summary" in readme
-    assert "needs_review" in readme
+    assert "## 模型质量" in readme
+    assert summary["ordinary_user_message"] in readme
+    assert "就绪状态：needs_review" in readme
 
 
 def test_photo3d_delivery_pack_rejects_report_from_non_active_run(tmp_path):
@@ -847,3 +848,88 @@ def test_readme_evidence_appendix():
     assert "- 标注图：0 张" in text
     assert "- `cad/.../delivery/evidence/x.json`" in text
     assert "cad/.../delivery" in text  # 末尾说明里有 delivery_dir
+
+
+# === 队列 D Task 6: _write_readme 验收页集成 ===
+
+
+def test_delivery_readme_is_acceptance_page(tmp_path):
+    """accepted run → README 是结构化验收页：头条 / 内嵌 enhanced 图 / 完整性证据 /
+    模型质量 / 复核状态 / 下一步 / 证据清单；DELIVERY_PACKAGE.json 带 view_evidence。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+    readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(encoding="utf-8")
+
+    # 头条
+    assert readme.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✓ 已交付" in readme
+    assert report["ordinary_user_message"] in readme
+    # 渲染图段（内嵌 enhanced 图相对路径 + 零件数 + 带标注版）
+    assert "## 渲染图（增强后）" in readme
+    assert "### V1" in readme
+    assert "![V1 增强图](enhanced/V1_front_20260505_1200_enhanced.jpg)" in readme
+    assert "- 本图标着含 2 个零件" in readme
+    assert "[带标注版](labeled/V1_front_20260505_1200_enhanced_labeled_en.jpg)" in readme
+    # 完整性证据段
+    assert "## 完整性证据" in readme
+    assert "证据方式：instance_bbox_presence" in readme
+    assert "各视角实例计数：V1=2" in readme
+    # 模型质量段
+    assert "## 模型质量" in readme
+    assert report["model_quality_summary"]["ordinary_user_message"] in readme
+    assert "就绪状态：needs_review" in readme
+    # 复核状态段
+    assert "## 复核状态" in readme
+    assert "增强图质量（quality_summary）" in readme
+    assert "AI 视觉评分（jury）| ⚠ 未运行" in readme  # jury 未跑
+    # 下一步段（recommended_next_action.kind == review_models）
+    assert "## 下一步" in readme
+    assert "先复核标黄的零件" in readme
+    # 证据清单（供审计）
+    assert "## 证据清单（供审计）" in readme
+    assert "render_manifest:" in readme
+    assert "- 增强图：1 张" in readme
+    assert "DELIVERY_PACKAGE.json" in readme
+    # DELIVERY_PACKAGE.json 的 view_evidence
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"]["per_view"]["V1"] == ["P-100-01#01", "P-100-02#01"]
+
+
+def test_delivery_readme_degrades_gracefully_on_blocked_and_missing_evidence(tmp_path):
+    """blocked run（无 enhanced 图）+ 剥去 render_manifest 逐视角证据 → README 仍是合法 markdown：
+    无「渲染图」段、无「完整性证据」段、有「阻断项」段、「下一步」指向阻断项。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_enhancement_report(fixture, "blocked")
+    manifest_path = fixture["paths"]["render_manifest"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("evidence_method", None)
+    for entry in manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+    assert report["view_evidence"] is None
+    readme = (tmp_path / report["artifacts"]["delivery_readme"]).read_text(encoding="utf-8")
+
+    assert readme.startswith("# 交付包验收 — demo / RUN001")
+    assert "**状态**：✗ 未交付" in readme
+    assert "## 渲染图（增强后）" not in readme  # 无 enhanced 图
+    assert "## 完整性证据" not in readme        # 无 view_evidence
+    assert "## 阻断项" in readme
+    assert "- blocked_reason" in readme
+    assert "## 下一步" in readme
+    assert "✗ 当前有阻断项" in readme
+    assert "## 证据清单（供审计）" in readme   # 底部清单总在
