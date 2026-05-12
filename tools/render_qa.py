@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PIL import Image, ImageChops, UnidentifiedImageError
 
@@ -281,13 +281,21 @@ def _invalid_image_result(image_path: Path, reason: str, error: str) -> dict[str
 def _corner_background_color(image: Image.Image) -> tuple[int, int, int, int]:
     width, height = image.size
     pixels = image.load()
+    if pixels is None:  # pragma: no cover — load() 仅对已关闭图返回 None
+        raise RuntimeError("图像像素缓冲不可用")
     corners = [
-        pixels[0, 0],
-        pixels[width - 1, 0],
-        pixels[0, height - 1],
-        pixels[width - 1, height - 1],
+        cast(tuple[int, int, int, int], pixels[0, 0]),
+        cast(tuple[int, int, int, int], pixels[width - 1, 0]),
+        cast(tuple[int, int, int, int], pixels[0, height - 1]),
+        cast(tuple[int, int, int, int], pixels[width - 1, height - 1]),
     ]
-    return tuple(int(sum(pixel[i] for pixel in corners) / len(corners)) for i in range(4))
+    n = len(corners)
+    return (
+        int(sum(c[0] for c in corners) / n),
+        int(sum(c[1] for c in corners) / n),
+        int(sum(c[2] for c in corners) / n),
+        int(sum(c[3] for c in corners) / n),
+    )
 
 
 def _infer_project_root(manifest: dict[str, Any]) -> Path:

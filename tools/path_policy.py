@@ -57,7 +57,7 @@ def build_path_context(
     run_id: str | None = None,
     env: dict[str, Any] | None = None,
     skill_root: str | Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     root = Path(project_root).resolve()
     requested_subsystem = subsystem
     subsystem_dir = strict_subsystem_dir(root, subsystem).resolve()

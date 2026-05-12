@@ -4,7 +4,7 @@ import json
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PIL import Image, ImageChops, ImageStat, UnidentifiedImageError
 
@@ -270,13 +270,21 @@ def _mask_iou(a: Image.Image, b: Image.Image) -> float:
 def _corner_background_color(image: Image.Image) -> tuple[int, int, int, int]:
     width, height = image.size
     pixels = image.load()
+    if pixels is None:  # pragma: no cover — load() 仅对已关闭图返回 None
+        raise RuntimeError("图像像素缓冲不可用")
     corners = [
-        pixels[0, 0],
-        pixels[width - 1, 0],
-        pixels[0, height - 1],
-        pixels[width - 1, height - 1],
+        cast(tuple[int, int, int, int], pixels[0, 0]),
+        cast(tuple[int, int, int, int], pixels[width - 1, 0]),
+        cast(tuple[int, int, int, int], pixels[0, height - 1]),
+        cast(tuple[int, int, int, int], pixels[width - 1, height - 1]),
     ]
-    return tuple(int(sum(pixel[i] for pixel in corners) / len(corners)) for i in range(4))
+    n = len(corners)
+    return (
+        int(sum(c[0] for c in corners) / n),
+        int(sum(c[1] for c in corners) / n),
+        int(sum(c[2] for c in corners) / n),
+        int(sum(c[3] for c in corners) / n),
+    )
 
 
 def _ordinary_user_message(status: str) -> str:
@@ -425,10 +433,13 @@ def _enhanced_candidates_for_source(source_image: Path, candidates: list[Path]) 
     return [sorted(matches, key=lambda path: path.stem.lower())[-1]]
 
 
-def _discover_enhanced_images(render_dir: Path) -> list[Path]:
-    return sorted(
-        set(render_dir.glob("V*_enhanced.*")) | set(render_dir.glob("V*_*_enhanced.*")),
-        key=lambda path: path.name.lower(),
+def _discover_enhanced_images(render_dir: Path) -> list[str | Path]:
+    return cast(
+        list[str | Path],
+        sorted(
+            set(render_dir.glob("V*_enhanced.*")) | set(render_dir.glob("V*_*_enhanced.*")),
+            key=lambda path: path.name.lower(),
+        ),
     )
 
 
