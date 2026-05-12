@@ -167,6 +167,7 @@ def run_wizard(
         agent=agent,
         codex_dir=codex_dir,
     )
+    ui.success(t("register_done", lang, count=count))
     print()
 
     # === Completion ===
