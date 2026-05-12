@@ -482,3 +482,55 @@ def test_cmd_photo3d_deliver_writes_delivery_package(tmp_path, monkeypatch):
 
     assert rc == 0
     assert (fixture["run_dir"] / "delivery" / "DELIVERY_PACKAGE.json").is_file()
+
+
+# === 队列 D Task 1: view_evidence 字段 ===
+
+
+def test_delivery_package_includes_view_evidence_when_manifest_has_visible_instance_ids(tmp_path):
+    """render_manifest 带 evidence_method / visible_instance_ids（队列 C）时，
+    DELIVERY_PACKAGE.json 与 report 都带 view_evidence（evidence_method + per_view）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+
+    assert report["view_evidence"] == {
+        "evidence_method": "instance_bbox_presence",
+        "per_view": {"V1": ["P-100-01#01", "P-100-02#01"]},
+    }
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"] == report["view_evidence"]
+
+
+def test_delivery_package_view_evidence_is_none_when_manifest_lacks_evidence(tmp_path):
+    """老 run / 缺 assembly_signature → render_manifest 无 evidence_method / visible_instance_ids
+    → view_evidence 为 None（向后兼容）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    manifest_path = fixture["paths"]["render_manifest"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("evidence_method", None)
+    for entry in manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = run_photo3d_delivery_pack(
+        tmp_path, "demo", artifact_index_path=fixture["index_path"]
+    )
+
+    assert report["view_evidence"] is None
+    pkg = json.loads(
+        (tmp_path / report["artifacts"]["delivery_package"]).read_text(encoding="utf-8")
+    )
+    assert pkg["view_evidence"] is None

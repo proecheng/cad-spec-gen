@@ -193,6 +193,7 @@ def run_photo3d_delivery_pack(
         "delivery_dir": project_relative(delivery_dir, root),
         "source_reports": source_reports,
         "deliverables": deliverables,
+        "view_evidence": _view_evidence_summary(manifest),
         "evidence_files": evidence_files,
         "warnings": warnings,
         "blocking_reasons": blocking_reasons,
@@ -320,6 +321,24 @@ def _quality_summary(enhancement_report: dict[str, Any]) -> dict[str, Any]:
         "view_count": enhancement_report.get("enhanced_view_count") or 0,
         "warnings": [],
     }
+
+
+def _view_evidence_summary(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """从 render_manifest 提取逐视角可见实例证据（队列 C 的 evidence_method / visible_instance_ids）。
+
+    manifest 既没 evidence_method 也没任何 per-view visible_instance_ids → 返 None（向后兼容）。
+    """
+    method = manifest.get("evidence_method")
+    per_view = {
+        str(f.get("view")): list(f.get("visible_instance_ids"))
+        for f in (manifest.get("files") or [])
+        if isinstance(f, dict)
+        and f.get("view")
+        and isinstance(f.get("visible_instance_ids"), list)
+    }
+    if not method and not per_view:
+        return None
+    return {"evidence_method": method, "per_view": per_view}
 
 
 def _build_jury_section(
