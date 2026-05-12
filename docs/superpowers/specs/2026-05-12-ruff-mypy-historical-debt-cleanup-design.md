@@ -123,13 +123,13 @@ def _corner_background_color(image: Image.Image) -> tuple[int, int, int, int]:
 
 ## 6. 详细改动 — Group C（CI mypy gate）
 
-`.github/workflows/tests.yml` 的 `mypy-strict` job 当前只 `pip install "mypy>=1.10"`，**不装 Pillow**。而 `enhance_consistency.py` / `render_qa.py` 都 `from PIL import ...`——bare-mypy 环境下 mypy 报「Cannot find implementation or library stub for module named 'PIL'」（`--strict` 不含 `--ignore-missing-imports`），且 `PixelAccess | None` 这类错根本不会出现（PIL 成 `Any`）。**所以本步必须先装 Pillow**，否则 gate 要么红在「找不到 PIL」、要么（若加 `--ignore-missing-imports`）形同虚设。
+`.github/workflows/tests.yml` 的 `mypy-strict` job 当前只 `pip install "mypy>=1.10"`，**不装 Pillow**。而 `enhance_consistency.py` / `render_qa.py` 都 `from PIL import ...`。`pyproject.toml [tool.mypy]` 有 `ignore_missing_imports = true`（`--strict` **不**会覆盖它），所以 bare-mypy 环境下 mypy 找不到 PIL 时**不报错、只把 PIL 当 `Any`**——意味着 gate 不会红，但也看不见 `PixelAccess | None` 那类需要真 PIL 类型才暴露的错（等于只锁住「2 个非 PIL 错」）。**装 Pillow 的意义是让 gate 用真 PIL 类型、能锁住 PIL 相关回归**（本 PR 改 `_corner_background_color` 就是为这个）——所以仍然装，并给个下界 `>=10`（与 `mypy>=1.10` 一致，Pillow 9.3+ 已有 `py.typed`）。
 
 在现有 `tools/jury` 那步（`run: mypy --strict tools/jury tools/photo3d_jury.py tools/_file_lock.py`）之后加两步：
 
 ```yaml
       - name: Install Pillow for render-QA mypy check
-        run: pip install pillow
+        run: pip install "pillow>=10"
       - name: Run mypy strict on render QA / path_policy（cleanup PR — 防回归）
         run: mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py
 ```
