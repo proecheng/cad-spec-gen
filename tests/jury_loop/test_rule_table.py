@@ -12,7 +12,6 @@ import pytest
 from tools.jury_loop.backends import BACKEND_REGISTRY
 from tools.jury_loop.rule_table import (
     RuleTableLoadError,
-    RuleTableLookupResult,
     RuleTableUnsupportedSchemaWarning,
     _clamp_param,
     load_rule_table,

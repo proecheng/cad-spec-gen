@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Overwrite existing directory")
 
     # doctor
-    p_doctor = subparsers.add_parser("doctor", help="Diagnose issues")
+    subparsers.add_parser("doctor", help="Diagnose issues")
 
     # list
     p_list = subparsers.add_parser("list", help="List assets")
@@ -102,10 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Skip confirmation prompt")
 
     # report
-    p_report = subparsers.add_parser("report", help="Show suggestion log")
+    subparsers.add_parser("report", help="Show suggestion log")
 
     # migrate
-    p_mig = subparsers.add_parser("migrate", help="Schema version migration (stub)")
+    subparsers.add_parser("migrate", help="Schema version migration (stub)")
 
     return parser
 
@@ -516,7 +516,7 @@ def cmd_migrate_subsystem(args) -> int:
             canonical = fallback
 
     if canonical is None or not canonical.is_file():
-        print(f"[X] Canonical render_3d.py not found.", file=sys.stderr)
+        print("[X] Canonical render_3d.py not found.", file=sys.stderr)
         return 1
 
     # Prompt unless --yes

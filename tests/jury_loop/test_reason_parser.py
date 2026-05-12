@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import string
 
-import pytest
 from hypothesis import given, strategies as st
 
 from tools.jury_loop.reason_parser import (

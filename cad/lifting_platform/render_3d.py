@@ -20,7 +20,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from mathutils import Vector, Euler
+from mathutils import Vector
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 log = logging.getLogger("render_3d")
@@ -105,7 +105,8 @@ if "--" in argv:
 else:
     argv = []
 
-import argparse
+# ↓ 故意 late import：上方 A1-1 纯 Python helpers 段须在 bpy/argparse/mathutils 使用之前（tests AST 抽取约束）
+import argparse  # noqa: E402
 
 parser = argparse.ArgumentParser(description="Render end effector assembly")
 parser.add_argument("--glb", default=None,

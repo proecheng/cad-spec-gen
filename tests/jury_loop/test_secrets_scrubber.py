@@ -1,8 +1,6 @@
 """SEC-MINOR-2 secrets_scrubber 测试。"""
 from __future__ import annotations
 
-import pytest
-
 from tools.jury_loop.secrets_scrubber import scrub_secrets
 
 

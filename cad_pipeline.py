@@ -3646,7 +3646,6 @@ def cmd_env_check(args):
 
     # Pillow
     try:
-        from PIL import Image
         import PIL
 
         log.info("  Pillow: %s", PIL.__version__)

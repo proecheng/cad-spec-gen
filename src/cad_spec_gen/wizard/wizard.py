@@ -1,6 +1,5 @@
 """6-step interactive setup wizard for cad-spec-gen."""
 
-import sys
 from pathlib import Path
 
 from .. import __version__
