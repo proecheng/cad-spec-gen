@@ -31,18 +31,18 @@ render_config.json
   - camera: {<view_id>: preset}（preset 多为 spherical {azimuth_deg, elevation_deg, distance_factor}，也可 cartesian {x,y,z}；fit-to-frame：距离由 frame_fill + min(fov_v,fov_h) 算）
   - frame_fill: 0.75；subsystem.bounding_radius_mm: 300；explode:{rules,...}；section:{cut_plane,...}
         │
-        ▼  tools/view_instance_evidence.py::compute_view_visible_instances(assembly_signature: dict, render_config: dict, view_ids: list[str]) -> dict[str, list[str]] | None
-        │    （纯函数。view_ids = build_render_manifest 从 files[].view 提取的实际渲染视角列表。
-        │     返回 None ⟺ assembly_signature 没有 instances[]（→ 无证据可算）；否则返回一个 dict、对 view_ids 里每个视角都有一项：
-        │       对每个有有效 bbox_mm 的 instance，把世界坐标 bbox 角点投影到该视角相机，任一角点（在近平面前）落在图像矩形内 → 加进该视角的 list；
-        │       该视角的相机参数算不出来（render_config 缺/异常）→ 该视角保守填「所有有有效 bbox 的 instance」；无有效 bbox 的 instance → 哪个视角都不进。
+        ▼  tools/view_instance_evidence.py::compute_view_visible_instances(assembly_signature: dict, render_config: dict, manifest_files: list[dict]) -> dict[str, list[str]] | None
+        │    （纯函数。manifest_files = build_render_manifest 已经构造好的 files[] 列表（每项有 "view"=_view_key 给的 V<n>、"width"、"height"）。
+        │     返回 None ⟺ assembly_signature 没有 instances[]（→ 无证据可算）；否则返回一个 dict、对每个出现过的 files[].view 都有一项（去重后）：
+        │       先从 assembly_signature.instances[] 的并集算 bs_center / bs_radius（= Blender 渲染时的取景中心/半径）；
+        │       对每个 view：从 render_config.camera 找该 view 对应的 preset（V<n> ↔ preset 的映射 = §3 + plan #1），能找到且能算出相机变换 → 复用 render_3d.py 的相机数学（lens/sensor/aspect/frame_fill + spherical→朝向 + required_dist）把每个有有效 bbox_mm 的 instance 的 8 个 bbox 角点投影到该相机，任一角点（在近平面前）落在 NDC [-1,1]² → 加进该视角的 list；
+        │       找不到 preset / 算不出相机参数 → 该视角保守填「所有有有效 bbox 的 instance」；无有效 bbox 的 instance（不在 instances[]，或 bbox_mm 不是 6 个有限浮点 / 退化）→ 哪个视角都不进。
         │     每个 list 排序、确定性。见 §3。）
         ▼
-build_render_manifest（tools/render_qa.py，已收 assembly_signature + render_config_path）：
-  - render_config 在函数内加载成 dict（目前只哈希路径不加载，plan 补加载）；view_ids = [f["view"] for f in files]
-  - evidence = compute_view_visible_instances(assembly_signature_payload, render_config_payload, view_ids)
-  - evidence is None（或两个输入缺）→ 不写 visible_instance_ids / evidence_method（manifest 保持「无证据」→ 契约层 warn，老行为）
-  - 否则：files[i]["visible_instance_ids"] = evidence[files[i]["view"]]（已排序）；顶层 evidence_method: "python_frustum_culling"（标记「Python 算的、非 Blender 来源」；保守回退是内部细节、不另设字段）
+build_render_manifest（tools/render_qa.py，已收 assembly_signature + render_config_path，且**已在函数内加载** render_config（`render_config = _load_optional_path_json(render_config_path, ...)` + `camera_config = render_config.get("camera")`——现成局部变量，无需补加载）：
+  - 在 manifest_files 构造完之后：evidence = compute_view_visible_instances(assembly_signature_payload, render_config, manifest_files)
+  - evidence is None（assembly_signature 缺/没 instances[]）→ 不写 visible_instance_ids / evidence_method（manifest 保持「无证据」→ 契约层 warn，老行为）
+  - 否则：每个 manifest_files[i]["visible_instance_ids"] = evidence.get(manifest_files[i]["view"], [])（已排序）；顶层 evidence_method: "python_frustum_culling"（标记「Python 算的、非 Blender 来源」；保守回退是内部细节、不另设字段）
   - schema_version: 2 → 3（恒 bump，与是否有证据无关）
         ▼
 render_manifest.json (v3)
@@ -53,16 +53,19 @@ render_manifest.json (v3)
 
 ## 3. `compute_view_visible_instances` — frustum 精度（实现方案 A）
 
-候选方案（plan 不再选，本 spec 定为 **A**）：
-- **A（采用）best-effort frustum + 逐视角保守回退**：对每个 view_id：能从 `render_config.camera[<view>]` 解析出 spherical/cartesian preset 且能算出相机变换（用 `render_config.py::camera_to_blender` 的数学 + `bounding_radius_mm` + `frame_fill` 反推相机位置/朝向/FOV）→ 对每个有有效 `bbox_mm` 的 instance，取其世界坐标 8 个 bbox 角点（`bbox_mm` 若是 local 则先 apply `transform`——plan 查它是 world 还是 local），变换到相机空间、做透视投影，**若任一角点（在近平面前）投影落在图像矩形内 → 该 instance 加进该视角的 list**；该视角算不出相机参数（render_config 缺该 view 的 camera preset / 格式异常 / FOV 算不出）→ 该视角保守填「所有有有效 bbox 的 instance」（不抓该视角的 placement bug 但仍抓 missing-from-GLB——因为 missing 件根本不在 instances[]）；`assembly_signature` 没有 `instances[]` → helper 返回 `None`（`build_render_manifest` 据此不写 `visible_instance_ids` / `evidence_method`——manifest 保持「无证据」状态 → 契约层 warn，老行为）。`evidence_method` 恒为 `"python_frustum_culling"`（保守回退是内部细节）。
-- B（不采用）保守 only：永远「所有有有效 bbox 的 instance 可见于所有视角」——最简单，只抓 missing-from-GLB。
+候选方案（本 spec 定为 **A**，但留 plan 一个退路 B——见末尾）：
+- **A（采用）best-effort frustum + 逐视角保守回退**：
+  - **取景**：bs_center / bs_radius 从 `assembly_signature.instances[].bbox_mm` 的并集算（= Blender 渲染时实际取景的中心/半径——比用 `render_config.subsystem.bounding_radius_mm` 的 spec 值更贴近 Blender 真做的，因为 Blender 也是从 GLB 物体合并 bbox 算 bs_center/bs_radius 的）。
+  - **相机数学**（复现 `render_3d.py` ~L827-911）：perspective；`lens` = `preset.get("lens_mm", 65)`；sensor_width = 36（Blender 默认）；aspect = 该 view 的 `width/height`（从 `manifest_files[i]`）；sensor_h = 36/aspect；`fov_v = atan(sensor_h/(2*lens))`、`fov_h = atan(36/(2*lens))`（半角，弧度）；`fov_half = min(fov_v, fov_h)`；`frame_fill` = `render_config.get("frame_fill", 0.75)`；`required_dist = bs_radius / sin(fov_half) / frame_fill`；view_dir 从 spherical preset 算（`x=cos(el)cos(az), y=cos(el)sin(az), z=sin(el)`）；camera location = bs_center + view_dir * required_dist，camera look-at bs_center（plan 抄 `render_config.py::camera_to_blender` + `render_3d.py` 的准确公式 + target offset：`camera_to_blender` 里 spherical 的 target 默认是 `[0,0,bounding_r*0.33]`——这个 0.33 偏移要照抄）。
+  - **可见判定**：对每个有有效 `bbox_mm` 的 instance（`bbox_mm` 是 6 个有限浮点且 xmax>xmin / ymax>ymin / zmax>zmin 非退化），取世界坐标 8 个 bbox 角点（`bbox_mm` 若是 local 则先 apply `transform`——plan #2 查它是 world 还是 local），变换到相机空间、透视投影到 NDC，**若任一角点在近平面前且投影落在 [-1,1]×[-1,1] → 该 instance 加进该视角的 list**。
+  - **逐视角保守回退**：该 view 在 `render_config.camera` 里找不到对应 preset（V<n> ↔ preset 映射见 plan #1）/ preset 不是可解析的 spherical 或 cartesian / 任何中间值非有限 → 该视角保守填「所有有有效 bbox 的 instance」（不抓该视角的 placement bug，但仍抓 missing-from-GLB）。
+  - **无证据**：`assembly_signature` 缺 / 没 `instances[]` → helper 返回 `None` → `build_render_manifest` 不写 `visible_instance_ids` / `evidence_method` → manifest 保持「无证据」→ 契约层 warn（老行为）。`evidence_method` 恒为 `"python_frustum_culling"`（保守回退是内部细节、不另设字段）。
+- **B（备用退路）保守 only**：永远「所有有有效 bbox 的 instance 可见于所有视角」——最简单，只抓 missing-from-GLB。**若 plan Task 0 读 `render_3d.py` 后发现相机数学太难可靠复现 / 渲染分辨率·aspect·V<n>↔preset 映射混乱无法确定 → 退到 B 作本 PR 的 MVP，frustum 精度留后续迭代**——本 PR 的核心价值（block on missing-from-GLB）与 frustum 精度无关，B 也满足。退到 B 时 `evidence_method` 可叫 `"python_bbox_presence"`（更诚实），spec 不强制名字。
 - C（不采用）完整 AABB-frustum 相交：最精确，复杂度高，对 fit-to-frame 相机收益小。
 
-**所有方案的共同关键点**：没有有效 `bbox_mm` 的 instance（= missing-from-GLB，根本不在 `assembly_signature.instances[]` 里）**永远不进任何视角的 `visible_instance_ids`** → 并集缺它 → blocked。这是抓「少件」的核心机制，与 frustum 精度无关。
+**所有方案的共同关键点**：没有有效 `bbox_mm` 的 instance（= missing-from-GLB，根本不在 `assembly_signature.instances[]` 里——那个 loop 是 `for object_name in sorted(bboxes)`，只含 GLB 有 bbox 的物体；或 bbox 6 个浮点里有非有限值/退化）**永远不进任何视角的 `visible_instance_ids`** → 并集缺它 → blocked。这是抓「少件」的核心机制，与 frustum 精度无关。
 
-**exploded / section 视角**：MVP 不特殊处理——frustum 检查直接用 instance 原始 bbox（不 apply `explode` 的 offset 规则）。后果：exploded 视角的件被 explode 规则偏移出框时，本算法仍认为它「在框内」（用未偏移的 bbox 算）——会**漏报**（不会误报）。这对本 PR 的目标（抓 missing-from-GLB）无影响（missing 件根本没 bbox）。后续若要精确处理 exploded 视角再迭代。Plan 调查：`explode`/`section` 规则的数据结构，确认本 MVP 的简化不会引入误报。
-
-**FOV / fit-to-frame 细节**：`render_3d.py` 用 `required_dist = bounding_radius / sin(min(fov_v, fov_h)/2 / frame_fill)` 之类的公式（plan 从 `render_3d.py` / `render_config.py` 抄准确公式）；本 helper 复用同一公式算相机距离。若公式抄不准/算出非有限值 → 保守回退。
+**exploded / section 视角**：MVP 不特殊处理——frustum 检查直接用 instance 原始 bbox（不 apply `render_config.explode` 的 offset / `section` 的切割）。后果：exploded 视角的件被 explode 规则偏移出框时，本算法仍认为它「在框内」（用未偏移 bbox 算）——会**漏报**（绝不误报）。对本 PR 的目标（抓 missing-from-GLB）无影响。后续迭代再精确处理。Plan 调查：哪个 view 是 exploded/section、`explode`/`section` 规则结构，确认本 MVP 简化不引入误报。
 
 ## 4. 文件结构
 
@@ -111,11 +114,11 @@ render_manifest.json (v3)
 - 占用/遮挡判定（件在画面内但被前面的件挡住）—— jury 的活，契约只管「在不在画面里」≈「在不在 frustum 里」。
 - exploded 视角的 explode-offset 精确处理 —— MVP 简化（用未偏移 bbox 算 → 漏报不误报），后续迭代。
 
-## 9. Plan 第 0 task 调查项（写 plan / 第 0 task 跑 grep 确认）
+## 9. Plan 第 0 task 调查项（已确认的标 ✓；剩下的 plan Task 0 跑）
 
-1. `render_config.py::camera_to_blender` + `render_3d.py` 的 `required_dist` / FOV 公式 —— 抄准确的「相机位置/朝向/距离/FOV」推导；确认 `render_config.json` 的 `camera` 字段结构（`{view_id: preset}`？preset 都是 spherical 还是混 cartesian？）+ `frame_fill` / `bounding_radius_mm` 怎么参与；确认有几个视角、view_id 怎么对应 `files[].view`（`V1`..？）。
-2. `assembly_signature.py` —— `instances[].bbox_mm` 是 world-space（含 transform）还是 local（需 apply `transform`）？`transform.matrix` 何时是 4×4 何时 null？确认 `instances[]` loop 是 `for object_name in sorted(bboxes)`（= missing-from-GLB 件不在 instances[]，只在 coverage）。
-3. `build_render_manifest` —— 确认它收 `render_config_path` 但不加载 payload（plan 要补加载）；`files[i]["view"]` 是怎么从文件名提取的（`_view_key`？格式 `V1`/`V1_front`？）；`cmd_render`（`cad_pipeline.py`）调它时确实传了 `assembly_signature` + `render_config_path`。
-4. `render_visual_regression.py` —— 确认它解析的 view-instance key 列表（首选 `visible_instance_ids`）+ `_required_product_instance_ids` 过滤规则（`required is not False` 且 `render_policy == "required"`）+ `_check_current_view_instance_union` 怎么算并集（union over all `files[]`？只 current manifest？）+ 它会不会因 baseline manifest 是 v2 而 current 是 v3 而 choke（baseline 比较逻辑用 manifest 还是 assembly_signature？）。
-5. `test_render_manifest_signature.py` 全文 + grep `schema_version == 2` / `"schema_version": 2` 在所有 `tests/` —— 列全要改的硬断言；确认 `render_manifest` 在 `PHOTO3D_CONTRACT_TEST_FILES`（改 schema 要跑哪些契约测试）。
-6. `git ls-files -v pyproject.toml`（已确认 `H`）；`.github/workflows/tests.yml` 的 `mypy-strict` job 现状（确认加 `tools/view_instance_evidence.py` 到那行的格式）。
+1. **相机数学 + V<n>↔preset 映射（最关键，影响 helper 实现 + 决定要不要退到方案 B）**：读 `render_3d.py` ~L827-911（`required_dist = bs_radius/sin(min(fov_v,fov_h))/frame_fill`、`fov_{v,h}=atan(sensor_{h,w}/(2*lens))`、`bs_center`/`bs_radius` 从 GLB 物体合并 bbox 算、look-at）+ `render_config.py::camera_to_blender`（spherical→朝向、target 默认 `[0,0,bounding_r*0.33]`）—— 抄准确公式。**`render_config.camera` 的键是 `V1..V5` 还是描述性名（front/iso/exploded/...）？`render_3d.py` 怎么把 camera preset 映射到 `V<n>_*.png` 文件名（按 dict 插入顺序枚举 → V1=第 1 个？还是文件名带描述性后缀、preset 按名匹配？）** —— 这决定 helper 怎么从 `manifest_files[i]["view"]`（= `_view_key` 给的 `V<n>`）找到对应 preset；找不到 → 该视角保守回退。渲染分辨率/aspect：固定（多少？）还是从 `render_config` / `files[].width/height` 取（spec 已定从 `files[].width/height` 取）。哪个 view 是 exploded/section、`explode`/`section` 规则结构（确认 MVP 简化不引入误报）。
+2. **`assembly_signature.instances[].bbox_mm` 坐标系**：world-space（已含 transform）还是 local（需 apply `transform`）？`transform`（`{translation_mm, rotation_deg, matrix}`）何时 `matrix` 是 4×4 何时 null（`_normalize_transform` 的逻辑）？✓ 已确认 `instances[]` loop 是 `for object_name in sorted(bboxes)`（missing-from-GLB 件不在 instances[]，只在 `coverage.missing_instance_total`）。✓ `bbox_mm` 来自 caller 传的 `bboxes` dict（= Blender 提取的实测 bbox）。
+3. **生产路径里谁调 `build_render_manifest`、传不传 `assembly_signature` + `render_config_path`（重要——不传则本 PR 还要让它传）**：`cad_pipeline.py` 里 grep 不到 `build_render_manifest(` 直接调用 → `grep -rn "build_render_manifest\|write_render_manifest" cad_pipeline.py tools/` 找到生产 caller（`cmd_render`?一个 `write_render_manifest` 包装?），看它给 `build_render_manifest` 传了哪些参数；若没传 `assembly_signature` / `render_config_path` → 本 PR 补传。✓ 已确认 `build_render_manifest` 内部已 `render_config = _load_optional_path_json(render_config_path, ...)` + `camera_config = render_config.get("camera")`（现成局部变量，无需补加载）；✓ `files[i]["view"]` 由 `_view_key(path)` = `re.match(r"^(V\d+)", name, re.IGNORECASE)`（→ `V1`/`V2`/...，无匹配则 `path.stem`）。
+4. ✓ `render_visual_regression.py` 已确认：view-instance key 列表 `["visible_instance_ids","instance_ids","visible_instances","component_instance_ids","rendered_instance_ids"]`（首选 `visible_instance_ids`）；`_required_product_instance_ids` 过滤 = `instance_id` 真值 ∧ `required is not False` ∧ `render_policy == "required"`；`_check_current_view_instance_union(product_graph, current_view_evidence)` = `required - union(all views' evidence sets)`，缺则 `blocking_reasons.append({"code":"render_evidence_missing_required_instance","missing_instance_ids":sorted(missing),...})`；baseline 比较（`_compare_baseline_views` 只比视角集；per-view evidence 比较是单向「current 缺 baseline 有的」→ `render_view_instance_evidence_missing_from_current` warn）→ v2-baseline + v3-current **不会 choke**。
+5. `test_render_manifest_signature.py` —— ✓ 确认有 2 处 `schema_version == 2` 硬断言（约 line 84 + 132）要改 `== 3`；grep `schema_version == 2` / `"schema_version": 2` 在所有 `tests/` 列全要改的；✓ `test_render_manifest_signature.py` + `test_render_qa.py` 在 `PHOTO3D_CONTRACT_TEST_FILES`（改 schema 要跑这些契约测试）。
+6. ✓ `pyproject.toml` 是 `H`（非 skip-worktree，可正常 stage）；✓ `.github/workflows/tests.yml` `mypy-strict` job 有 `run: mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py`（cleanup Group C 加）—— 本 PR 在这行末尾加 `tools/view_instance_evidence.py`。
