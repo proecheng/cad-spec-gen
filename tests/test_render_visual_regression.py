@@ -143,6 +143,12 @@ def test_render_visual_regression_warns_when_view_has_no_instance_evidence(tmp_p
     from tools.render_visual_regression import run_render_visual_regression
 
     fixture = _contracts(tmp_path, run_id="RUN001")
+    # 剥去 Task 2 注入的 visible_instance_ids / evidence_method，模拟「无证据」状态
+    manifest = fixture["payloads"]["render_manifest"]
+    manifest.pop("evidence_method", None)
+    for entry in manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    _write_json(fixture["paths"]["render_manifest"], manifest)
 
     report = run_render_visual_regression(
         tmp_path,
@@ -162,7 +168,10 @@ def test_render_visual_regression_uses_view_instance_evidence_union_when_availab
 
     fixture = _contracts(tmp_path, run_id="RUN001")
     manifest = fixture["payloads"]["render_manifest"]
-    manifest["files"][0]["visible_instance_ids"] = ["P-100-01#01"]
+    # 对每个视角条目都设（不依赖 fixture 渲染了几个视角）：并集只含 P-100-01#01，
+    # 缺 P-100-02#01 → 契约层应 block。
+    for entry in manifest["files"]:
+        entry["visible_instance_ids"] = ["P-100-01#01"]
     _write_json(fixture["paths"]["render_manifest"], manifest)
 
     report = run_render_visual_regression(
@@ -266,6 +275,12 @@ def test_render_visual_regression_blocks_lost_per_view_evidence_from_baseline(tm
     manifest["files"][0]["visible_instance_ids"] = ["P-100-01#01", "P-100-02#01"]
     _write_json(baseline["paths"]["render_manifest"], manifest)
     current = _contracts(tmp_path, run_id="RUN001")
+    # 剥去 Task 2 注入的证据，模拟「current 丢失逐视角证据」场景
+    cur_manifest = current["payloads"]["render_manifest"]
+    cur_manifest.pop("evidence_method", None)
+    for entry in cur_manifest.get("files", []):
+        entry.pop("visible_instance_ids", None)
+    _write_json(current["paths"]["render_manifest"], cur_manifest)
     _register_baseline_and_current(tmp_path, baseline, current)
 
     report = run_render_visual_regression(

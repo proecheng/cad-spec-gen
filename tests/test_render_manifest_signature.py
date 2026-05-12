@@ -47,7 +47,10 @@ def test_build_render_manifest_binds_contract_hashes_and_keeps_legacy_fields(tmp
         "subsystem": "demo",
         "path_context_hash": "sha256:path",
         "product_graph_hash": stable_json_hash(product_graph),
-        "instances": [],
+        "instances": [
+            {"instance_id": "GIS-EE-001-1", "bbox_mm": [0.0, 0.0, 0.0, 10.0, 5.0, 2.0]},
+            {"instance_id": "GIS-EE-001-2", "bbox_mm": [0.0, 0.0, 0.0, 3.0, 3.0, 3.0]},
+        ],
     }
     render_config = {
         "camera": {"V1": {"type": "standard", "azimuth_deg": 35}},
@@ -107,6 +110,31 @@ def test_build_render_manifest_binds_contract_hashes_and_keeps_legacy_fields(tmp
     assert file_entry["height"] == 240
     assert file_entry["qa"]["passed"] is True
     assert file_entry["qa"]["nonblank"] is True
+    assert manifest["evidence_method"] == "instance_bbox_presence"
+    assert file_entry["visible_instance_ids"] == ["GIS-EE-001-1", "GIS-EE-001-2"]
+
+
+def test_build_render_manifest_omits_evidence_when_no_assembly_signature(tmp_path):
+    """不传 assembly_signature → manifest 不写 visible_instance_ids / evidence_method（向后兼容；schema 仍 2）。"""
+    from tools.render_qa import build_render_manifest
+
+    project_root = tmp_path / "project"
+    render_dir = project_root / "cad" / "output" / "renders"
+    render_dir.mkdir(parents=True)
+    png = render_dir / "V1_front.png"
+    _render_png(png)
+
+    manifest = build_render_manifest(
+        project_root,
+        render_dir,
+        [png],
+        subsystem="demo",
+        run_id="RUN001",
+        path_context_hash="sha256:path",
+    )
+    assert manifest["schema_version"] == 2
+    assert "evidence_method" not in manifest
+    assert "visible_instance_ids" not in manifest["files"][0]
 
 
 def test_write_render_manifest_writes_manifest_json_atomically(tmp_path):
