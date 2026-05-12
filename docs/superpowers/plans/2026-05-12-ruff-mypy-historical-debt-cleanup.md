@@ -198,13 +198,13 @@ from tools.jury_loop.rule_table import (
 ```
 （`import pytest` 在这个文件里**有用**——别删。）
 
-- [ ] **Step 12：ruff 归零**
+- [ ] **Step 12：ruff（仅剩 Group D 的 2 个 F841）**
 
 Run：
 ```
 python -m ruff check cad_pipeline.py src/cad_spec_gen/cad_lib.py src/cad_spec_gen/render_3d.py src/cad_spec_gen/wizard/wizard.py tools/render_qa.py tools/jury_loop/backends/gemini_chat_image.py tools/jury_loop/backends/openai_images_edit.py tests/jury_loop/test_reason_parser.py tests/jury_loop/test_secrets_scrubber.py tests/jury_loop/test_rule_table.py
 ```
-Expected：`All checks passed!`（这 10 文件 0 错）。
+Expected：**恰好 2 个错** —— `cad_pipeline.py:3557 F841 has_spec` 和 `src/cad_spec_gen/wizard/wizard.py:163 F841 count`。这 2 个**故意留着**：Group A 不动它们，Task 4（D1）会把 `has_spec` 用上、Task 5（D2）会把 `count` 用上（用变量而非删变量）。其余 14 个 baseline 错（PIL.Image / p_doctor / p_report / p_mig / f-string / Euler / E402 / sys / pytest×2 / RuleTableLookupResult / Path×2 / json）必须全 0。**若除这 2 个 F841 外还有别的错 → 停下报告。**
 
 - [ ] **Step 13：全套件 + dev_sync**
 
@@ -301,13 +301,9 @@ def _corner_background_color(image: Image.Image) -> tuple[int, int, int, int]:
 
 - [ ] **Step 7：B3 — `enhance_consistency.py::_discover_enhanced_images` 返回标注**
 
-按 Task 0 Step 3 的结论二选一：
-- **结论 = 没有调用方依赖 Path-only 方法**（默认）：
-  旧：`def _discover_enhanced_images(render_dir: Path) -> list[Path]:`
-  新：`def _discover_enhanced_images(render_dir: Path) -> list[str | Path]:`
-- **结论 = 有调用方依赖**：不改函数签名，改 `build_enhancement_report` 里 L85 那处调用：
-  旧：`        enhanced_images if enhanced_images is not None else _discover_enhanced_images(render_dir),`
-  新：`        enhanced_images if enhanced_images is not None else cast("list[str | Path]", _discover_enhanced_images(render_dir)),`
+（Task 0 Step 3 已确认：唯一调用方是同文件 L85 处，传给 `_enhanced_candidates_by_view(...)`（签名 `list[str | Path]`），元素无 `.parent`/`.name` 等 Path-only 调用 → 改返回标注即可，零行为变更。）
+旧：`def _discover_enhanced_images(render_dir: Path) -> list[Path]:`
+新：`def _discover_enhanced_images(render_dir: Path) -> list[str | Path]:`
 
 - [ ] **Step 8：mypy 归零**
 
@@ -343,10 +339,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `.github/workflows/tests.yml`（`mypy-strict` job）
 
-- [ ] **Step 1：枚举 / 确认第三方依赖（Task 0 Step 2 已做，这里复核）**
+- [ ] **Step 1：复核（Task 0 已查清——这里只确认 Group B 修完后命令是绿的）**
 
-Run：`python -m mypy --strict --no-site-packages tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py`（此时 Group B 已修，Step 4 会再跑一次确认）
-Expected：唯一第三方 not-found 是 `PIL`（外加——因 Group B 已修——可能没有别的错了，或还剩「Cannot find PIL」+ 没有 PixelAccess 错因 PIL 是 Any）。**若还有别的第三方模块 not-found（非 PIL），把它加进 Step 2 的 `pip install` 行。**
+背景（Task 0 发现）：`pyproject.toml [tool.mypy]` 有 `ignore_missing_imports = true`，所以 bare-mypy 环境下找不到 PIL 不会报错、只会让 PIL 退化成 `Any`。即 **CI 不装 pillow 这个 gate 也不会红**——但那样 PIL=Any，gate 看不见 `PixelAccess | None` 那类错，等于只锁住「2 个非 PIL 错」。**装 pillow 的意义是让 gate 用真 PIL 类型、能锁住 PIL 相关回归**（本 PR 改 `_corner_background_color` 就是为这个）——所以仍然装。
+
+Run：`python -m mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py`（Group B 已修完）
+Expected：`Success: no issues found in 3 source files`。
+Run（无第三方依赖时也能跑、确认没有别的模块解析炸）：`python -m mypy --strict --no-site-packages tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py`
+Expected：也 0 错（`ignore_missing_imports` 吞掉所有第三方 not-found；Group B 已修掉那 4 个非 PIL 错）。若这里冒出别的错 → 排查。
 
 - [ ] **Step 2：编辑 `tests.yml`**
 
@@ -528,56 +528,10 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `src/cad_spec_gen/wizard/wizard.py`（register 段加一行 `ui.success`）
-- （可选，看 Task 0 Step 6）Modify: `tests/test_codex_skill_register.py`（加聚焦测试）
 
-- [ ] **Step 1：测试（按 Task 0 Step 6 结论分支）**
+**不加单元测试**（Task 0 Step 6 已判定）：`run_wizard(lang, target, skip_deps, update, agent, codex_dir)` 要驱动到 Step 6 得 monkeypatch `wizard.ui` / `wizard.blender_setup` / `wizard.env_detect` / `wizard.config_gen` / `wizard.skill_register` 共 ~5 处 + 一个有 ~12 个方法的假 `ui` 类——为「加一行镜像同函数早些处 `ui.success(t("deps_done", lang, count=len(succeeded)))` 模式的 UI 调用」建这么大的桩不划算（`feedback_historical_debt_isolation.md`）。改动的覆盖靠：① `ruff` 确认无语法错；② 全套件不回归（这一行不破坏任何东西）；③ Task 6 PR 描述里写明手动验证步骤。
 
-**若 Task 0 Step 6 = 可行**：在 `tests/test_codex_skill_register.py` 末尾加一个聚焦测试，按实际的 `run_wizard` 签名和 module-level 引用名适配下面的 sketch（把 `wizard.<collaborator>` 换成真实属性名；`run_wizard(...)` 的参数按真实签名给「跳过所有交互」的值，如 `lang="zh"`、各路径参数指向 tmp_path、`agent="codex"` 等）：
-```python
-def test_wizard_step6_reports_installed_file_count(tmp_path, monkeypatch):
-    """run_wizard Step 6 应通过 register_done 文案打印 register_skill 返回的文件数。"""
-    from cad_spec_gen.wizard import wizard
-
-    calls: list[tuple] = []
-    # mock UI：confirm 一律 True，success/info/warn/step_header 记下来
-    class _UI:
-        @staticmethod
-        def confirm(_msg):
-            return True
-        @staticmethod
-        def success(msg):
-            calls.append(("success", msg))
-        @staticmethod
-        def info(_msg):
-            pass
-        @staticmethod
-        def warn(_msg):
-            pass
-        @staticmethod
-        def step_header(*_a, **_k):
-            pass
-        @staticmethod
-        def bold(s):
-            return s
-        @staticmethod
-        def prompt(*_a, **_k):
-            return "."
-    monkeypatch.setattr(wizard, "ui", _UI)
-    # mock 掉 Step 1-5 的副作用 + register_skill 返回已知数
-    monkeypatch.setattr(wizard.skill_register, "register_skill", lambda *a, **k: 7)
-    # ……（按真实 wizard.py 把 env_detect / dep_installer / blender_setup / config_gen 的入口 monkeypatch 成 no-op）……
-
-    wizard.run_wizard(...)  # 真实签名 + 跳过交互的参数
-
-    msgs = [m for kind, m in calls if kind == "success"]
-    assert any("7" in m for m in msgs), f"register_done 文案（含已安装数 7）未出现在 ui.success 调用里：{msgs}"
-```
-Run：`pytest tests/test_codex_skill_register.py::test_wizard_step6_reports_installed_file_count -q`
-Expected：FAIL（当前 `wizard.py` 还没那行 `ui.success(t("register_done", ...))`）。
-
-**若 Task 0 Step 6 = 不可行**：跳过本 step（不加测试）；改动的覆盖由「全套件不回归」+「ruff 无语法错」+ Task 6 PR 描述里的手动验证步骤兜底（理由：`run_wizard` Step 6 要 6+ mock 才能驱动到，为一行镜像既有 `deps_done` 模式的 UI 调用建测试桩成本/收益不划算——`feedback_historical_debt_isolation.md`）。
-
-- [ ] **Step 2：加那一行**
+- [ ] **Step 1：加那一行**
 
 `wizard.py` 的 Step 6 register 段，在 `count = skill_register.register_skill(...)` 这个多行调用（以 `)` 结尾）**之后**、`print()` **之前**插一行：
 ```python
@@ -595,26 +549,20 @@ Expected：FAIL（当前 `wizard.py` 还没那行 `ui.success(t("register_done",
 ```
 （`register_done` i18n key 已存在：`i18n.py` zh `"{count} 个文件已安装"` / en `"{count} files installed"`，无需新增。镜像同函数早些处 deps 段的 `ui.success(t("deps_done", lang, count=len(succeeded)))`。）
 
-- [ ] **Step 3：跑测试（若 Step 1 加了）**
+- [ ] **Step 2：ruff + 全套件 + dev_sync**
 
-Run：`pytest tests/test_codex_skill_register.py -q`
-Expected：全 PASS（含新测试）。
-
-- [ ] **Step 4：ruff + 全套件 + dev_sync**
-
-Run：`python -m ruff check src/cad_spec_gen/wizard/wizard.py tests/test_codex_skill_register.py`
-Expected：0 错。
+Run：`python -m ruff check src/cad_spec_gen/wizard/wizard.py`
+Expected：0 错（`import sys` 已在 Task 1 删，`count` F841 现在被这一行用上了 → 全清）。
 Run：`pytest tests/ -q`
 Expected：≥ 上一 task 的数字 PASS / 0 regression。
 Run：`python scripts/dev_sync.py && python scripts/dev_sync.py --check && git diff --exit-code -- AGENTS.md`
 Expected：通过（`wizard.py` 在包内、无镜像，但 dev_sync 跑一遍无害）。
 
-- [ ] **Step 5：commit**
+- [ ] **Step 3：commit**
 
 ```
 git -C "D:\Work\cad-spec-gen" branch --show-current   # 必须是 cleanup/ruff-mypy-historical-debt
 git -C "D:\Work\cad-spec-gen" add src/cad_spec_gen/wizard/wizard.py
-# 若 Step 1 加了测试，也 add tests/test_codex_skill_register.py
 git -C "D:\Work\cad-spec-gen" -c commit.gpgsign=false commit -m "fix(wizard): Step 6 输出已安装文件数（Group D2）
 
 register_skill 返回的 count 之前捕获了却没用、register_done i18n key 之前定义了却没调——补上 ui.success(t(\"register_done\", lang, count=count))，镜像同函数 deps 段的 deps_done 模式。
