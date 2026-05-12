@@ -800,6 +800,19 @@ def _ordinary_user_message(status: str) -> str:
     return messages.get(status, "Photo3D delivery package report generated.")
 
 
+def _pkg_path_relative_to_delivery(package_path: str, delivery_dir: str) -> str:
+    """把 project-relative 的 package_path 转成相对 delivery_dir 的 posix 路径。
+
+    README 写在 delivery/ 下，所以图链接要相对 delivery_dir。两个入参都是 project-relative；
+    正常情况 package_path 在 delivery_dir 内（cad/.../runs/RUN001/delivery/enhanced/V1.jpg →
+    enhanced/V1.jpg）。路径异常（不在 delivery_dir 内）时退化为 basename，绝不抛异常。
+    """
+    try:
+        return Path(package_path).relative_to(Path(delivery_dir)).as_posix()
+    except ValueError:
+        return Path(package_path).name
+
+
 def _status_badge(status: object) -> str:
     """状态枚举值 → 「图标 中文」徽章。未知值用中性「·」+原值，绝不误判成 ✗。"""
     key = str(status or "").strip()

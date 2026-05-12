@@ -557,3 +557,38 @@ def test_status_badge_unknown_is_neutral_never_block():
     assert _status_badge("weird_state") == "· weird_state"
     assert _status_badge("") == "· 未知"
     assert _status_badge(None) == "· 未知"
+
+
+# === 队列 D Task 3: _pkg_path_relative_to_delivery ===
+
+
+def test_pkg_path_relative_to_delivery_strips_delivery_prefix():
+    from tools.photo3d_delivery_pack import _pkg_path_relative_to_delivery
+
+    delivery_dir = "cad/demo/.cad-spec-gen/runs/RUN001/delivery"
+    assert (
+        _pkg_path_relative_to_delivery(
+            "cad/demo/.cad-spec-gen/runs/RUN001/delivery/enhanced/V1_enhanced.jpg",
+            delivery_dir,
+        )
+        == "enhanced/V1_enhanced.jpg"
+    )
+    assert (
+        _pkg_path_relative_to_delivery(
+            "cad/demo/.cad-spec-gen/runs/RUN001/delivery/labeled/V1_labeled.jpg",
+            delivery_dir,
+        )
+        == "labeled/V1_labeled.jpg"
+    )
+
+
+def test_pkg_path_relative_to_delivery_falls_back_to_basename_on_bad_path():
+    from tools.photo3d_delivery_pack import _pkg_path_relative_to_delivery
+
+    # package_path 不在 delivery_dir 内 → 不抛，退化为 basename
+    assert (
+        _pkg_path_relative_to_delivery(
+            "some/other/place/img.jpg", "cad/demo/.cad-spec-gen/runs/RUN001/delivery"
+        )
+        == "img.jpg"
+    )
