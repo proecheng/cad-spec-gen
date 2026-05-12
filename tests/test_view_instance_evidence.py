@@ -26,8 +26,10 @@ def test_excludes_invalid_bbox_and_missing_id():
     sig = _sig(
         {"instance_id": "A", "bbox_mm": [0.0, 0.0, 0.0, 10.0, 5.0, 2.0]},
         {"instance_id": "B", "bbox_mm": [0.0, 0.0, 0.0, 10.0, 5.0]},          # 长度≠6
-        {"instance_id": "B2", "bbox_mm": [0.0, 0.0, 0.0, float("inf"), 5.0, 2.0]},  # 非有限
+        {"instance_id": "B2", "bbox_mm": [0.0, 0.0, 0.0, float("inf"), 5.0, 2.0]},  # 非有限 (inf)
+        {"instance_id": "B2n", "bbox_mm": [0.0, 0.0, 0.0, float("nan"), 5.0, 2.0]}, # 非有限 (nan)
         {"instance_id": "B3", "bbox_mm": "not a list"},                       # 非 list
+        {"instance_id": "B3b", "bbox_mm": [0.0, 0.0, 0.0, 1.0, 1.0, True]},   # 含 bool（bool 是 int 子类——必须被排除）
         {"instance_id": "B4"},                                                 # 无 bbox_mm
         {"bbox_mm": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]},                          # 无 instance_id
         {"instance_id": "", "bbox_mm": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]},       # 空 instance_id

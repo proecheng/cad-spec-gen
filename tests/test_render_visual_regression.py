@@ -168,7 +168,10 @@ def test_render_visual_regression_uses_view_instance_evidence_union_when_availab
 
     fixture = _contracts(tmp_path, run_id="RUN001")
     manifest = fixture["payloads"]["render_manifest"]
-    manifest["files"][0]["visible_instance_ids"] = ["P-100-01#01"]
+    # 对每个视角条目都设（不依赖 fixture 渲染了几个视角）：并集只含 P-100-01#01，
+    # 缺 P-100-02#01 → 契约层应 block。
+    for entry in manifest["files"]:
+        entry["visible_instance_ids"] = ["P-100-01#01"]
     _write_json(fixture["paths"]["render_manifest"], manifest)
 
     report = run_render_visual_regression(
