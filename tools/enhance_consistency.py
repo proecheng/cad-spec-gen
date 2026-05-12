@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
+import logging
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageChops, ImageStat, UnidentifiedImageError
 
+from enhance_budget import USD_TO_CNY_RATE
 from tools.contract_io import file_sha256, write_json_atomic
+from tools.jury_loop.config import DEFAULT_JURY_LOOP_DICT
 from tools.path_policy import assert_within_project, project_relative
 from tools.render_qa import qa_image
+
+log = logging.getLogger(__name__)
 
 MIN_PHOTO_CONTRAST_STDDEV = 12.0
 LOW_OCCUPANCY_SUBJECT_CONTRAST_MAX = 0.08
@@ -184,7 +191,7 @@ def build_enhancement_report(
         "preview" if has_preview else "accepted"
         )
     )
-    return {
+    report_dict: dict[str, Any] = {
         "schema_version": 1,
         "run_id": str(render_manifest.get("run_id") or ""),
         "subsystem": str(render_manifest.get("subsystem") or ""),
@@ -204,6 +211,11 @@ def build_enhancement_report(
         "views": views,
         "blocking_reasons": blocking_reasons,
     }
+    # CP-7 Task 7.1.3：条件追加 loop_summary 段（OPS-MAJOR-2 + spec §7）
+    loop_summary = _aggregate_loop_summary(root, render_dir)
+    if loop_summary is not None:
+        report_dict["loop_summary"] = loop_summary
+    return report_dict
 
 
 def write_enhancement_report(
@@ -485,4 +497,133 @@ def _compact_qa(qa: dict[str, Any]) -> dict[str, Any]:
             "passed",
             "reasons",
         )
+    }
+
+
+# ── CP-7 Task 7.1.3：loop_summary 聚合（spec §7） ──────────────────────────
+
+
+#: 视为"基线交付成功"的 loop_status；其余 delivered_kind=baseline 走 skipped 桶。
+#: above_threshold = 首轮已达标；delivered_baseline = 显式交付首轮（rarely）。
+_HAPPY_BASELINE_STATUSES = frozenset({"above_threshold", "delivered_baseline"})
+
+
+def _read_pipeline_config_jury_loop(project_root: Path) -> dict[str, Any]:
+    """读 `project_root/pipeline_config.json` 的 `enhance.jury_loop` 段。
+
+    缺文件 / 缺段 / 解析失败 → fall back 至 DEFAULT_JURY_LOOP_DICT（approach A）。
+    """
+    pcfg_path = project_root / "pipeline_config.json"
+    if not pcfg_path.is_file():
+        return dict(DEFAULT_JURY_LOOP_DICT)
+    try:
+        pcfg = json.loads(pcfg_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("pipeline_config.json 解析失败，用 DEFAULT_JURY_LOOP_DICT：%s", e)
+        return dict(DEFAULT_JURY_LOOP_DICT)
+    section = pcfg.get("enhance", {}).get("jury_loop")
+    if not section:
+        return dict(DEFAULT_JURY_LOOP_DICT)
+    if not isinstance(section, dict):
+        return dict(DEFAULT_JURY_LOOP_DICT)
+    return section
+
+
+def _aggregate_loop_summary(
+    project_root: Path, render_dir: Path,
+) -> dict[str, Any] | None:
+    """聚合视角 sidecar 为 ENHANCEMENT_REPORT.loop_summary 段（spec §7）。
+
+    回滚兼容性（OPS-MAJOR-2）：
+    - `enhance.jury_loop.enabled == false` → 返 None（整段不写入 ENHANCEMENT_REPORT）
+    - render_dir 无 `*_enhance_meta.json` sidecar → 返 None（该次跑没经过闭环 hook）
+
+    Args:
+        project_root: 项目根目录（含 pipeline_config.json）
+        render_dir: 渲染输出目录（含视角 sidecar）
+
+    Returns:
+        spec §7 锁定 schema 的 dict，字段保序；或 None 表示不应写入。
+    """
+    jl_cfg = _read_pipeline_config_jury_loop(project_root)
+    if not jl_cfg.get("enabled", True):
+        return None
+
+    sidecars: list[dict[str, Any]] = []
+    for path in sorted(render_dir.glob("*_enhance_meta.json")):
+        try:
+            sidecars.append(json.loads(path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("loop_summary 聚合：跳过损坏 sidecar %s：%s", path, e)
+    if not sidecars:
+        return None
+
+    n_views = len(sidecars)
+    loop_eligible_count = sum(1 for s in sidecars if s.get("loop_eligible") is True)
+    delivered_retry_count = sum(
+        1 for s in sidecars if s.get("delivered_kind") == "retry"
+    )
+    delivered_baseline_count = sum(
+        1 for s in sidecars
+        if s.get("delivered_kind") == "baseline"
+        and s.get("loop_status") in _HAPPY_BASELINE_STATUSES
+    )
+    skipped_views = [
+        s for s in sidecars
+        if s.get("delivered_kind") == "baseline"
+        and s.get("loop_status") not in _HAPPY_BASELINE_STATUSES
+    ]
+    skipped_count = len(skipped_views)
+    skipped_reasons: dict[str, int] = dict(
+        Counter(str(s.get("loop_status", "unknown")) for s in skipped_views)
+    )
+    total_retries = delivered_retry_count  # SP1 single_retry：每个 retry 视角恰一次
+    extra_cost_usd = round(
+        sum(float(s.get("extra_cost_usd") or 0) for s in sidecars), 4
+    )
+    score_gain_total = sum(
+        int(s.get("delivered_score_delta") or 0)
+        for s in sidecars
+        if s.get("delivered_kind") == "retry"
+    )
+    score_gain_avg = (
+        round(score_gain_total / delivered_retry_count, 2)
+        if delivered_retry_count
+        else 0.0
+    )
+    extra_cost_cny = round(extra_cost_usd * USD_TO_CNY_RATE, 2)
+
+    # 中文摘要（D-1）
+    parts = [
+        f"{n_views} 视角中",
+        f"{delivered_baseline_count} 张接受首轮",
+        f"{delivered_retry_count} 张闭环成功",
+    ]
+    summary = "：".join(parts[:1]) + "：" + " / ".join(parts[1:])
+    if delivered_retry_count and score_gain_total:
+        summary += f"（合计提升 {score_gain_total} 分）"
+    if skipped_count:
+        summary += f" / {skipped_count} 张跳过"
+    summary += f"。本次额外花费约 ¥{extra_cost_cny}。"
+
+    # spec §7 字段保序（dict 字面量顺序即序列化顺序，Python 3.7+ 保证）
+    return {
+        "$schema_version": 1,
+        "loop_type": "single_retry",
+        "headline": {
+            "improved_views": delivered_retry_count,
+            "score_gain_total": score_gain_total,
+            "extra_cost_cny": extra_cost_cny,
+        },
+        "user_friendly_summary": summary,
+        "n_views": n_views,
+        "loop_eligible_views": loop_eligible_count,
+        "delivered_baseline_count": delivered_baseline_count,
+        "delivered_retry_count": delivered_retry_count,
+        "skipped_count": skipped_count,
+        "skipped_reasons": skipped_reasons,
+        "total_retries": total_retries,
+        "extra_cost_usd": extra_cost_usd,
+        "score_gain_avg": score_gain_avg,
+        "score_gain_total": score_gain_total,
     }
