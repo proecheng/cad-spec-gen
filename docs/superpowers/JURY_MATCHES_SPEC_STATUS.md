@@ -17,7 +17,8 @@
 | --- | --- | --- |
 | 0 | STATUS + grep verify | ✅ |
 | 1 | verdict.py 扩 features_status + matches_spec aggregate | ✅ |
-| 2-3 | verdict.py 扩 RunVerdict + summary | ⏳ |
+| 2 | verdict.py 加 RunVerdict + aggregate_run_verdict | ✅ |
+| 3 | jury/jury_loop + 大套件回归扫 | ✅ |
 | 4-5 | feature_extractor.py | ⏳ |
 | 6-7 | photo3d_jury 整合 | ⏳ |
 | 8 | prompt_rewriter hint | ⏳ |
@@ -29,7 +30,21 @@
 | 14 | 最终验证 + 文档对齐 + retro | ⏳ |
 
 ## 四、CURRENT TASK 指针
-**Task 1 完成（方案 A：matches_spec 为 derived field，不进 `_REQUIRED_BOOL_KEYS`）；下 Task = Task 2 RunVerdict 多视角聚合。**
+**Task 3 完成（回归 sweep 全绿）；下 Task = Task 4 feature_extractor.py。**
+
+### Task 3 回归 sweep 发现 — pre-existing main 历史债（不阻断 jury 主线）
+
+- 跑 `python -m pytest tests/ -q --timeout 60` 全套件 **1 fail（其他 547 PASS / 3 skipped）**
+- Fail: `tests/test_backend_packaging_contract.py::test_contract_gate_tools_are_mirrored_for_packaged_installs`
+- 根因：`tools/render_qa.py`（commit `46f7d9b` 改了 `MIN_OBJECT_OCCUPANCY=0.01→0.004` + 加 5 行注释）与 mirror `src/cad_spec_gen/data/tools/render_qa.py` 未同步
+- archeology 确认：`git checkout main && pytest tests/test_backend_packaging_contract.py` 同 fail，**与 jury matches_spec scope 无关**
+- 排除该 deselect 后跑全套件：**3135 passed / 14 skipped**（jury matches_spec Task 1+2 零 regression）
+- 后续处理建议：单独 cleanup PR 把 `src/cad_spec_gen/data/tools/render_qa.py` 同步到 `tools/render_qa.py`，或问用户是否在本 PR 末顺手修。**默认 = 不扩大本 PR scope（memory `feedback_historical_debt_isolation.md`）**
+
+### Task 2 选择 + 关键决策
+- HEAD-UP 2：**不动** `_make_needs_review_verdict`；`aggregate_run_verdict` 用 `.get("matches_spec", True)` 自洽 back-compat 路径
+- 额外加防御 `and "feature_id" in f` 在失败 features 过滤里（防 malformed feature dict KeyError）
+- import 风格统一 `from tools.jury.verdict import ...`（plan 字面 `sys.path.insert + from jury.verdict` 是 plan-drift，已记录给后续 Task 用）
 
 ### Task 1 选择 + 关键决策
 - **方案 A**（matches_spec 不进 `_REQUIRED_BOOL_KEYS`）选择理由：matches_spec 本是从 features_status aggregate 出来的派生字段，不是 LLM 直接 emit 的 bool；放进 `_REQUIRED_BOOL_KEYS` 会让所有不含该字段的老 fixture 触发 content_keys_mismatch → needs_review，silently break spec §6 验收 #1 + spec §8 不变量 #1。
