@@ -27,12 +27,33 @@
 | 9 | jury_loop retry 集成 | ⏳ |
 | 10 | delivery_pack TODO 写入 | ⏳ |
 | 11 | cmd_enhance_check 透传 | ⏳ |
-| 12 | L5 e2e marker fixture | ⏳ |
-| 13 | README 模板 + cad-tests 验收页 | ⏳ |
-| 14 | 最终验证 + 文档对齐 + retro | ⏳ |
+| 12 | L5 e2e marker fixture | ✅ |
+| 13 | README 模板 + cad-tests 验收页 | ⏸ deferred — 等下次真 e2e run 时按 spec §11 模板补到外部 `D:\Work\cad-tests\<sub>\_README.md`（仓库外不入 git）|
+| 14 | 最终验证 + 文档对齐 + retro | ✅ |
 
 ## 四、CURRENT TASK 指针
-**Task 6 完成；下 Task = Task 7 photo3d_jury 写 jury_report.json + RunVerdict aggregate。**
+**全部完成 ✅** —— Tasks 0-12 + 14 全 ✅ / Task 13 deferred（外部目录）。
+
+**最终套件：** 3180 passed / 17 skipped / 1 pre-existing fail（不在 scope，main 历史债）。
+
+**Retro：** [`docs/superpowers/reports/2026-05-13-jury-matches-spec-retro.md`](reports/2026-05-13-jury-matches-spec-retro.md)。
+
+**下一步等用户决策：**
+1. push 分支 + 开 PR + 等 CI + merge + tag v2.37.0 + Release（标准化流程，需用户确认）
+2. 或者本地 review 几个 commit 再决定
+
+### Task 13 deferred 理由
+
+Plan Step 3 字面：「cad-tests/ 是仓库外目录，本步只在外目录操作不入 git」。本 session 没跑真 e2e（没用 GEMINI_API_KEY 花钱跑 photo3d-jury 真 LLM），所以没有真实 matches_spec_features.json + jury_report 数据可填。spec §11 模板已写好备用；等下次真 e2e run 时按模板补到 `D:\Work\cad-tests\GISBOT\_README.md` + `D:\Work\cad-tests\jiehuo\_README.md` 即可。不阻断 v2.37 PR merge。
+
+### Tasks 7-12 增量决策
+
+- **Task 7**：扩展现 `PHOTO3D_JURY_REPORT.json` schema 加 3 字段（overall_matches_spec / per_view_failed_features / matches_spec_status）；schema_version 保持 1；不创建 plan 字面提到的不存在的 `cad/output/renders/jury_report.json`。
+- **Task 8**：`prompt_rewriter.hint()` 选 module-level function（v1 朴素拼接无需 class）。
+- **Task 9**：(A)+(B)+(C) 三 touch point 全实施 —— parse_view_verdict 决策升级 + single-view 接 feature cache + orchestrator 调 hint()。matches_spec_failed 进决策白名单（非 serious）；above_threshold 短路被 matches_spec_failed 覆盖（spec mismatch 与 photoreal_score 独立）。
+- **Task 10**：simplest path —— `matches_spec_status == "fail"` 直接当 blocked at delivery；DELIVERY_PACKAGE.json status 新增 "blocked" 值；TODO 在 subsystem level（不是 run level）。
+- **Task 11**：实现层选 `enhance_consistency.py::build_enhancement_report`（不是 cmd_enhance_check 本身）——quality_summary 在哪组装就在哪加 key。
+- **Task 12**：3 placeholder skip cases；marker `requires_jury_loop_e2e` pyproject.toml:94 已配；CI 自动 skip + internal `pytest.skip()` 防误跑双保险。
 
 ### Task 6 选择 + 关键决策
 
