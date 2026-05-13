@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>cad-spec-gen · 系统全景图</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0a1422;
+    --ink-2:#0d1b2e;
+    --panel:#0f2236;
+    --panel-2:#122a42;
+    --line:#1f3a55;
+    --line-soft:rgba(120,175,225,.10);
+    --text:#cfe3f5;
+    --text-dim:#7d99b4;
+    --text-faint:#52708c;
+    --cyan:#3fd0d4;
+    --cyan-deep:#1f9aa0;
+    --amber:#f5a623;
+    --green:#46d98a;
+    --rose:#f4738a;
+    --violet:#9d8bf0;
+    --paper-glow:rgba(63,208,212,.07);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:"IBM Plex Mono","SFMono-Regular",monospace;
+    background:var(--ink);
+    color:var(--text);
+    line-height:1.55;
+    font-size:14px;
+    overflow-x:hidden;
+    background-image:
+      linear-gradient(var(--line-soft) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line-soft) 1px,transparent 1px),
+      radial-gradient(ellipse 90% 60% at 50% -10%, rgba(63,208,212,.10), transparent 60%);
+    background-size:32px 32px,32px 32px,100% 100%;
+    background-attachment:fixed;
+  }
+  h1,h2,h3,h4,.disp{font-family:"Chakra Petch",sans-serif;letter-spacing:.02em}
+  a{color:var(--cyan);text-decoration:none}
+  ::selection{background:var(--cyan);color:var(--ink)}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+  section{padding:54px 0;border-bottom:1px dashed var(--line)}
+  section:last-child{border-bottom:none}
+
+  /* ---- section header ---- */
+  .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:26px;flex-wrap:wrap}
+  .shead .idx{font-family:"Chakra Petch";font-size:13px;color:var(--cyan);border:1px solid var(--cyan-deep);padding:2px 9px;border-radius:3px;letter-spacing:.12em}
+  .shead h2{font-size:24px;font-weight:600;color:#eaf4ff}
+  .shead .sub{font-size:12.5px;color:var(--text-dim);margin-left:auto}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:3px;border:1px solid;letter-spacing:.04em;white-space:nowrap}
+  .t-done{color:var(--green);border-color:rgba(70,217,138,.45);background:rgba(70,217,138,.08)}
+  .t-prog{color:var(--amber);border-color:rgba(245,166,35,.45);background:rgba(245,166,35,.08)}
+  .t-todo{color:var(--rose);border-color:rgba(244,115,138,.45);background:rgba(244,115,138,.08)}
+  .t-info{color:var(--cyan);border-color:rgba(63,208,212,.45);background:rgba(63,208,212,.07)}
+  .t-debt{color:var(--violet);border-color:rgba(157,139,240,.4);background:rgba(157,139,240,.08)}
+  .mono-s{font-size:11.5px;color:var(--text-dim)}
+  .code{font-family:"IBM Plex Mono";background:rgba(63,208,212,.08);border:1px solid var(--line);border-radius:3px;padding:1px 6px;font-size:12px;color:#bfe9ea;white-space:nowrap}
+
+  /* ============ HERO ============ */
+  .hero{padding:64px 0 50px;position:relative;border-bottom:1px solid var(--line)}
+  .hero .corner{position:absolute;width:22px;height:22px;border:1px solid var(--cyan-deep);opacity:.6}
+  .hero .c-tl{top:14px;left:0;border-right:0;border-bottom:0}
+  .hero .c-tr{top:14px;right:0;border-left:0;border-bottom:0}
+  .kicker{font-size:12px;color:var(--cyan);letter-spacing:.34em;text-transform:uppercase;margin-bottom:14px}
+  .hero h1{font-size:clamp(30px,5.4vw,58px);font-weight:700;line-height:1.05;color:#f3f9ff;text-shadow:0 0 32px rgba(63,208,212,.18)}
+  .hero h1 .accent{color:var(--cyan)}
+  .hero .tagline{margin-top:18px;font-size:clamp(14px,2vw,18px);color:var(--text-dim);max-width:760px}
+  .hero .flowline{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:22px;font-family:"Chakra Petch";font-size:13.5px}
+  .hero .flowline b{color:#eaf4ff;font-weight:600}
+  .hero .flowline .arr{color:var(--cyan);font-size:16px}
+  .hero .flowline .out{color:var(--amber);font-weight:600}
+  .stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+  .stat{flex:1;min-width:148px;border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--ink-2));border-radius:6px;padding:14px 16px;position:relative;overflow:hidden}
+  .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--cyan)}
+  .stat .v{font-family:"Chakra Petch";font-size:26px;font-weight:700;color:#fff;line-height:1}
+  .stat .k{font-size:11px;color:var(--text-dim);margin-top:6px;letter-spacing:.02em}
+  .stat.amber::before{background:var(--amber)} .stat.green::before{background:var(--green)} .stat.violet::before{background:var(--violet)}
+
+  /* ============ PIPELINE PANORAMA ============ */
+  .pipe{display:grid;grid-template-columns:repeat(6,1fr);gap:0;align-items:stretch;position:relative}
+  .pstage{position:relative;padding:0 7px}
+  .pstage .ph{font-family:"Chakra Petch";font-size:11px;letter-spacing:.16em;color:var(--cyan);margin-bottom:6px}
+  .pstage .pin{font-size:10.5px;color:var(--text-faint);min-height:30px;border-bottom:1px dotted var(--line);padding-bottom:6px;margin-bottom:8px}
+  .pstage .pin b{color:var(--text-dim)}
+  .pbox{border:1px solid var(--line);background:linear-gradient(165deg,var(--panel-2),var(--ink-2));border-radius:6px;padding:12px 12px 13px;min-height:128px;position:relative;transition:.2s}
+  .pbox:hover{border-color:var(--cyan-deep);box-shadow:0 0 0 1px var(--cyan-deep),0 8px 26px -10px rgba(63,208,212,.4);transform:translateY(-3px)}
+  .pbox .pn{position:absolute;top:-12px;left:10px;font-family:"Chakra Petch";font-size:11px;background:var(--ink);border:1px solid var(--cyan-deep);color:var(--cyan);padding:1px 7px;border-radius:3px}
+  .pbox h4{font-size:14.5px;color:#eaf4ff;margin:6px 0 5px;font-weight:600}
+  .pbox .pdesc{font-size:11px;color:var(--text-dim);line-height:1.45}
+  .pbox .pcmd{margin-top:9px;font-size:10.5px;color:#9fdcdd;background:rgba(63,208,212,.07);border:1px solid var(--line);border-radius:3px;padding:3px 6px;word-break:break-all}
+  .pstage .pout{margin-top:10px;font-size:10.5px;color:var(--text-faint)}
+  .pstage .pout .pout-t{color:var(--amber);font-family:"Chakra Petch";letter-spacing:.1em;font-size:9.5px;display:block;margin-bottom:3px}
+  .pstage .pout li{list-style:none;padding-left:11px;position:relative;margin-bottom:2px;color:#86b7c0;font-size:10.5px;word-break:break-all}
+  .pstage .pout li::before{content:"›";position:absolute;left:0;color:var(--amber)}
+  .pstage .pgate{margin-top:9px}
+  .gate-pill{display:inline-block;font-family:"Chakra Petch";font-size:9.5px;letter-spacing:.05em;border:1px solid var(--rose);color:var(--rose);background:rgba(244,115,138,.08);padding:1px 6px;border-radius:3px;margin:0 4px 4px 0;cursor:default}
+  .gate-pill.soft{border-color:var(--cyan-deep);color:var(--cyan);background:rgba(63,208,212,.07)}
+  .parr{position:absolute;top:62px;right:-1px;width:14px;height:14px;z-index:5}
+  .pipe-progress-row{display:grid;grid-template-columns:repeat(6,1fr);gap:0;margin-top:14px}
+  .ppg{padding:0 7px}
+  .ppg .bar{height:7px;border-radius:4px;background:rgba(120,175,225,.1);overflow:hidden;border:1px solid var(--line)}
+  .ppg .bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--cyan-deep),var(--cyan))}
+  .ppg .lab{font-size:10px;color:var(--text-dim);margin-top:5px;display:flex;justify-content:space-between}
+  .ppg .lab b{color:var(--cyan);font-family:"Chakra Petch"}
+  .pipe-note{margin-top:16px;font-size:11.5px;color:var(--text-faint);border-left:2px solid var(--cyan-deep);padding-left:12px}
+
+  /* ============ generic cards / grid ============ */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .card{border:1px solid var(--line);background:linear-gradient(165deg,var(--panel),var(--ink-2));border-radius:6px;padding:18px}
+  .card h3{font-size:16px;color:#eaf4ff;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .card h3 .dot{width:8px;height:8px;border-radius:50%;flex:none}
+
+  /* radar + bars area */
+  .progress-zone{display:grid;grid-template-columns:340px 1fr;gap:30px;align-items:start}
+  .radarwrap{position:relative}
+  .barlist{display:flex;flex-direction:column;gap:14px}
+  .brow{}
+  .brow .bh{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;margin-bottom:5px}
+  .brow .bh .nm{color:#dceaf7;font-family:"Chakra Petch";font-weight:500}
+  .brow .bh .nm small{color:var(--text-faint);font-family:"IBM Plex Mono";font-weight:400;margin-left:7px;font-size:10.5px}
+  .brow .bh .pct{font-family:"Chakra Petch";font-weight:700;color:var(--cyan);font-size:14px}
+  .brow .track{height:11px;background:rgba(120,175,225,.09);border:1px solid var(--line);border-radius:5px;overflow:hidden;position:relative}
+  .brow .track i{display:block;height:100%;background:linear-gradient(90deg,#1f7f84,var(--cyan));border-radius:5px;position:relative;box-shadow:0 0 14px -2px rgba(63,208,212,.5)}
+  .brow .track i::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 8px,rgba(0,0,0,.18) 8px 9px)}
+  .brow .meta{font-size:10.5px;color:var(--text-faint);margin-top:4px}
+  .overall-cards{display:flex;gap:14px;margin-top:24px;flex-wrap:wrap}
+  .ocard{flex:1;min-width:200px;border:1px dashed var(--line);border-radius:6px;padding:14px 16px;background:rgba(63,208,212,.04)}
+  .ocard .ot{font-size:11px;color:var(--text-dim);letter-spacing:.06em}
+  .ocard .ov{font-family:"Chakra Petch";font-size:32px;font-weight:700;color:#fff;margin:3px 0}
+  .ocard .od{font-size:10.5px;color:var(--text-faint)}
+  .ocard.b1 .ov{color:var(--amber)} .ocard.b2 .ov{color:var(--green)}
+
+  /* ============ user flows ============ */
+  .flow{border:1px solid var(--line);border-radius:8px;background:linear-gradient(165deg,var(--panel),var(--ink-2));padding:20px;margin-bottom:20px;position:relative;overflow:hidden}
+  .flow::before{content:attr(data-no);position:absolute;right:-6px;top:-22px;font-family:"Chakra Petch";font-size:96px;font-weight:700;color:rgba(63,208,212,.05);line-height:1}
+  .flow .ftitle{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+  .flow .ftitle .badge{font-family:"Chakra Petch";font-size:12px;background:var(--cyan);color:var(--ink);padding:2px 9px;border-radius:3px;font-weight:600}
+  .flow .ftitle h3{font-size:18px;color:#eaf4ff}
+  .flow .fwhen{font-size:12px;color:var(--text-dim);margin-bottom:14px}
+  .fchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;position:relative;z-index:1}
+  .fstep{flex:1;min-width:160px;background:var(--ink-2);border:1px solid var(--line);border-radius:5px;padding:10px 11px;margin:0 6px 12px;position:relative}
+  .fstep .fcmd{font-size:10.5px;color:#a9e3e4;word-break:break-all;line-height:1.4}
+  .fstep .fcmd b{color:#eaf4ff;font-family:"Chakra Petch";display:block;font-size:12px;margin-bottom:3px}
+  .fstep .fart{margin-top:8px;border-top:1px dotted var(--line);padding-top:7px;font-size:10px;color:var(--text-faint)}
+  .fstep .fart .fa-t{color:var(--amber);font-family:"Chakra Petch";font-size:9px;letter-spacing:.1em;display:block;margin-bottom:3px}
+  .fstep .fart span{display:block;padding-left:10px;position:relative;color:#84b6bf;word-break:break-all}
+  .fstep .fart span::before{content:"›";position:absolute;left:0;color:var(--amber)}
+  .fstep .fgate{display:inline-block;font-family:"Chakra Petch";font-size:8.5px;border:1px solid var(--rose);color:var(--rose);background:rgba(244,115,138,.09);padding:0 5px;border-radius:2px;margin-top:6px;margin-right:4px}
+  .fstep .fgate.ok{border-color:var(--green);color:var(--green);background:rgba(70,217,138,.09)}
+  .fstep::after{content:"▶";position:absolute;right:-13px;top:50%;transform:translateY(-50%);color:var(--cyan);font-size:11px;z-index:2}
+  .fstep:last-child::after{display:none}
+  .fresult{margin-top:6px;border:1px solid var(--green);border-radius:5px;background:rgba(70,217,138,.07);padding:11px 14px;font-size:12.5px;color:#cdeedd}
+  .fresult b{color:var(--green);font-family:"Chakra Petch"}
+
+  /* ============ backends ============ */
+  .btable{width:100%;border-collapse:collapse;font-size:12px}
+  .btable th,.btable td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  .btable th{background:var(--panel-2);font-family:"Chakra Petch";color:var(--cyan);font-size:11.5px;letter-spacing:.04em;font-weight:600}
+  .btable td b{color:#eaf4ff;font-family:"Chakra Petch"}
+  .btable .free{color:var(--green)} .btable .paid{color:var(--amber)}
+  .btable tr:hover td{background:rgba(63,208,212,.04)}
+  .auto-chain{margin-top:16px;font-size:11.5px;color:var(--text-dim);border-left:2px solid var(--cyan-deep);padding-left:12px}
+  .auto-chain code{color:#9fdcdd}
+
+  /* ============ why-hybrid ============ */
+  .vs{display:grid;grid-template-columns:1fr 64px 1fr;gap:0;align-items:center}
+  .vsbox{border:1px solid var(--line);border-radius:8px;padding:20px;text-align:center;background:var(--ink-2)}
+  .vsbox.bad{border-color:rgba(244,115,138,.4)}
+  .vsbox.good{border-color:rgba(70,217,138,.45);background:linear-gradient(165deg,rgba(70,217,138,.06),var(--ink-2));box-shadow:0 0 30px -12px rgba(70,217,138,.5)}
+  .vsbox .vt{font-family:"Chakra Petch";font-size:13px;letter-spacing:.06em;color:var(--text-dim);margin-bottom:8px}
+  .vsbox.bad .vt{color:var(--rose)} .vsbox.good .vt{color:var(--green)}
+  .vsbox .vbig{font-family:"Chakra Petch";font-size:46px;font-weight:700;line-height:1;margin-bottom:8px}
+  .vsbox.bad .vbig{color:var(--rose)} .vsbox.good .vbig{color:var(--green)}
+  .vsbox .vsmall{font-size:11.5px;color:var(--text-faint);line-height:1.45}
+  .vsmid{display:flex;align-items:center;justify-content:center;font-family:"Chakra Petch";font-size:13px;color:var(--cyan)}
+  .hybsteps{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;justify-content:center}
+  .hybstep{flex:1;min-width:150px;border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--ink-2);font-size:11px;color:var(--text-dim);position:relative}
+  .hybstep b{display:block;font-family:"Chakra Petch";color:#eaf4ff;font-size:12.5px;margin-bottom:4px}
+  .hybstep .num{position:absolute;top:-10px;right:9px;font-family:"Chakra Petch";font-size:10px;background:var(--ink);border:1px solid var(--cyan-deep);color:var(--cyan);border-radius:3px;padding:0 6px}
+
+  /* ============ roadmap kanban ============ */
+  .kan{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+  .kcol{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--ink-2));overflow:hidden}
+  .kcol .kh{font-family:"Chakra Petch";font-size:13px;letter-spacing:.08em;padding:11px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .kcol.done .kh{color:var(--green);background:rgba(70,217,138,.07)}
+  .kcol.now .kh{color:var(--amber);background:rgba(245,166,35,.07)}
+  .kcol.next .kh{color:var(--rose);background:rgba(244,115,138,.07)}
+  .kcol .kh .cnt{font-size:11px;opacity:.7}
+  .kitem{padding:10px 14px;border-bottom:1px dotted var(--line);font-size:11.5px;color:#bcd2e3;display:flex;gap:8px;align-items:flex-start}
+  .kitem:last-child{border-bottom:none}
+  .kitem .kp{flex:none;font-family:"Chakra Petch";font-size:9.5px;border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--text-dim);margin-top:1px;letter-spacing:.04em}
+  .kitem .kp.p1{border-color:var(--amber);color:var(--amber)}
+  .kitem .kp.p5{border-color:var(--cyan-deep);color:var(--cyan)}
+  .kitem .kp.deb{border-color:var(--violet);color:var(--violet)}
+  .kitem .kp.ph{border-color:var(--rose);color:var(--rose)}
+  .kitem .ktx b{color:#e6f1fb}
+  .kitem .kver{color:var(--green);font-size:10px}
+
+  /* ============ gates strip ============ */
+  .gates-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+  .gcard{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--ink-2);position:relative}
+  .gcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+  .gcard.hard::before{background:var(--rose)} .gcard.soft::before{background:var(--cyan)}
+  .gcard .gn{font-family:"Chakra Petch";font-size:13px;color:#eaf4ff;margin-bottom:4px}
+  .gcard .gw{font-size:10px;color:var(--text-faint);letter-spacing:.08em;font-family:"Chakra Petch";margin-bottom:7px}
+  .gcard .gd{font-size:11px;color:var(--text-dim);line-height:1.45}
+  .gcard .gx{margin-top:8px;font-size:10px;color:var(--rose)}
+  .gcard.soft .gx{color:var(--cyan)}
+
+  /* footer */
+  footer{padding:30px 0 50px;font-size:11px;color:var(--text-faint);text-align:center}
+  footer .src{margin-top:8px;color:var(--text-faint)}
+  footer code{color:#7fa8b5}
+
+  /* ============ solidworks integration ============ */
+  .sw-mini{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:22px}
+  .sw-mini .m{border:1px dashed var(--line);border-radius:5px;padding:8px 6px;text-align:center;font-family:"Chakra Petch";font-size:10.5px;color:var(--text-faint);position:relative}
+  .sw-mini .m.hit{border-style:solid;border-color:var(--cyan-deep);color:var(--cyan);background:rgba(63,208,212,.08);box-shadow:0 0 18px -8px rgba(63,208,212,.6)}
+  .sw-mini .m b{display:block;color:#cfe3f5;font-size:9px;letter-spacing:.1em}
+  .sw-mini .m.hit b{color:var(--cyan)}
+  .sw-mini .m .badge-sw{position:absolute;top:-9px;right:5px;font-size:8px;background:var(--ink);border:1px solid var(--cyan-deep);color:var(--cyan);border-radius:3px;padding:0 4px}
+  .swcols{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .swcard{border:1px solid var(--line);border-radius:8px;background:linear-gradient(165deg,var(--panel),var(--ink-2));padding:18px;position:relative;overflow:hidden}
+  .swcard::after{content:attr(data-w);position:absolute;right:-4px;bottom:-22px;font-family:"Chakra Petch";font-size:74px;font-weight:700;color:rgba(63,208,212,.045);line-height:1;letter-spacing:.04em}
+  .swcard h3{font-size:16px;color:#eaf4ff;display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  .swcard h3 .ph-chip{font-family:"Chakra Petch";font-size:10px;background:var(--cyan);color:var(--ink);border-radius:3px;padding:1px 7px;font-weight:600}
+  .swcard .swsub{font-size:11px;color:var(--text-dim);margin-bottom:14px}
+  .swstep{position:relative;padding:0 0 0 30px;margin-bottom:14px}
+  .swstep:last-child{margin-bottom:0}
+  .swstep::before{content:attr(data-n);position:absolute;left:0;top:0;width:20px;height:20px;border:1px solid var(--cyan-deep);border-radius:50%;color:var(--cyan);font-family:"Chakra Petch";font-size:11px;display:flex;align-items:center;justify-content:center;background:var(--ink)}
+  .swstep::after{content:"";position:absolute;left:9.5px;top:21px;bottom:-14px;width:1px;background:repeating-linear-gradient(180deg,var(--line) 0 4px,transparent 4px 8px)}
+  .swstep:last-child::after{display:none}
+  .swstep .st{font-family:"Chakra Petch";font-size:12.5px;color:#e6f1fb;font-weight:500}
+  .swstep .sd{font-size:11px;color:var(--text-dim);margin-top:3px;line-height:1.5}
+  .swstep .sd em{font-style:normal;color:#9fdcdd}
+  .swstep .sd .star{color:var(--amber);font-weight:700}
+  .swstep .sart{font-size:10.5px;color:var(--text-faint);margin-top:5px;border-left:2px solid var(--cyan-deep);padding-left:8px}
+  .swstep .sart b{color:var(--amber);font-family:"Chakra Petch";font-size:9px;letter-spacing:.1em}
+  .sw-zero{margin-top:22px;border:1px dashed var(--line);border-radius:8px;padding:16px 18px;background:rgba(63,208,212,.04)}
+  .sw-zero .zt{font-family:"Chakra Petch";font-size:12.5px;color:var(--cyan);margin-bottom:10px;letter-spacing:.04em}
+  .sw-zero .zchips{display:flex;flex-wrap:wrap;gap:10px}
+  .zchip{border:1px solid var(--line);border-radius:5px;padding:8px 11px;background:var(--ink-2);font-size:11px;color:var(--text-dim);flex:1;min-width:170px}
+  .zchip b{display:block;font-family:"Chakra Petch";color:#e6f1fb;font-size:12px;margin-bottom:2px}
+  @media(max-width:1080px){.sw-mini{grid-template-columns:repeat(3,1fr)}.swcols{grid-template-columns:1fr}}
+  @media(max-width:720px){.sw-mini{grid-template-columns:1fr 1fr}}
+
+
+  /* ============ live run section ============ */
+  .lr-banner{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+  .lrb-item{border:1px solid var(--line);border-radius:6px;padding:13px 15px;background:var(--ink-2);font-size:11.5px;color:var(--text-dim);line-height:1.5}
+  .lrb-item b{display:block;font-family:"Chakra Petch";font-size:12.5px;color:#e6f1fb;margin-bottom:4px}
+  .lr-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .lrcard{border:1px solid var(--line);border-radius:8px;background:linear-gradient(165deg,var(--panel),var(--ink-2));padding:18px}
+  .lrcard h3{font-size:16px;color:#eaf4ff;display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  .lrcard h3 .ph-chip{font-family:"Chakra Petch";font-size:10px;background:var(--cyan);color:var(--ink);border-radius:3px;padding:1px 7px;font-weight:600}
+  .lrsub{font-size:11px;color:var(--text-faint);margin-bottom:13px}
+  .lr-chain{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+  .lc{font-family:"Chakra Petch";font-size:10px;border:1px solid var(--line);border-radius:4px;padding:3px 7px;color:var(--text-dim);line-height:1.35}
+  .lc small{display:block;font-family:"IBM Plex Mono";font-size:8.5px;color:var(--text-faint);margin-top:1px}
+  .lc.ok{border-color:rgba(70,217,138,.5);color:var(--green);background:rgba(70,217,138,.07)}
+  .lc.ok small{color:#6fbf95}
+  .lc.warn{border-color:rgba(245,166,35,.5);color:var(--amber);background:rgba(245,166,35,.07)}
+  .lc.warn small{color:#c79338}
+  .rgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+  .rfig{margin:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#06101c}
+  .rfig img{display:block;width:100%;height:auto}
+  .rfig figcaption{font-size:9.5px;color:var(--text-dim);padding:6px 8px;border-top:1px solid var(--line);font-family:"Chakra Petch";line-height:1.3}
+  .rfig figcaption small{display:block;font-family:"IBM Plex Mono";color:var(--text-faint);font-size:8px;margin-top:2px;word-break:break-all}
+  .lr-views{font-size:10.5px;color:var(--text-faint);border-left:2px solid var(--cyan-deep);padding-left:10px;line-height:1.55}
+  @media(max-width:1080px){.lr-banner,.lr-cols{grid-template-columns:1fr}}
+  @media(max-width:720px){.rgrid{grid-template-columns:1fr}}
+
+  /* responsive */
+  @media(max-width:1080px){
+    .pipe,.pipe-progress-row{grid-template-columns:repeat(3,1fr)}
+    .parr{display:none}
+    .pstage{margin-bottom:24px}
+    .progress-zone{grid-template-columns:1fr}
+    .radarwrap{max-width:340px;margin:0 auto}
+    .grid4{grid-template-columns:1fr 1fr}
+    .kan{grid-template-columns:1fr}
+  }
+  @media(max-width:720px){
+    .pipe,.pipe-progress-row{grid-template-columns:1fr 1fr}
+    .grid2,.grid3,.grid4{grid-template-columns:1fr}
+    .vs{grid-template-columns:1fr}
+    .vsmid{padding:10px 0;transform:rotate(90deg)}
+    .fstep::after{display:none}
+    .btable{font-size:11px}
+    .btable th,.btable td{padding:7px 8px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="corner c-tl"></div><div class="corner c-tr"></div>
+  <div class="wrap">
+    <div class="kicker">CAD HYBRID RENDERING PIPELINE · 系统全景</div>
+    <h1><span class="accent">cad-spec-gen</span><br/>从 Markdown 设计文档 → 照片级 3D 图 + GB/T 工程图</h1>
+    <p class="tagline">通用 AI Skill（Claude Code / GPT / GLM / LangChain… 任意带 shell 的 LLM 均可挂载）。一条管线把「设计文档抽取 → 参数化建模 → 多视角渲染 → AI 照片级增强 → 验收交付」全部串起来，几何 100% 准确、跨视角天然一致。</p>
+
+    <div class="flowline">
+      <b>设计文档 .md</b><span class="arr">▸</span>
+      <b>CAD_SPEC.md</b><span class="arr">▸</span>
+      <b>CadQuery 代码</b><span class="arr">▸</span>
+      <b>STEP / GLB / DXF</b><span class="arr">▸</span>
+      <b>多视角 PNG</b><span class="arr">▸</span>
+      <span class="out">照片级 JPG（多视角一致）</span><span class="arr">▸</span>
+      <span class="out">交付包 + 验收页</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="v">v2.35.0</div><div class="k">最新发布 · main@6bb2737</div></div>
+      <div class="stat"><div class="v">6 阶段</div><div class="k">SPEC · CODEGEN · BUILD · RENDER · ENHANCE · DELIVER</div></div>
+      <div class="stat green"><div class="v">3116 ✓</div><div class="k">单元/集成测试通过（14 skipped）· CI 8/8 绿</div></div>
+      <div class="stat amber"><div class="v">~95%</div><div class="k">路线图完成度（SP1 jury 闭环 CP-0~8 全完工）</div></div>
+      <div class="stat violet"><div class="v">4 后端</div><div class="k">AI 增强：gemini · fal · comfyui · engineering</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 01 · PIPELINE PANORAMA ================= -->
+<section id="pipeline">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">01</span><h2>管线全景 · 6 阶段产物链</h2>
+      <span class="sub">每个阶段：输入 → 主命令 → 中间产物 → 门禁。下方为该阶段「成熟度」（看板分阶段口径）</span>
+    </div>
+
+    <div class="pipe">
+      <!-- P1 SPEC -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>设计文档</b> <span class="code">04-末端执行机构设计.md</span> 或 一句话「产品目标」</div>
+        <div class="pbox">
+          <span class="pn">P1</span><h4>SPEC · 规格抽取</h4>
+          <div class="pdesc">设计审查（力学/装配/材料/缺口）+ 抽取 9 类结构化数据 → 单一事实源。新用户也可只说产品目标，系统多轮追问 KPI。</div>
+          <div class="pcmd">cad_pipeline.py spec --design-doc &lt;doc&gt; --auto-fill</div>
+          <div class="pgate"><span class="gate-pill">GATE&nbsp;1 · CRITICAL 审查阻断</span></div>
+          <svg class="parr" viewBox="0 0 14 14"><path d="M2 1 L12 7 L2 13 Z" fill="#3fd0d4"/></svg>
+        </div>
+        <div class="pout"><span class="pout-t">中间产物</span>
+          <ul><li>DESIGN_REVIEW.md</li><li>CAD_SPEC.md（9 章节）</li><li>PROJECT_GUIDE.json / PROJECT_GOAL_STATE.json</li></ul>
+        </div>
+      </div>
+
+      <!-- P2 CODEGEN -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>CAD_SPEC.md</b> + parts_library.yaml + 模型库（STEP 缓存 / SW Toolbox / bd_warehouse…）</div>
+        <div class="pbox">
+          <span class="pn">P2</span><h4>CODEGEN · 代码生成</h4>
+          <div class="pdesc">Jinja2 模板 → CadQuery 脚手架；标准件路由（用户 STEP → 共享缓存 → SW Toolbox → 参数库 → 兜底）。脚手架不完整，需人工补命名/mate/几何。</div>
+          <div class="pcmd">cad_pipeline.py codegen --subsystem &lt;name&gt;</div>
+          <div class="pgate"><span class="gate-pill">GATE&nbsp;2 · 未填 TODO 扫描</span></div>
+          <svg class="parr" viewBox="0 0 14 14"><path d="M2 1 L12 7 L2 13 Z" fill="#3fd0d4"/></svg>
+        </div>
+        <div class="pout"><span class="pout-t">中间产物</span>
+          <ul><li>params.py · build_all.py · station_*.py</li><li>std_*.py · assembly.py</li><li>geometry_report.json（A–E 质量分级）</li></ul>
+        </div>
+      </div>
+
+      <!-- P3 BUILD -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>CadQuery 脚本</b>（已补全的 params/assembly/station 模块）</div>
+        <div class="pbox">
+          <span class="pn">P3</span><h4>BUILD · 参数化建模</h4>
+          <div class="pdesc">CadQuery 跑出 3D 装配（精确 mate）+ GB/T A3 二维图（一次投影/剖视）。run-aware 恢复 + artifact 回填 + 装配校验。</div>
+          <div class="pcmd">cad_pipeline.py build --subsystem &lt;name&gt;</div>
+          <div class="pgate"><span class="gate-pill">GATE&nbsp;3 · 朝向轴检查</span></div>
+          <svg class="parr" viewBox="0 0 14 14"><path d="M2 1 L12 7 L2 13 Z" fill="#3fd0d4"/></svg>
+        </div>
+        <div class="pout"><span class="pout-t">中间产物</span>
+          <ul><li>.step · .glb（装配）· STD-STEP（标准件）</li><li>.dxf + DXF→PNG 工程图预览</li><li>ASSEMBLY_REPORT.json · MODEL_CONTRACT.json</li></ul>
+        </div>
+      </div>
+
+      <!-- P4 RENDER -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>装配 GLB</b> + render_config.json（相机/材质/爆炸规则）+ <b>SW 外观纹理</b>（SW_TEXTURES_DIR）</div>
+        <div class="pbox">
+          <span class="pn">P4</span><h4>RENDER · 多视角渲染</h4>
+          <div class="pdesc">Blender Cycles（GPU 自动探测，CPU 兜底）渲出 N 视角 PNG（默认 5：前轴测/后斜/侧立面/爆炸/正视）。几何 100% 准确、跨视角天然一致；材质走 PBR + SW 外观贴图桥（见 §02）。</div>
+          <div class="pcmd">cad_pipeline.py render --subsystem &lt;name&gt; --timestamp</div>
+          <div class="pgate"><span class="gate-pill soft">render-visual-check</span><span class="gate-pill soft">render-quality-check</span><span class="gate-pill soft">photo3d gate</span></div>
+          <svg class="parr" viewBox="0 0 14 14"><path d="M2 1 L12 7 L2 13 Z" fill="#3fd0d4"/></svg>
+        </div>
+        <div class="pout"><span class="pout-t">中间产物</span>
+          <ul><li>V1…V5 *.png（几何准确）</li><li>render_manifest.json（绑 active_run · 含逐视角可见实例）</li><li>RENDER_VISUAL_REGRESSION.json · RENDER_QUALITY_REPORT.json</li></ul>
+        </div>
+      </div>
+
+      <!-- P5 ENHANCE -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>多视角 PNG</b> + render_manifest.json + params.py 派生材质/装配描述</div>
+        <div class="pbox">
+          <span class="pn">P5</span><h4>ENHANCE · AI 照片级增强</h4>
+          <div class="pdesc">PNG → 照片级 JPG，几何锁定、AI 只「换皮」。4 后端自动选择；fal 硬锁深度+边缘。jury（vision LLM）自动验收 + 不过自动 retry 闭环。</div>
+          <div class="pcmd">cad_pipeline.py enhance --subsystem &lt;name&gt; [--backend …]</div>
+          <div class="pgate"><span class="gate-pill soft">enhance-check</span><span class="gate-pill soft">jury（vision LLM）</span><span class="gate-pill soft">enhance-review</span></div>
+          <svg class="parr" viewBox="0 0 14 14"><path d="M2 1 L12 7 L2 13 Z" fill="#3fd0d4"/></svg>
+        </div>
+        <div class="pout"><span class="pout-t">中间产物</span>
+          <ul><li>V*_…_enhanced.png（照片级）</li><li>ENHANCEMENT_REPORT.json（accepted/preview/blocked · quality_summary）</li><li>PHOTO3D_JURY_REPORT.json · ENHANCEMENT_REVIEW_REPORT.json</li></ul>
+        </div>
+      </div>
+
+      <!-- P6 DELIVER -->
+      <div class="pstage">
+        <div class="ph">INPUT</div>
+        <div class="pin"><b>增强图 + 各阶段证据 JSON</b>（同一 active_run_id 绑定）</div>
+        <div class="pbox">
+          <span class="pn">P6</span><h4>ANNOTATE / DELIVER · 标注 & 交付</h4>
+          <div class="pdesc">PIL 加元件标签（中/英 + 引线）→ 打包当前 run 的源图/增强图/标注图/全部证据 → 外行可读的验收页（缩略图 · 质量摘要 · 复核状态 · 下一步）。</div>
+          <div class="pcmd">cad_pipeline.py annotate … &amp;&amp; photo3d-deliver --subsystem &lt;name&gt;</div>
+          <div class="pgate"><span class="gate-pill soft">accepted + quality accepted 才 final_deliverable</span></div>
+        </div>
+        <div class="pout"><span class="pout-t">最终产物</span>
+          <ul><li>V*_labeled_*.png（带元件名）</li><li>delivery/DELIVERY_PACKAGE.json（含 view_evidence）</li><li>delivery/README.md（外行验收页）</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- per-phase maturity bars -->
+    <div class="pipe-progress-row">
+      <div class="ppg"><div class="bar"><i style="width:87%"></i></div><div class="lab"><span>P1 SPEC</span><b>87%</b></div></div>
+      <div class="ppg"><div class="bar"><i style="width:86%"></i></div><div class="lab"><span>P2 CODEGEN</span><b>86%</b></div></div>
+      <div class="ppg"><div class="bar"><i style="width:76%"></i></div><div class="lab"><span>P3 BUILD</span><b>76%</b></div></div>
+      <div class="ppg"><div class="bar"><i style="width:82%"></i></div><div class="lab"><span>P4 RENDER</span><b>82%</b></div></div>
+      <div class="ppg"><div class="bar"><i style="width:86%"></i></div><div class="lab"><span>P5 ENHANCE</span><b>86%</b></div></div>
+      <div class="ppg"><div class="bar"><i style="width:67%"></i></div><div class="lab"><span>P6 DELIVER</span><b>67%</b></div></div>
+    </div>
+    <div class="pipe-note">门禁说明：<span class="tag t-todo" style="margin:0 4px">红 = 硬阻断（exit≠0，需用户确认/修复）</span><span class="tag t-info" style="margin:0 4px">青 = 软门禁/证据层（只读校验，低对比度等只给 warning，不冒充已验证）</span> · 所有产物 JSON 绑定同一 <span class="code">active_run_id</span>，门禁不猜目录、不补 CAD 缺失。</div>
+  </div>
+</section>
+
+<!-- ================= 02 · SOLIDWORKS ================= -->
+<section id="solidworks">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">02</span><h2>SolidWorks 集成 · 模型 &amp; 材质用在哪里</h2>
+      <span class="sub">SW 在管线里出现在两处：① P2 当标准件「模型源」 · ② P4/P5 当材质/外观「贴图源」。再加一层零配置「装即用」检测/预检。本机 SW 为 Premium 版（Toolbox/API/授权齐全）</span>
+    </div>
+
+    <!-- mini pipeline showing where SW touches -->
+    <div class="sw-mini">
+      <div class="m"><b>P1</b>SPEC</div>
+      <div class="m hit"><span class="badge-sw">模型</span><b>P2</b>CODEGEN</div>
+      <div class="m"><b>P3</b>BUILD</div>
+      <div class="m hit"><span class="badge-sw">材质</span><b>P4</b>RENDER</div>
+      <div class="m hit"><span class="badge-sw">材质</span><b>P5</b>ENHANCE</div>
+      <div class="m"><b>P6</b>DELIVER</div>
+    </div>
+
+    <div class="swcols">
+      <!-- LEFT: model source -->
+      <div class="swcard" data-w="MODEL">
+        <h3><span class="ph-chip">P2 · CODEGEN</span> SW Toolbox → 标准件几何</h3>
+        <div class="swsub">让购买件/标准件用真实 SolidWorks 模型，而不是简化的 CadQuery 形状</div>
+
+        <div class="swstep" data-n="1">
+          <div class="st">SW Toolbox <span class="code">*.sldprt</span> 经 COM 导出为 STEP</div>
+          <div class="sd">适配器 <em>adapters/parts/sw_toolbox_adapter.py</em>；多尺寸件（一个 sldprt 出多规格）由 <em>sw_config_broker</em>（<span class="star">ShowConfiguration2</span>）逐配置展开。</div>
+        </div>
+        <div class="swstep" data-n="2">
+          <div class="st">批量预热进共享 STEP 缓存</div>
+          <div class="sd"><em>cad_pipeline.py sw-warmup</em> 把 Toolbox 件批量转 STEP 进 <span class="code">~/.cad-spec-gen/step_cache/</span>（GB 330 件已缓存约 328/330），新项目零手工 YAML 也能命中真实模型。</div>
+          <div class="sart"><b>产物</b> step_cache/ 真实 STEP · sw-warmup-smoke.log</div>
+        </div>
+        <div class="swstep" data-n="3">
+          <div class="st">parts_resolver 按优先级选模型</div>
+          <div class="sd">用户/项目 STEP → 共享 STEP 缓存 → <span class="star">★ SW Toolbox ★</span> → bd_warehouse → PartCAD → CadQuery 兜底（jinja_primitive，永远最后）。命中即返回。</div>
+          <div class="sart"><b>产物</b> std_*.py（真实 SW 几何）· geometry_report.json（A–E 质量分级，标出仍是 C/D/E 兜底的件）· resolve_report（路由结果，可在 sw_report.html 看）</div>
+        </div>
+        <div class="swstep" data-n="4">
+          <div class="st">诊断 / 只读计划</div>
+          <div class="sd"><em>cad_pipeline.py sw-inspect</em>（<span class="code">--deep</span> 启 COM 查环境/索引/材质/产物）· <em>sw-export-plan</em>（只读生成 Toolbox STEP 导出候选计划）· <em>sw-toolbox-e2e</em>（真实 Toolbox → STEP → codegen 消费端到端验收）。</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: material source -->
+      <div class="swcard" data-w="TEXTURE">
+        <h3><span class="ph-chip">P4 · RENDER → P5 · ENHANCE</span> SW 外观库 → PBR 材质</h3>
+        <div class="swsub">让 Blender 渲染和 AI 增强都用 SolidWorks 的外观/纹理，不是凭空捏的材质</div>
+
+        <div class="swstep" data-n="1">
+          <div class="st">SW 外观库纹理图片 → 环境变量</div>
+          <div class="sd"><em>cmd_render</em> 把 <span class="code">SwInfo.textures_dir</span> 写进 <span class="code">SW_TEXTURES_DIR</span> 环境变量（也接受 <span class="code">CAD_SPEC_GEN_TEXTURE_DIR</span>）。</div>
+        </div>
+        <div class="swstep" data-n="2">
+          <div class="st">render_3d.py 解析贴图路径</div>
+          <div class="sd"><em>_resolve_texture_path()</em>：绝对路径直用，相对路径靠上面的 env 找；miss 只 <span class="code">log.warning</span> + 退回标量颜色，不抛。</div>
+        </div>
+        <div class="swstep" data-n="3">
+          <div class="st">create_pbr_material 挂 4 类 PBR 贴图</div>
+          <div class="sd">base color / roughness / normal / metallic 四类贴图节点接进 Blender 材质；运行时还能用 <span class="star">sw_texture_backfill</span> + <span class="code">load_runtime_materials_override</span>（env JSON）回填 SW 外观。</div>
+          <div class="sart"><b>产物</b> Blender Cycles 渲染的多视角 PNG（材质带 SW 外观）</div>
+        </div>
+        <div class="swstep" data-n="4">
+          <div class="st">统一 MATERIAL_PRESETS：一份外观喂两端</div>
+          <div class="sd">同一份 <span class="code">MATERIAL_PRESETS</span> 既驱动 Blender PBR，又生成 AI enhance 的 prompt（含视角感知的 Fresnel/高光）→ <span class="star">SW 外观一路传到照片级 JPG</span>，多视角一致。</div>
+          <div class="sart"><b>产物</b> *_enhanced.png（照片级，材质继承 SW 外观）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- zero-config layer -->
+    <div class="sw-zero">
+      <div class="zt">⊕ 零配置「SW 装即用」检测 / 预检层（横跨各阶段）</div>
+      <div class="zchips">
+        <div class="zchip"><b>sw_detect</b>winreg 探测 SW 安装路径、版本、edition（本机 → premium/professional）</div>
+        <div class="zchip"><b>sw_preflight/</b>体检 + 一键修：Toolbox 索引、材质矩阵 M、缓存、用户提供件、HTML 报告</div>
+        <div class="zchip"><b>cad_pipeline.py env-check</b>校验 Python / CadQuery / Blender / SW 等环境是否就绪</div>
+        <div class="zchip"><b>sw-inspect / sw_config_broker</b>COM 深度诊断 · 多规格件配置广播 · 三层缓存 + prewarm</div>
+      </div>
+    </div>
+
+    <div class="pipe-note">注：SW 是<strong>可选增强源</strong>而非硬依赖——没装 SW 时 resolver 自动退到 STEP 缓存 / bd_warehouse / PartCAD / CadQuery 兜底，材质退回标量颜色，管线照常跑完，只是部分件几何质量降到 C/D/E、材质少了真实贴图。所有 SW 接入点都有 env kill switch + conftest autouse 默认禁用（防 modal 卡 CI）。</div>
+  </div>
+</section>
+
+<!-- ================= 03 · PROGRESS ================= -->
+<section id="progress">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">03</span><h2>进度情况</h2>
+      <span class="sub">两个口径：分阶段「成熟度」（代码/测试/文档稳固度）· 路线图「完成度」（计划项落地比例）</span>
+    </div>
+
+    <div class="progress-zone">
+      <!-- radar -->
+      <div class="radarwrap">
+        <svg viewBox="0 0 300 300" width="100%">
+          <!-- grid hexagons -->
+          <polygon points="150,30 253.9,90 253.9,210 150,270 46.1,210 46.1,90" fill="none" stroke="#1f3a55" stroke-width="1"/>
+          <polygon points="150,60 227.9,105 227.9,195 150,240 72.1,195 72.1,105" fill="none" stroke="#1f3a55" stroke-width="1" stroke-dasharray="2 3"/>
+          <polygon points="150,90 201.96,120 201.96,180 150,210 98.04,180 98.04,120" fill="none" stroke="#1f3a55" stroke-width="1" stroke-dasharray="2 3"/>
+          <polygon points="150,120 175.98,135 175.98,165 150,180 124.02,165 124.02,135" fill="none" stroke="#1f3a55" stroke-width="1" stroke-dasharray="2 3"/>
+          <!-- axes -->
+          <g stroke="#1f3a55" stroke-width="1">
+            <line x1="150" y1="150" x2="150" y2="30"/><line x1="150" y1="150" x2="253.9" y2="90"/>
+            <line x1="150" y1="150" x2="253.9" y2="210"/><line x1="150" y1="150" x2="150" y2="270"/>
+            <line x1="150" y1="150" x2="46.1" y2="210"/><line x1="150" y1="150" x2="46.1" y2="90"/>
+          </g>
+          <!-- data polygon: P1 87 / P2 86 / P3 76 / P4 82 / P5 86 / P6 67 -->
+          <polygon points="150,45.6 239.4,98.4 229,195.6 150,248.4 60.6,201.6 80.4,109.8"
+            fill="rgba(63,208,212,.16)" stroke="#3fd0d4" stroke-width="2"/>
+          <g fill="#3fd0d4">
+            <circle cx="150" cy="45.6" r="3.5"/><circle cx="239.4" cy="98.4" r="3.5"/><circle cx="229" cy="195.6" r="3.5"/>
+            <circle cx="150" cy="248.4" r="3.5"/><circle cx="60.6" cy="201.6" r="3.5"/><circle cx="80.4" cy="109.8" r="3.5"/>
+          </g>
+          <!-- axis labels -->
+          <g font-family="Chakra Petch" font-size="11" fill="#9fc2db">
+            <text x="150" y="22" text-anchor="middle">P1 SPEC · 87%</text>
+            <text x="262" y="86" text-anchor="start">P2 · 86%</text>
+            <text x="262" y="218" text-anchor="start">P3 · 76%</text>
+            <text x="150" y="286" text-anchor="middle">P4 RENDER · 82%</text>
+            <text x="38" y="218" text-anchor="end">P5 · 86%</text>
+            <text x="38" y="86" text-anchor="end">P6 · 67%</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- bars -->
+      <div class="barlist">
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 1 — SPEC <small>规格抽取 + 设计审查</small></span><span class="pct">87%</span></div>
+          <div class="track"><i style="width:87%"></i></div>
+          <div class="meta">✓ 结构化章节 · 审查门禁 · 模型选择补充 · 设计文档入口确认　|　待办 → 产品目标自然语言入口继续前移、缺失参数回填更稳</div>
+        </div>
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 2 — CODEGEN <small>CadQuery 代码 + BOM 路由 + 标准件</small></span><span class="pct">86%</span></div>
+          <div class="track"><i style="width:86%"></i></div>
+          <div class="meta">✓ 模型库 resolver · 五批常用模型族 · 准入清单 · 模型质量摘要用户化　|　待办 → 继续扩展跨产品高频件、减少 C/D/E 兜底</div>
+        </div>
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 3 — BUILD <small>STEP/GLB/工程图 + 构建证据</small></span><span class="pct">76%</span></div>
+          <div class="track"><i style="width:76%"></i></div>
+          <div class="meta">✓ run-aware recover · artifact backfill · 装配校验　|　待办 → 更多失败恢复与边界、向导里把构建结果讲清楚</div>
+        </div>
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 4 — RENDER <small>Blender 多视角 + 视觉/像素契约</small></span><span class="pct">82%</span></div>
+          <div class="track"><i style="width:82%"></i></div>
+          <div class="meta">✓ 路径契约 · run 绑定 · 视觉/元件一致性门禁 · Blender 预检 · 逐视角可见实例证据　|　待办 → 视角/灯光/材质策略、更接近人眼的画面质量复核</div>
+        </div>
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 5 — ENHANCE <small>照片级增强 + 多层验收</small></span><span class="pct">86%</span></div>
+          <div class="track"><i style="width:86%"></i></div>
+          <div class="meta">✓ provider 选择 · 增强闭环 · 同 run 一致性验收 · jury vision LLM 自动验收 + retry 闭环 · 语义/材质复核证据　|　待办 → 真实 AI backend adapter 准入</div>
+        </div>
+        <div class="brow">
+          <div class="bh"><span class="nm">Phase 6 — ANNOTATE / DELIVER <small>标注 + 最终交付包</small></span><span class="pct">67%</span></div>
+          <div class="track"><i style="width:67%"></i></div>
+          <div class="meta">✓ active-run 交付包 · 增强状态/质量/复核/模型质量同 run 绑定 · 外行验收页 README + view_evidence　|　待办 → 缩略图渲染、报告更直观、向导里讲清「可交付/只能预览/被阻断」原因</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="overall-cards">
+      <div class="ocard b1">
+        <div class="ot">管线成熟度（看板分阶段加权）</div>
+        <div class="ov">~81%</div>
+        <div class="od">P1–P6 平均；最大缺口在 P6 交付可视化 / P3 失败恢复 / P4 灯光材质策略</div>
+      </div>
+      <div class="ocard b2">
+        <div class="ot">路线图完成度（计划项落地比例）</div>
+        <div class="ov">~95%</div>
+        <div class="od">v2.31→v2.35 已合并：逐视角可见实例证据（队列C）· 交付验收页（队列D）· SP1 jury→prompt 闭环 CP-0~CP-8 全完工 · ruff/mypy 历史债队列 A</div>
+      </div>
+      <div class="ocard">
+        <div class="ot">测试 / CI</div>
+        <div class="ov" style="color:var(--cyan)">3116 ✓</div>
+        <div class="od">全套件通过（14 skipped）· CI 8/8 绿（Linux 3.10/3.11/3.12 + Windows 3.10/3.11/3.12 + mypy-strict + regression）· 2 个 implemented 子系统：end_effector / lifting_platform</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 · USER FLOWS ================= -->
+<section id="flows">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">04</span><h2>用户使用流程 · 走哪条得到什么</h2>
+      <span class="sub">每个步骤标注「命令 → 该步产出的中间产物 → 触发的门禁」；末端绿框是这条流程的成果</span>
+    </div>
+
+    <!-- FLOW A -->
+    <div class="flow" data-no="A">
+      <div class="ftitle"><span class="badge">流程 A</span><h3>我有一份设计文档 .md，想要照片级·多视角一致的 3D 图（完整管线）</h3></div>
+      <div class="fwhen">最常见路径 · 6 阶段全跑 · 中间会有人工补全 CadQuery 脚手架的环节</div>
+      <div class="fchain">
+        <div class="fstep"><div class="fcmd"><b>① spec</b>cad_pipeline.py spec --design-doc &lt;doc&gt; --auto-fill</div>
+          <div class="fart"><span class="fa-t">产出</span><span>DESIGN_REVIEW.md</span><span>CAD_SPEC.md</span></div><span class="fgate">GATE 1</span></div>
+        <div class="fstep"><div class="fcmd"><b>② codegen</b>cad_pipeline.py codegen --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>params/build_all/station_*/std_*/assembly.py</span><span>geometry_report.json</span></div><span class="fgate">GATE 2</span><span class="fgate ok">人工补全脚手架</span></div>
+        <div class="fstep"><div class="fcmd"><b>③ build</b>cad_pipeline.py build --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>.step · .glb · .dxf + DXF-PNG</span><span>ASSEMBLY_REPORT.json · MODEL_CONTRACT.json</span></div><span class="fgate">GATE 3</span></div>
+        <div class="fstep"><div class="fcmd"><b>④ render</b>cad_pipeline.py render --subsystem &lt;name&gt; --timestamp</div>
+          <div class="fart"><span class="fa-t">产出</span><span>V1…V5 *.png（几何 100%）</span><span>render_manifest.json</span></div><span class="fgate ok">render-visual / quality-check</span></div>
+        <div class="fstep"><div class="fcmd"><b>⑤ enhance</b>cad_pipeline.py enhance --subsystem &lt;name&gt; [--backend …]</div>
+          <div class="fart"><span class="fa-t">产出</span><span>V*_…_enhanced.png（照片级）</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>⑥ enhance-check + jury</b>cad_pipeline.py enhance-check --dir &lt;run&gt;　·　cad_pipeline.py jury</div>
+          <div class="fart"><span class="fa-t">产出</span><span>ENHANCEMENT_REPORT.json（accepted/preview/blocked）</span><span>PHOTO3D_JURY_REPORT.json（5 boolean + photoreal_score）</span></div><span class="fgate ok">jury 不过 → 自动 retry 闭环（gemini_chat_image）</span></div>
+        <div class="fstep"><div class="fcmd"><b>⑦ enhance-review + annotate</b>--review-input &lt;json&gt;　·　annotate --lang cn,en</div>
+          <div class="fart"><span class="fa-t">产出</span><span>ENHANCEMENT_REVIEW_REPORT.json.semantic_material_review</span><span>V*_labeled_*.png</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>⑧ deliver</b>cad_pipeline.py photo3d-deliver --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>delivery/DELIVERY_PACKAGE.json（含 view_evidence）</span><span>delivery/README.md（外行验收页）</span></div></div>
+      </div>
+      <div class="fresult">✅ <b>成果</b>：一份可交付的「照片级 + 多视角一致 + 带元件标注 + 全证据链」的 3D 图包 — 只有 <span class="code">delivery_status=accepted</span> 且 <span class="code">quality_summary=accepted</span>（及未被语义复核否决）时 <span class="code">final_deliverable=true</span>。同时也得到了 machining-ready 的 <b>STEP + GB/T 工程图 DXF</b>。</div>
+    </div>
+
+    <!-- FLOW B -->
+    <div class="flow" data-no="B">
+      <div class="ftitle"><span class="badge">流程 B</span><h3>我是外行用户，只会说「做个升降平台，承重 50kg」</h3></div>
+      <div class="fwhen">v2.31.0+ 多轮渐进确认 · 不必一次说全 KPI，系统主动追问 · 状态记到 ./PROJECT_GOAL_STATE.json</div>
+      <div class="fchain">
+        <div class="fstep"><div class="fcmd"><b>① 起手</b>cad_pipeline.py project-guide --product-goal "做升降平台"</div>
+          <div class="fart"><span class="fa-t">产出</span><span>status = needs_kpi_confirmation</span><span>PROJECT_GOAL_STATE.json（异步状态机）</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>② 续答（可重复 / 可一次多个）</b>project-guide --resume --answer load_kg=50 --answer stroke_mm=800 --answer platform_size_mm=600x600</div>
+          <div class="fart"><span class="fa-t">产出</span><span>每轮更新 state · 仍缺的 KPI 继续追问</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>③ 全 KPI 齐</b>自动删 state</div>
+          <div class="fart"><span class="fa-t">产出</span><span>status = ready_for_cad_spec</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>④ 接入流程 A</b>→ spec → codegen → build → render → enhance → deliver</div>
+          <div class="fart"><span class="fa-t">产出</span><span>同流程 A</span></div></div>
+      </div>
+      <div class="fresult">✅ <b>成果</b>：外行用户只回答「业务语义」（承重/行程/台面尺寸），不碰任何技术选型，系统接力到流程 A 出最终图。<span class="mono-s">（北极星：零配置 · 装即用 · 傻瓜式）</span></div>
+    </div>
+
+    <!-- FLOW C -->
+    <div class="flow" data-no="C">
+      <div class="ftitle"><span class="badge">流程 C</span><h3>渲染图已经有了，我只想「一条命令跑完照片级验收闭环」</h3></div>
+      <div class="fwhen">v2.28.0+ photo3d-handoff · 默认只预览，加 --confirm 才实跑 · 详见 docs/cad-jury-config.md</div>
+      <div class="fchain">
+        <div class="fstep"><div class="fcmd"><b>① 预览（不执行）</b>cad_pipeline.py photo3d-handoff --subsystem &lt;name&gt; --with-jury</div>
+          <div class="fart"><span class="fa-t">产出</span><span>PHOTO3D_HANDOFF.json（要跑什么 + 外行可读的下一步清单）</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>② 实跑闭环</b>… --with-jury --confirm</div>
+          <div class="fart"><span class="fa-t">产出</span><span>enhance → enhance-check → jury → enhance-review 一气呵成</span><span>post_handoff_photo3d_run = accepted/preview/blocked</span></div><span class="fgate ok">.handoff.lock 防同机并发 · step 0.5 jury config 预检防白花钱</span></div>
+        <div class="fstep"><div class="fcmd"><b>③（可选）deliver</b>photo3d-deliver --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>delivery/ 验收页 + 交付包</span></div></div>
+      </div>
+      <div class="fresult">✅ <b>成果</b>：不用手拼下一条命令，也不用手抄 5 个 boolean 进 enhance-review —— 一条命令拿到「能否交付 + 为什么 + 下一步」。</div>
+    </div>
+
+    <!-- FLOW D -->
+    <div class="flow" data-no="D">
+      <div class="ftitle"><span class="badge">流程 D</span><h3>我只要 2D 工程图 / STEP（不要照片级渲染）</h3></div>
+      <div class="fwhen">只跑前 3 阶段 · 适合「先要可加工图纸」的场景</div>
+      <div class="fchain">
+        <div class="fstep"><div class="fcmd"><b>① spec</b>cad_pipeline.py spec --design-doc &lt;doc&gt; --auto-fill</div>
+          <div class="fart"><span class="fa-t">产出</span><span>CAD_SPEC.md</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>② codegen</b>cad_pipeline.py codegen --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>CadQuery 脚手架 + geometry_report.json</span></div></div>
+        <div class="fstep"><div class="fcmd"><b>③ build</b>cad_pipeline.py build --subsystem &lt;name&gt;</div>
+          <div class="fart"><span class="fa-t">产出</span><span>.step · .glb</span><span>.dxf（GB/T A3 · 一次投影 · FangSong · 12 图层 · 0.5mm 线宽）+ DXF-PNG</span></div></div>
+      </div>
+      <div class="fresult">✅ <b>成果</b>：machining-ready 的 STEP + 符合国标的二维工程图 DXF（三视图 + 剖视 + 基准/粗糙度标注）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 04 · WHY HYBRID ================= -->
+<section id="why">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">05</span><h2>预期效果 · 为什么是「混合渲染」</h2>
+      <span class="sub">关键洞察：几何先用 Blender 锁死，AI 只换皮 → 准确性 & 一致性是「继承」的，不是 AI 猜的</span>
+    </div>
+    <div class="vs">
+      <div class="vsbox bad">
+        <div class="vt">纯文生图（text → image）</div>
+        <div class="vbig">~42%</div>
+        <div class="vsmall">几何准确率<br/>多视角之间互相矛盾、零件数量飘忽、尺寸比例不可控</div>
+      </div>
+      <div class="vsmid">VS</div>
+      <div class="vsbox good">
+        <div class="vt">本系统 · Blender 先锁几何 + AI 换皮</div>
+        <div class="vbig">~100%</div>
+        <div class="vsmall">几何准确率 · 跨视角天然一致<br/>5 个视角来自<b>同一个</b> 3D 源，AI 只改表面材质/光影</div>
+      </div>
+    </div>
+    <div class="hybsteps">
+      <div class="hybstep"><span class="num">1</span><b>精确建模</b>CadQuery 参数化建出真实 STEP/GLB，标准件优先用真实模型库</div>
+      <div class="hybstep"><span class="num">2</span><b>Blender 渲多视角</b>Cycles 渲出 N 视角 PNG，几何 100% 准确，相机角度写进 manifest</div>
+      <div class="hybstep"><span class="num">3</span><b>四层一致性防御</b>相机方位角写进 prompt · 源图放第一张锁构图 · V1 结果当 V2-VN 材质锚 · 源 PNG 全分辨率送入</div>
+      <div class="hybstep"><span class="num">4</span><b>AI 只 reskin</b>gemini 软锁 / fal·comfyui 用 ControlNet 深度+边缘硬锁 → 输出照片级，几何不动</div>
+      <div class="hybstep"><span class="num">5</span><b>多层验收</b>enhance-check（确定性质量）→ jury（vision LLM 语义/材质）→ enhance-review（人工/LLM 复核）→ deliver（同 run 证据绑定）</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 05 · BACKENDS ================= -->
+<section id="backends">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">06</span><h2>AI 增强后端 · 4 选 1</h2>
+      <span class="sub">自动探测：FAL_KEY → fal · ComfyUI 在跑 → comfyui · Gemini 配置在 → gemini · 都没有 → engineering</span>
+    </div>
+    <table class="btable">
+      <thead><tr><th style="width:14%">后端</th><th style="width:11%">成本</th><th style="width:13%">运行位置</th><th style="width:20%">几何锁定方式</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr><td><b>gemini</b></td><td class="paid">~$0.02 / 图</td><td>云</td><td>软锁（prompt + 源图首位 + V1 锚 + 全分辨率）</td><td>性价比首选；提案/答辩出图，质感好、成本低</td></tr>
+        <tr><td><b>fal</b></td><td class="paid">~$0.20 / 图</td><td>云（fal.ai Flux）</td><td>硬锁（ControlNet 深度 + 边缘）</td><td>对几何零容忍、要求严格贴合渲染图的场景</td></tr>
+        <tr><td><b>comfyui</b></td><td class="free">免费</td><td>本地 GPU</td><td>硬锁（本地 ControlNet 深度 + 边缘）</td><td>有本地 GPU、要免费 + 硬锁、批量出图</td></tr>
+        <tr><td><b>engineering</b></td><td class="free">免费</td><td>本地（无 AI）</td><td>完美（Blender PBR 直接渲成 JPG）</td><td>不要 AI、要 100% 几何保真的工程预览；任何环境兜底</td></tr>
+      </tbody>
+    </table>
+    <div class="auto-chain">降级链：<code>fal → gemini → engineering</code>（中途降级后整批锁定该后端以保一致性）· 增强永远跳过 <code>*_enhanced.*</code> 防重复处理 · 永久切换：<code>pipeline_config.json &gt; enhance.backend</code></div>
+  </div>
+</section>
+
+<!-- ================= 06 · QUALITY GATES ================= -->
+<section id="gates">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">07</span><h2>质量门禁 · 全链条卡点</h2>
+      <span class="sub">硬门禁会让管线 exit≠0 必须处理；软门禁只读校验、写证据 JSON，不冒充「已验证」</span>
+    </div>
+    <div class="gates-strip">
+      <div class="gcard hard"><div class="gn">GATE 1 · CRITICAL 审查</div><div class="gw">PHASE · SPEC</div><div class="gd">cad_spec_reviewer.py 发现 CRITICAL（力学/装配/材料/缺口）→ 阻断 SPEC 阶段，需用户确认或修改</div><div class="gx">exit ≠ 0</div></div>
+      <div class="gcard hard"><div class="gn">GATE 2 · TODO 扫描</div><div class="gw">PHASE · CODEGEN</div><div class="gd">生成的脚手架文件里还有未填的 <code>TODO:</code> 标记 → 列出 file:line</div><div class="gx">exit = 2</div></div>
+      <div class="gcard hard"><div class="gn">GATE 3 · 朝向轴检查</div><div class="gw">PHASE · BUILD（前）</div><div class="gd">orientation_check.py 断言包围盒主轴与设计文档一致；脚本不存在则跳过（新子系统非强制）</div><div class="gx">exit ≠ 0 · 可 --skip-orientation</div></div>
+      <div class="gcard soft"><div class="gn">photo3d gate</div><div class="gw">PHASE · RENDER → ENHANCE</div><div class="gd">增强前的契约门禁，确保用当前 run 的渲染图、不混旧图/旧路径/旧 run</div><div class="gx">证据层</div></div>
+      <div class="gcard soft"><div class="gn">render-visual-check</div><div class="gw">PHASE · RENDER</div><div class="gd">读 active_run_id，比对当前 run 的视角/渲染文件/哈希链/装配实例/baseline；有逐视角实例证据时比对可见实例集合</div><div class="gx">→ RENDER_VISUAL_REGRESSION.json</div></div>
+      <div class="gcard soft"><div class="gn">render-quality-check</div><div class="gw">PHASE · RENDER</div><div class="gd">读 active run + manifest，检查 blender_preflight、渲染文件路径/hash/基础 QA，算逐视角 pixel_metrics</div><div class="gx">→ RENDER_QUALITY_REPORT.json</div></div>
+      <div class="gcard soft"><div class="gn">enhance-check</div><div class="gw">PHASE · ENHANCE</div><div class="gd">要求增强图与源图/视角/render dir 一致，每视角恰好一张 *_enhanced.*；写 quality_summary（画布/占用率/亮度/对比度/饱和度）</div><div class="gx">accepted / preview / blocked</div></div>
+      <div class="gcard soft"><div class="gn">jury（vision LLM）</div><div class="gw">PHASE · ENHANCE</div><div class="gd">把增强后多视角图发 OpenAI 兼容 vision LLM 自动验收：5 boolean + photoreal_score；不过 → 自动 retry 闭环（gemini_chat_image）</div><div class="gx">→ PHOTO3D_JURY_REPORT.json</div></div>
+      <div class="gcard soft"><div class="gn">enhance-review</div><div class="gw">PHASE · ENHANCE → DELIVER</div><div class="gd">摄入显式人工/LLM 复核证据（geometry_preserved / material_consistent / photorealistic / no_extra_parts / no_missing_parts），绑定 active run + manifest + report 的 sha256</div><div class="gx">→ semantic_material_review</div></div>
+      <div class="gcard soft"><div class="gn">photo3d-deliver 准出</div><div class="gw">PHASE · DELIVER</div><div class="gd">默认只有 delivery_status=accepted 且 quality_summary=accepted（且未被语义复核否决）才复制最终图、标 final_deliverable=true；否则只写证据报告</div><div class="gx">final_deliverable = true / false</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 07 · ROADMAP ================= -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">08</span><h2>要做的工作 · 路线图看板</h2>
+      <span class="sub">P1–P6 = 受益 Phase · DEBT = 技术债 · 已合并到 v2.35.0 的近期批次列在「已完成」</span>
+    </div>
+    <div class="kan">
+      <!-- DONE -->
+      <div class="kcol done">
+        <div class="kh">✓ 近期已完成（v2.31→v2.35）<span class="cnt">7</span></div>
+        <div class="kitem"><span class="kp p1">P1</span><span class="ktx"><b>产品目标多轮渐进确认</b> — project-guide --product-goal/--resume，外行不必一次说全 KPI <span class="kver">v2.31.0</span></span></div>
+        <div class="kitem"><span class="kp p5">P5</span><span class="ktx"><b>SP1 jury→prompt 闭环 CP-0~CP-8</b> — jury 不过自动 retry、视角级 hook、单视角 CLI、L3/L4 契约 <span class="kver">v2.32.0 → v2.34.1</span></span></div>
+        <div class="kitem"><span class="kp ph">P4</span><span class="ktx"><b>渲染逐视角可见实例证据</b>（队列 C）— render_manifest 多视角 visible_instance_ids，契约层据此 block 少件 <span class="kver">PR #73 · v2.35.0</span></span></div>
+        <div class="kitem"><span class="kp ph">P6</span><span class="ktx"><b>交付外行验收页</b>（队列 D）— delivery/README.md 重写成外行验收页 + DELIVERY_PACKAGE.json 加 view_evidence 字段 <span class="kver">PR #74 · v2.35.0</span></span></div>
+        <div class="kitem"><span class="kp deb">DEBT</span><span class="ktx"><b>ruff/mypy 历史债队列 A</b> — F401/F841/F541/E402 清理 + mypy-strict CI gate 扩展（enhance_consistency / render_qa / path_policy / view_instance_evidence） <span class="kver">v2.35.0</span></span></div>
+        <div class="kitem"><span class="kp p5">P5</span><span class="ktx"><b>photo3d 一条命令验收闭环</b> — photo3d-handoff --with-jury / autopilot 自动检测 jury config / 语义材质复核 / 最终交付包 <span class="kver">v2.27 → v2.30</span></span></div>
+        <div class="kitem"><span class="kp p2">P2</span><span class="ktx"><b>模型库第五批 + 准入清单 + 模型质量摘要用户化</b> — 方形法兰伺服/行星减速机/拖链/DIN 继电器/按钮盒；model-audit 按零件展示真实模型 vs B/C/D 兜底 <span class="kver">v2.x</span></span></div>
+      </div>
+      <!-- NOW -->
+      <div class="kcol now">
+        <div class="kh">▸ 进行中 / 下一步候选<span class="cnt">3</span></div>
+        <div class="kitem"><span class="kp p1">P1</span><span class="ktx"><b>新用户入口继续前移</b> — 把「产品目标 + 设计文档 + 缺失参数」串成更少提问、多确认的项目向导；系统按 Phase 给下一步并解释当前缺什么</span></div>
+        <div class="kitem"><span class="kp p5">P5</span><span class="ktx"><b>真实 AI backend adapter 准入</b>（队列 E）— gpt-image-2-pro 等云后端：配置隔离 + 白名单 + 同 run 验收 + 多视角一致性测试，不能把 URL/key/model 直接塞进 enhance-review</span></div>
+        <div class="kitem"><span class="kp deb">DEBT</span><span class="ktx"><b>全仓 ruff 分批清</b> — 剩 ~360 处 out-of-scope ruff 错，按主题分批 cleanup PR（不扩大单 PR scope）</span></div>
+      </div>
+      <!-- NEXT -->
+      <div class="kcol next">
+        <div class="kh">○ 待排期（按 Phase）<span class="cnt">6</span></div>
+        <div class="kitem"><span class="kp deb">DEBT</span><span class="ktx"><b>队列 B3 · N-16 命名统一</b> — 跨模块命名一致性</span></div>
+        <div class="kitem"><span class="kp deb">DEBT</span><span class="ktx"><b>队列 B4 · N-15 跳过扩展</b> — 跳过/排除规则扩展</span></div>
+        <div class="kitem"><span class="kp ph">P3</span><span class="ktx"><b>BUILD 失败恢复扩展</b> — 覆盖更多 optional artifact 和配置缺失边界；向导里把构建结果讲得更可读</span></div>
+        <div class="kitem"><span class="kp ph">P4</span><span class="ktx"><b>视角/灯光/材质策略检查</b> + 更接近人眼判断的画面质量复核</span></div>
+        <div class="kitem"><span class="kp ph">P6</span><span class="ktx"><b>交付报告进一步可视化</b> — 缩略图渲染、复核摘要、下一步建议；向导里讲清「可交付/只能预览/被阻断」原因</span></div>
+        <div class="kitem"><span class="kp p1">P1</span><span class="ktx"><b>规格缺失/歧义/回填策略系统化测试</b> — 在不同产品类型下验证 spec 抽取的鲁棒性</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 08 · ARCHITECTURE LAYERS ================= -->
+<section id="arch">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">09</span><h2>架构分层 · 一眼看全</h2>
+      <span class="sub">纯 Python CLI 工具层 + 通用 Skill 层 + 平台适配层；无框架锁定</span>
+    </div>
+    <div class="grid3">
+      <div class="card"><h3><span class="dot" style="background:var(--cyan)"></span>平台适配层 Adapters</h3>
+        <div class="mono-s">挂哪个都行，或直接 paste system_prompt.md</div>
+        <ul style="margin-top:10px;font-size:12px;color:#bcd2e3;list-style:none">
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ .claude/commands/ → Claude Code 斜杠命令（/cad-spec /cad-codegen /cad-enhance /cad-help /mechdesign）</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ ~/.agents/skills/ → Codex SKILL.md</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ openai/ → Function Calling JSON schema</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ langchain/ → LangChain / AutoGen Tool</li>
+          <li style="padding:4px 0">▸ dify/ → 知识库导入指南</li>
+        </ul>
+      </div>
+      <div class="card"><h3><span class="dot" style="background:var(--amber)"></span>通用 Skill 层</h3>
+        <div class="mono-s">机器可读 + 任意 LLM 可用</div>
+        <ul style="margin-top:10px;font-size:12px;color:#bcd2e3;list-style:none">
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ skill.json — 机器可读 skill 清单</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ system_prompt.md — 粘进任意 LLM 即用</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ skill_cad_help.md — 16 意图知识库（环境/配置/下一步/材质/相机/爆炸/渲染/增强/排错/文件结构/状态/跨模型/零件BOM/CAD spec/设计审查…）</li>
+          <li style="padding:4px 0">▸ AGENTS.md — agent 集成约定（自动生成）</li>
+        </ul>
+      </div>
+      <div class="card"><h3><span class="dot" style="background:var(--green)"></span>工具层（纯 Python CLI）</h3>
+        <div class="mono-s">无 LLM 依赖，可独立调用</div>
+        <ul style="margin-top:10px;font-size:12px;color:#bcd2e3;list-style:none">
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ cad_pipeline.py — 6 阶段统一编排（30+ 子命令）</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ cad_spec_gen.py / cad_spec_reviewer.py — 抽取 + 设计审查</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ codegen/gen_*.py + templates/*.j2 — Jinja2 代码生成</li>
+          <li style="padding:4px 0;border-bottom:1px dotted var(--line)">▸ bom_parser.py / parts_resolver.py / parts_library.yaml — BOM 解析 + 标准件路由</li>
+          <li style="padding:4px 0">▸ *_enhancer.py（gemini/fal/comfyui/engineering）+ jury 子包 + annotate_render.py</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ================= 10 - LIVE RUN ================= -->
+<section id="liverun">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">10</span><h2>实测跑通 · 两个子系统端到端验证（2026-05-13）</h2>
+      <span class="sub">在本机真跑了一遍 — Blender 渲染用了 SolidWorks 的 textures 目录；产物归档在 <code>D:\Work\cad-tests\GISBOT\</code> 和 <code>D:\Work\cad-tests\jiehuo\</code></span>
+    </div>
+    <div class="lr-banner">
+      <div class="lrb-item"><b>✅ 几何不变形 / 多视角一致</b>每个子系统的全部视角都来自<strong>同一个 GLB</strong>，Blender Cycles 渲染，<code>render_manifest.json</code> status=<code>pass</code>、逐视角带 <code>visible_instance_ids</code></div>
+      <div class="lrb-item"><b>✅ 照片级</b>本次走 <code>engineering</code> 后端（Blender PBR 直渲→PIL 调优→JPG，几何完美、无 AI）；<code>enhance-check</code> = <code>accepted</code>，<code>quality_summary</code> = <code>accepted</code></div>
+      <div class="lrb-item"><b>⚠ AI 后端本次不可用</b>仓库配的 Gemini 代理返回 503（<code>gemini-3-pro-image-preview</code> 在 <code>gemini-t3-svip</code> 组无可用通道）— 代理/账号侧问题，非管线 bug。代理恢复后重跑 <code>enhance --subsystem &lt;name&gt;</code> 即升级到 AI 照片级，几何/一致性不受影响</div>
+      <div class="lrb-item"><b>🔧 跑的时候直接修了 2 处</b><code>tools/render_qa.py</code> <code>MIN_OBJECT_OCCUPANCY</code> 0.01→0.004（细长装配剖视图被误判空画面）· <code>cad/end_effector/render_config.json</code> V5 <code>ortho_scale</code> 400→720、V6 相机拉远 1.5×（原相机太近底部 cropped）</div>
+    </div>
+    <div class="lr-cols">
+      <div class="lrcard">
+        <h3><span class="ph-chip">GISBOT</span> end_effector · 4 工位径向布局 · ~24 件</h3>
+        <div class="lrsub">设计文档 <code>04-末端执行机构设计.md</code> · 装配 GLB <code>EE-000_assembly.glb</code>（525→33 consolidated）</div>
+        <div class="lr-chain"><span class="lc ok">codegen ✓</span><span class="lc ok">build ✓<small>STEP+GLB+DXF·GATE-3.5 通过</small></span><span class="lc ok">render ✓<small>7 视角·status=pass</small></span><span class="lc ok">enhance ✓<small>7×_enhanced.jpg</small></span><span class="lc ok">enhance-check ✓<small>accepted</small></span><span class="lc ok">annotate ✓<small>14×cn/en</small></span><span class="lc ok">photo3d 门禁 ✓</span><span class="lc warn">photo3d-deliver ⚠<small>缺 ARTIFACT_INDEX·待 build --render 注册</small></span></div>
+        <div class="rgrid"><figure class="rfig"><img alt="V1 前轴测 · 增强+中文标注" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgwKCA0MCwwPDg0QFCIWFBISFCkdHxgiMSszMjArLy42PE1CNjlJOi4vQ1xESVBSV1dXNEFfZl5UZU1VV1P/2wBDAQ4PDxQSFCcWFidTNy83U1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1P/wAARCAGVAtADASIAAhEBAxEB/8QAGwABAQEAAwEBAAAAAAAAAAAAAAECAwQFBgf/xAA7EAEAAgIABAMGAggFBAMAAAAAAQIDEQQSITEFQXETIjJRYYGRoRRCUmJyscHRBhUjM+EWNYLxksLw/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAH/xAAZEQEBAQEBAQAAAAAAAAAAAAAAAREhMUH/2gAMAwEAAhEDEQA/APqgFQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYzWimK1ptyREfFuI195bAeR+mTPB8RNOLm2WLWiOe0e7WLa3Go76K8bkth4qa8Ru9J92OWJ69ekaienbr9Xrz1jU9YZ5Ij4ZmvpIPF4jjeNx+I8sbim6RFOkb39J8un5r7bjY8Uik5cnLOTUV3HLPXWu2/v/AO3se9E7mtbfWOkrF6zPXpPynpIPFjjOJ/zXFWM0zgmeWdx7s73O96+UN4uMzzxVa1y2vWceorMRuZ5eb5Q9nX0AfPcLxnG2yzGTJfmnBMxERzRzcsa1rvO/L6u94fxWfLxmSuXfs5ruvNqOsRETr59d7+r0tRHaINR06duwKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE9O/Rn2lPKdz9OoNDPNM9qW+/Q9+f2a/mDSWnlrM8tra8qxuZZ5Znve326JbH03jmK38rTHMDi/TsXsJyzXJWnNFY5qa5pmdaj59VpxuC8b5pj34pHNWY3Mz0/Fx14K8YIxWzVtFbReszijpPNzfP1g4fgfY45pbLN6zet493Uxy61Hp0gGv0/h4z1wzfVrTMde296j8euvQx8fgyZaY6zbmtNoj3Z17s6lxf5bvi68RfLu1ZmYiK67zvTOLwmlOJxZ5yTz45trUftTuY/wCe4N4vFeGy5K0rN/erzRaY6ec/0c2DjcPEZIpjtM2mkXjcT1iY+bqYPB6YMtMlMk1mkcsRWvTWpjfr17uXhvDacPxEZq2m1ojl97r08tfX6+f4A7wAAAAAAAAACTETGpjcKAxya+GZr9O8G7x3rv61/s2AzF6zOonr8p6S0kxFo1MRMfVOSY+G0x9J6wDQzzWj4q7+teq1tFu07BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnUd+nqz7SvlO/SNg0M81p7Un7zo9+fOtfzBonp36erPJM972n8iMdI/VjfznqB7SnlO/Tqc1p7Un79GgGffn9mPzOSZ73tPp0aAZjHSP1Ymfr1aAAAAAAAAAAAAAAAAAAAAAAAAAAABLVi3xREqAzy2j4bfa3U5pj4qzH1jrDQCVtFo3WYn0VJpW07mOvz801aO1t/S39waHFGaZ4n2M4rx7vNz/q+m3Ki2WACoAAAAAAAAAAAAAAAAAAAAAAAACoAAAAAAAEzEd5iPVn2lfKZt/DGwaGea09qT950avPnWPSNg0TMR3nXqzyb72tP31/IjHSO1YA9pXynm/hjZzWntSfvOmgGffnzrX0jZyb73tP31/JoBmMdI68sffq0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKCAoIKAigCKAAAIoACTMV7zEess+0rPbdvSNg2Mc1p7U/GdGrz3tWPSNg2kzEd5iPVnk33tafvr+SxSsdqx+AJ7Ss9t29I2c1p7U/GdNgMavPnWPSNnJ87Wn76/k2AzFKR2rH4NACCgIKAgoCCoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAigAAAAAAAJNq17zEess+0ie27ekA2MbvPamvWTV572iPSAbSbRX4piPWWeSJ7za3rKxSte1Yj7AntKz23b0g5rz2p+MtgMavPe0R6Qcm/itafv/ZsBmKVr2rEfZoAAAcefJ7LFN9b1MOR4vFXyZImOad83zdzgslpy8s2mY12kHeAAAAAAAAAAAAAAAAAARQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABQQUAAADt3Zm9Y72r+INDHtKftwe0r5c0+lZBtLWrX4piPWXDxGPHxOKceXHe1JmJ6dOzdfd+HFr8IReYvtIntFrekG7z2pEessZ7cRGKZw46WyeUWv0cwZzWNXnvaI9IOSJ+KbW9ZbFRIpWvasR9lAAAAAAAAAAAAAHiX+L7u3wH+/P8AC6mTv93b8P8A96f4QegAAAAAAAAAAAAAAAAAAAAAAACCgIKAgAAAAAAAAAAAAAAODjc1uH4S+Wlea0TWIjW+8xHbz7g5x5E+JcXWMkWwUpel6U5Z13nX7317fms+J8RPtojFjiceStY3M+9EzqZjv08v/wB1D1h4tPFOM9hF74qR/qR1msxE1mJn+nf0Z4bxXic3C4rTye0tlmmorG51XfbfzFe4Op4flycTwsZL5JndpiLRWI3Ds8nzvf8AERoZ9nXz5p9bSezp+zH3BqZiO8xH3Z9pSP16/isUrHatY+ygz7SvlMz6RJzx5VvP/i2gM88/sW/L+5zX/Y/GzYDG7/KsfeTWT50j7S2Axy3/AG/wqck+d7flDYDHJHna8/8AlJ7OnnG/WZbAZ9nSP1K/gsViO0RH2UAAAEi9ZtasWibV7xvrCooAqAAAAAAAAAAAAAJMxWJm0xER3mQUfP8Ai3+LeB8OvGOK3z3nvydKx6y6ceP+J8Xjrk4fFw+LFaNxM7tMwDv5Z/m7vhvXJb+F5H6XTLj5onv5M38S4jByxwUYrZP1vaR00D6kfOYf8TZcc647gbUjzvhnmj8Ht8HxvD8bii/D5YvH5g7AAAAAAAAAAAAAAAAAAAAAAAAAAIKAgqAAAAAAAAAAAExExqY2AMWxY7TM2x0tM9JmaxOycWOYiJx0mI6xE1jo2A4Y4Th4iYjBj1PlNdrHDYIryxhpEdekR8+/83KAxixY8NZjFStImdzFY1G2wAAABQAAAAAABJmK/FMR6yzzxPwxa3pHQGxn358q19epyTPxXtPp0BZtFfimI9U59/DW1vtr+a1pWvasRPzUGffn9mv5nJv4rWn8v5NAOOmDFjyXvTHWt765piOsuQEW3fQBUAAAAAAAAAAGM2bHgxzfLaK1+ctvG8f6ThnfTUg5cvjeCnw0tMfO0xWHn+IeLRxmDlpMUpE+9q2+vk8fjeD/AEq9b1y6msa5Z6w1wfCzhrmrktF4vEdAOF4jg7ZLcPiyVtkr1tWYnf1nq7N7ctLT2mIdPly8PaZxcuSvyv0n8f7rbjYmk1yYclJmPluPxgHk8P4re1ojJg1bzms6h63AZpyXt05Y12+bx6UpbJM3pGOPLVt/0elwufDhmZmZnp5VkHpZK89LV5prNo1zV7w6vh3CT4ZxNs+Pict7W6e/Md3Xz5snEZqzgyZscRHWsWisTPznvLu8JjtbLF81+e/lrpEegPs8dufHW0xqZiJadfg8lsmL3v1em483YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFABAAAAAAAAAAAAAAAAVJmIjczr1Z9pE/Du3pANjG7z2iK+s7OWZ+K9p9OgNTMVjczER9WfaRPwxNvSFilY6xWN/NoGPfnyrX1na8kz8V7T6dGgGYpWvWKxv5tAAAAAAAAAAAAAAAAAAAACArxv8QfDi+72HyPiPEZsnj3H4r5LWx4opyVmeldx10Dq37S63hE/6vFxvr0l6uPw62SsTe8ViY8usupxfheLh45sN8lbT3tvrIOLicsVnUT1ceLLzWiHRzUy46Wmtpyanf1/5Z4PifaZqRETET8wetbrDq5+kO048tOek6iZnXlGwebhzzXJL2vDc8ZrR16x3eHk4fPgrGTLgyUpadVm9ZiJ9HLwN8uPPW2O01kH6LwNL0w+/ERudxqduy+YxeI8XWsazTqPKYh6XA8fxWWffx1vTzv8AD/7B6o4oyX1zWx6r84lyVtFqxNZ3EgoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAACWmKxM2mIiOszPkCjPPSItM2rqvxTvt02z7fHq0xaLRXvMdYjz7g5BiLWvvliOk66zvr9kx2rljdcsXiJ1PJIOSZiI3M6j6s+0rPw7t6QRSsTvljfznq2DG7z2rEesnLM97z9ujYDMUrE7isb+c9WgAAmdRuekADHPv4Ym31jt+K6vPeYr9K/3BZmIjczER9U59/DWZ+vaCKVid63PznrLQOHLiyZJpMZrY+W0WmKR8UfKXMCLvwAVAAAAAAAAAAAAAQABNgqG02C7fKeIRX/ADLi7csc17ataO8xEah9TMvlfEP+4cR/HIMU4/NixxjvS2SsdsmPW/vDjz8Zhy13f202/ex6iEmdOpxdpnUbnWga4jh8k8JbLWtqVmOlrR/R5fBRWnjXCUrM8lc9NTPrD6Tiv+z44/dr/R4uPwXiuN8QyVw4pjDXJMTkv0r3/P7A+9zY75LbpNJj8Nfh3clsuLBXeTJjprzmYq+U/wCm8sRqs/8AxzTH9HHxHgHLWIyZMdL+Ubm9p/qDk/xX4nwvGYsGLh8sZb0vMzMdu3zebwXC5MmSsY6TeZ66r5PZ8N/wtFr+24u1rfKJ6REPocGHh+DxxTBjr0+UdAefwHhN4iL8TyxEfq+X3epzY8fSkc0x5z2hm1rXn3p+yRAFpted2nbWKeXJy+Vv5s7SvXNSPrsHaVAFEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAcfE1tfh8laxu0xqI5uX83IA8nBwGTFbiJtgi3td9eevziI8vlG+7UcFkjhc2KuCkc+v1oiJ16b+UPUAeTbgeI/RLY6UrEzkjJ1tEdYrPlEa6zr89ux4Vw2ThcWTHkx1pu26zWYmJj5fb83eUEUABj2lfLdp/d6nvz8q/nINsc8T8O7en915I/W3af3urQM+/PnFfTrJFK73Mbn5z1aAAAAAAAAAAAAAAAAAAAEVAAARFQBmZWWZBJl5nifJbVI4ac2SY6THTXrL0pcGb4ZB85bwzPMc1slZ/cjp+bgycDmy5OStJjp1me0PdliIm1tViZn5QDo8ZSaeH1xzO5ryxt6uHNWmHHE7m0x0rWNzP2K+HxmjWbrH7MT/OXcx4sOGNVrE/SO3/IOCleJz/DEY6+u5j1nt+Dmw8Ng4aZtr2uWe9pbm1rdJnUfKCIBbXtfvPT5QkQu4hm1tRuZ6QC7S1oiJmZ1Hzl53FeLYse64v9W/07R93l5eKzcRfeW8zG/hjpH4A+mxxF6xaJ3We2nLWsV3qOs+bh4TpwuL+GHPANCANCKCiAKAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAACTesTre5+UdZTd57RFf4v7A2zN671HWflHVOSJ+KZt69vwaiNRqI1AM+/PlFY+vWTkifimbev8AZsAAAAAAAAAAAAAAAAAAAAAAAABAAEUBEVARJaZnp3BiYcOSs2mYctrx5MTOwdevCxv3rb+kOxWtaRqsR6QaaiATcz6fJYhekMzYGukMzZi19OO0zPeQY4zi44fh8mWKzeaVmeWPN8xxHjF+N/3MnJTfSkdI/wCX0uSu6y8Xi/C65bTalYraZ3uIB1Mc8/we9rvryd7g+DvnzxS08kefzcXAeHZ8E2rOpi0a297gsMYq6iOvnM95B3KRFaxWO0RqHJDFYbgFVFBVRQAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAEABnJOsdpnpGvr/Tq8rUzw/Gxjy8R7TVvZ8/PqK8sdon7vXXYPHxX4iP0mnDxl5tapzRqPOOaNxEdIiOnzdvPfiK8HgtWuT2mo9pFY3b4Z/+2ndQHkYa+JXzYK5rXrTU88xMx527zHn2/JwW/TI8RrN5yTSueZnlmdVrzdN9vJ74g8fBbjK8di55yRjraa3m89OtpmI1Ed9a8+nSOj2AUAAAAAAAAAAAAAAAAAAAAAAAAQAAAESZiI6sZbzXUR3cMzM95By2y/suKZme5ENRUGYhqKlprSN2nTFc0WmYiJ1AOTpCTZnrPZeX5gkzKTEy1MAOPkSaOQBwzVIpHyc0xsioMVpEeTkrGliGogG4hohQFRQFAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAABwZ496J+jjdjJXmrrz8nX7AtVmzPn0clcUz1t0+gOPXNPbcr7Cveek/RzRERHSEkHVxcPlpx2TNfiLWxTjilMWulZ31t9Zl2ABmYTTek0CaNNaNAzpdLpdAmliBYBqFIUBQAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQABUAURQAAAAAAAAAAAAAAAAAAAAAAAAAAAAQABFQBm1It3hQGa0ivZQAZloBjRprRoETTWjQMqoCCgJpYhdLoBqEWABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAVAFAAAAAAAAAAAAAAAAAAAAAAAAAARQEAARUBBUARQEFAAAEUBAUEXQoBpdLEAmlUBBQEFAQUBAAAAAAAAAAAAAAAAAAAAAAAAAAEUBAAAAAAURQAAAAAAAAAAAAAAAAAAAAAAAAAAQUBAAEUBBQEAARUABQRRQAUBQABQQUBBUAAAABAAAAAAAAAAAAAAAAAAAAAAAAEVAAAAAAAURQAAAAAAAAAAAAAAAAAAAAAAAAAAAAEUBAAAAEAAUBFABQABQAAUAAAAABFQAAEAAAAAAAAAAAAAAAAAAAAAAABBUAAAAAAAVFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAUAAAABUUBUAUAAAAABFQBFQAAAAAAAAAAAAAAAAAAAAAABFAQAAAAAAAAAFEUAAAAAAAAAAAAAAAAAAAAAAAAAAAABFAQFAAAAAAAAAVFAAAVAFEAUQAAAQAAAAAAAAAAAAAAAAAAABABUAAAAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABUAUAAAAAAAAEAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAFQBQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFQBRAFEAVAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVABQAAARQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFAEAAAAAAAAAAAAAAAB/9k="/><figcaption>V1 前轴测 · 增强+中文标注<small>V1_front_iso_20260513_0005_20260513_0012_enhanced_labeled_cn.jpg</small></figcaption></figure><figure class="rfig"><img alt="V4 爆炸图 · 增强+标注" src="data:image/jpeg;base64,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"/><figcaption>V4 爆炸图 · 增强+标注<small>V4_exploded_20260513_0008_20260513_0012_enhanced_labeled_cn.jpg</small></figcaption></figure><figure class="rfig"><img alt="V6 四分之一剖视 · 原始 Blender 渲染" src="data:image/jpeg;base64,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"/><figcaption>V6 四分之一剖视 · 原始 Blender 渲染<small>V6_cross_section_20260513_0010.png</small></figcaption></figure></div>
+        <div class="lr-views">7 视角：V1 前轴测 · V2 后斜视 · V3 侧立面 · V4 爆炸 · V5 正交前视 · V6 四分之一剖视 · V7 侧向剖视 →&nbsp; <code>D:\Work\cad-tests\GISBOT\04_render\</code> + <code>05_enhance\</code>（含 <code>labeled\</code>）+ <code>03_build\</code> + <code>_README.md</code></div>
+      </div>
+      <div class="lrcard">
+        <h3><span class="ph-chip">jiehuo</span> lifting_platform · 丝杠式升降平台 · ~32 件</h3>
+        <div class="lrsub">设计文档 <code>19-液压钳升降平台设计.md</code> · 装配 GLB <code>SLP-000_assembly.glb</code>（7324→36 consolidated）</div>
+        <div class="lr-chain"><span class="lc ok">codegen ✓</span><span class="lc ok">build ✓<small>STEP+GLB+DXF·GATE-3.5 通过</small></span><span class="lc ok">render ✓<small>6 视角·status=pass</small></span><span class="lc ok">enhance ✓<small>6×_enhanced.jpg</small></span><span class="lc ok">enhance-check ✓<small>accepted</small></span><span class="lc ok">annotate ✓<small>12×cn/en</small></span><span class="lc ok">photo3d 门禁 ✓</span><span class="lc ok">photo3d-deliver ✓<small>交付包已生成<br/>（绑定 2026-05-06 注册的 active run）</small></span></div>
+        <div class="rgrid"><figure class="rfig"><img alt="V1 前轴测 · 增强+中文标注" src="data:image/jpeg;base64,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"/><figcaption>V1 前轴测 · 增强+中文标注<small>V1_front_iso_20260513_0015_20260513_0019_enhanced_labeled_cn.jpg</small></figcaption></figure><figure class="rfig"><img alt="V5 爆炸图 · 增强+标注" src="data:image/jpeg;base64,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"/><figcaption>V5 爆炸图 · 增强+标注<small>V5_exploded_20260513_0018_20260513_0019_enhanced_labeled_cn.jpg</small></figcaption></figure><figure class="rfig"><img alt="V6 YZ 剖视（露出内部丝杠）· 原始 Blender 渲染" src="data:image/jpeg;base64,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"/><figcaption>V6 YZ 剖视（露出内部丝杠）· 原始 Blender 渲染<small>V6_section_20260513_0018.png</small></figcaption></figure></div>
+        <div class="lr-views">6 视角：V1 前轴测 · V2 后斜视 · V3 侧立面 · V4 正交前视 · V5 爆炸 · V6 YZ 剖视（露内部丝杠）→&nbsp; <code>D:\Work\cad-tests\jiehuo\04_render\</code> + <code>05_enhance\</code> + <code>06_deliver\</code>（DELIVERY_PACKAGE.json + 外行验收页 README.md）+ <code>_README.md</code></div>
+      </div>
+    </div>
+    <div class="pipe-note">小图是 720px 缩略（中文标注版来自 <code>annotate</code> 输出）— 全分辨率 1920×1080 在上面两个目录里。本次 Phase 1（spec）复用了仓库里已有的 <code>CAD_SPEC.md</code>，没重跑 <code>spec --force</code>（避免改动 git 跟踪文件）。</div>
+    <div class="pipe-note"><b>2026-05-13 质量大修 v1 增补 ·</b> 本次跑还触发了新增的<strong>自制件审计</strong>（详见 §11）— <code>build</code> 后强制门禁 <code>custom_parts_audit</code> 自动校验 BOM↔build_all↔STEP↔GLB 五段链 + envelope vs bbox + scaffold marker + placement collapse。两子系统本次审计 = <code>WARN</code>（exit=2）→ 进 render 阶段；如果是 <code>FAIL</code>（自制件 envelope axis_min&lt;60% / placement&lt;0.1mm）会阻断后续，避免 v1 之前法兰只剩圆盘 / 装配全堆原点这类 bug 漏过。</div>
+  </div>
+</section>
+
+<section id="audit-layer">
+  <div class="wrap">
+    <div class="shead">
+      <span class="idx">11</span><h2>自制件审计层 · 防止这类 bug 再回归（2026-05-13 质量大修 v1 新增）</h2>
+      <span class="sub">实现：<code>tools/custom_parts_audit.py</code>（503 行）+ <code>cad_pipeline.py build</code> 后置门禁；测试覆盖 <code>tests/test_custom_parts_audit.py</code> 12 case PASS；交付 <code>cad/&lt;sub&gt;/.cad-spec-gen/CUSTOM_PARTS_AUDIT.{md,json}</code></span>
+    </div>
+    <div class="lr-banner">
+      <div class="lrb-item"><b>📐 修了什么 bug</b>session 5/6/7 端到端跑发现 <code>end_effector</code> 法兰只画了圆盘没画 4 条十字悬臂，<code>lifting_platform</code> 36 件 mesh 全在世界原点（装配 transform 丢了）。两 bug 同源：仓库的评分/门禁链建在「采购件 + 渲染像素 + AI 增强忠实度」，<strong>自制件这条链从来没有任何评分</strong>。</div>
+      <div class="lrb-item"><b>🛡 这层做的 5 件事</b><code>chain_of_custody</code> 五段链对账（按 BOM 范畴差异化：自制件查 .py / 外购件查 _std.step）· <code>envelope_vs_bbox</code> 自制件以 .py docstring <code>Envelope:</code> 行为契约真值、外购件以 §6.4 envelope · <code>scaffold_marker_scan</code> 抓 4 类 codegen 自标"未完工"标记 · <code>placement_collapse_detect</code> bbox 中心两两最小距离 · <code>model_provenance_fill</code> 摸 SW Toolbox 索引</div>
+      <div class="lrb-item"><b>⚖ Severity 等级</b><code>FAIL</code>（阻断 build）= 自制件 envelope <code>axis_min_ratio &lt; 0.60</code>（bug A 模式：法兰 disc-only 90/160=0.56 命中）或 placement <code>&lt; 0.1mm</code>（bug B 模式：全堆原点）· <code>WARN</code>（仅日志）= envelope 大于真值（spec 过时）/ legacy scaffold marker 残留 / 标准件 STEP 缺失等已知现状 · <code>PASS</code> = 全过</div>
+      <div class="lrb-item"><b>🧪 反向回归实证</b><code>tests/test_custom_parts_audit.py::test_envelope_vs_bbox_fails_for_self_made_when_bbox_dwarfed</code> 直接注入 pre-CP-1 法兰 bbox 90×90×30 + envelope 160×160×20 → 触发 1 FAIL；CP-1 修复后 170×170×32 → PASS。配套测试一并验证 case A/C/D 各类 bug 模式。</div>
+    </div>
+    <div class="lr-cols">
+      <div class="lrcard">
+        <h3><span class="ph-chip">何时触发</span>build 后自动 / 用户手动</h3>
+        <div class="lrsub">两种入口共享同一 <code>audit_subsystem()</code> 函数</div>
+        <ul class="lrlist">
+          <li>· 自动：<code>cad_pipeline.py build --subsystem &lt;s&gt;</code> 在 GATE-3.5 之后调；<code>--skip-custom-parts-audit</code> 紧急绕过</li>
+          <li>· 手动：<code>cad_pipeline.py custom-parts-audit --subsystem &lt;s&gt;</code> 独立子命令；exit 0/2/1 可直接给 CI 用</li>
+          <li>· 报告：<code>cad/&lt;sub&gt;/.cad-spec-gen/CUSTOM_PARTS_AUDIT.md</code> (人话) + <code>.json</code> (机器版 / 下游 contract)</li>
+        </ul>
+      </div>
+      <div class="lrcard">
+        <h3><span class="ph-chip">本次跑出来什么</span>2026-05-13 CP-3 端到端结果</h3>
+        <div class="lrsub">两子系统都 WARN（无 FAIL），所有 CP-1 hand-completed 件 envelope 100% match</div>
+        <ul class="lrlist">
+          <li>· <strong>end_effector</strong>: WARN (exit=2) — 0 FAIL / 42 WARN（多数为非关键件 step_missing 或 legacy ee_*.py 残留 scaffold 标记，<strong>不影响 4 臂法兰 CP-1 修复</strong>）</li>
+          <li>· <strong>lifting_platform</strong>: WARN (exit=2) — 0 FAIL / 19 WARN（同上模式 + 1 placement 7mm WARN：SLP-C04/C06 同步带轮叠装正常状态）</li>
+          <li>· CP-1 修过的 8 件 self-made (SLP-100/200/201/300/400/403/404/500 + GIS-EE-001-01) <strong>全部 envelope max_rel ≤ 1% / axis_min = 100%</strong></li>
+        </ul>
+      </div>
+      <div class="lrcard">
+        <h3><span class="ph-chip">v2 待办</span>已暴露但未硬修</h3>
+        <div class="lrsub">audit 把它们以 WARN 暴露在报告里，用户可见</div>
+        <ul class="lrlist">
+          <li>· <code>CAD_SPEC §6.4</code> 自制件 envelope 表空白 — audit 已改用 docstring 真值；建议 v2 补全 §6.4</li>
+          <li>· 8 个 legacy 数字前缀 .py 死文件（<code>100.py / 200.py / ... / 500.py</code>）建议清理</li>
+          <li>· 采购件 <code>model_provenance.source_kind</code> 富化（v2 Out of Scope）</li>
+          <li>· LLM 设计对话 CLI（当 audit FAIL 时由 LLM 接手补几何，spec D5/§4）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="pipe-note">设计依据 / 跨会话文档：<code>docs/superpowers/specs/2026-05-13-quality-overhaul-design.md</code> · <code>docs/superpowers/plans/2026-05-13-quality-overhaul-plan.md</code> · <code>docs/superpowers/QUALITY_OVERHAUL_STATUS.md</code> · <code>docs/superpowers/reports/2026-05-13-quality-overhaul-retro.md</code>。任意新 session 读 STATUS 第五节 CURRENT TASK 即可接手。</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    cad-spec-gen 系统全景图 · 生成 2026-05-12，2026-05-13 补 §02 SolidWorks 集成 + §10 实测跑通 + §11 自制件审计层（质量大修 v1）· 基于 <code>main@6bb2737</code>
+    <div class="src">数据源：<code>docs/PROGRESS.md</code> 项目看板 · <code>README.md</code> 管线说明 · <code>cad_pipeline.py --help</code> 子命令 · memory/project_current_status.md · git log。<br/>百分比为「管线能力建设进展」非某次出图进度；门禁/产物字段名以仓库当前实现为准。</div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,9 +1,11 @@
 """
 法兰本体（含十字悬臂） (GIS-EE-001-01)
 
-Auto-generated scaffold by codegen/gen_parts.py
-Source: CAD_SPEC.md §5 BOM
-Material: 7075-T6铝合金
+Hand-completed 2026-05-13 (CP-1 Task 1, quality overhaul) —
+scaffold geometry (disc + 6×M3 bolt circle) preserved + 4 十字悬臂 added +
+4×M6 ISO-9409 back-face mount holes added per CAD_SPEC §2/§5.
+Source: CAD_SPEC.md §5 BOM + §6.4 envelope (160×160×20 mm)
+Material: 7075-T6铝合金 + 顶面 PEEK 5mm（PEEK 段未建模，由装配 stack 表示）
 
 BOM: GIS-EE-001-01 法兰本体（含十字悬臂）
 
@@ -32,12 +34,9 @@ def make_ee_001_01() -> cq.Workplane:
     Axis: +Z scaffold default; verify against §6.3 before production use
     Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
     """
-    # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: +Z scaffold default
-    # If this part needs a non-Z extrusion direction, document WHY here.
-    #
-    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
-    #       Refine with actual geometry citing design-doc lines.
+    # ── Geometry source: CAD_SPEC.md §2 全局参数 + §5 BOM ────────────────────
+    # 法兰本体 Φ90 OD / Φ22 ID（H7 与 GP22C 减速器壳体定位）/ 30mm 总厚（铝 25 + PEEK 5）
+    # +Z 主轴：圆盘底面在 z=0、顶面 z=30；4 条悬臂沿 ±X/±Y、嵌在顶面 8mm 厚度内
     # 法兰 L2: OD=90.0mm ID=22.0mm T=30.0mm PCD=70.0mm×6孔
     body = (
         cq.Workplane('XY').circle(45.0).extrude(30.0)
@@ -124,6 +123,50 @@ def make_ee_001_01() -> cq.Workplane:
         .circle(5.04).extrude(6.5)
     )
 
+    # ── 4 条十字悬臂（CP-1 Task 1, 2026-05-13 手工补完）─────────────────
+    # CAD_SPEC L31/L32/L34: ARM_SEC_W=12, ARM_SEC_THICK=8, ARM_L_2=40
+    # 设计文档"法兰本体（含十字悬臂）"4 工位径向布局
+    # 几何：单臂 40L × 12W × 8T，沿 +X/+Y/-X/-Y 4 方向从圆盘外缘 r=45 向外伸 40mm
+    # z 范围：顶面与圆盘顶面齐平 z=30，向下延伸 8mm → z=22..30
+    _arm_l, _arm_w, _arm_t = 40.0, 12.0, 8.0
+    _arm_z_bottom = 30.0 - _arm_t  # z=22
+    # +X 臂（长边沿 X）
+    body = body.union(
+        cq.Workplane('XY')
+        .transformed(offset=cq.Vector(45 + _arm_l / 2, 0, _arm_z_bottom))
+        .box(_arm_l, _arm_w, _arm_t, centered=(True, True, False))
+    )
+    # +Y 臂（长边沿 Y）
+    body = body.union(
+        cq.Workplane('XY')
+        .transformed(offset=cq.Vector(0, 45 + _arm_l / 2, _arm_z_bottom))
+        .box(_arm_w, _arm_l, _arm_t, centered=(True, True, False))
+    )
+    # -X 臂
+    body = body.union(
+        cq.Workplane('XY')
+        .transformed(offset=cq.Vector(-(45 + _arm_l / 2), 0, _arm_z_bottom))
+        .box(_arm_l, _arm_w, _arm_t, centered=(True, True, False))
+    )
+    # -Y 臂
+    body = body.union(
+        cq.Workplane('XY')
+        .transformed(offset=cq.Vector(0, -(45 + _arm_l / 2), _arm_z_bottom))
+        .box(_arm_w, _arm_l, _arm_t, centered=(True, True, False))
+    )
+
+    # ── 4×M6 ISO-9409 安装孔（机械臂侧背面）─────────────────────────
+    # CAD_SPEC L31 FLANGE_MOUNT_FACE = 50；L100 "法兰→RM65-B（ISO 9409）M6×12 内六角"
+    # 边长 50 mm 方形分布，Φ6.7 通孔从背面 z=0 钻通整个法兰厚 30mm + 余量
+    for _dx in (-25.0, 25.0):
+        for _dy in (-25.0, 25.0):
+            body = body.cut(
+                cq.Workplane('XY')
+                .transformed(offset=cq.Vector(_dx, _dy, 0))
+                .circle(3.35)  # Φ6.7 / 2
+                .extrude(32.0)
+            )
+
     return body
 
 
@@ -135,11 +178,13 @@ def _orientation_spec():
     Return dict with keys: principal_axis ('x'|'y'|'z'), min_ratio (length/width ratio).
     Example: {'principal_axis': 'z', 'min_ratio': 2.0}
     """
-    # Generated scaffold default; tighten when design-doc axis data is available
+    # CP-1 Task 1：圆盘 + 4 悬臂构成的法兰；主轴 +Z（厚度方向 30），
+    # 径向 (x/y) 跨度 ~170，z 跨度 30 → min_ratio = max(x,y)/z ≈ 5.67 但语义上
+    # 此件不是细长件，min_ratio 取 1.0 表示"任何主轴方向都接受"
     return {
         "principal_axis": "z",
         "min_ratio": 1.0,
-        "doc_ref": "CAD_SPEC.md §5/§6.4 scaffold envelope",
+        "doc_ref": "CAD_SPEC.md §2 FLANGE_*  + §5 BOM (hand-completed 2026-05-13)",
     }
 
 

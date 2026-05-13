@@ -1,23 +1,14 @@
+"""电机支架 (SLP-400) — hand-completed 2026-05-13 (CP-1 Task 5d)
+
+Material: 6061-T6 阳极氧化铝 (PLATE_THICK = 8 mm 统一)
+Source-of-truth:
+  - 板尺寸 70×90：draw_motor_bracket.py:33 注释
+  - 中心 Φ28 + NEMA23 4×Φ5.5 PCD 47.14 (45°/135°/225°/315°)：draw_motor_bracket.py:21,48,53-58
+
+坐标系：Local +Z = 板法线（NEMA23 贴这面）；assembly 平移到右支撑条底部
 """
-电机支架 (SLP-400)
 
-Auto-generated scaffold by codegen/gen_parts.py
-Source: CAD_SPEC.md §5 BOM
-Material: 未指定
-
-BOM: SLP-400 电机支架
-
-┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : CAD_SPEC.md envelope center on XY; bottom face at Z=0
-│ Principal axis: +Z scaffold extrusion axis; body height from envelope
-│ Assembly orient: assembly.py applies §6.2/§6.3 placement transforms
-│ Design doc ref : CAD_SPEC.md §5 BOM + §6.4 envelope
-└──────────────────────────────────────────────────────────────────────────┘
-
-DO NOT extrude / rotate based on assumption. Every axis choice must cite
-a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
-before writing geometry.
-"""
+import math
 
 import cadquery as cq
 from params import *
@@ -26,21 +17,37 @@ from params import *
 def make_p400() -> cq.Workplane:
     """SLP-400: 电机支架 — 未指定
 
-    Envelope: 50.0 x 40.0 x 25.0 mm
-    Weight: ?g
+    Envelope: 70.0 x 90.0 x 8.0 mm  (CP-1 Task 5d hand-completed 2026-05-13)
+    Weight: ~135g (70×90×8 × 2.7 g/cm³ × ~0.89 net，减电机轴孔 Φ28 + 4 NEMA23 孔)
 
-    Axis: +Z scaffold default; verify against §6.3 before production use
-    Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
+    Axis: +Z 板法线；NEMA23 电机贴这面安装
+    Doc:  CAD_SPEC.md §6.2 step 10 + draw_motor_bracket.py 注释 (_NEMA_PCD=47.14)
     """
-    # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: +Z scaffold default
-    # If this part needs a non-Z extrusion direction, document WHY here.
-    #
-    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
-    #       Refine with actual geometry citing design-doc lines.
+    # CP-1 Task 5d (hand-completed 2026-05-13)
+    # 70×90×8 电机支架板 + NEMA23 标准孔阵：
+    #   - 中心 Φ28 电机轴定位孔
+    #   - 4×Φ5.5 M5 安装孔 PCD 47.14 mm，角度 45°/135°/225°/315°
     body = cq.Workplane("XY").box(
-        50.0, 40.0, 25.0,
-        centered=(True, True, False))  # § refine with real geometry
+        BRACKET_W, BRACKET_H, PLATE_THICK,
+        centered=(True, True, False))
+    # 中心 Φ28 电机轴孔
+    body = body.cut(
+        cq.Workplane("XY")
+        .transformed(offset=cq.Vector(0, 0, 0))
+        .circle(BRACKET_CENTER_HOLE / 2.0).extrude(PLATE_THICK)
+    )
+    # 4×Φ5.5 NEMA23 安装孔 PCD 47.14
+    _NEMA_PCD = 47.14
+    _PCD_R = _NEMA_PCD / 2.0
+    for _ang_deg in (45.0, 135.0, 225.0, 315.0):
+        _rad = math.radians(_ang_deg)
+        _hx = _PCD_R * math.cos(_rad)
+        _hy = _PCD_R * math.sin(_rad)
+        body = body.cut(
+            cq.Workplane("XY")
+            .transformed(offset=cq.Vector(_hx, _hy, 0))
+            .circle(2.75).extrude(PLATE_THICK)
+        )
 
     return body
 

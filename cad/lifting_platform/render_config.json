@@ -338,23 +338,6 @@
       "lens_mm": 65,
       "description": "Right side elevation of the vertical lifting platform"
     },
-    "V4": {
-      "name": "V4_ortho_front",
-      "type": "ortho",
-      "location": [
-        0,
-        -500,
-        130
-      ],
-      "target": [
-        0,
-        0,
-        130
-      ],
-      "ortho": true,
-      "ortho_scale": 300,
-      "description": "Front orthographic projection of the vertical lifting platform"
-    },
     "V5": {
       "name": "V5_exploded",
       "type": "exploded",
@@ -742,52 +725,6 @@
         "label": [
           1450,
           760
-        ]
-      }
-    ],
-    "V4": [
-      {
-        "component": "SLP-100_top_plate",
-        "anchor": [
-          1000,
-          20
-        ],
-        "label": [
-          1450,
-          120
-        ]
-      },
-      {
-        "component": "SLP-300_moving_plate",
-        "anchor": [
-          980,
-          420
-        ],
-        "label": [
-          1450,
-          390
-        ]
-      },
-      {
-        "component": "SLP-400_bracket",
-        "anchor": [
-          910,
-          420
-        ],
-        "label": [
-          160,
-          390
-        ]
-      },
-      {
-        "component": "NEMA23_motor",
-        "anchor": [
-          1130,
-          940
-        ],
-        "label": [
-          1450,
-          900
         ]
       }
     ],

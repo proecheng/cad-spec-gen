@@ -2221,7 +2221,62 @@ def cmd_build(args):
             log.warning("Assembly validation failed (non-fatal)")
     # ─────────────────────────────────────────────────────────────────────────
 
+    # ── Post-build: 自制件审计 (CP-2 of 2026-05-13 quality overhaul) ─────────
+    # 默认开启；--skip-custom-parts-audit 用于紧急情况绕过 (审计本身炸时)
+    # exit_code:
+    #   0 PASS  → 继续
+    #   2 WARN  → 打日志 + 继续 (e.g. 标准件 STEP 未导 / scaffold marker 残留)
+    #   1 FAIL  → 阻断后续阶段 (e.g. 自制件 envelope 显著缺失 / placement 全坍塌)
+    if not args.dry_run and not getattr(args, "skip_custom_parts_audit", False):
+        try:
+            from tools.custom_parts_audit import audit_subsystem
+            log.info("[Phase 3 post-build] Running custom_parts_audit ...")
+            audit_result = audit_subsystem(args.subsystem, project_root=SKILL_ROOT)
+            log.info(
+                "  自制件审计 [%s]: %s (exit=%d) — 见 %s",
+                args.subsystem, audit_result.overall, audit_result.exit_code,
+                audit_result.md_path,
+            )
+            if audit_result.exit_code == 1:
+                log.error(
+                    "  custom_parts_audit FAIL — 阻断后续 render/enhance/deliver。"
+                    "查看 %s 修复几何后重 build；紧急绕过用 --skip-custom-parts-audit",
+                    audit_result.md_path,
+                )
+                return 1
+        except ImportError:
+            log.warning("custom_parts_audit module 缺失 — 跳过审计 (CP-2 未部署?)")
+        except Exception as exc:
+            log.warning("custom_parts_audit 异常 — 不阻断 build：%s", exc)
+    # ─────────────────────────────────────────────────────────────────────────
+
     return 0
+
+
+def cmd_custom_parts_audit(args):
+    """独立子命令：手动跑一次自制件审计 (CP-2 of 2026-05-13 quality overhaul)。
+
+    与 cmd_build 内嵌的审计共享同一 audit_subsystem() 入口，便于：
+      - 用户在 build 后只想 re-check 审计而不重新 build
+      - CI 单独 gate（exit_code 0/1/2）
+    """
+    from tools.custom_parts_audit import audit_subsystem
+    try:
+        result = audit_subsystem(args.subsystem, project_root=SKILL_ROOT)
+    except FileNotFoundError as e:
+        log.error("自制件审计失败：%s", e)
+        return 1
+    log.info(
+        "自制件审计 [%s]: %s (exit=%d)\n  报告：%s\n         %s",
+        args.subsystem, result.overall, result.exit_code, result.md_path, result.json_path,
+    )
+    if result.findings:
+        for f in result.findings[:20]:
+            log.info("  [%s] %-30s %-24s %s",
+                     f["severity"], f["part"], f["where"], f["msg"])
+        if len(result.findings) > 20:
+            log.info("  ... 余 %d 条详见报告", len(result.findings) - 20)
+    return result.exit_code
 
 
 def cmd_render(args):
@@ -4427,6 +4482,20 @@ def main():
         action="store_true",
         help="Bypass orientation_check.py pre-gate (not recommended)",
     )
+    p_build.add_argument(
+        "--skip-custom-parts-audit",
+        dest="skip_custom_parts_audit",
+        action="store_true",
+        help="Bypass CP-2 custom_parts_audit post-gate (not recommended, only for emergency)",
+    )
+
+    # custom-parts-audit (CP-2 of 2026-05-13 quality overhaul) ─ 独立子命令
+    p_audit = sub.add_parser(
+        "custom-parts-audit",
+        help="自制件审计：BOM↔build_all↔STEP↔GLB 五段链 + envelope diff + scaffold scan + placement collapse",
+    )
+    p_audit.add_argument("--subsystem", "-s", required=True,
+                         help="子系统名（end_effector / lifting_platform）")
 
     # render
     p_render = sub.add_parser("render", help="Blender Cycles rendering")
@@ -5533,6 +5602,7 @@ def main():
         "spec": cmd_spec,
         "codegen": cmd_codegen,
         "build": cmd_build,
+        "custom-parts-audit": cmd_custom_parts_audit,
         "render": cmd_render,
         "enhance": cmd_enhance,
         "enhance-check": cmd_enhance_check,

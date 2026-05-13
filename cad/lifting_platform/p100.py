@@ -1,22 +1,11 @@
-"""
-上固定板 (SLP-100)
+"""上固定板 (SLP-100) — hand-completed 2026-05-13 (CP-1 Task 5a)
 
-Auto-generated scaffold by codegen/gen_parts.py
-Source: CAD_SPEC.md §5 BOM
-Material: 未指定
+Material: 6061-T6 阳极氧化铝 (PLATE_THICK = 8 mm 统一)
+Source-of-truth:
+  - 板尺寸 200×100：draw_top_plate.py:42 注释
+  - 孔位 LS / GS / 机器人 M5 (diagonal pattern): draw_top_plate.py:60-71
 
-BOM: SLP-100 上固定板
-
-┌─ COORDINATE SYSTEM (MUST fill before coding geometry) ──────────────────┐
-│ Local origin : CAD_SPEC.md envelope center on XY; bottom face at Z=0
-│ Principal axis: +Z scaffold extrusion axis; body height from envelope
-│ Assembly orient: assembly.py applies §6.2/§6.3 placement transforms
-│ Design doc ref : CAD_SPEC.md §5 BOM + §6.4 envelope
-└──────────────────────────────────────────────────────────────────────────┘
-
-DO NOT extrude / rotate based on assumption. Every axis choice must cite
-a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
-before writing geometry.
+坐标系：Local +Z = 板法线 (板厚方向)；assembly_layout 把局部 +Z 翻成全局 +Y (升降方向)
 """
 
 import cadquery as cq
@@ -26,21 +15,42 @@ from params import *
 def make_p100() -> cq.Workplane:
     """SLP-100: 上固定板 — 未指定
 
-    Envelope: 60.0 x 40.0 x 10.0 mm
-    Weight: ?g
+    Envelope: 200.0 x 100.0 x 8.0 mm  (CP-1 Task 5a hand-completed 2026-05-13)
+    Weight: ~430g (200×100×8 × 2.7 g/cm³ × ~0.99 net)
 
-    Axis: +Z scaffold default; verify against §6.3 before production use
-    Doc:  CAD_SPEC.md §5 BOM / §6.4 envelope
+    Axis: +Z 板法线（板厚方向）；assembly_layout 翻 90° 让 Y 轴成为竖直升降方向
+    Doc:  CAD_SPEC.md §6.2 step 7-8 + draw_top_plate.py 注释
     """
-    # ── Geometry source: CAD_SPEC.md §5 BOM ─────────────────────────────────────
-    # Principal axis: +Z scaffold default
-    # If this part needs a non-Z extrusion direction, document WHY here.
-    #
-    # NOTE: Approximate geometry from BOM dimensions / part-name heuristics.
-    #       Refine with actual geometry citing design-doc lines.
+    # CP-1 Task 5a (hand-completed 2026-05-13)
+    # 200×100×8 板 + 4 类孔（参数自 params.py）：
+    #   - 2×Φ24 丝杠通孔 at (-LS_X, +LS_Y), (+LS_X, -LS_Y) 对角
+    #   - 2×Φ10 H7 导向轴孔 at (+GS_X, +GS_Y), (-GS_X, -GS_Y) 反对角
+    #   - 4×Φ5.5 机器人接口孔 at (±80, ±35)
     body = cq.Workplane("XY").box(
-        60.0, 40.0, 10.0,
-        centered=(True, True, False))  # § refine with real geometry
+        TOP_PLATE_W, TOP_PLATE_H, PLATE_THICK,
+        centered=(True, True, False))
+    # 丝杠通孔（对角）
+    for _dx, _dy in [(-LS_X, LS_Y), (LS_X, -LS_Y)]:
+        body = body.cut(
+            cq.Workplane("XY")
+            .transformed(offset=cq.Vector(_dx, _dy, 0))
+            .circle(12.0).extrude(PLATE_THICK)
+        )
+    # 导向轴孔 Φ10H7（异对角）
+    for _dx, _dy in [(GS_X, GS_Y), (-GS_X, -GS_Y)]:
+        body = body.cut(
+            cq.Workplane("XY")
+            .transformed(offset=cq.Vector(_dx, _dy, 0))
+            .circle(5.0).extrude(PLATE_THICK)
+        )
+    # 4×M5 机器人接口孔 (Φ5.5)
+    for _dx in (-80.0, 80.0):
+        for _dy in (-35.0, 35.0):
+            body = body.cut(
+                cq.Workplane("XY")
+                .transformed(offset=cq.Vector(_dx, _dy, 0))
+                .circle(2.75).extrude(PLATE_THICK)
+            )
 
     return body
 

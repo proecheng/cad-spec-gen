@@ -14,7 +14,11 @@ from tools.view_instance_evidence import compute_view_visible_instances
 
 MIN_WIDTH = 128
 MIN_HEIGHT = 128
-MIN_OBJECT_OCCUPANCY = 0.01
+# 细长/稀疏的工程装配（丝杠机构、桁架、框架等）即使在画面里占了一大块 bbox，
+# 实际「被摄主体像素 / 总像素」也可能只有 0.5%~2%。原 0.01 阈值是按实心物体调的，
+# 对这类装配过严（会把清晰可见的剖视图当成空画面 block 掉）。降到 0.004 仍能挡住
+# 真正的「一个小点」渲染（合成 fixture 的 7×7 像素方块 ≈ 0.0008）。
+MIN_OBJECT_OCCUPANCY = 0.004
 MAX_OBJECT_OCCUPANCY = 0.98
 
 
