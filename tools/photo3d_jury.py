@@ -49,6 +49,23 @@ from tools.jury.llm_client import (
 from tools.jury.redact import redact_traceback_str
 from tools.jury.stderr_messages import format_stderr_message
 from tools.jury.verdict import parse_view_verdict
+from tools.jury_loop.llm_fallback import _request_chat_text
+
+
+class _FeatureExtractorClient:
+    """text endpoint 适配器，给 feature_extractor.extract 用（spec F8）。
+
+    feature_extractor 鸭子类型要求 `.complete_text(prompt)` 或 `.complete(prompt)`；
+    这里复用 jury_loop.llm_fallback._request_chat_text（chat-completions text-only），
+    与 jury vision endpoint 同款 base_url + api_key，不引入新配置项。
+    """
+
+    def __init__(self, profile: Any) -> None:  # noqa: ANN401 — JuryProfile 鸭子类型即可
+        self._profile = profile
+
+    def complete_text(self, prompt: str) -> str:
+        """调 chat-completions 纯文本接口；feature_extractor 自行 fail-safe。"""
+        return _request_chat_text(self._profile, prompt)  # noqa: SLF001 — 复用私有 helper
 
 
 _JURY_PROMPT = """\
@@ -102,6 +119,19 @@ def _build_parser() -> argparse.ArgumentParser:
     # CP-6 Task 6.1：jury_loop orchestrator 调本工具单视角调度（隐藏 help，外行用户不误用）
     p.add_argument("--single-view", help=argparse.SUPPRESS)
     p.add_argument("--image", nargs="+", help=argparse.SUPPRESS)
+    # v2.37 Task 6：matches_spec 维度入口（缺一项则跳 features 抽取 → 向后兼容 v2.36）
+    p.add_argument(
+        "--spec-md",
+        dest="spec_md",
+        default=None,
+        help="CAD_SPEC.md 路径；默认 cad/<subsystem>/CAD_SPEC.md",
+    )
+    p.add_argument(
+        "--design-doc",
+        dest="design_doc",
+        default=None,
+        help="设计文档路径（如 examples/04-末端执行机构设计.md）；缺则跳过 matches_spec 抽特征",
+    )
     return p
 
 
@@ -212,6 +242,90 @@ def _handle_single_view_mode(
 
     sys.stdout.write(json.dumps(results, ensure_ascii=False) + "\n")
     return 0
+
+
+def _build_view_prompt(view_name: str, features: list[dict[str, Any]]) -> str:
+    """v2.37 Task 6：构造单视角 vision prompt，按 expected_in_views 过滤后挂相关 features。
+
+    - features=[] / 无相关 feature → 返回原 _JURY_PROMPT（向后兼容 v2.36 老 fixture 不变）
+    - 否则在原 prompt 后追加中文段 + features 列表 + 要求 LLM 返回 features_status
+    - 不动 _JURY_PROMPT 模板字面（spec §8 不变量 #1：保护 5 bool key 评审主路径）
+
+    Args:
+        view_name: 视角名（如 V4 / iso / front）
+        features: feature_extractor.extract 返回的 features list
+
+    Returns:
+        完整 prompt 字符串
+    """
+    relevant = [
+        f
+        for f in features
+        if not f.get("expected_in_views") or view_name in f.get("expected_in_views", [])
+    ]
+    if not relevant:
+        return _JURY_PROMPT
+
+    features_lines = "\n".join(
+        f"- {f.get('feature_id', '?')}: {f.get('description_cn', '')}"
+        for f in relevant
+    )
+    addon = (
+        "\n\n另外，请对照设计文档列出的关键特征，判断它们在图里**实际可见**了没（视觉对账）：\n"
+        f"{features_lines}\n\n"
+        "输出 JSON 多加一个字段 features_status:\n"
+        '"features_status":[{"feature_id":"...","visible":bool,"reason":"<= 80 字"}, ...]\n'
+    )
+    return _JURY_PROMPT.rstrip() + addon
+
+
+def _extract_features_for_run(
+    *,
+    args: Any,  # noqa: ANN401 — argparse.Namespace 鸭子类型够
+    profile: Any,  # noqa: ANN401 — JuryProfile 鸭子类型够
+    project_root: Path,
+    frozen_run_id: str,
+) -> list[dict[str, Any]]:
+    """v2.37 Task 6：进程启动调 feature_extractor.extract 一次（spec D1 per-process）。
+
+    决策矩阵：
+    - args.spec_md 显式提供 → 用之；否则 derive cad/<subsystem>/CAD_SPEC.md
+    - args.design_doc 未提供 → 跳过抽取（无通用 convention 必须用户指明，spec D5 fail-safe）
+    - 任一文件不存在 → 跳过抽取（不阻断主流程，matches_spec 走 ViewVerdict 默认 True）
+    - extract 抛任何异常 → 兜底返 []（feature_extractor 内已有 fail-safe，本层再防一层）
+
+    Returns:
+        features list（可能为 []，调用方按空 list 退化 _build_view_prompt）
+    """
+    if not args.design_doc:
+        return []
+    spec_md_path = (
+        Path(args.spec_md)
+        if args.spec_md
+        else project_root / "cad" / args.subsystem / "CAD_SPEC.md"
+    )
+    design_doc_path = Path(args.design_doc)
+    if not spec_md_path.exists() or not design_doc_path.exists():
+        return []
+
+    cache_dir = project_root / "cad" / args.subsystem / ".cad-spec-gen"
+    try:
+        # 延迟 import 防 tools.jury.feature_extractor 任何 top-level 异常炸 main
+        from tools.jury import feature_extractor as _fe
+
+        fx_client = _FeatureExtractorClient(profile)
+        fx_result = _fe.extract(
+            spec_md_path,
+            design_doc_path,
+            cache_dir=cache_dir,
+            llm_client=fx_client,
+            subsystem=args.subsystem,
+            run_id=frozen_run_id,
+        )
+        features = fx_result.get("features", [])
+        return features if isinstance(features, list) else []
+    except Exception:  # noqa: BLE001 — spec D5 fail-safe：抽特征故障不阻断 jury 主流程
+        return []
 
 
 def _single_view_needs_review_item(
@@ -360,6 +474,15 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
         # === Layer 1：字段自洽 ===
         layer1 = run_layer1(layer0.frozen_report)
 
+        # === v2.37 Task 6：进程启动抽 matches_spec features（per-process 1 次） ===
+        # 缺 --design-doc / 文件不存在 / extractor 故障 → features=[]，主流程不阻断
+        features = _extract_features_for_run(
+            args=args,
+            profile=profile,
+            project_root=project_root,
+            frozen_run_id=layer0.frozen_run_id,
+        )
+
         # === Layer 2：LLM 逐视角调用（lock 守 active run dir） ===
         view_verdicts: list[dict[str, Any]] = []
         actual_cost = 0.0
@@ -372,11 +495,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                     view_name = str(view.get("view", ""))
                     img_rel = str(view.get("enhanced_image", ""))
                     img_path = project_root / img_rel
+                    # v2.37 Task 6：按 expected_in_views 过滤后挂 features 到 prompt
+                    view_prompt = _build_view_prompt(view_name, features)
                     try:
                         resp = request_jury_verdict(
                             profile=profile,
                             image_path=img_path,
-                            prompt=_JURY_PROMPT,
+                            prompt=view_prompt,
                             max_retries=args.max_retries,
                         )
                         actual_cost += (
@@ -395,6 +520,8 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                                 "semantic_checks": vv.semantic_checks,
                                 "photoreal_score": vv.photoreal_score,
                                 "reason": vv.reason,
+                                # v2.37 Task 6：透传 features_status（Task 1 已 wire 到 ViewVerdict）
+                                "features_status": vv.features_status,
                                 "llm_meta": {
                                     "http_status": resp.http_status,
                                     "attempts": resp.attempts,
@@ -416,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                                 "semantic_checks": {},
                                 "photoreal_score": 0,
                                 "reason": "",
+                                # v2.37 Task 6：失败路径 features_status=[]（保持 schema 一致）
+                                "features_status": [],
                                 "llm_meta": {
                                     "http_status": exc.http_status,
                                     "attempts": 1,
