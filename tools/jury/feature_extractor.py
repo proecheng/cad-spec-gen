@@ -86,8 +86,12 @@ def extract(
     prompt = _PROMPT_TEMPLATE.format(
         spec_content=spec_content, design_content=design_content
     )
+    # text endpoint 优先（spec F8）；vision/通用 complete fallback
     try:
-        raw = llm_client.complete(prompt)
+        if hasattr(llm_client, "complete_text"):
+            raw = llm_client.complete_text(prompt)
+        else:
+            raw = llm_client.complete(prompt)
     except Exception:  # noqa: BLE001 — spec D5 fail-safe：任何 LLM 故障兜底返空
         return {"features": [], "parse_anomalies": ["feature_extraction_failed"]}
 

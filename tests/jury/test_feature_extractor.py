@@ -10,9 +10,15 @@ from tools.jury.feature_extractor import _MAX_FEATURES, extract
 
 
 def _mock_llm_returning(features: list[dict]) -> MagicMock:
-    """构造一个返回 features JSON 的假 LLM client。"""
+    """构造一个返回 features JSON 的假 LLM client（双端点都返同样 JSON）。
+
+    F8 spec：feature_extractor 优先 complete_text，无则 fallback complete；
+    此 helper 给两个端点都挂同样 return_value，让"路由测试以外"的用例不关心端点。
+    """
     client = MagicMock()
-    client.complete.return_value = json.dumps({"features": features})
+    payload = json.dumps({"features": features})
+    client.complete.return_value = payload
+    client.complete_text.return_value = payload
     return client
 
 
@@ -64,7 +70,9 @@ def test_extract_llm_failure_returns_empty_features_no_raise(
     design.write_text("design\n", encoding="utf-8")
 
     client = MagicMock()
+    # F8：两端点都挂同样 side_effect，确保不论走哪条都触发 fail-safe
     client.complete.side_effect = RuntimeError("503 backend down")
+    client.complete_text.side_effect = RuntimeError("503 backend down")
 
     result = extract(
         spec_md,
@@ -120,7 +128,9 @@ def test_extract_invalid_json_returns_empty_features(
     design.write_text("design\n", encoding="utf-8")
 
     client = MagicMock()
+    # F8：两端点都返同一非 JSON 字符串
     client.complete.return_value = "not a json at all"
+    client.complete_text.return_value = "not a json at all"
 
     result = extract(
         spec_md,
@@ -132,3 +142,54 @@ def test_extract_invalid_json_returns_empty_features(
     )
     assert result["features"] == []
     assert "feature_extraction_failed" in result.get("parse_anomalies", [])
+
+
+def test_extract_prefers_text_endpoint_when_available(
+    tmp_path: pathlib.Path,
+) -> None:
+    """spec F8：有 complete_text 时优先用 text endpoint。"""
+    spec_md = tmp_path / "CAD_SPEC.md"
+    spec_md.write_text("# Spec\n", encoding="utf-8")
+    design = tmp_path / "design.md"
+    design.write_text("design\n", encoding="utf-8")
+
+    client = MagicMock()
+    client.complete_text = MagicMock(return_value=json.dumps({"features": []}))
+    client.complete = MagicMock(return_value=json.dumps({"features": []}))
+
+    extract(
+        spec_md,
+        design,
+        cache_dir=tmp_path,
+        llm_client=client,
+        subsystem="end_effector",
+        run_id="test",
+    )
+
+    # 优先 text endpoint
+    client.complete_text.assert_called_once()
+    client.complete.assert_not_called()
+
+
+def test_extract_falls_back_to_complete_when_no_text_endpoint(
+    tmp_path: pathlib.Path,
+) -> None:
+    """spec F8：无 complete_text 时 fallback 到 vision/通用 complete。"""
+    spec_md = tmp_path / "CAD_SPEC.md"
+    spec_md.write_text("# Spec\n", encoding="utf-8")
+    design = tmp_path / "design.md"
+    design.write_text("design\n", encoding="utf-8")
+
+    client = MagicMock(spec=["complete"])  # 仅 complete，无 complete_text
+    client.complete.return_value = json.dumps({"features": []})
+
+    extract(
+        spec_md,
+        design,
+        cache_dir=tmp_path,
+        llm_client=client,
+        subsystem="end_effector",
+        run_id="test",
+    )
+
+    client.complete.assert_called_once()
