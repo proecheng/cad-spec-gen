@@ -48,7 +48,12 @@ from tools.jury.llm_client import (
 )
 from tools.jury.redact import redact_traceback_str
 from tools.jury.stderr_messages import format_stderr_message
-from tools.jury.verdict import parse_view_verdict
+from tools.jury.verdict import (
+    RunVerdict,
+    ViewVerdict,
+    aggregate_run_verdict,
+    parse_view_verdict,
+)
 from tools.jury_loop.llm_fallback import _request_chat_text
 
 
@@ -176,6 +181,25 @@ def _decide_status(layer1_pass: bool, view_verdicts: list[dict[str, Any]]) -> st
     if any(v.get("verdict") == "preview" for v in view_verdicts):
         return "preview"
     return "accepted"
+
+
+def _derive_matches_spec_status(run: RunVerdict) -> str:
+    """v2.37 Task 7：决策 matches_spec_status（'pass' | 'warn' | 'fail' | 'blocked'）。
+
+    本 task 简化决策（Task 9 retry 接入后再扩 'warn'/'blocked'）：
+    - overall_matches_spec=True → 'pass'（无 features 或全 visible 都走这条）
+    - overall_matches_spec=False → 'fail'（Task 9 retry 中间态再改 'warn'，
+      达 N retry 上限再升 'blocked'）
+
+    Args:
+        run: aggregate_run_verdict 返回的 RunVerdict
+
+    Returns:
+        'pass' | 'fail'（Task 9 扩 'warn' / 'blocked'）
+    """
+    if run.overall_matches_spec:
+        return "pass"
+    return "fail"
 
 
 # CP-6 Task 6.1.2: --single-view view 名校验（防 path traversal；与 metadata 模块同 pattern）
@@ -575,6 +599,25 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             "blocked" if sha_drift else _decide_status(layer1.passed, view_verdicts)
         )
 
+        # === v2.37 Task 7：聚合 RunVerdict（F2 wire prompt_rewriter 数据） ===
+        # 把 view_verdicts (list[dict]) 转回 dict[view_id, ViewVerdict] 给 aggregate_run_verdict
+        # 注：features_status 已由 Task 6 透传，本步只读不改 view_verdicts
+        view_verdict_objs: dict[str, ViewVerdict] = {}
+        for v in view_verdicts:
+            llm_meta = v.get("llm_meta", {})
+            parse_anomalies = llm_meta.get("parse_anomalies", [])
+            view_verdict_objs[str(v["view"])] = ViewVerdict(
+                semantic_checks=v["semantic_checks"],
+                photoreal_score=v["photoreal_score"],
+                reason=v["reason"],
+                parse_status="ok",
+                parse_anomalies=list(parse_anomalies),
+                verdict=v["verdict"],
+                features_status=v.get("features_status", []),
+            )
+        run_verdict = aggregate_run_verdict(view_verdict_objs)
+        matches_spec_status = _derive_matches_spec_status(run_verdict)
+
         # === 写报告 ===
         run_dir.mkdir(parents=True, exist_ok=True)
         report: dict[str, Any] = {
@@ -625,6 +668,11 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             },
             "views": view_verdicts,
             "blocking_reasons": ([{"code": "freeze_drift"}] if sha_drift else []),
+            # v2.37 Task 7：matches_spec 维度顶层字段（schema_version 仍 1，无新 features 时
+            # 全是 default value/True/{}/'pass'，老 fixture 不受影响）
+            "overall_matches_spec": run_verdict.overall_matches_spec,
+            "per_view_failed_features": run_verdict.per_view_failed_features,
+            "matches_spec_status": matches_spec_status,
         }
         write_json_atomic(report_path, report)
 

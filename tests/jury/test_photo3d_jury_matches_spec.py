@@ -447,3 +447,221 @@ def test_main_no_spec_md_skips_extract_backward_compat(
     assert extract_mock.call_count == 0, (
         "design_doc 未提供时不应触发 extract（向后兼容 v2.36）"
     )
+
+
+# ---------- Task 7：RunVerdict 聚合写报告（F2 wire） ----------
+
+
+def _payload_features_visible(view: str, *, visible: bool) -> dict[str, Any]:
+    """构造 OK + features_status[{fx1, visible=visible}] 的 chat-completions payload。"""
+    return {
+        "id": f"chatcmpl-{view}",
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "semantic_checks": {
+                                "geometry_preserved": True,
+                                "material_consistent": True,
+                                "photorealistic": True,
+                                "no_extra_parts": True,
+                                "no_missing_parts": True,
+                            },
+                            "photoreal_score": 85,
+                            "reason": f"view {view}",
+                            "features_status": [
+                                {
+                                    "feature_id": "fx1",
+                                    "visible": visible,
+                                    "reason": "可见" if visible else "缺失",
+                                }
+                            ],
+                        }
+                    )
+                },
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+
+def test_photo3d_jury_report_includes_run_verdict_aggregate(
+    jury_env_with_specs: Path,
+) -> None:
+    """跑完所有视角后 PHOTO3D_JURY_REPORT.json 顶层应含 overall_matches_spec
+    + per_view_failed_features + matches_spec_status。
+
+    场景：iso visible=True，front visible=False（fx1 missing）→
+    overall_matches_spec=False / per_view_failed_features={"front": ["fx1"]}
+    / matches_spec_status="fail"。
+    """
+    iter_responses = iter(
+        [
+            _make_response(_payload_features_visible("iso", visible=True)),
+            _make_response(_payload_features_visible("front", visible=False)),
+        ]
+    )
+    extract_mock = MagicMock(
+        return_value={
+            "features": [
+                {"feature_id": "fx1", "description_cn": "x", "expected_in_views": None}
+            ],
+            "parse_anomalies": [],
+        }
+    )
+
+    sub = "lifting_platform"
+    spec_md = jury_env_with_specs / "cad" / sub / "CAD_SPEC.md"
+    design = jury_env_with_specs / "design.md"
+
+    with patch(
+        "tools.jury.feature_extractor.extract", extract_mock
+    ), patch(
+        "tools.jury.llm_client.urlopen",
+        side_effect=lambda *a, **kw: next(iter_responses),
+    ):
+        code = main(
+            [
+                "--subsystem",
+                sub,
+                "--project-root",
+                str(jury_env_with_specs),
+                "--spec-md",
+                str(spec_md),
+                "--design-doc",
+                str(design),
+            ]
+        )
+    assert code == 0
+    rep_path = (
+        jury_env_with_specs
+        / "cad"
+        / sub
+        / ".cad-spec-gen"
+        / "runs"
+        / "20260508-123456"
+        / "PHOTO3D_JURY_REPORT.json"
+    )
+    rep = json.loads(rep_path.read_text(encoding="utf-8"))
+    assert rep["overall_matches_spec"] is False, (
+        f"overall_matches_spec 应 False；实际 {rep.get('overall_matches_spec')!r}"
+    )
+    assert rep["per_view_failed_features"] == {"front": ["fx1"]}, (
+        f"per_view_failed_features 应 {{'front': ['fx1']}}；"
+        f"实际 {rep.get('per_view_failed_features')!r}"
+    )
+    assert rep["matches_spec_status"] == "fail", (
+        f"matches_spec_status 应 'fail'；实际 {rep.get('matches_spec_status')!r}"
+    )
+
+
+def test_photo3d_jury_report_no_features_yields_pass_status(
+    jury_env_with_specs: Path,
+) -> None:
+    """无 features (无 --design-doc) 跑 jury，matches_spec_status 应为 'pass'。
+
+    向后兼容：v2.36 老路径 features=[] → LLM payload 不含 features_status →
+    ViewVerdict.matches_spec=True（默认）→ overall_matches_spec=True →
+    matches_spec_status='pass'。
+    """
+    iter_responses = iter(
+        [
+            _make_response(_ok_payload_with_features_status("iso")),
+            _make_response(_ok_payload_with_features_status("front")),
+        ]
+    )
+    extract_mock = MagicMock(
+        return_value={"features": [], "parse_anomalies": []}
+    )
+
+    sub = "lifting_platform"
+    with patch(
+        "tools.jury.feature_extractor.extract", extract_mock
+    ), patch(
+        "tools.jury.llm_client.urlopen",
+        side_effect=lambda *a, **kw: next(iter_responses),
+    ):
+        # 不传 --design-doc → extract 不调 → features=[]
+        code = main(
+            [
+                "--subsystem",
+                sub,
+                "--project-root",
+                str(jury_env_with_specs),
+            ]
+        )
+    assert code == 0
+    rep_path = (
+        jury_env_with_specs
+        / "cad"
+        / sub
+        / ".cad-spec-gen"
+        / "runs"
+        / "20260508-123456"
+        / "PHOTO3D_JURY_REPORT.json"
+    )
+    rep = json.loads(rep_path.read_text(encoding="utf-8"))
+    assert rep["overall_matches_spec"] is True, (
+        f"无 features 时 overall_matches_spec 应 True；"
+        f"实际 {rep.get('overall_matches_spec')!r}"
+    )
+    assert rep["per_view_failed_features"] == {}, (
+        f"无 features 时 per_view_failed_features 应 {{}}；"
+        f"实际 {rep.get('per_view_failed_features')!r}"
+    )
+    assert rep["matches_spec_status"] == "pass", (
+        f"无 features 时 matches_spec_status 应 'pass'；"
+        f"实际 {rep.get('matches_spec_status')!r}"
+    )
+
+
+def test_photo3d_jury_report_schema_version_unchanged(
+    jury_env_with_specs: Path,
+) -> None:
+    """schema_version 保持 1（不破 v2.36 fixture 向后兼容）。
+
+    决策：主 agent 与 spec §5.2.3 + 不变量 #1 一致选择不 bump schema_version；
+    新字段（overall_matches_spec / per_view_failed_features / matches_spec_status）
+    全部加在顶层。理由：features=[] 时 3 字段全是 default value（True/{}/pass），
+    老 fixture 不被破坏。
+    """
+    iter_responses = iter(
+        [
+            _make_response(_ok_payload_with_features_status("iso")),
+            _make_response(_ok_payload_with_features_status("front")),
+        ]
+    )
+    extract_mock = MagicMock(
+        return_value={"features": [], "parse_anomalies": []}
+    )
+
+    sub = "lifting_platform"
+    with patch(
+        "tools.jury.feature_extractor.extract", extract_mock
+    ), patch(
+        "tools.jury.llm_client.urlopen",
+        side_effect=lambda *a, **kw: next(iter_responses),
+    ):
+        code = main(
+            [
+                "--subsystem",
+                sub,
+                "--project-root",
+                str(jury_env_with_specs),
+            ]
+        )
+    assert code == 0
+    rep_path = (
+        jury_env_with_specs
+        / "cad"
+        / sub
+        / ".cad-spec-gen"
+        / "runs"
+        / "20260508-123456"
+        / "PHOTO3D_JURY_REPORT.json"
+    )
+    rep = json.loads(rep_path.read_text(encoding="utf-8"))
+    assert rep["schema_version"] == 1, (
+        f"schema_version 应保持 1；实际 {rep.get('schema_version')!r}"
+    )
