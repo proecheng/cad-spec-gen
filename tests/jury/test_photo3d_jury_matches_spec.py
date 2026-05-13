@@ -665,3 +665,245 @@ def test_photo3d_jury_report_schema_version_unchanged(
     assert rep["schema_version"] == 1, (
         f"schema_version 应保持 1；实际 {rep.get('schema_version')!r}"
     )
+
+
+# ---------- Task 9：_handle_single_view_mode 接 features cache ----------
+
+
+def _make_single_view_jury_config(home: Path) -> None:
+    """单视角模式专用 jury config（同 main path 的 _write_jury_config 内容）。"""
+    _write_jury_config(home)
+
+
+def test_handle_single_view_reads_features_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task 9 (B)：single-view 子进程从 cache 读 features → prompt 附特征。
+
+    场景：
+    - cad/<sub>/.cad-spec-gen/matches_spec_features.json 存在含 1 feature
+    - main([..., "--single-view", "V4", "--image", path, "--subsystem", sub])
+    - request_jury_verdict 被调用时 prompt 含 feature_id + description_cn
+    """
+    sub = "end_effector"
+    cache_dir = tmp_path / "cad" / sub / ".cad-spec-gen"
+    cache_dir.mkdir(parents=True)
+    cache_path = cache_dir / "matches_spec_features.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "subsystem": sub,
+                "run_id": "rid-task9",
+                "source_files": [],
+                "features": [
+                    {
+                        "feature_id": "flange_arms_4",
+                        "description_cn": "法兰 4 臂",
+                        "expected_in_views": None,
+                        "doc_ref": "",
+                    }
+                ],
+                "parse_anomalies": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    img = tmp_path / "v4.jpg"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 200)
+
+    _make_single_view_jury_config(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("CAD_JURY_DISABLE_LLM", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    captured_prompts: list[str] = []
+
+    def fake_request(
+        *, profile: Any, image_path: Any, prompt: str, max_retries: int
+    ) -> Any:
+        captured_prompts.append(prompt)
+        from tools.jury.llm_client import LlmResponse
+
+        return LlmResponse(
+            content_text=json.dumps(
+                {
+                    "semantic_checks": {
+                        "geometry_preserved": True,
+                        "material_consistent": True,
+                        "photorealistic": True,
+                        "no_extra_parts": True,
+                        "no_missing_parts": True,
+                    },
+                    "photoreal_score": 80,
+                    "reason": "ok",
+                    "features_status": [
+                        {
+                            "feature_id": "flange_arms_4",
+                            "visible": True,
+                            "reason": "看到 4 臂",
+                        }
+                    ],
+                }
+            ),
+            attempts=1,
+            http_status=200,
+            latency_ms=100,
+            finish_reason="stop",
+            vendor_request_id="x",
+        )
+
+    monkeypatch.setattr("tools.photo3d_jury.request_jury_verdict", fake_request)
+
+    code = main(
+        [
+            "--subsystem",
+            sub,
+            "--single-view",
+            "V4",
+            "--image",
+            str(img),
+        ]
+    )
+    assert code == 0, f"single-view main 应 exit 0；实际 {code}"
+    assert len(captured_prompts) == 1
+    # 关键断言：prompt 含 feature_id + description_cn
+    assert "flange_arms_4" in captured_prompts[0], (
+        f"prompt 应含 feature_id；实际 prompt={captured_prompts[0]!r}"
+    )
+    assert "法兰 4 臂" in captured_prompts[0], (
+        f"prompt 应含 description_cn；实际 prompt={captured_prompts[0]!r}"
+    )
+
+
+def test_handle_single_view_no_cache_falls_back_to_default_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task 9 (B) fail-safe：cache 不存在 → 用 _JURY_PROMPT 默认（行为同 v2.36）。"""
+    sub = "end_effector"
+    img = tmp_path / "v4.jpg"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 200)
+
+    _make_single_view_jury_config(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("CAD_JURY_DISABLE_LLM", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    captured_prompts: list[str] = []
+
+    def fake_request(
+        *, profile: Any, image_path: Any, prompt: str, max_retries: int
+    ) -> Any:
+        captured_prompts.append(prompt)
+        from tools.jury.llm_client import LlmResponse
+
+        return LlmResponse(
+            content_text=json.dumps(
+                {
+                    "semantic_checks": {
+                        "geometry_preserved": True,
+                        "material_consistent": True,
+                        "photorealistic": True,
+                        "no_extra_parts": True,
+                        "no_missing_parts": True,
+                    },
+                    "photoreal_score": 80,
+                    "reason": "ok",
+                }
+            ),
+            attempts=1,
+            http_status=200,
+            latency_ms=100,
+            finish_reason="stop",
+            vendor_request_id="x",
+        )
+
+    monkeypatch.setattr("tools.photo3d_jury.request_jury_verdict", fake_request)
+
+    code = main(
+        [
+            "--subsystem",
+            sub,
+            "--single-view",
+            "V4",
+            "--image",
+            str(img),
+        ]
+    )
+    assert code == 0
+    assert len(captured_prompts) == 1
+    # 关键断言：无 cache 时不附加 features 段（与 _JURY_PROMPT 完全一致）
+    assert captured_prompts[0] == _JURY_PROMPT, (
+        "cache 缺时应回落 _JURY_PROMPT；实际 prompt 已被 augment"
+    )
+
+
+def test_handle_single_view_corrupt_cache_falls_back_safely(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task 9 (B) fail-safe：cache 文件烂 JSON → 用 _JURY_PROMPT 默认（不抛异常）。"""
+    sub = "end_effector"
+    cache_dir = tmp_path / "cad" / sub / ".cad-spec-gen"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "matches_spec_features.json").write_text(
+        "this is not valid JSON{{{", encoding="utf-8"
+    )
+
+    img = tmp_path / "v4.jpg"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 200)
+
+    _make_single_view_jury_config(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("CAD_JURY_DISABLE_LLM", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    captured_prompts: list[str] = []
+
+    def fake_request(
+        *, profile: Any, image_path: Any, prompt: str, max_retries: int
+    ) -> Any:
+        captured_prompts.append(prompt)
+        from tools.jury.llm_client import LlmResponse
+
+        return LlmResponse(
+            content_text=json.dumps(
+                {
+                    "semantic_checks": {
+                        "geometry_preserved": True,
+                        "material_consistent": True,
+                        "photorealistic": True,
+                        "no_extra_parts": True,
+                        "no_missing_parts": True,
+                    },
+                    "photoreal_score": 80,
+                    "reason": "ok",
+                }
+            ),
+            attempts=1,
+            http_status=200,
+            latency_ms=100,
+            finish_reason="stop",
+            vendor_request_id="x",
+        )
+
+    monkeypatch.setattr("tools.photo3d_jury.request_jury_verdict", fake_request)
+
+    code = main(
+        [
+            "--subsystem",
+            sub,
+            "--single-view",
+            "V4",
+            "--image",
+            str(img),
+        ]
+    )
+    assert code == 0
+    assert captured_prompts[0] == _JURY_PROMPT, (
+        "cache 烂时应回落 _JURY_PROMPT（fail-safe，不阻塞 single-view）"
+    )

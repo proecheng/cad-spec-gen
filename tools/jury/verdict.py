@@ -134,10 +134,25 @@ def parse_view_verdict(
         if "reason_sanitized" not in anomalies:
             anomalies.append("reason_sanitized")
 
+    # Task 9 v2.37：matches_spec=False (features_status 非空 + 任一 invisible) → 升级 needs_review
+    # 触发 jury_loop retry 路径（spec §3 F5）。features_status 为空（老 fixture）matches_spec=True
+    # → has_real_feature_fail=False → 决策维持原态（向后兼容硬保障）。
+    has_real_feature_fail = bool(features_status) and not checks.get(
+        "matches_spec", True
+    )
+    if has_real_feature_fail and "matches_spec_failed" not in anomalies:
+        anomalies.append("matches_spec_failed")
+
     # 决策：parse_anomalies ⊆ {reason_sanitized, clamped} → 仍可走 5 boolean + score 阈值
-    serious = set(anomalies) - {"reason_sanitized", "clamped"}
+    # Task 9：matches_spec_failed 是"真有 spec 不符"信号，与 reason_sanitized/clamped 同
+    # 属白名单——单独走 needs_review 分支，不当 serious 处理（serious 强制 5 bool 全 False
+    # 报废 verdict）。
+    serious = set(anomalies) - {"reason_sanitized", "clamped", "matches_spec_failed"}
     verdict: Literal["accepted", "preview", "needs_review"]
     if serious:
+        verdict = "needs_review"
+    elif has_real_feature_fail:
+        # matches_spec FAIL → needs_review → orchestrator retry 路径（Task 9 集成）
         verdict = "needs_review"
     elif not all(checks.values()):
         verdict = "preview"

@@ -206,6 +206,48 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 _SINGLE_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
 
 
+def _load_cached_features_for_subsystem(
+    subsystem: str, project_root: Path
+) -> list[dict[str, Any]]:
+    """Task 9 v2.37 (B)：从 cad/<sub>/.cad-spec-gen/matches_spec_features.json 读 features。
+
+    spec D1：single-view subprocess 复用主 path Task 4+6 写的 cache，
+    避免 subprocess 自行调 feature_extractor（无 design_doc 入口，且重复 LLM 计费）。
+
+    fail-safe（任何异常返 []，行为同 v2.36）：
+    - 文件不存在：cache 未建 → 空 features → prompt 等同 _JURY_PROMPT
+    - JSON 烂：上一次写盘断电 / 手动篡改 → 空 features
+    - features 字段缺/非 list：schema 漂移 → 空 features
+
+    Args:
+        subsystem: 子系统名（如 end_effector）；要与 main path 写 cache 时同名
+        project_root: 项目根目录（cwd 或 --project-root 解析后）
+
+    Returns:
+        features list（每条至少含 feature_id；description_cn / expected_in_views
+        可缺）；任何错误一律 []
+    """
+    cache_path = (
+        project_root
+        / "cad"
+        / subsystem
+        / ".cad-spec-gen"
+        / "matches_spec_features.json"
+    )
+    try:
+        if not cache_path.is_file():
+            return []
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    features = payload.get("features", [])
+    if not isinstance(features, list):
+        return []
+    return [f for f in features if isinstance(f, dict)]
+
+
 def _handle_single_view_mode(
     args: argparse.Namespace, profile: Any, caps: Any,  # noqa: ANN401
 ) -> int:
@@ -216,6 +258,10 @@ def _handle_single_view_mode(
     - exit 2 + stderr 表参数错（缺 --image / view 名非法）
     - 任一 LLM 调用失败 → 该项 verdict=needs_review + parse_anomalies 含 "llm_call_failed"
       调用方（orchestrator）检测到 needs_review 走 loop_status=jury_unavailable
+
+    v2.37 Task 9 (B)：subprocess 启动时读 cad/<sub>/.cad-spec-gen/matches_spec_features.json
+    用 _build_view_prompt 给 prompt 附 features 列表（与主 path Task 6 一致）；
+    cache 缺/烂 → 回落 _JURY_PROMPT（向后兼容 v2.36）。
     """
     if not args.image:
         sys.stderr.write("✗ --single-view 要求 --image PATH [PATH ...]\n")
@@ -225,6 +271,13 @@ def _handle_single_view_mode(
             f"✗ --single-view 名非法（必须匹配 {_SINGLE_VIEW_NAME_PATTERN.pattern}）：{args.single_view}\n"
         )
         return 2
+
+    # Task 9 (B)：读 cache + 构造视角 prompt（无 cache / 不相关 feature → _JURY_PROMPT 原文）
+    # project_root 同 main() 默认 = cwd（_handle_single_view_mode 短路在 args.project_root
+    # resolve 之前；直接用 Path(args.project_root) 与 main() 后半段保持一致语义）
+    project_root = Path(args.project_root).resolve()
+    features = _load_cached_features_for_subsystem(args.subsystem, project_root)
+    view_prompt = _build_view_prompt(args.single_view, features)
 
     results: list[dict[str, Any]] = []
     for img in args.image:
@@ -239,7 +292,7 @@ def _handle_single_view_mode(
             resp = request_jury_verdict(
                 profile=profile,
                 image_path=img_path,
-                prompt=_JURY_PROMPT,
+                prompt=view_prompt,
                 max_retries=args.max_retries,
             )
             vv = parse_view_verdict(
@@ -254,6 +307,9 @@ def _handle_single_view_mode(
                 "photoreal_score": vv.photoreal_score,
                 "semantic_checks": vv.semantic_checks,
                 "reason": vv.reason,
+                # Task 9 (B)：透传 features_status 给 orchestrator
+                # 让 _call_jury_subprocess 能识别 matches_spec 失败 → 触发 retry
+                "features_status": list(vv.features_status),
                 "parse_status": vv.parse_status,
                 "parse_anomalies": list(vv.parse_anomalies),
             })
@@ -355,7 +411,11 @@ def _extract_features_for_run(
 def _single_view_needs_review_item(
     view: str, image_path: str, *, reason: str, anomaly: str,
 ) -> dict[str, Any]:
-    """构造单视角 needs_review item（图缺失 / LLM 失败共用）。"""
+    """构造单视角 needs_review item（图缺失 / LLM 失败共用）。
+
+    Task 9：增加 features_status=[] 让 schema 与成功路径一致（orchestrator
+    解析时不必 if-check 字段存在性）。
+    """
     return {
         "view": view,
         "image_path": image_path,
@@ -363,6 +423,7 @@ def _single_view_needs_review_item(
         "photoreal_score": 0,
         "semantic_checks": {},
         "reason": reason,
+        "features_status": [],
         "parse_status": "ok",
         "parse_anomalies": [anomaly],
     }

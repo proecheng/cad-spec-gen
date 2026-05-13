@@ -198,3 +198,93 @@ def test_aggregate_run_verdict_one_view_fails():
     run = aggregate_run_verdict({"V1": v_pass, "V4": v_fail})
     assert run.overall_matches_spec is False
     assert run.per_view_failed_features == {"V4": ["flange_arms_4"]}
+
+
+# ---------- Task 9 v2.37：matches_spec=False → 升级 needs_review ----------
+
+
+def test_parse_view_verdict_matches_spec_false_escalates_to_needs_review() -> None:
+    """Task 9：features_status 非空 + matches_spec=False → verdict='needs_review'。
+
+    决策语义（spec §3 F5 retry 触发条件）：features_status 非空表示 LLM 真的看到了
+    feature 列表才做的对账，此时 invisible 表征 enhance 真有问题——而不是"没列单
+    所以默认 True"那类向后兼容退化路径。
+    """
+    content = json.dumps(
+        {
+            "semantic_checks": {
+                "geometry_preserved": True,
+                "material_consistent": True,
+                "photorealistic": True,
+                "no_extra_parts": True,
+                "no_missing_parts": True,
+            },
+            "photoreal_score": 85,
+            "reason": "图片质量 OK 但缺特征",
+            "features_status": [
+                {"feature_id": "flange_arms_4", "visible": False, "reason": "未见 4 臂"},
+            ],
+        }
+    )
+    v = parse_view_verdict(content, finish_reason="stop")
+    assert v.semantic_checks["matches_spec"] is False
+    assert v.verdict == "needs_review", (
+        f"matches_spec=False 时应升级 needs_review；实际 {v.verdict}; "
+        f"parse_anomalies = {v.parse_anomalies}"
+    )
+    assert "matches_spec_failed" in v.parse_anomalies, (
+        f"应记入 matches_spec_failed anomaly；实际 {v.parse_anomalies}"
+    )
+
+
+def test_parse_view_verdict_empty_features_no_escalation() -> None:
+    """Task 9 back-compat：features_status 为空 → matches_spec=True → 不升级。
+
+    硬保护 Task 1 的 test_parse_view_verdict_back_compat_verdict_not_needs_review
+    不被 (A) 决策扩展破坏。
+    """
+    content = json.dumps(
+        {
+            "semantic_checks": {
+                "geometry_preserved": True,
+                "material_consistent": True,
+                "photorealistic": True,
+                "no_extra_parts": True,
+                "no_missing_parts": True,
+            },
+            "photoreal_score": 85,
+            "reason": "ok",
+        }
+    )
+    v = parse_view_verdict(content, finish_reason="stop")
+    assert v.semantic_checks["matches_spec"] is True
+    assert v.verdict == "accepted", (
+        f"无 features 时不能 escalate；实际 verdict={v.verdict}, "
+        f"anomalies={v.parse_anomalies}"
+    )
+    assert "matches_spec_failed" not in v.parse_anomalies
+
+
+def test_parse_view_verdict_all_features_visible_no_escalation() -> None:
+    """Task 9：features_status 非空但 all visible=True → matches_spec=True → 不升级。"""
+    content = json.dumps(
+        {
+            "semantic_checks": {
+                "geometry_preserved": True,
+                "material_consistent": True,
+                "photorealistic": True,
+                "no_extra_parts": True,
+                "no_missing_parts": True,
+            },
+            "photoreal_score": 85,
+            "reason": "ok",
+            "features_status": [
+                {"feature_id": "f1", "visible": True, "reason": "可见"},
+                {"feature_id": "f2", "visible": True, "reason": "可见"},
+            ],
+        }
+    )
+    v = parse_view_verdict(content, finish_reason="stop")
+    assert v.semantic_checks["matches_spec"] is True
+    assert v.verdict == "accepted"
+    assert "matches_spec_failed" not in v.parse_anomalies
