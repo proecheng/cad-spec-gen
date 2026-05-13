@@ -126,7 +126,10 @@
     },
     "ee_001_06": {
       "preset": "brushed_aluminum",
-      "label": "行星减速器"
+      "label": "行星减速器",
+      "name_cn": "行星减速器",
+      "material_source": "bom",
+      "material_text": "Maxon GP22C (53:1)"
     },
     "ee_001_07": {
       "preset": "stainless_304",
@@ -134,7 +137,10 @@
     },
     "ee_001_09": {
       "preset": "brushed_aluminum",
-      "label": "FFC线束总成"
+      "label": "FFC线束总成",
+      "name_cn": "FFC线束总成",
+      "material_source": "bom",
+      "material_text": "Molex 15168, 20芯×500mm"
     },
     "ee_001_10": {
       "preset": "dark_steel",
@@ -142,11 +148,17 @@
     },
     "ee_001_11": {
       "preset": "brushed_aluminum",
-      "label": "Igus拖链段"
+      "label": "Igus拖链段",
+      "name_cn": "Igus拖链段",
+      "material_source": "bom",
+      "material_text": "E2 micro, 内径6mm"
     },
     "ee_001_12": {
       "preset": "brushed_aluminum",
-      "label": "定位销"
+      "label": "定位销",
+      "name_cn": "定位销",
+      "material_source": "bom",
+      "material_text": "Φ3×6mm H7/g6"
     },
     "ee_002_01": {
       "preset": "black_anodized",
@@ -158,7 +170,10 @@
     },
     "ee_002_03": {
       "preset": "brushed_aluminum",
-      "label": "齿轮泵"
+      "label": "齿轮泵",
+      "name_cn": "齿轮泵",
+      "material_source": "fallback",
+      "material_text": "齿轮泵 外购"
     },
     "ee_002_04": {
       "preset": "black_rubber",
@@ -166,7 +181,10 @@
     },
     "ee_002_05": {
       "preset": "brushed_aluminum",
-      "label": "LEMO插头"
+      "label": "LEMO插头",
+      "name_cn": "LEMO插头",
+      "material_source": "bom",
+      "material_text": "FGG.0B.307"
     },
     "ee_003_01": {
       "preset": "dark_steel",
@@ -190,19 +208,31 @@
     },
     "ee_003_06": {
       "preset": "brushed_aluminum",
-      "label": "压力阵列"
+      "label": "压力阵列",
+      "name_cn": "压力阵列",
+      "material_source": "bom",
+      "material_text": "4×4薄膜 20×20mm"
     },
     "ee_003_07": {
       "preset": "brushed_aluminum",
-      "label": "配重块"
+      "label": "配重块",
+      "name_cn": "配重块",
+      "material_source": "bom",
+      "material_text": "钨合金Φ12×7mm/50g"
     },
     "ee_003_08": {
       "preset": "brushed_aluminum",
-      "label": "LEMO插头"
+      "label": "LEMO插头",
+      "name_cn": "LEMO插头",
+      "material_source": "bom",
+      "material_text": "FGG.0B.307"
     },
     "ee_003_09": {
-      "preset": "brushed_aluminum",
-      "label": "Gore柔性同轴"
+      "preset": "white_nylon",
+      "label": "Gore柔性同轴",
+      "name_cn": "Gore柔性同轴",
+      "material_source": "bom",
+      "material_text": "MicroTCA系列×500mm"
     },
     "ee_004_01": {
       "preset": "black_anodized",
@@ -210,7 +240,10 @@
     },
     "ee_004_02": {
       "preset": "brushed_aluminum",
-      "label": "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）"
+      "label": "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）",
+      "name_cn": "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）",
+      "material_source": "bom",
+      "material_text": "超细纤维无纺布"
     },
     "ee_004_03": {
       "preset": "dark_steel",
@@ -230,7 +263,10 @@
     },
     "ee_004_07": {
       "preset": "brushed_aluminum",
-      "label": "光电编码器（带面余量）"
+      "label": "光电编码器（带面余量）",
+      "name_cn": "光电编码器（带面余量）",
+      "material_source": "bom",
+      "material_text": "反射式"
     },
     "ee_004_08": {
       "preset": "black_rubber",
@@ -238,11 +274,17 @@
     },
     "ee_004_09": {
       "preset": "brushed_aluminum",
-      "label": "微量泵（溶剂喷射）"
+      "label": "微量泵（溶剂喷射）",
+      "name_cn": "微量泵（溶剂喷射）",
+      "material_source": "bom",
+      "material_text": "电磁阀式"
     },
     "ee_004_10": {
       "preset": "brushed_aluminum",
-      "label": "配重块"
+      "label": "配重块",
+      "name_cn": "配重块",
+      "material_source": "bom",
+      "material_text": "钨合金Φ14×13mm/120g"
     },
     "ee_004_11": {
       "preset": "stainless_304",
@@ -254,7 +296,10 @@
     },
     "ee_004_13": {
       "preset": "brushed_aluminum",
-      "label": "LEMO插头"
+      "label": "LEMO插头",
+      "name_cn": "LEMO插头",
+      "material_source": "bom",
+      "material_text": "FGG.0B.307"
     },
     "ee_005_01": {
       "preset": "dark_steel",
@@ -266,11 +311,17 @@
     },
     "ee_005_03": {
       "preset": "brushed_aluminum",
-      "label": "LEMO插头"
+      "label": "LEMO插头",
+      "name_cn": "LEMO插头",
+      "material_source": "bom",
+      "material_text": "FGG.0B.307"
     },
     "ee_006_01": {
       "preset": "brushed_aluminum",
-      "label": "壳体（含散热鳍片）"
+      "label": "壳体（含散热鳍片）",
+      "name_cn": "壳体（含散热鳍片）",
+      "material_source": "bom",
+      "material_text": "6063铝合金 140×100×55mm"
     },
     "ee_006_02": {
       "preset": "dark_steel",
@@ -290,7 +341,10 @@
     },
     "ee_006_06": {
       "preset": "brushed_aluminum",
-      "label": "M12防水诊断接口"
+      "label": "M12防水诊断接口",
+      "name_cn": "M12防水诊断接口",
+      "material_source": "bom",
+      "material_text": "4芯"
     }
   },
   "camera": {
@@ -371,7 +425,7 @@
         80
       ],
       "ortho": true,
-      "ortho_scale": 400,
+      "ortho_scale": 720,
       "auto_frame": false,
       "description": "Front orthographic — tighter framing"
     },
@@ -379,9 +433,9 @@
       "name": "V6_cross_section",
       "type": "section",
       "location": [
-        600,
-        -550,
-        600
+        900,
+        -825,
+        830
       ],
       "target": [
         0,
@@ -630,232 +684,278 @@
     "ee_001_01": {
       "name_cn": "法兰本体（含十字悬臂）",
       "bom_id": "GIS-EE-001-01",
-      "material": "ee_001_01"
+      "material": "ee_001_01",
+      "name_en": ""
     },
     "ee_001_03": {
       "name_cn": "O型圈",
       "bom_id": "GIS-EE-001-03",
-      "material": "ee_001_03"
+      "material": "ee_001_03",
+      "name_en": ""
     },
     "ee_001_04": {
       "name_cn": "碟形弹簧垫圈",
       "bom_id": "GIS-EE-001-04",
-      "material": "ee_001_04"
+      "material": "ee_001_04",
+      "name_en": ""
     },
     "ee_001_05": {
       "name_cn": "伺服电机",
       "bom_id": "GIS-EE-001-05",
-      "material": "ee_001_05"
+      "material": "ee_001_05",
+      "name_en": ""
     },
     "ee_001_06": {
       "name_cn": "行星减速器",
       "bom_id": "GIS-EE-001-06",
-      "material": "ee_001_06"
+      "material": "ee_001_06",
+      "name_en": ""
     },
     "ee_001_07": {
       "name_cn": "弹簧销组件（含弹簧）",
       "bom_id": "GIS-EE-001-07",
-      "material": "ee_001_07"
+      "material": "ee_001_07",
+      "name_en": ""
     },
     "ee_001_09": {
       "name_cn": "FFC线束总成",
       "bom_id": "GIS-EE-001-09",
-      "material": "ee_001_09"
+      "material": "ee_001_09",
+      "name_en": ""
     },
     "ee_001_10": {
       "name_cn": "ZIF连接器",
       "bom_id": "GIS-EE-001-10",
-      "material": "ee_001_10"
+      "material": "ee_001_10",
+      "name_en": ""
     },
     "ee_001_11": {
       "name_cn": "Igus拖链段",
       "bom_id": "GIS-EE-001-11",
-      "material": "ee_001_11"
+      "material": "ee_001_11",
+      "name_en": ""
     },
     "ee_001_12": {
       "name_cn": "定位销",
       "bom_id": "GIS-EE-001-12",
-      "material": "ee_001_12"
+      "material": "ee_001_12",
+      "name_en": ""
     },
     "ee_002_01": {
       "name_cn": "涂抹模块壳体",
       "bom_id": "GIS-EE-002-01",
-      "material": "ee_002_01"
+      "material": "ee_002_01",
+      "name_en": ""
     },
     "ee_002_02": {
       "name_cn": "储罐",
       "bom_id": "GIS-EE-002-02",
-      "material": "ee_002_02"
+      "material": "ee_002_02",
+      "name_en": ""
     },
     "ee_002_03": {
       "name_cn": "齿轮泵",
       "bom_id": "GIS-EE-002-03",
-      "material": "ee_002_03"
+      "material": "ee_002_03",
+      "name_en": ""
     },
     "ee_002_04": {
       "name_cn": "刮涂头",
       "bom_id": "GIS-EE-002-04",
-      "material": "ee_002_04"
+      "material": "ee_002_04",
+      "name_en": ""
     },
     "ee_002_05": {
       "name_cn": "LEMO插头",
       "bom_id": "GIS-EE-002-05",
-      "material": "ee_002_05"
+      "material": "ee_002_05",
+      "name_en": ""
     },
     "ee_003_01": {
       "name_cn": "AE传感器",
       "bom_id": "GIS-EE-003-01",
-      "material": "ee_003_01"
+      "material": "ee_003_01",
+      "name_en": ""
     },
     "ee_003_02": {
       "name_cn": "六轴力传感器",
       "bom_id": "GIS-EE-003-02",
-      "material": "ee_003_02"
+      "material": "ee_003_02",
+      "name_en": ""
     },
     "ee_003_03": {
       "name_cn": "弹簧限力机构总成",
       "bom_id": "GIS-EE-003-03",
-      "material": "ee_003_03"
+      "material": "ee_003_03",
+      "name_en": ""
     },
     "ee_003_04": {
       "name_cn": "柔性关节（万向节）",
       "bom_id": "GIS-EE-003-04",
-      "material": "ee_003_04"
+      "material": "ee_003_04",
+      "name_en": ""
     },
     "ee_003_05": {
       "name_cn": "阻尼垫",
       "bom_id": "GIS-EE-003-05",
-      "material": "ee_003_05"
+      "material": "ee_003_05",
+      "name_en": ""
     },
     "ee_003_06": {
       "name_cn": "压力阵列",
       "bom_id": "GIS-EE-003-06",
-      "material": "ee_003_06"
+      "material": "ee_003_06",
+      "name_en": ""
     },
     "ee_003_07": {
       "name_cn": "配重块",
       "bom_id": "GIS-EE-003-07",
-      "material": "ee_003_07"
+      "material": "ee_003_07",
+      "name_en": ""
     },
     "ee_003_08": {
       "name_cn": "LEMO插头",
       "bom_id": "GIS-EE-003-08",
-      "material": "ee_003_08"
+      "material": "ee_003_08",
+      "name_en": ""
     },
     "ee_003_09": {
       "name_cn": "Gore柔性同轴",
       "bom_id": "GIS-EE-003-09",
-      "material": "ee_003_09"
+      "material": "ee_003_09",
+      "name_en": ""
     },
     "ee_004_01": {
       "name_cn": "清洁模块壳体（含卷轴腔+清洁窗口）",
       "bom_id": "GIS-EE-004-01",
-      "material": "ee_004_01"
+      "material": "ee_004_01",
+      "name_en": ""
     },
     "ee_004_02": {
       "name_cn": "清洁带盒（供带卷轴+收带卷轴+10m无纺布带）",
       "bom_id": "GIS-EE-004-02",
-      "material": "ee_004_02"
+      "material": "ee_004_02",
+      "name_en": ""
     },
     "ee_004_03": {
       "name_cn": "微型电机",
       "bom_id": "GIS-EE-004-03",
-      "material": "ee_004_03"
+      "material": "ee_004_03",
+      "name_en": ""
     },
     "ee_004_04": {
       "name_cn": "齿轮减速组（电机→收带卷轴）",
       "bom_id": "GIS-EE-004-04",
-      "material": "ee_004_04"
+      "material": "ee_004_04",
+      "name_en": ""
     },
     "ee_004_05": {
       "name_cn": "弹性衬垫",
       "bom_id": "GIS-EE-004-05",
-      "material": "ee_004_05"
+      "material": "ee_004_05",
+      "name_en": ""
     },
     "ee_004_06": {
       "name_cn": "恒力弹簧（供带侧张力）",
       "bom_id": "GIS-EE-004-06",
-      "material": "ee_004_06"
+      "material": "ee_004_06",
+      "name_en": ""
     },
     "ee_004_07": {
       "name_cn": "光电编码器（带面余量）",
       "bom_id": "GIS-EE-004-07",
-      "material": "ee_004_07"
+      "material": "ee_004_07",
+      "name_en": ""
     },
     "ee_004_08": {
       "name_cn": "溶剂储罐（活塞式正压密封）",
       "bom_id": "GIS-EE-004-08",
-      "material": "ee_004_08"
+      "material": "ee_004_08",
+      "name_en": ""
     },
     "ee_004_09": {
       "name_cn": "微量泵（溶剂喷射）",
       "bom_id": "GIS-EE-004-09",
-      "material": "ee_004_09"
+      "material": "ee_004_09",
+      "name_en": ""
     },
     "ee_004_10": {
       "name_cn": "配重块",
       "bom_id": "GIS-EE-004-10",
-      "material": "ee_004_10"
+      "material": "ee_004_10",
+      "name_en": ""
     },
     "ee_004_11": {
       "name_cn": "微型轴承",
       "bom_id": "GIS-EE-004-11",
-      "material": "ee_004_11"
+      "material": "ee_004_11",
+      "name_en": ""
     },
     "ee_004_12": {
       "name_cn": "清洁窗口翻盖",
       "bom_id": "GIS-EE-004-12",
-      "material": "ee_004_12"
+      "material": "ee_004_12",
+      "name_en": ""
     },
     "ee_004_13": {
       "name_cn": "LEMO插头",
       "bom_id": "GIS-EE-004-13",
-      "material": "ee_004_13"
+      "material": "ee_004_13",
+      "name_en": ""
     },
     "ee_005_01": {
       "name_cn": "I300-UHF-GT传感器",
       "bom_id": "GIS-EE-005-01",
-      "material": "ee_005_01"
+      "material": "ee_005_01",
+      "name_en": ""
     },
     "ee_005_02": {
       "name_cn": "UHF安装支架",
       "bom_id": "GIS-EE-005-02",
-      "material": "ee_005_02"
+      "material": "ee_005_02",
+      "name_en": ""
     },
     "ee_005_03": {
       "name_cn": "LEMO插头",
       "bom_id": "GIS-EE-005-03",
-      "material": "ee_005_03"
+      "material": "ee_005_03",
+      "name_en": ""
     },
     "ee_006_01": {
       "name_cn": "壳体（含散热鳍片）",
       "bom_id": "GIS-EE-006-01",
-      "material": "ee_006_01"
+      "material": "ee_006_01",
+      "name_en": ""
     },
     "ee_006_02": {
       "name_cn": "信号调理PCB",
       "bom_id": "GIS-EE-006-02",
-      "material": "ee_006_02"
+      "material": "ee_006_02",
+      "name_en": ""
     },
     "ee_006_03": {
       "name_cn": "安装支架（抱箍+L型）",
       "bom_id": "GIS-EE-006-03",
-      "material": "ee_006_03"
+      "material": "ee_006_03",
+      "name_en": ""
     },
     "ee_006_04": {
       "name_cn": "LEMO插座",
       "bom_id": "GIS-EE-006-04",
-      "material": "ee_006_04"
+      "material": "ee_006_04",
+      "name_en": ""
     },
     "ee_006_05": {
       "name_cn": "SMA穿壁连接器",
       "bom_id": "GIS-EE-006-05",
-      "material": "ee_006_05"
+      "material": "ee_006_05",
+      "name_en": ""
     },
     "ee_006_06": {
       "name_cn": "M12防水诊断接口",
       "bom_id": "GIS-EE-006-06",
-      "material": "ee_006_06"
+      "material": "ee_006_06",
+      "name_en": ""
     }
   },
   "standard_parts": [
