@@ -1222,7 +1222,14 @@ def _assembly_name(
 
 
 def _offset_from_instance(instance: dict, fallback):
-    if instance:
+    """Pick (x,y,z) offset from explicit instance row or fall back to §6.2 layer pose.
+
+    `if instance:` 不够 — Python dict 即使只含 metadata（instance_id /
+    _contract_instance_id）也 truthy，PRODUCT_GRAPH.json 出来的 contract instance
+    没 x/y/z 字段时会 silently 把 §6.2 layer pose 覆盖成 (0,0,0)。
+    必须显式要求 x/y/z 至少有一个 key 才走 instance 分支。
+    """
+    if instance and any(k in instance for k in ("x", "y", "z")):
         return (
             float(instance.get("x") or 0.0),
             float(instance.get("y") or 0.0),

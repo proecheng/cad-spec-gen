@@ -120,6 +120,43 @@ def test_offsets_explicit_z(sample_bom):
     offsets = _resolve_child_offsets(sample_bom, layer_poses)
     assert offsets["GIS-XX-002-01"] == (0, 0, -10.0)
 
+
+def test_offset_from_instance_empty_dict_falls_back_to_layer_pose():
+    """Regression: 当 PRODUCT_GRAPH.json 给出 contract instance 但没 x/y/z 字段时，
+    _offset_from_instance 必须 fall through 到 fallback（§6.2 layer pose），
+    而不是当 `if instance:` 真就返回 (0,0,0) silently 覆盖 layer pose。
+
+    实测 bug：v2.36.0 CI hotfix 期间发现，加 cad/end_effector/PRODUCT_GRAPH.json 后
+    PEEK ring (GIS-EE-001-02) §6.2 Z=-27mm 被空 contract instance dict 覆盖成 0。
+    """
+    from gen_assembly import _offset_from_instance
+
+    # PRODUCT_GRAPH.json 出来的 contract instance（无 x/y/z 字段，只含元数据）
+    contract_inst = {
+        "instance_id": "GIS-EE-001-02#01",
+        "_contract_instance_id": True,
+    }
+    # §6.2 layer pose 的 fallback（PEEK 在 -27mm）
+    fallback = (0.0, 0.0, -27.0)
+
+    result = _offset_from_instance(contract_inst, fallback)
+    assert result == fallback, (
+        f"空 dict (无 x/y/z) 应该 fall through 到 fallback，"
+        f"got {result} 期望 {fallback}（说明 silent 覆盖 bug 还在）"
+    )
+
+    # sanity check：真有 x/y/z 字段时仍走 instance 分支
+    inst_with_xyz = {"instance_id": "X#01", "x": 1.0, "y": 2.0, "z": 3.0}
+    assert _offset_from_instance(inst_with_xyz, fallback) == (1.0, 2.0, 3.0)
+
+    # None instance 仍走 fallback（pre-existing 行为）
+    assert _offset_from_instance(None, fallback) == fallback
+
+    # 只有部分 xyz 字段时仍按 instance 处理（已有 .get() with default 0.0）
+    inst_partial = {"instance_id": "Y#01", "x": 5.0}
+    assert _offset_from_instance(inst_partial, fallback) == (5.0, 0.0, 0.0)
+
+
 def test_offsets_auto_stack_no_overlap(sample_bom):
     from gen_assembly import _resolve_child_offsets
     layer_poses = {
