@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "run_id": "20260513T120654Z",
+  "run_id": "20260506T042132Z",
   "subsystem": "lifting_platform",
-  "path_context_hash": "sha256:721ea094478d68c0a1fa7dd673efaaac9de36e6f870f7f2b5487b51b4ed3c5ad",
+  "path_context_hash": "sha256:911ae5f864c6737ea3d6b0f3880b663f5522782b65e98ae9eb48c83a5d4e02a2",
   "source_spec": "cad/lifting_platform/CAD_SPEC.md",
   "source_hashes": {
     "CAD_SPEC.md": "sha256:a0531fbb365f82fa3ffc70c7dc75393fb0520d3a11f4492245ebe2df201fb412"

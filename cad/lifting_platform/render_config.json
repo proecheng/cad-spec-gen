@@ -728,52 +728,6 @@
         ]
       }
     ],
-    "V4": [
-      {
-        "component": "SLP-100_top_plate",
-        "anchor": [
-          1000,
-          20
-        ],
-        "label": [
-          1450,
-          120
-        ]
-      },
-      {
-        "component": "SLP-300_moving_plate",
-        "anchor": [
-          980,
-          420
-        ],
-        "label": [
-          1450,
-          390
-        ]
-      },
-      {
-        "component": "SLP-400_bracket",
-        "anchor": [
-          910,
-          420
-        ],
-        "label": [
-          160,
-          390
-        ]
-      },
-      {
-        "component": "NEMA23_motor",
-        "anchor": [
-          1130,
-          940
-        ],
-        "label": [
-          1450,
-          900
-        ]
-      }
-    ],
     "V5": [
       {
         "component": "SLP-100_top_plate",
