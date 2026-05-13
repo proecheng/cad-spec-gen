@@ -157,6 +157,48 @@ def parse_view_verdict(
     )
 
 
+@dataclass(frozen=True)
+class RunVerdict:
+    """整 photo3d-jury 进程的 jury-level summary (v2.37+)。
+
+    聚合多视角 ViewVerdict 给 prompt_rewriter 用：
+    - overall_matches_spec: 所有视角 matches_spec 都 True 才 True
+    - per_view_failed_features: {view_id: [feature_id]} 列出每个视角的 invisible feature
+    """
+
+    view_verdicts: dict[str, ViewVerdict]
+    overall_matches_spec: bool
+    per_view_failed_features: dict[str, list[str]] = field(default_factory=dict)
+
+
+def aggregate_run_verdict(view_verdicts: dict[str, ViewVerdict]) -> RunVerdict:
+    """聚合多视角 verdict → RunVerdict（spec §5.2.2 F1 修复落地）。
+
+    - ``overall_matches_spec`` = all(view.semantic_checks["matches_spec"] for view)；
+      若 view 缺 matches_spec key（如 _make_needs_review_verdict 早返回路径），
+      用 ``.get(default=True)`` 退化为 True（不破坏聚合：parse 错不等于 spec mismatch）。
+    - ``per_view_failed_features`` = {view_id: [feature_id]} 仅含至少 1 invisible feature 的 view，
+      给 prompt_rewriter (Task 4) 提供 per_view_failed_features 反馈数据。
+    """
+    overall = all(
+        v.semantic_checks.get("matches_spec", True) for v in view_verdicts.values()
+    )
+    failed: dict[str, list[str]] = {}
+    for view_id, v in view_verdicts.items():
+        missing = [
+            str(f["feature_id"])
+            for f in v.features_status
+            if isinstance(f, dict) and not f.get("visible", True) and "feature_id" in f
+        ]
+        if missing:
+            failed[view_id] = missing
+    return RunVerdict(
+        view_verdicts=view_verdicts,
+        overall_matches_spec=overall,
+        per_view_failed_features=failed,
+    )
+
+
 def _make_needs_review_verdict(anomalies: list[str]) -> ViewVerdict:
     """构造严重错误情况下的 needs_review ViewVerdict（5 bool 全 False / score=0 / reason 空）。"""
     return ViewVerdict(

@@ -32,7 +32,9 @@ def test_parse_view_verdict_back_compat_no_features_status() -> None:
     )
     v = parse_view_verdict(content, finish_reason="stop")
     assert v.parse_status == "ok"
-    assert v.semantic_checks["matches_spec"] is True, "无 features 时 matches_spec 默认 True"
+    assert v.semantic_checks["matches_spec"] is True, (
+        "无 features 时 matches_spec 默认 True"
+    )
     assert v.features_status == []
 
 
@@ -81,7 +83,11 @@ def test_parse_view_verdict_with_features_all_visible() -> None:
             "photoreal_score": 80,
             "reason": "ok",
             "features_status": [
-                {"feature_id": "flange_arms_4", "visible": True, "reason": "4 arms visible"},
+                {
+                    "feature_id": "flange_arms_4",
+                    "visible": True,
+                    "reason": "4 arms visible",
+                },
                 {"feature_id": "peek_ring", "visible": True, "reason": "ring at base"},
             ],
         }
@@ -105,7 +111,11 @@ def test_parse_view_verdict_with_one_feature_invisible() -> None:
             "photoreal_score": 80,
             "reason": "ok",
             "features_status": [
-                {"feature_id": "flange_arms_4", "visible": False, "reason": "disc only"},
+                {
+                    "feature_id": "flange_arms_4",
+                    "visible": False,
+                    "reason": "disc only",
+                },
                 {"feature_id": "peek_ring", "visible": True, "reason": "ring at base"},
             ],
         }
@@ -113,3 +123,78 @@ def test_parse_view_verdict_with_one_feature_invisible() -> None:
     v = parse_view_verdict(content, finish_reason="stop")
     assert v.semantic_checks["matches_spec"] is False
     assert v.features_status[0]["visible"] is False
+
+
+def test_aggregate_run_verdict_all_views_pass():
+    from tools.jury.verdict import aggregate_run_verdict, ViewVerdict
+
+    v1 = ViewVerdict(
+        semantic_checks={
+            "matches_spec": True,
+            "geometry_preserved": True,
+            "material_consistent": True,
+            "photorealistic": True,
+            "no_extra_parts": True,
+            "no_missing_parts": True,
+        },
+        photoreal_score=80,
+        reason="ok",
+        parse_status="ok",
+        features_status=[{"feature_id": "f1", "visible": True, "reason": "ok"}],
+    )
+    v2 = ViewVerdict(
+        semantic_checks={
+            "matches_spec": True,
+            "geometry_preserved": True,
+            "material_consistent": True,
+            "photorealistic": True,
+            "no_extra_parts": True,
+            "no_missing_parts": True,
+        },
+        photoreal_score=80,
+        reason="ok",
+        parse_status="ok",
+        features_status=[{"feature_id": "f1", "visible": True, "reason": "ok"}],
+    )
+    run = aggregate_run_verdict({"V1": v1, "V2": v2})
+    assert run.overall_matches_spec is True
+    assert run.per_view_failed_features == {}
+
+
+def test_aggregate_run_verdict_one_view_fails():
+    from tools.jury.verdict import aggregate_run_verdict, ViewVerdict
+
+    v_pass = ViewVerdict(
+        semantic_checks={
+            "matches_spec": True,
+            "geometry_preserved": True,
+            "material_consistent": True,
+            "photorealistic": True,
+            "no_extra_parts": True,
+            "no_missing_parts": True,
+        },
+        photoreal_score=80,
+        reason="ok",
+        parse_status="ok",
+        features_status=[{"feature_id": "f1", "visible": True, "reason": "ok"}],
+    )
+    v_fail = ViewVerdict(
+        semantic_checks={
+            "matches_spec": False,
+            "geometry_preserved": True,
+            "material_consistent": True,
+            "photorealistic": True,
+            "no_extra_parts": True,
+            "no_missing_parts": True,
+        },
+        photoreal_score=80,
+        reason="missing arms",
+        parse_status="ok",
+        features_status=[
+            {"feature_id": "flange_arms_4", "visible": False, "reason": "disc only"},
+            {"feature_id": "peek_ring", "visible": True, "reason": "ring ok"},
+        ],
+    )
+    run = aggregate_run_verdict({"V1": v_pass, "V4": v_fail})
+    assert run.overall_matches_spec is False
+    assert run.per_view_failed_features == {"V4": ["flange_arms_4"]}
