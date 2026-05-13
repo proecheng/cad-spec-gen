@@ -27,6 +27,9 @@ _REQUIRED_BOOL_KEYS: tuple[str, ...] = (
     "no_extra_parts",
     "no_missing_parts",
 )
+# matches_spec 为 derived field —— 从 features_status aggregate 推导（all visible），
+# 不参与 keys_ok 校验。保持 _REQUIRED_BOOL_KEYS 不变是 spec §8 不变量 #1（不动现有 5 key 语义）
+# 与 §6 验收 #1（向后兼容：无 features_status 老 fixture 不被升级为 needs_review）的硬保障。
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class ViewVerdict:
     parse_status: Literal["ok"]
     parse_anomalies: list[str] = field(default_factory=list)
     verdict: Literal["accepted", "preview", "needs_review"] = "accepted"
+    features_status: list[dict[str, object]] = field(default_factory=list)
 
 
 def parse_view_verdict(
@@ -85,6 +89,22 @@ def parse_view_verdict(
             checks[key] = val
     if not keys_ok:
         anomalies.append("content_keys_mismatch")
+
+    # features_status aggregation → matches_spec (derived field, 不进 _REQUIRED_BOOL_KEYS)
+    raw_features = payload.get("features_status", [])
+    features_status: list[dict[str, object]] = []
+    if not isinstance(raw_features, list):
+        # 非 list（如 dict / str / int）→ 空 list + anomaly；matches_spec 退化为 True（向后兼容）
+        anomalies.append("features_status_invalid")
+        checks["matches_spec"] = True
+    elif not raw_features:
+        # 空 list（含老 fixture 无字段默认 []）→ matches_spec 默认 True（向后兼容）
+        checks["matches_spec"] = True
+    else:
+        # 有 features → all visible 才 True；非 dict 条目跳过（容忍）
+        valid_features = [f for f in raw_features if isinstance(f, dict)]
+        features_status = valid_features
+        checks["matches_spec"] = all(bool(f.get("visible", False)) for f in valid_features)
 
     # photoreal_score clamp [0, 100]
     raw_score = payload.get("photoreal_score", 0)
@@ -133,6 +153,7 @@ def parse_view_verdict(
         parse_status="ok",
         parse_anomalies=anomalies,
         verdict=verdict,
+        features_status=features_status,
     )
 
 

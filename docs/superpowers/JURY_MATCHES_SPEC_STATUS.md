@@ -15,8 +15,9 @@
 ## 三、Task 进度表
 | Task | 内容 | 状态 |
 | --- | --- | --- |
-| 0 | STATUS + grep verify | ⏳ |
-| 1-3 | verdict.py 扩 RunVerdict + features_status | ⏳ |
+| 0 | STATUS + grep verify | ✅ |
+| 1 | verdict.py 扩 features_status + matches_spec aggregate | ✅ |
+| 2-3 | verdict.py 扩 RunVerdict + summary | ⏳ |
 | 4-5 | feature_extractor.py | ⏳ |
 | 6-7 | photo3d_jury 整合 | ⏳ |
 | 8 | prompt_rewriter hint | ⏳ |
@@ -28,7 +29,12 @@
 | 14 | 最终验证 + 文档对齐 + retro | ⏳ |
 
 ## 四、CURRENT TASK 指针
-**Task 0 in progress.**
+**Task 1 完成（方案 A：matches_spec 为 derived field，不进 `_REQUIRED_BOOL_KEYS`）；下 Task = Task 2 RunVerdict 多视角聚合。**
+
+### Task 1 选择 + 关键决策
+- **方案 A**（matches_spec 不进 `_REQUIRED_BOOL_KEYS`）选择理由：matches_spec 本是从 features_status aggregate 出来的派生字段，不是 LLM 直接 emit 的 bool；放进 `_REQUIRED_BOOL_KEYS` 会让所有不含该字段的老 fixture 触发 content_keys_mismatch → needs_review，silently break spec §6 验收 #1 + spec §8 不变量 #1。
+- 额外加 1 个防御测试 `test_parse_view_verdict_back_compat_verdict_not_needs_review` 硬保障 verdict 不被升级 + content_keys_mismatch 不出现，防未来 plan-drift。
+- features_status 非 list（如 dict/str）→ anomalies 加 "features_status_invalid"（serious 集合非空）→ verdict 升级 needs_review；matches_spec 退化为 True 不污染聚合。
 
 ## 五、不变量（spec §8 重述）
 1. 不动 _REQUIRED_BOOL_KEYS 现有 5 个 key 语义
