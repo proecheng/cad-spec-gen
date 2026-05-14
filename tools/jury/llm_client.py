@@ -110,6 +110,9 @@ def request_jury_verdict(
     headers = {
         "Authorization": f"Bearer {profile.api_key}",
         "Content-Type": "application/json",
+        # v2.37.1 fix：显式 UA。urllib 默认 `Python-urllib/3.x` 被很多第三方
+        # 代理（micuapi.ai 等）anti-bot 直接 403 拒，导致 jury 跑不通。
+        "User-Agent": "cad-spec-gen-jury",
     }
     req = Request(url, data=body, headers=headers, method="POST")
 

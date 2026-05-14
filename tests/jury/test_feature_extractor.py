@@ -193,3 +193,87 @@ def test_extract_falls_back_to_complete_when_no_text_endpoint(
     )
 
     client.complete.assert_called_once()
+
+
+# ============ v2.37.1 hotfix：LLM 包 markdown 围栏的兼容 ============
+
+
+def test_extract_strips_markdown_json_fence(tmp_path: pathlib.Path) -> None:
+    """v2.37.1：LLM 把 JSON 包在 ```json ... ``` 围栏里也能正确解析。
+
+    实测 micuapi.ai gpt-image-2-pro 等模型即使 prompt 写"不要 markdown"也常坚持
+    包代码围栏。extract() 现在用纯 json.loads 会 fail-safe 退化为空 features。
+    本测试 + GREEN 实现给 extract() 加 fence-stripping 兜底。
+    """
+    spec_md = tmp_path / "CAD_SPEC.md"
+    spec_md.write_text("# Spec\n", encoding="utf-8")
+    design = tmp_path / "design.md"
+    design.write_text("design\n", encoding="utf-8")
+
+    features = [
+        {"feature_id": "f1", "description_cn": "特征 1",
+         "expected_in_views": None, "doc_ref": "x"},
+    ]
+    fenced = "```json\n" + json.dumps({"features": features}) + "\n```"
+
+    client = MagicMock()
+    client.complete_text.return_value = fenced
+    client.complete.return_value = fenced
+
+    result = extract(
+        spec_md, design, cache_dir=tmp_path, llm_client=client,
+        subsystem="end_effector", run_id="test",
+    )
+    assert result["features"] == features, \
+        f"应脱 markdown 围栏后正确解析；实际：{result}"
+    assert "feature_extraction_failed" not in result.get("parse_anomalies", [])
+
+
+def test_extract_strips_markdown_fence_without_json_tag(
+    tmp_path: pathlib.Path,
+) -> None:
+    """v2.37.1：围栏可能不带 `json` 语言标识——也要脱掉。"""
+    spec_md = tmp_path / "CAD_SPEC.md"
+    spec_md.write_text("# Spec\n", encoding="utf-8")
+    design = tmp_path / "design.md"
+    design.write_text("design\n", encoding="utf-8")
+
+    features = [
+        {"feature_id": "f1", "description_cn": "特征 1",
+         "expected_in_views": None, "doc_ref": "x"},
+    ]
+    fenced = "```\n" + json.dumps({"features": features}) + "\n```"
+
+    client = MagicMock()
+    client.complete_text.return_value = fenced
+    client.complete.return_value = fenced
+
+    result = extract(
+        spec_md, design, cache_dir=tmp_path, llm_client=client,
+        subsystem="end_effector", run_id="test",
+    )
+    assert result["features"] == features
+
+
+def test_extract_unfenced_json_still_works(tmp_path: pathlib.Path) -> None:
+    """v2.37.1：原本就 unfenced 的 JSON（v2.37 happy path）回归仍 PASS。"""
+    spec_md = tmp_path / "CAD_SPEC.md"
+    spec_md.write_text("# Spec\n", encoding="utf-8")
+    design = tmp_path / "design.md"
+    design.write_text("design\n", encoding="utf-8")
+
+    features = [
+        {"feature_id": "f1", "description_cn": "特征 1",
+         "expected_in_views": None, "doc_ref": "x"},
+    ]
+    plain = json.dumps({"features": features})
+
+    client = MagicMock()
+    client.complete_text.return_value = plain
+    client.complete.return_value = plain
+
+    result = extract(
+        spec_md, design, cache_dir=tmp_path, llm_client=client,
+        subsystem="end_effector", run_id="test",
+    )
+    assert result["features"] == features
