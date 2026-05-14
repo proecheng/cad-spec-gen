@@ -295,3 +295,21 @@ def test_timeout_kwarg_passed_to_urlopen(
         request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
     _, kwargs = m.call_args
     assert kwargs.get("timeout") == 60
+
+
+# ============ v2.37.1 hotfix：第三方代理 anti-bot UA 兼容 ============
+
+
+def test_request_jury_verdict_sends_explicit_user_agent(
+    profile: JuryProfile, fake_image: Path, enable_llm_for_test: None
+) -> None:
+    """v2.37.1：request_jury_verdict 必须发显式 User-Agent，不能让 urllib 默认
+    `Python-urllib/3.x` 被 anti-bot 第三方代理（如 micuapi.ai）403 拦截。
+    """
+    with patch("tools.jury.llm_client.urlopen") as m:
+        m.return_value = _make_cm(_mock_response())
+        request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
+    req = m.call_args[0][0]
+    ua = req.get_header("User-agent")
+    assert ua, "应有 User-Agent header"
+    assert "Python-urllib" not in ua, f"不能用 urllib 默认 UA；实际：{ua!r}"

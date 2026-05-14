@@ -8,9 +8,22 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 from typing import Any
 
 _MAX_FEATURES = 12
+
+# v2.37.1 fix：LLM 即使被 prompt 要求"不要 markdown"也常坚持包 ```json...```
+# 围栏（gpt-image-2-pro / 等多模型实测）。脱栏后再 json.loads 兜底。
+_MARKDOWN_FENCE_RE = re.compile(
+    r"\A\s*```(?:json)?\s*(.*?)\s*```\s*\Z", re.DOTALL
+)
+
+
+def _strip_markdown_fence(raw: str) -> str:
+    """脱 LLM 输出外层 markdown 代码围栏（如有）。无则原样返回。"""
+    m = _MARKDOWN_FENCE_RE.match(raw)
+    return m.group(1) if m else raw
 
 # 单源截断窗口（按字符数），控 token：8k 字符 ≈ 4k token（中文 0.5 token/char 估算）。
 _SOURCE_CHAR_LIMIT = 8000
@@ -95,9 +108,9 @@ def extract(
     except Exception:  # noqa: BLE001 — spec D5 fail-safe：任何 LLM 故障兜底返空
         return {"features": [], "parse_anomalies": ["feature_extraction_failed"]}
 
-    # parse JSON
+    # parse JSON（v2.37.1：先脱可能的 markdown 围栏）
     try:
-        payload = json.loads(raw)
+        payload = json.loads(_strip_markdown_fence(raw))
     except (json.JSONDecodeError, TypeError):
         return {"features": [], "parse_anomalies": ["feature_extraction_failed"]}
 

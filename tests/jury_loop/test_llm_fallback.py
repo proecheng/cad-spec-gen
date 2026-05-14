@@ -211,3 +211,25 @@ def test_parse_addons_caps_huge_llm_output_at_4k(profile: JuryProfile) -> None:
     assert len(addons) <= 3
     # 每条仍 ≤ _MAX_ADDON_CHARS=80
     assert all(len(a) <= 80 for a in addons)
+
+
+# ============ v2.37.1 hotfix：第三方代理 anti-bot UA 兼容 ============
+
+
+def test_request_chat_text_sends_explicit_user_agent(profile: JuryProfile) -> None:
+    """v2.37.1：_request_chat_text 必须发显式 User-Agent，不能让 urllib 默认
+    `Python-urllib/3.x` 被 anti-bot 第三方代理（如 micuapi.ai）403。
+
+    用 `mock.patch` 拦截 urlopen，断 Request 对象含 `User-agent` header（urllib
+    把 header 名规范化为首字母大写其余小写）。
+    """
+    with patch("tools.jury_loop.llm_fallback.urlopen") as m:
+        m.return_value = _fake_urlopen_text("addon1,addon2").__enter__()
+        translate(unmapped_reason="x", sanitized_reason="x", profile=profile)
+
+    # 抓 Request 对象（urlopen 第一个位置参数）
+    call_args = m.call_args
+    req = call_args[0][0]
+    ua = req.get_header("User-agent")
+    assert ua, "应有 User-Agent header（不能是 Python urllib 默认）"
+    assert "Python-urllib" not in ua, f"不能用 urllib 默认 UA；实际：{ua!r}"
