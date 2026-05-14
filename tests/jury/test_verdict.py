@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tools.jury.verdict import ViewVerdict, parse_view_verdict
 
 
@@ -243,7 +245,6 @@ def test_view_verdict_dataclass_exposed() -> None:
 
 # v2.37.2 §11 #1 — _make_needs_review_verdict 6-key shape 一致性
 # parametrize 覆盖 parse_view_verdict 3 个早返回 path 全部调用 _make_needs_review_verdict
-import pytest
 
 
 @pytest.mark.parametrize(
