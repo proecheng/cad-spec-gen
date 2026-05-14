@@ -405,6 +405,60 @@ v2 计划加跨进程信号量协调。
 
 ---
 
+## 12. PHOTO3D_JURY_REPORT 输出字段语义
+
+`photo3d-jury` 跑完写 `PHOTO3D_JURY_REPORT.json`（以及 `cad-spec-gen enhance` 闭环跑时写的 `<view>_enhance_meta.json` / `ENHANCEMENT_REPORT.json` 内嵌 verdict）每个视角含 `semantic_checks` 段。本节解释 6 个 boolean 字段语义，特别是为什么有时 5 项全 `False` 但 `matches_spec=True`。
+
+### 12.1 6 字段对照表
+
+| 字段 | 类型 | 来源 | 含义 |
+|---|---|---|---|
+| `geometry_preserved` | bool | **measured**（LLM 直接观察）| 增强图几何形状与原始渲染对齐 |
+| `material_consistent` | bool | **measured** | 材质表现一致（金属高光 / 漫反射 / 颜色） |
+| `photorealistic` | bool | **measured** | 整体照片真实感 |
+| `no_extra_parts` | bool | **measured** | 无 AI 凭空生成的零件 |
+| `no_missing_parts` | bool | **measured** | 无原图存在但增强后丢失的零件 |
+| `matches_spec` | bool | **derived**（基于 `features_status` aggregate）| 设计文档关键特征在图里可见性的聚合判定 |
+
+5 项 measured boolean 是 LLM 视觉直接观察的结果；`matches_spec` 是 derived field——基于另一个字段 `features_status[]`（每个特征 visible/invisible 标记）聚合：所有特征都 visible → `matches_spec=True`；任一 invisible → `False`。
+
+### 12.2 FAQ — 5 项全 False 但 matches_spec=True 是 bug 吗？
+
+不是 bug；是预期兜底语义。出现场景：
+
+- jury LLM 返回的 JSON 解析失败（如 `content_not_json`）
+- `semantic_checks` 字段缺失或非 dict（`missing_content`）
+- payload 整体非 dict
+
+此时系统走兜底路径：5 项 measured boolean 全标 `False`（无 LLM 观察证据），但 `matches_spec=True` 是 derived field 缺数据时的默认值（spec §6 不变量 #11 向后兼容硬保障——无 `features_status` 数据时 matches_spec 默认 True，不"拖累"聚合判断）。
+
+判定 verdict 是否 needs_review **不应只看 `matches_spec` 单字段**——应看顶层 `verdict` 字段（`accepted` / `preview` / `needs_review`）：上述兜底场景 `verdict="needs_review"` 提示用户人工复核。
+
+### 12.3 v2.37.2 之前老存档兼容
+
+v2.37.0 / v2.37.1 时代生成的 sidecar / verdict 存档不含 `matches_spec` key（5-key dict）；v2.37.2+ 系统反序列化时按 True 兜底（不变量 #11 锁定），与上述 derived 语义一致——无需手动迁移。
+
+---
+
+## 13. v2.37.x 版本承诺与不变量（user-facing）
+
+本节面向**升级 cad-spec-gen 的用户**，明示 v2.37.x patch 系列（v2.37.0 / v2.37.1 / v2.37.2 / v2.37.3 / v2.37.4 / 未来 v2.37.x）跨 patch 升级的兼容性承诺。
+
+### 13.1 三条声明
+
+1. **`schema_version=1` 字段集不变**：v2.37.x 任一 patch 升级到另一 patch（如 v2.37.1 → v2.37.4）`~/.claude/cad_jury_config.json` 不需任何手工迁移；新字段如果加只走 forward-compat 模式（未知字段 stderr 警告，不阻断执行）
+
+2. **`CAD_JURY_DISABLE_LLM=1` 是 v2.37.x 唯一 env 形态 kill switch**：设置该环境变量 → jury 不发任何 HTTP 请求，抛 `JuryDisabledByEnv`；v2.37.x 不增其它 env 形态 kill switch。用户也可通过删 / 改坏 `~/.claude/cad_jury_config.json` 间接禁用 jury（系统自动 silently skip），但这是 config-缺失路径不是 env 路径
+
+3. **v2.37.0 起所有 jury 存档反序列化零迁移**：v2.37.0 时代 5-key `semantic_checks` 存档 / v2.37.2+ 时代 6-key 存档反序列化到 v2.37.4 系统都正常工作——系统自动按 True 兜底缺失 `matches_spec` 字段（不变量 #11 锁定，详见 §12.3）
+
+### 13.2 边界澄清
+
+- **下限**：本承诺仅覆盖 v2.37.x patch 系列内的升级。v2.36 ← → v2.37.x 跨 minor 升级 spec §3.2 D2（v2.37.0 加 matches_spec 维度）已设计向后兼容，但本承诺不显式覆盖；从 v2.36 升 v2.37.4 应实测一次确认 jury 输出格式符合预期
+- **上限**：本承诺至 next major version（v2.38.0）前有效；v2.38.0 可能引 schema breaking change，到时另立版本承诺
+
+---
+
 ## 附录 A：完整 cli flag 速查
 
 详见 cad-help-guide §7.3.1，本附录是缩略表：
