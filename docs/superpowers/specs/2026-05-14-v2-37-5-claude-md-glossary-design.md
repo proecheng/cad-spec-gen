@@ -64,13 +64,15 @@ v2.37.2 §12 预登记 layer 5 R2 L4：spec / plan / retro 反复出现项目内
 ```markdown
 ## 项目术语 glossary
 
-本节集中定义 spec / plan / retro 反复出现的项目内部术语，新工程师快速理解上下文。深入决策史与例子见对应 memory（`~/.claude/projects/D--Work-cad-spec-gen/memory/` 下）。
+本节集中定义 spec / plan / retro 反复出现的项目内部术语，新工程师快速理解上下文。
+
+> **memory 引用约定**：下表 "见 memory `xxx.md`" 引用为本仓主 maintainer 的 Claude Code session memory（per-instance；位于 `~/.claude/projects/D--Work-cad-spec-gen/memory/`，其他开发者本机路径相对应）。每项术语已附 1 行含义，可独立读懂；memory 引用为深入查阅入口而非必需（layer 6 F1 教训：git tracked 文档避免假定用户特定路径）。
 
 1. **北极星 5 gate** — 零配置 / 稳定可靠 / 结果准确 / SW 装即用 / 傻瓜式操作；任何新 plan 必过这 5 条 gate（见 memory `project_north_star.md`）
 
 2. **v2.25+ tag-only release** — 纯 git tag + GitHub Release notes 发布模式；不 bump `pyproject.toml` 版本（停留 `2.24.0`）；用户安装走 `pip install git+https://github.com/proecheng/cad-spec-gen.git@vX.Y.Z`（见 memory `project_current_status.md` / `project_v2_31_1_packaging_cleanup.md`）
 
-3. **canonical / mirror** — `tools/jury/*.py` 等是 canonical（git tracked）；`src/cad_spec_gen/data/tools/jury/*.py` 是 mirror（gitignored，`scripts/dev_sync.py` 同步）；`hatch_build.py` `COPY_DIRS = {"tools": "tools"}` 打包发用户（见 memory `feedback_subagent_cwd_drift.md` 与 v2.37.2 spec §6 #7-#9）
+3. **canonical / mirror** — `tools/jury/*.py` 等是 canonical（git tracked）；`src/cad_spec_gen/data/tools/jury/*.py` 是 mirror（gitignored，`scripts/dev_sync.py` 同步）；`hatch_build.py` `COPY_DIRS = {"tools": "tools"}` 打包发用户（定义见 v2.37.2 spec §6 #7-#9 + `scripts/dev_sync.py`；漂移防御见 memory `feedback_subagent_cwd_drift.md`）
 
 4. **§11 vs §12 follow-up 轨道** — §11 = 项目级 STATUS doc（如 `docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`）的 follow-up 表；§12 = 单个 spec doc 自身 PR-self follow-up 表；两个独立轨道不混，新登必明确归哪个（见 memory `project_v2_37_4_done.md`）
 
@@ -80,7 +82,7 @@ v2.37.2 §12 预登记 layer 5 R2 L4：spec / plan / retro 反复出现项目内
 
 7. **subagent-driven 模式** — 主 agent 每 plan task 派发 fresh subagent 实施，跑 2 阶段 review（spec compliance + code quality）；fresh context 防污染；项目连续 13+ PR 一次过 CI 实证（见 memory `feedback_subagent_driven_main_agent_scouts.md`）
 
-8. **layer 6 grep AC predicates** — spec AC 用 grep strict 验证时：(a) 抽 helper 类 refactor 用 exclusion-zone（`grep -v` 排除 helper 自身行）或 indent-anchor（`grep "    pattern"` 限 test-body context）；(b) OR pattern 用 `grep -cE "X|Y"` 显式 ERE，不用 `\|` BRE（BSD/MSYS grep 不识别）（见 v2.37.3 / v2.37.4 retro）
+8. **layer 6 grep AC predicates** — spec AC 用 grep strict 验证时：(a) 抽 helper 类 refactor 用 exclusion-zone（`grep -v` 排除 helper 自身行）或 indent-anchor（`grep "    pattern"` 限 test-body context）；(b) OR pattern 用 `grep -cE "X|Y"` 显式 ERE 跨平台可靠；不用 `\|`（GNU grep BRE 支持但 BSD / MSYS grep BRE 不识别，跨 grep 实现不可靠）（见 v2.37.3 / v2.37.4 retro）
 
 9. **sw-smoke CI flake** — `.github/workflows/sw-smoke.yml` 的 `actions/upload-artifact@v7` 步是已知 transient flake 点；非 SW 测试本身挂；与 `tests.yml` 8 job release gate 无关，单独失败不阻断 release（见 memory `feedback_sw_runner_infra.md`）
 
