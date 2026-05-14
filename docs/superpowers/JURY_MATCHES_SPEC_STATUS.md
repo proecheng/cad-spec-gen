@@ -38,9 +38,52 @@
 
 **Retro：** [`docs/superpowers/reports/2026-05-13-jury-matches-spec-retro.md`](reports/2026-05-13-jury-matches-spec-retro.md)。
 
-**下一步等用户决策：**
-1. push 分支 + 开 PR + 等 CI + merge + tag v2.37.0 + Release（标准化流程，需用户确认）
-2. 或者本地 review 几个 commit 再决定
+**release 状态：**
+- ✅ v2.37.0 发布（PR #77 → `main@12e4deb` → tag → GitHub Release）
+- ✅ v2.37.1 发布（PR #78 → `main@c1ac1ab` → tag → GitHub Release）—— hotfix 修第三方代理 2 bug，详见下方 §九
+
+## 九、v2.37.1 hotfix + 第三方代理实测验证（2026-05-14）
+
+### 9.1 第三方代理实测发现的 2 真 bug
+
+v2.37.0 merge 后，micuapi.ai (gpt-image-2-pro) 实测暴露两个**既有代码缺陷**（不是 v2.37 引入，但 v2.37 让它显形）：
+
+| Bug | 文件 | 现象 | 修复 |
+| --- | --- | --- | --- |
+| Bug-1 | `tools/jury_loop/llm_fallback.py::_request_chat_text` + `tools/jury/llm_client.py::request_jury_verdict` | urllib 默认 UA `Python-urllib/3.x` 被 anti-bot 第三方代理 403 拦 | 显式 `User-Agent: cad-spec-gen-jury`（中性产品标识）|
+| Bug-2 | `tools/jury/feature_extractor.py::extract` | 纯 `json.loads(raw)` 不脱 markdown 围栏；LLM 即使被 prompt 要求"不要 markdown"也常坚持包 ```` ```json...``` ```` | 加 `_strip_markdown_fence` helper |
+
+5 个 TDD 回归测试 / jury 套件 496 PASS / 0 regression / CI 8/8 全绿。
+
+### 9.2 micuapi.ai gpt-image-2-pro 端到端实测
+
+| 测试 | 结果 |
+| --- | --- |
+| 1 · 配置加载（`--list-profiles`）| ✅ |
+| 2 · feature_extractor 抽特征（文本接口）| ✅ 12 features / 0 anomalies / 13.43s 真往返 / 含锚点 `cross_arm_branches`（=`flange_arms_4`）|
+| 3 · vision verdict（视觉接口）| ✅ HTTP 200 / 22.98s / `matches_spec=False` / `verdict=needs_review` / `anomalies=['matches_spec_failed']`（Task 9 escalation rule 完美触发）|
+
+**结论：gpt-image-2-pro 是多模态模型（不只图像生成）**——既支持 chat/completions text 也支持 image_url 内容。**v2.37 + v2.37.1 在任何 OpenAI 兼容第三方代理上工作正常**。
+
+### 9.3 §11 follow-up 列表（hotfix 后扩 1 项）
+
+| # | 严重度 | 内容 |
+| --- | --- | --- |
+| #1 | LOW | `_make_needs_review_verdict` 5→6 key 一致性 |
+| #2 | LOW | `_derive_matches_spec_status` 加 'warn'/'blocked' 中间态 |
+| #3 | LOW | `tools/render_qa.py` mirror drift cleanup（pre-existing main 历史债）|
+| #4 | LOW | plan-drift 模板纠正（spec review checklist 加"路径存在性实测" + **"真实第三方代理实测一次"**）|
+| #5 | LOW | Task 13 cad-tests README 真 e2e 时补 |
+| **#6** | **LOW（v2.37.1 新）** | **jury verdict `max_tokens=512` 对 12 features + 5 标准 check 偏紧，长输出被截断（实测 9/12 features_status 被截）；考虑动态扩或加 `max_tokens` 配置项** |
+
+### 9.4 lesson 沉淀
+
+经 4 层 spec review + 13 次 per-task spec reviewer + 3180 全套件 PASS + CI 8/8 全绿，**仍漏掉两个真 bug**。一次真实第三方代理实测当场暴露。**沉淀到 memory `feedback_third_party_proxy_real_test_finds_bugs.md`**：
+
+- spec review checklist 必加：**网络外部依赖至少 1 次真实第三方实测**（不只 mock）
+- spec review checklist 必加：**LLM 输出 schema 假设要测**（包 markdown / 加 prose / 截断 / 非 dict）
+- 实施完后**push 前先用真实 endpoint 跑一次小测试**——可避免事后 hotfix PR
+- 与 `feedback-experiment-physical-falsifiability` / `feedback-spec-writer-self-drift` / `feedback-archeology-before-diagnosis` 共同绷紧"现实世界 sanity check"
 
 ### Task 13 deferred 理由
 
