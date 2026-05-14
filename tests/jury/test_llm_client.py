@@ -313,3 +313,32 @@ def test_request_jury_verdict_sends_explicit_user_agent(
     ua = req.get_header("User-agent")
     assert ua, "应有 User-Agent header"
     assert "Python-urllib" not in ua, f"不能用 urllib 默认 UA；实际：{ua!r}"
+
+
+# ============ v2.37.2 §11 #6：max_tokens 512 → 1024 ============
+
+
+def test_request_body_max_tokens_is_1024(
+    profile: JuryProfile, fake_image: Path, enable_llm_for_test: None
+) -> None:
+    """v2.37.2 §11 #6 锁：request_jury_verdict 序列化 request body 的 max_tokens==1024
+    （v2.37.1 是 512；本 PR 改 1024 给 long features_status 输出留响应空间）。
+
+    沿用现有 test_llm_client.py mock 风格 — patch('tools.jury.llm_client.urlopen') +
+    _make_cm + _mock_response（spec §13 R4 Q1）。
+    """
+    with patch("tools.jury.llm_client.urlopen") as m:
+        m.return_value = _make_cm(_mock_response())
+        request_jury_verdict(
+            profile=profile, image_path=fake_image, prompt="any prompt"
+        )
+        # 拦截 urlopen 调用拿到 Request 对象，解析其 data（JSON 序列化 body）
+        call_args = m.call_args
+        request_obj = call_args[0][0]  # 第 1 个位置参数是 Request
+        body_bytes: bytes = request_obj.data
+        body_dict = json.loads(body_bytes.decode("utf-8"))
+        assert body_dict["max_tokens"] == 1024, (
+            f"max_tokens 应为 1024（v2.37.2 §11 #6），实际 {body_dict['max_tokens']}"
+        )
+        # 同时锁 temperature=0（v2.37 既有契约不破）
+        assert body_dict["temperature"] == 0.0
