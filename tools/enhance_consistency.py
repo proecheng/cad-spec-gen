@@ -183,6 +183,12 @@ def build_enhancement_report(
         })
 
     quality_summary = _build_quality_summary(quality_records)
+    # v2.37 Task 11：透传 PHOTO3D_JURY_REPORT.matches_spec_status 进 quality_summary。
+    # 真实路径走 ARTIFACT_INDEX.active_run_id（同 photo3d_delivery_pack._apply_matches_spec_fail_gate）。
+    # Fail-safe：缺/烂/类型异常一律 None，key 仍写入便于下游 .get(default='pass') 区分"未跑"vs"pass"。
+    quality_summary["matches_spec_status"] = _read_jury_matches_spec_status(
+        root, render_manifest,
+    )
     if quality_summary["warnings"] and views and not any(view["status"] == "blocked" for view in views):
         has_preview = True
         blocking_reasons.extend(quality_summary["warnings"])
@@ -538,6 +544,55 @@ def _read_pipeline_config_jury_loop(project_root: Path) -> dict[str, Any]:
     if not isinstance(section, dict):
         return dict(DEFAULT_JURY_LOOP_DICT)
     return section
+
+
+def _read_jury_matches_spec_status(
+    project_root: Path, render_manifest: dict[str, Any],
+) -> str | None:
+    """读 PHOTO3D_JURY_REPORT.matches_spec_status，缺/烂一律 None（v2.37 Task 11）。
+
+    路径解析（同 photo3d_delivery_pack._apply_matches_spec_fail_gate）：
+    - manifest.subsystem → project_root/cad/<sub>/.cad-spec-gen/ARTIFACT_INDEX.json
+    - 读 active_run_id → project_root/cad/<sub>/.cad-spec-gen/runs/<id>/PHOTO3D_JURY_REPORT.json
+    - 读顶层 matches_spec_status 字段
+
+    Fail-safe 三层（任一失败均 None，不抛）：
+    - manifest 缺 subsystem
+    - ARTIFACT_INDEX.json 缺/烂/不是 dict / 没 active_run_id
+    - PHOTO3D_JURY_REPORT.json 缺/烂/不是 dict / 没 matches_spec_status
+
+    Returns:
+        'pass' | 'fail' | 'warn'（jury 真实值）或 None（任何 fail-safe 路径）
+    """
+    subsystem = render_manifest.get("subsystem")
+    if not subsystem or not isinstance(subsystem, str):
+        return None
+    cs_dir = project_root / "cad" / subsystem / ".cad-spec-gen"
+    artifact_index_path = cs_dir / "ARTIFACT_INDEX.json"
+    if not artifact_index_path.is_file():
+        return None
+    try:
+        idx = json.loads(artifact_index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(idx, dict):
+        return None
+    active_run_id = idx.get("active_run_id")
+    if not active_run_id or not isinstance(active_run_id, str):
+        return None
+    jury_path = cs_dir / "runs" / active_run_id / "PHOTO3D_JURY_REPORT.json"
+    if not jury_path.is_file():
+        return None
+    try:
+        rep = json.loads(jury_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(rep, dict):
+        return None
+    status = rep.get("matches_spec_status")
+    if status is None:
+        return None
+    return str(status)
 
 
 def _aggregate_loop_summary(

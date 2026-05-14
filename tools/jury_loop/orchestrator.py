@@ -20,6 +20,7 @@ from typing import Any
 
 import enhance_budget
 from enhance_budget import LoopBudget
+from tools.jury import prompt_rewriter
 from tools.jury.config import JuryProfile
 from tools.jury.verdict import ViewVerdict, parse_view_verdict
 from tools.jury_loop import llm_fallback, metadata, reason_parser, rule_table
@@ -190,6 +191,13 @@ def _call_jury_subprocess(
         return (None, "json_parse_failed")
     verdict = parse_view_verdict(_json.dumps(items[0]))
     if verdict.verdict == "needs_review":
+        # Task 9 v2.37 (C)：matches_spec_failed 路径保留 verdict 让上层走 retry 而非 jury_unavailable。
+        # 区分两类 needs_review：
+        # (a) anomaly=matches_spec_failed → verdict 完整有 features_status，需 prompt_rewriter.hint
+        # (b) 其他 needs_review（parse_failed / finish_reason_invalid 等）→ verdict 不可信，
+        #     仍返 (None, "needs_review") 走 jury_unavailable。
+        if "matches_spec_failed" in verdict.parse_anomalies:
+            return (verdict, "matches_spec_failed")
         return (None, "needs_review")
     return (verdict, None)
 
@@ -326,6 +334,25 @@ def _finalize(
     return final_path
 
 
+def _extract_missing_features(verdict: ViewVerdict) -> list[str]:
+    """Task 9 v2.37：从 ViewVerdict.features_status 提取 invisible feature_id 列表。
+
+    spec §3 F5：matches_spec=False 时给 prompt_rewriter.hint() 用，让 enhance LLM 强调
+    这些特征。features_status 已被 Task 1 parse_view_verdict 过滤为 list[dict]，
+    本 helper 只做 visible=False 过滤 + str cast 防异常 dtype。
+    """
+    missing: list[str] = []
+    for f in verdict.features_status:
+        if not isinstance(f, dict):
+            continue
+        if f.get("visible", True):
+            continue
+        feature_id = f.get("feature_id")
+        if feature_id:
+            missing.append(str(feature_id))
+    return missing
+
+
 def _build_retry_dict(
     *,
     retry_path: Path,
@@ -453,6 +480,10 @@ def run_loop_if_eligible(
             jury_profile_path=jury_profile_path,
             timeout_s=config.backend.timeout_s,
         )
+        # Task 9 v2.37 (C)：matches_spec_failed → verdict 保留（features_status 给 hint() 用）
+        # 走 retry 路径（不当 jury_unavailable），即使 score >= threshold 也不短路
+        matches_spec_failed = jury_err == "matches_spec_failed"
+
         if verdict is None:
             # Gate-3：jury 不可用 → jury_unavailable + sidecar.errors[0].code 保留 4 错误码之一
             return _finalize_baseline_only(
@@ -483,8 +514,10 @@ def run_loop_if_eligible(
             )
 
         # Step 4: above_threshold（spec rev 3 §3 主流程；锁 ≥ 而非 >，spec §5 #5b）
+        # Task 9 (C)：matches_spec_failed 时即使 score 高也不能短路——spec mismatch 是
+        # 内容性 fail，与 photoreal_score 维度独立，必须走 retry 让 enhance 补特征
         threshold: int = config.advanced["threshold"]
-        if verdict.photoreal_score >= threshold:
+        if not matches_spec_failed and verdict.photoreal_score >= threshold:
             # user_friendly_summary 由 metadata._build_above_threshold_summary
             # 动态生成（含 score 数字，spec §4.4 line 528）；不显式传 summary。
             return _finalize_baseline_only(
@@ -527,69 +560,91 @@ def run_loop_if_eligible(
             )
         local_extra_cost += estimate
 
-        # Step 6: tag 解析（spec rev 3 §3 line 226+）
-        # 先 load rule_table 取合并后的 tag_dictionary，传给 parse_reason 让用户
-        # yaml 扩 tag 也能被识别（spec §5 #8 锁）。rule_table.load_rule_table 的
-        # 用户 yaml 路径校验失败会抛 RuleTableLoadError，由顶层 try/except 兜。
-        rule_path = config.advanced.get("rule_table_path")
-        rule_tbl = rule_table.load_rule_table(
-            user_yaml_path=rule_path,
-            project_root=project_root,
-        )
-        sanitized_reason = reason_parser.reason_sanitized(verdict.reason)
-        tags = reason_parser.parse_reason(
-            sanitized_reason,
-            tag_dictionary=rule_tbl.tag_dictionary,
-        )
-        if not tags:
-            # 已知问题集合外的 reason，无法转 prompt addon → 接受首轮图
-            return _finalize_baseline_only(
-                view=safe_view,
-                render_dir=render_dir,
-                backend=backend_kind,
-                loop_status="no_tags_parsed",
-                baseline_path=baseline_path,
-                baseline=verdict,
-                local_extra_cost=local_extra_cost,
-                tags_parsed=[],
+        # Task 9 v2.37 (C)：matches_spec_failed 走专用 retry 路径，跳 Step 6/7 tag+rule 解析
+        # 理由：matches_spec fail 的 reason 通常不在规则表 tag 字典内（"缺特征"等），
+        # 走 tag 路径必落入 no_tags_parsed → 永远不 retry。matches_spec 反馈通过
+        # prompt_rewriter.hint() 直接拼到 prompt 末尾告知 enhance LLM，绕开规则表。
+        if matches_spec_failed:
+            missing_features = _extract_missing_features(verdict)
+            new_prompt = prompt_rewriter.hint(
+                view_id=safe_view,
+                missing_features=missing_features,
+                base_prompt=str(rc.get("prompt", "")),
             )
-
-        # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
-        hits = rule_table.lookup(rule_tbl, tags, backend_kind)
-        # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
-        misses = tags - hits.matched_tags  # matched_tags 已是 set[str]，无需 set() 转换
-        if misses and config.advanced["llm_fallback"]:
-            try:
-                extra_addons = llm_fallback.translate(
-                    unmapped_reason=sanitized_reason,
-                    sanitized_reason=sanitized_reason,
-                    profile=jury_profile,
-                )
-            except Exception:  # noqa: BLE001 — LLM 任何异常降级为空 addons，保 Gate-7 路径
-                extra_addons = []
+            retry_params = dict(base_params)
+            tags_parsed: list[str] = []
+            rules_hit: list[str] = []
+            prompt_addons_applied: list[str] = list(missing_features)
+            param_overrides_applied: dict[str, dict[str, Any]] = {backend_kind: {}}
+            extra_addons: list[str] = []
         else:
-            extra_addons = []
-
-        if not hits.prompt_addons and not extra_addons:
-            # 规则未命中且 llm_fallback 关 / 也没产出 addon → 接受首轮图
-            return _finalize_baseline_only(
-                view=safe_view,
-                render_dir=render_dir,
-                backend=backend_kind,
-                loop_status="no_rules_hit_no_llm",
-                baseline_path=baseline_path,
-                baseline=verdict,
-                local_extra_cost=local_extra_cost,
-                tags_parsed=sorted(tags),
+            # Step 6: tag 解析（spec rev 3 §3 line 226+）
+            # 先 load rule_table 取合并后的 tag_dictionary，传给 parse_reason 让用户
+            # yaml 扩 tag 也能被识别（spec §5 #8 锁）。rule_table.load_rule_table 的
+            # 用户 yaml 路径校验失败会抛 RuleTableLoadError，由顶层 try/except 兜。
+            rule_path = config.advanced.get("rule_table_path")
+            rule_tbl = rule_table.load_rule_table(
+                user_yaml_path=rule_path,
+                project_root=project_root,
             )
+            sanitized_reason = reason_parser.reason_sanitized(verdict.reason)
+            tags = reason_parser.parse_reason(
+                sanitized_reason,
+                tag_dictionary=rule_tbl.tag_dictionary,
+            )
+            if not tags:
+                # 已知问题集合外的 reason，无法转 prompt addon → 接受首轮图
+                return _finalize_baseline_only(
+                    view=safe_view,
+                    render_dir=render_dir,
+                    backend=backend_kind,
+                    loop_status="no_tags_parsed",
+                    baseline_path=baseline_path,
+                    baseline=verdict,
+                    local_extra_cost=local_extra_cost,
+                    tags_parsed=[],
+                )
 
-        # Step 7: 应用 prompt addons + param overrides（spec rev 3 §3 [6]）
-        new_prompt, retry_params = _apply_overrides(
-            prompt=str(rc.get("prompt", "")),
-            prompt_addons=list(hits.prompt_addons) + extra_addons,
-            param_overrides=hits.param_overrides,
-            base_params=base_params,
-        )
+            # Step 7: rule_table.lookup + 可选 llm_fallback（spec rev 3 §3 line 234+）
+            hits = rule_table.lookup(rule_tbl, tags, backend_kind)
+            # matched_tags 已是 set；显式 set() 转换防字段类型未来变更
+            misses = tags - hits.matched_tags  # matched_tags 已是 set[str]，无需 set() 转换
+            if misses and config.advanced["llm_fallback"]:
+                try:
+                    extra_addons = llm_fallback.translate(
+                        unmapped_reason=sanitized_reason,
+                        sanitized_reason=sanitized_reason,
+                        profile=jury_profile,
+                    )
+                except Exception:  # noqa: BLE001 — LLM 任何异常降级为空 addons，保 Gate-7 路径
+                    extra_addons = []
+            else:
+                extra_addons = []
+
+            if not hits.prompt_addons and not extra_addons:
+                # 规则未命中且 llm_fallback 关 / 也没产出 addon → 接受首轮图
+                return _finalize_baseline_only(
+                    view=safe_view,
+                    render_dir=render_dir,
+                    backend=backend_kind,
+                    loop_status="no_rules_hit_no_llm",
+                    baseline_path=baseline_path,
+                    baseline=verdict,
+                    local_extra_cost=local_extra_cost,
+                    tags_parsed=sorted(tags),
+                )
+
+            # Step 7: 应用 prompt addons + param overrides（spec rev 3 §3 [6]）
+            new_prompt, retry_params = _apply_overrides(
+                prompt=str(rc.get("prompt", "")),
+                prompt_addons=list(hits.prompt_addons) + extra_addons,
+                param_overrides=hits.param_overrides,
+                base_params=base_params,
+            )
+            tags_parsed = sorted(tags)
+            rules_hit = list(hits.matched_rule_ids)
+            prompt_addons_applied = list(hits.prompt_addons) + extra_addons
+            param_overrides_applied = {backend_kind: hits.param_overrides}
 
         # Step 8: 调 backend（4 类 BackendError → Gate-8 分类，spec rev 3 决议 #10）
         retry_request = BackendRequest(
@@ -613,7 +668,7 @@ def run_loop_if_eligible(
                 baseline=verdict,
                 errors=[error_entry],
                 local_extra_cost=local_extra_cost,
-                tags_parsed=sorted(tags),
+                tags_parsed=tags_parsed,
             )
 
         # cost actual / estimate（spec §4.4 line 502 warnings.cost_estimated_only）
@@ -684,12 +739,10 @@ def run_loop_if_eligible(
                 request=retry_request,
                 response=response,
             ),
-            tags_parsed=sorted(tags),
-            rules_hit=list(hits.matched_rule_ids),
-            prompt_addons_applied=list(hits.prompt_addons) + extra_addons,
-            param_overrides_applied={
-                backend_kind: hits.param_overrides,
-            },
+            tags_parsed=tags_parsed,
+            rules_hit=rules_hit,
+            prompt_addons_applied=prompt_addons_applied,
+            param_overrides_applied=param_overrides_applied,
             retry_score_delta=retry_score_delta,
             delivered_score_delta=delivered_score_delta,
             extra_cost_usd=local_extra_cost,

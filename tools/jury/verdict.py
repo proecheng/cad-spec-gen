@@ -27,6 +27,9 @@ _REQUIRED_BOOL_KEYS: tuple[str, ...] = (
     "no_extra_parts",
     "no_missing_parts",
 )
+# matches_spec 为 derived field —— 从 features_status aggregate 推导（all visible），
+# 不参与 keys_ok 校验。保持 _REQUIRED_BOOL_KEYS 不变是 spec §8 不变量 #1（不动现有 5 key 语义）
+# 与 §6 验收 #1（向后兼容：无 features_status 老 fixture 不被升级为 needs_review）的硬保障。
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class ViewVerdict:
     parse_status: Literal["ok"]
     parse_anomalies: list[str] = field(default_factory=list)
     verdict: Literal["accepted", "preview", "needs_review"] = "accepted"
+    features_status: list[dict[str, object]] = field(default_factory=list)
 
 
 def parse_view_verdict(
@@ -86,6 +90,22 @@ def parse_view_verdict(
     if not keys_ok:
         anomalies.append("content_keys_mismatch")
 
+    # features_status aggregation → matches_spec (derived field, 不进 _REQUIRED_BOOL_KEYS)
+    raw_features = payload.get("features_status", [])
+    features_status: list[dict[str, object]] = []
+    if not isinstance(raw_features, list):
+        # 非 list（如 dict / str / int）→ 空 list + anomaly；matches_spec 退化为 True（向后兼容）
+        anomalies.append("features_status_invalid")
+        checks["matches_spec"] = True
+    elif not raw_features:
+        # 空 list（含老 fixture 无字段默认 []）→ matches_spec 默认 True（向后兼容）
+        checks["matches_spec"] = True
+    else:
+        # 有 features → all visible 才 True；非 dict 条目跳过（容忍）
+        valid_features = [f for f in raw_features if isinstance(f, dict)]
+        features_status = valid_features
+        checks["matches_spec"] = all(bool(f.get("visible", False)) for f in valid_features)
+
     # photoreal_score clamp [0, 100]
     raw_score = payload.get("photoreal_score", 0)
     if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
@@ -114,10 +134,25 @@ def parse_view_verdict(
         if "reason_sanitized" not in anomalies:
             anomalies.append("reason_sanitized")
 
+    # Task 9 v2.37：matches_spec=False (features_status 非空 + 任一 invisible) → 升级 needs_review
+    # 触发 jury_loop retry 路径（spec §3 F5）。features_status 为空（老 fixture）matches_spec=True
+    # → has_real_feature_fail=False → 决策维持原态（向后兼容硬保障）。
+    has_real_feature_fail = bool(features_status) and not checks.get(
+        "matches_spec", True
+    )
+    if has_real_feature_fail and "matches_spec_failed" not in anomalies:
+        anomalies.append("matches_spec_failed")
+
     # 决策：parse_anomalies ⊆ {reason_sanitized, clamped} → 仍可走 5 boolean + score 阈值
-    serious = set(anomalies) - {"reason_sanitized", "clamped"}
+    # Task 9：matches_spec_failed 是"真有 spec 不符"信号，与 reason_sanitized/clamped 同
+    # 属白名单——单独走 needs_review 分支，不当 serious 处理（serious 强制 5 bool 全 False
+    # 报废 verdict）。
+    serious = set(anomalies) - {"reason_sanitized", "clamped", "matches_spec_failed"}
     verdict: Literal["accepted", "preview", "needs_review"]
     if serious:
+        verdict = "needs_review"
+    elif has_real_feature_fail:
+        # matches_spec FAIL → needs_review → orchestrator retry 路径（Task 9 集成）
         verdict = "needs_review"
     elif not all(checks.values()):
         verdict = "preview"
@@ -133,6 +168,49 @@ def parse_view_verdict(
         parse_status="ok",
         parse_anomalies=anomalies,
         verdict=verdict,
+        features_status=features_status,
+    )
+
+
+@dataclass(frozen=True)
+class RunVerdict:
+    """整 photo3d-jury 进程的 jury-level summary (v2.37+)。
+
+    聚合多视角 ViewVerdict 给 prompt_rewriter 用：
+    - overall_matches_spec: 所有视角 matches_spec 都 True 才 True
+    - per_view_failed_features: {view_id: [feature_id]} 列出每个视角的 invisible feature
+    """
+
+    view_verdicts: dict[str, ViewVerdict]
+    overall_matches_spec: bool
+    per_view_failed_features: dict[str, list[str]] = field(default_factory=dict)
+
+
+def aggregate_run_verdict(view_verdicts: dict[str, ViewVerdict]) -> RunVerdict:
+    """聚合多视角 verdict → RunVerdict（spec §5.2.2 F1 修复落地）。
+
+    - ``overall_matches_spec`` = all(view.semantic_checks["matches_spec"] for view)；
+      若 view 缺 matches_spec key（如 _make_needs_review_verdict 早返回路径），
+      用 ``.get(default=True)`` 退化为 True（不破坏聚合：parse 错不等于 spec mismatch）。
+    - ``per_view_failed_features`` = {view_id: [feature_id]} 仅含至少 1 invisible feature 的 view，
+      给 prompt_rewriter (Task 4) 提供 per_view_failed_features 反馈数据。
+    """
+    overall = all(
+        v.semantic_checks.get("matches_spec", True) for v in view_verdicts.values()
+    )
+    failed: dict[str, list[str]] = {}
+    for view_id, v in view_verdicts.items():
+        missing = [
+            str(f["feature_id"])
+            for f in v.features_status
+            if isinstance(f, dict) and not f.get("visible", True) and "feature_id" in f
+        ]
+        if missing:
+            failed[view_id] = missing
+    return RunVerdict(
+        view_verdicts=view_verdicts,
+        overall_matches_spec=overall,
+        per_view_failed_features=failed,
     )
 
 

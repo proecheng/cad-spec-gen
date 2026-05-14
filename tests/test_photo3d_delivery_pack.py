@@ -464,6 +464,222 @@ def test_delivery_package_jury_field_null_when_jury_not_run(tmp_path):
     assert pkg["jury"] is None
 
 
+# === v2.37 Task 10: matches_spec FAIL → 写 MATCHES_SPEC_TODO.md + status=blocked ===
+
+
+def _write_matches_spec_features_cache(fixture, features):
+    """写 cad/<sub>/.cad-spec-gen/matches_spec_features.json（Task 6 cache 真实路径）。"""
+    sub_dir = fixture["run_dir"].parents[1]  # cad/<sub>/.cad-spec-gen
+    cache_path = sub_dir / "matches_spec_features.json"
+    _write_json(
+        cache_path,
+        {
+            "schema_version": 1,
+            "subsystem": "demo",
+            "run_id": fixture["run_id"],
+            "features": features,
+        },
+    )
+    return cache_path
+
+
+def _write_jury_report_with_matches_spec(fixture, *, status, failed_features=None):
+    """写 PHOTO3D_JURY_REPORT.json 含 matches_spec_status + per_view_failed_features。"""
+    payload = {
+        "schema_version": 1,
+        "subsystem": "demo",
+        "run_id": fixture["run_id"],
+        "status": "accepted",
+        "matches_spec_status": status,
+        "overall_matches_spec": status == "pass",
+        "per_view_failed_features": failed_features or {},
+        "jury_meta": {"actual_cost_usd": 0.030},
+        "views": [{"llm_meta": {"vendor_request_id": "trace-V1"}}],
+    }
+    (fixture["run_dir"] / "PHOTO3D_JURY_REPORT.json").write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_delivery_pack_writes_todo_when_matches_spec_fail(tmp_path):
+    """matches_spec_status == 'fail' → 写 MATCHES_SPEC_TODO.md + DELIVERY status=blocked。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    _write_matches_spec_features_cache(
+        fixture,
+        [
+            {
+                "feature_id": "flange_arms_4",
+                "description_cn": "法兰 4 条径向悬臂",
+                "expected_in_views": ["V4"],
+                "doc_ref": "examples/04-末端执行机构设计.md §3",
+            },
+            {
+                "feature_id": "peek_ring",
+                "description_cn": "PEEK 绝缘环",
+                "expected_in_views": None,
+                "doc_ref": "CAD_SPEC.md §6.2",
+            },
+        ],
+    )
+    _write_jury_report_with_matches_spec(
+        fixture,
+        status="fail",
+        failed_features={
+            "V4": ["flange_arms_4"],
+            "V6": ["peek_ring"],
+        },
+    )
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    # TODO 文件应生成
+    todo_path = fixture["run_dir"].parents[1] / "MATCHES_SPEC_TODO.md"
+    assert todo_path.is_file(), "MATCHES_SPEC_TODO.md 应生成"
+    todo = todo_path.read_text(encoding="utf-8")
+    assert "# 自制件特征对账 — 未达标" in todo
+    assert "flange_arms_4" in todo
+    assert "法兰 4 条径向悬臂" in todo
+    assert "peek_ring" in todo
+    assert "PEEK 绝缘环" in todo
+    assert "V4" in todo and "V6" in todo
+    assert "## 应有但未见的特征" in todo
+    assert "## 建议下一步" in todo
+    assert "examples/04-末端执行机构设计.md §3" in todo
+    assert "子系统：demo" in todo
+
+    # DELIVERY_PACKAGE.json status=blocked + blocking_reasons 含 matches_spec_fail_after_retries
+    assert report["status"] == "blocked"
+    assert report["final_deliverable"] is False
+    codes = [
+        r.get("code") if isinstance(r, dict) else r
+        for r in (report.get("blocking_reasons") or [])
+    ]
+    assert "matches_spec_fail_after_retries" in codes
+
+
+def test_delivery_pack_pass_no_todo_no_blocking(tmp_path):
+    """matches_spec_status == 'pass' → 不写 TODO，不标 blocked（向后兼容 v2.36）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    _write_matches_spec_features_cache(
+        fixture,
+        [{"feature_id": "x", "description_cn": "x", "doc_ref": "x"}],
+    )
+    _write_jury_report_with_matches_spec(fixture, status="pass", failed_features={})
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    todo_path = fixture["run_dir"].parents[1] / "MATCHES_SPEC_TODO.md"
+    assert not todo_path.exists(), "matches_spec=pass 时 MATCHES_SPEC_TODO.md 不应生成"
+
+    assert report["status"] != "blocked"
+    codes = [
+        r.get("code") if isinstance(r, dict) else r
+        for r in (report.get("blocking_reasons") or [])
+    ]
+    assert "matches_spec_fail_after_retries" not in codes
+
+
+def test_delivery_pack_no_jury_report_no_todo(tmp_path):
+    """jury_report 不存在 → fail-safe：不写 TODO，不标 blocked（v2.36 老路径）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    # 不写 PHOTO3D_JURY_REPORT.json 也不写 features cache
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    todo_path = fixture["run_dir"].parents[1] / "MATCHES_SPEC_TODO.md"
+    assert not todo_path.exists()
+    assert report["status"] != "blocked"
+    codes = [
+        r.get("code") if isinstance(r, dict) else r
+        for r in (report.get("blocking_reasons") or [])
+    ]
+    assert "matches_spec_fail_after_retries" not in codes
+
+
+def test_delivery_pack_fail_but_features_cache_missing_still_writes_todo(tmp_path):
+    """jury_report=fail 但 features cache 缺 → 仍写 TODO（feature_id 退化无中文描述），标 blocked。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    _write_jury_report_with_matches_spec(
+        fixture,
+        status="fail",
+        failed_features={"V4": ["unknown_feat"]},
+    )
+    # 不写 features cache
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    todo_path = fixture["run_dir"].parents[1] / "MATCHES_SPEC_TODO.md"
+    assert todo_path.is_file()
+    todo = todo_path.read_text(encoding="utf-8")
+    assert "unknown_feat" in todo
+    # 没有中文描述则退化字面提示
+    assert "V4" in todo
+
+    assert report["status"] == "blocked"
+    codes = [
+        r.get("code") if isinstance(r, dict) else r
+        for r in (report.get("blocking_reasons") or [])
+    ]
+    assert "matches_spec_fail_after_retries" in codes
+
+
+def test_delivery_pack_corrupt_jury_report_fail_safe(tmp_path):
+    """jury_report 不是合法 JSON → fail-safe 退化为 v2.36 行为（不写 TODO 不标 blocked）。"""
+    from tools.photo3d_delivery_pack import run_photo3d_delivery_pack
+
+    fixture = _contracts(tmp_path)
+    _write_photo3d_run(fixture)
+    _write_enhancement_report(fixture, "accepted")
+    (fixture["run_dir"] / "PHOTO3D_JURY_REPORT.json").write_text(
+        "{not valid json", encoding="utf-8"
+    )
+
+    report = run_photo3d_delivery_pack(
+        tmp_path,
+        "demo",
+        artifact_index_path=fixture["index_path"],
+    )
+
+    todo_path = fixture["run_dir"].parents[1] / "MATCHES_SPEC_TODO.md"
+    assert not todo_path.exists()
+    assert report["status"] != "blocked"
+
+
+# === （续）原 cmd_photo3d_deliver 测试 ===
+
+
 def test_cmd_photo3d_deliver_writes_delivery_package(tmp_path, monkeypatch):
     import cad_pipeline
 

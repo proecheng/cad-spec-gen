@@ -198,7 +198,23 @@ def run_photo3d_delivery_pack(
         else:
             deliverables = image_deliverables
 
-    status = _package_status(enhancement_status, final_deliverable, copy_preview)
+    # v2.37 Task 10: matches_spec FAIL N 次后 → 写 MATCHES_SPEC_TODO.md + 标 blocked
+    matches_spec_blocked = _apply_matches_spec_fail_gate(
+        run_dir,
+        root,
+        subsystem,
+        blocking_reasons,
+    )
+    if matches_spec_blocked:
+        final_deliverable = False
+        copy_preview = False
+
+    status = _package_status(
+        enhancement_status,
+        final_deliverable,
+        copy_preview,
+        matches_spec_blocked=matches_spec_blocked,
+    )
     jury_section = _build_jury_section(run_dir, root)
     report = {
         "schema_version": 1,
@@ -409,6 +425,146 @@ def _build_jury_section(
         "vendor_request_ids": vendor_ids,
         "jury_report_schema_version": rep.get("schema_version"),
     }
+
+
+# === v2.37 Task 10: matches_spec FAIL → MATCHES_SPEC_TODO.md + status=blocked ===
+
+
+def _apply_matches_spec_fail_gate(
+    run_dir: Path,
+    project_root: Path,
+    subsystem: str,
+    blocking_reasons: list[dict[str, Any]],
+) -> bool:
+    """检 PHOTO3D_JURY_REPORT.json matches_spec_status；fail 则写 TODO + append blocking。
+
+    spec §3 D4 半闭环：retry N 次仍 FAIL → matches_spec_status='fail'（jury 终态）
+    → photo3d-deliver 当作 blocked 处理，写 MATCHES_SPEC_TODO.md 中文人话清单。
+
+    Fail-safe 三层：
+    - PHOTO3D_JURY_REPORT.json 不存在 / 解析失败 / 不是 dict → 返 False（v2.36 老路径）
+    - matches_spec_status 不是 'fail'（pass / warn / 缺失） → 返 False
+    - matches_spec_features.json 缺 / 烂 → TODO 仍写，feature_id 退化无中文描述
+
+    Args:
+        run_dir: cad/<sub>/.cad-spec-gen/runs/<run_id>
+        project_root: 项目根
+        subsystem: 子系统名
+        blocking_reasons: 现 blocking 列表（in-place 追加）
+
+    Returns:
+        True 若 matches_spec_status=='fail' 触发 blocked；否则 False
+    """
+    jury_report_path = run_dir / "PHOTO3D_JURY_REPORT.json"
+    if not jury_report_path.is_file():
+        return False
+    try:
+        rep = json.loads(jury_report_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(rep, dict):
+        return False
+    if rep.get("matches_spec_status") != "fail":
+        return False
+
+    # 读 features cache 拿 description_cn / doc_ref（缺失退化）
+    features_cache_path = (
+        project_root / "cad" / subsystem / ".cad-spec-gen" / "matches_spec_features.json"
+    )
+    features_meta: dict[str, dict[str, Any]] = {}
+    if features_cache_path.is_file():
+        try:
+            cache = json.loads(features_cache_path.read_text(encoding="utf-8"))
+            if isinstance(cache, dict):
+                for f in cache.get("features", []) or []:
+                    if isinstance(f, dict) and isinstance(f.get("feature_id"), str):
+                        features_meta[f["feature_id"]] = f
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    todo_path = (
+        project_root / "cad" / subsystem / ".cad-spec-gen" / "MATCHES_SPEC_TODO.md"
+    )
+    _write_matches_spec_todo(rep, features_meta, subsystem, todo_path)
+
+    blocking_reasons.append(
+        {
+            "code": "matches_spec_fail_after_retries",
+            "todo": project_relative(todo_path, project_root),
+            "message": "自制件特征对账 N 次重试仍未通过，详见 MATCHES_SPEC_TODO.md。",
+        }
+    )
+    return True
+
+
+def _write_matches_spec_todo(
+    jury_report: dict[str, Any],
+    features_meta: dict[str, dict[str, Any]],
+    subsystem: str,
+    todo_path: Path,
+) -> None:
+    """按 spec §5.2.3 模板生成 MATCHES_SPEC_TODO.md（中文人话清单）。
+
+    Args:
+        jury_report: 已读取的 PHOTO3D_JURY_REPORT.json 顶层 dict
+        features_meta: feature_id → feature dict（含 description_cn / doc_ref）
+        subsystem: 子系统名（写入头部 + 末尾命令模板）
+        todo_path: 输出路径（cad/<sub>/.cad-spec-gen/MATCHES_SPEC_TODO.md）
+    """
+    from datetime import date
+
+    failed_raw = jury_report.get("per_view_failed_features")
+    failed: dict[str, list[str]] = {}
+    if isinstance(failed_raw, dict):
+        for view_id, fids in failed_raw.items():
+            if not isinstance(view_id, str):
+                continue
+            if not isinstance(fids, list):
+                continue
+            clean = [f for f in fids if isinstance(f, str)]
+            if clean:
+                failed[view_id] = clean
+
+    lines: list[str] = [
+        "# 自制件特征对账 — 未达标",
+        f"日期：{date.today().isoformat()} · 子系统：{subsystem} · 重试 N/N 次仍 FAIL",
+        "",
+        "## 应有但未见的特征",
+        "",
+    ]
+
+    # 按 feature_id 去重列出（一个特征可能在多个 view 失败），并列出每个失败 view
+    listed: set[str] = set()
+    for view_fids in failed.values():
+        for fid in view_fids:
+            if fid in listed:
+                continue
+            listed.add(fid)
+            meta = features_meta.get(fid, {})
+            desc = meta.get("description_cn") or "(描述缺失)"
+            ref = meta.get("doc_ref") or ""
+            ref_suffix = f"（设计文档：{ref}）" if ref else ""
+            lines.append(f"- [ ] **{fid}** — {desc}{ref_suffix}")
+            # 列出该 feature 在哪些 view 未见
+            for v_id, v_fids in failed.items():
+                if fid in v_fids:
+                    lines.append(f"  - {v_id}：未见")
+
+    if not listed:
+        # matches_spec_status='fail' 但 per_view_failed_features 空（极端边界）
+        lines.append("- (无具体特征条目，请查 PHOTO3D_JURY_REPORT.json 排查)")
+
+    lines += [
+        "",
+        "## 建议下一步",
+        f"1. 重 build：检查相关 `cad/{subsystem}/*.py` 是否真画了该特征",
+        f"2. 跑 `python cad_pipeline.py custom-parts-audit --subsystem {subsystem}` 看几何审计",
+        "3. 若 audit PASS 但 jury 仍 FAIL → 调相机角度 `render_config.json`",
+        "",
+    ]
+
+    todo_path.parent.mkdir(parents=True, exist_ok=True)
+    todo_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _semantic_material_review_summary(
@@ -786,7 +942,15 @@ def _package_status(
     enhancement_status: str,
     final_deliverable: bool,
     copy_preview: bool,
+    *,
+    matches_spec_blocked: bool = False,
 ) -> str:
+    """决策 DELIVERY_PACKAGE.json `status` 字段。
+
+    v2.37 Task 10：matches_spec_blocked=True 优先级最高 → 'blocked'（半闭环 D4）。
+    """
+    if matches_spec_blocked:
+        return "blocked"
     if final_deliverable:
         return "delivered"
     if copy_preview:
@@ -801,6 +965,8 @@ def _ordinary_user_message(status: str) -> str:
         "delivered": "最终交付包已生成，可交付照片级 3D 图和证据包。",
         "preview_package": "预览包已生成，但不能作为最终照片级交付。",
         "not_deliverable": "增强验收未通过或证据不完整，未生成最终交付图片。",
+        "blocked": "自制件特征对账未通过，已写 MATCHES_SPEC_TODO.md 指出未见特征，"
+        "请按清单修复后重跑。",
     }
     return messages.get(status, "Photo3D delivery package report generated.")
 
