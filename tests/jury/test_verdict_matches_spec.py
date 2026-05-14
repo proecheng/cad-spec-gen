@@ -11,8 +11,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
-from tools.jury.verdict import parse_view_verdict
+from tools.jury.verdict import _make_needs_review_verdict, aggregate_run_verdict, parse_view_verdict
 
 
 def test_parse_view_verdict_back_compat_no_features_status() -> None:
@@ -288,3 +289,62 @@ def test_parse_view_verdict_all_features_visible_no_escalation() -> None:
     assert v.semantic_checks["matches_spec"] is True
     assert v.verdict == "accepted"
     assert "matches_spec_failed" not in v.parse_anomalies
+
+
+def test_aggregate_overall_unchanged_with_needs_review_view_mixed() -> None:
+    """v2.37.2 §11 #1 reg：aggregate_run_verdict 把 needs_review 视角混入 normal 视角后，
+    asdict(RunVerdict) 全字段与 task 2 改动前等价（数学证明：matches_spec=True 与
+    .get(default=True) 在所有路径上等价 → asdict 输出 byte-equal）。
+
+    Spec §13 R4 Q2 扩 AC-3 到 asdict 全字段等价（不只 overall_matches_spec）。
+    """
+    normal_content = (
+        '{"semantic_checks": {"geometry_preserved": true, "material_consistent": true,'
+        ' "photorealistic": true, "no_extra_parts": true, "no_missing_parts": true},'
+        ' "photoreal_score": 80, "reason": "ok"}'
+    )
+    normal = parse_view_verdict(normal_content, finish_reason="stop")
+    needs_review = _make_needs_review_verdict(["content_not_json"])
+
+    run = aggregate_run_verdict({"V1": normal, "V2": needs_review})
+
+    # overall_matches_spec：normal 视角 matches_spec=True + needs_review 视角
+    # matches_spec=True（task 2 改动）→ all=True
+    assert run.overall_matches_spec is True
+    # per_view_failed_features：normal 视角 features_status 为空、needs_review 视角
+    # features_status 为空 → 两视角都无 invisible feature → dict 为空
+    assert run.per_view_failed_features == {}
+    # asdict 全字段等价（每视角的 view_verdicts 也包含完整 ViewVerdict 数据）
+    snapshot = asdict(run)
+    assert snapshot["overall_matches_spec"] is True
+    assert snapshot["per_view_failed_features"] == {}
+    assert set(snapshot["view_verdicts"].keys()) == {"V1", "V2"}
+
+
+def test_aggregate_all_needs_review_vacuous_true() -> None:
+    """v2.37.2 §13 R4 Q4：所有视角都 needs_review 时 overall_matches_spec is True
+    但所有 view 都是 needs_review verdict（vacuous True 不掩盖真问题，由上游
+    needs_review_count 统计决策；本 PR 不改 aggregate 实现）。
+    """
+    v1 = _make_needs_review_verdict(["content_not_json"])
+    v2 = _make_needs_review_verdict(["missing_content"])
+    run = aggregate_run_verdict({"V1": v1, "V2": v2})
+    assert run.overall_matches_spec is True  # vacuous True (all matches_spec=True)
+    # 但所有视角是 needs_review verdict
+    assert all(v.verdict == "needs_review" for v in run.view_verdicts.values())
+
+
+def test_make_needs_review_verdict_key_order_stable() -> None:
+    """v2.37.2 §13 R4 Q6：6-key dict key 顺序固定为 _REQUIRED_BOOL_KEYS + ('matches_spec',)
+    末位；若任何 sidecar / cache key 依赖 stable order，本测试 catch 顺序漂移。
+    """
+    v = _make_needs_review_verdict(["content_not_json"])
+    expected_order = [
+        "geometry_preserved",
+        "material_consistent",
+        "photorealistic",
+        "no_extra_parts",
+        "no_missing_parts",
+        "matches_spec",
+    ]
+    assert list(v.semantic_checks.keys()) == expected_order
