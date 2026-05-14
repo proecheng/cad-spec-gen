@@ -65,6 +65,19 @@ def _make_cm(resp: MagicMock) -> MagicMock:
     return cm
 
 
+def _get_urlopen_request(m: MagicMock):
+    """从 `urlopen` mock 拿到测试发出的 ``urllib.request.Request`` 对象。
+
+    ``patch("tools.jury.llm_client.urlopen")`` 后 ``m.call_args[0][0]`` 是
+    被 patch 时存的 Request 实例（mock 框架返回 Any/MagicMock）。
+    返回类型不标 ``-> Request`` 避免新增 ``from urllib.request import Request`` import；
+    调用方按需访问 ``.get_header(...)`` / ``.data`` / ``.full_url`` 等。
+
+    v2.37.3 §12 F1 抽取：消除 line ~312 + ~337 两处 inline 解构耦合。
+    """
+    return m.call_args[0][0]
+
+
 def test_kill_switch_raises_jury_disabled(
     profile: JuryProfile, fake_image: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -309,7 +322,7 @@ def test_request_jury_verdict_sends_explicit_user_agent(
     with patch("tools.jury.llm_client.urlopen") as m:
         m.return_value = _make_cm(_mock_response())
         request_jury_verdict(profile=profile, image_path=fake_image, prompt="x")
-    req = m.call_args[0][0]
+    req = _get_urlopen_request(m)
     ua = req.get_header("User-agent")
     assert ua, "应有 User-Agent header"
     assert "Python-urllib" not in ua, f"不能用 urllib 默认 UA；实际：{ua!r}"
@@ -333,8 +346,7 @@ def test_request_body_max_tokens_is_1024(
             profile=profile, image_path=fake_image, prompt="any prompt"
         )
         # 拦截 urlopen 调用拿到 Request 对象，解析其 data（JSON 序列化 body）
-        call_args = m.call_args
-        request_obj = call_args[0][0]  # 第 1 个位置参数是 Request
+        request_obj = _get_urlopen_request(m)
         body_bytes: bytes = request_obj.data
         body_dict = json.loads(body_bytes.decode("utf-8"))
         assert body_dict["max_tokens"] == 1024, (
