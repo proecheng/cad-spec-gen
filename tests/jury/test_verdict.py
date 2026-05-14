@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tools.jury.verdict import ViewVerdict, parse_view_verdict
 
 
@@ -239,3 +241,46 @@ def test_multiple_anomalies_coexist() -> None:
 def test_view_verdict_dataclass_exposed() -> None:
     """ViewVerdict 必须从模块导出（symbol 检查）。"""
     assert ViewVerdict is not None
+
+
+# v2.37.2 §11 #1 — _make_needs_review_verdict 6-key shape 一致性
+# parametrize 覆盖 parse_view_verdict 3 个早返回 path 全部调用 _make_needs_review_verdict
+
+
+@pytest.mark.parametrize(
+    "bad_input,expected_anomaly",
+    [
+        ("not json at all", "content_not_json"),
+        ('"a plain string not dict"', "content_not_json"),
+        ('{"no_semantic_checks_key": true}', "missing_content"),
+    ],
+)
+def test_make_needs_review_verdict_returns_6_key_with_matches_spec_true(
+    bad_input: str, expected_anomaly: str
+) -> None:
+    """v2.37.2 §11 #1：_make_needs_review_verdict 返回 6-key dict 含 matches_spec=True，
+    与 normal path 形态一致；与 aggregate_run_verdict 的 .get('matches_spec', True) 默认等价。
+
+    Parametrize 3 个 anomalies path 覆盖 parse_view_verdict line 67 / 73 / 79 三处早返回。
+    """
+    v = parse_view_verdict(bad_input, finish_reason="stop")
+    assert v.parse_status == "ok"
+    assert expected_anomaly in v.parse_anomalies
+    assert v.verdict == "needs_review"
+    # 6-key shape 锁
+    assert set(v.semantic_checks.keys()) == {
+        "geometry_preserved",
+        "material_consistent",
+        "photorealistic",
+        "no_extra_parts",
+        "no_missing_parts",
+        "matches_spec",
+    }
+    # matches_spec=True 兜底语义（与 aggregate .get(default=True) 等价）
+    assert v.semantic_checks["matches_spec"] is True
+    # 其它 5 key 全 False（_make_needs_review_verdict 既有契约）
+    assert v.semantic_checks["geometry_preserved"] is False
+    assert v.semantic_checks["material_consistent"] is False
+    assert v.semantic_checks["photorealistic"] is False
+    assert v.semantic_checks["no_extra_parts"] is False
+    assert v.semantic_checks["no_missing_parts"] is False

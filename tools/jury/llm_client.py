@@ -102,7 +102,9 @@ def request_jury_verdict(
                     ],
                 }
             ],
-            "max_tokens": 512,
+            # v2.37.2 §11 #6：512 → 1024 给 12 features_status + 5 standard check + reason
+            # 留响应空间；finish_reason='length' 仍走 needs_review 兜底（不变量 §6 #10）。
+            "max_tokens": 1024,
             "temperature": 0.0,
         }
     ).encode("utf-8")

@@ -189,11 +189,13 @@ class RunVerdict:
 def aggregate_run_verdict(view_verdicts: dict[str, ViewVerdict]) -> RunVerdict:
     """聚合多视角 verdict → RunVerdict（spec §5.2.2 F1 修复落地）。
 
-    - ``overall_matches_spec`` = all(view.semantic_checks["matches_spec"] for view)；
-      若 view 缺 matches_spec key（如 _make_needs_review_verdict 早返回路径），
-      用 ``.get(default=True)`` 退化为 True（不破坏聚合：parse 错不等于 spec mismatch）。
-    - ``per_view_failed_features`` = {view_id: [feature_id]} 仅含至少 1 invisible feature 的 view，
-      给 prompt_rewriter (Task 4) 提供 per_view_failed_features 反馈数据。
+    - ``overall_matches_spec`` = all(view.semantic_checks.get("matches_spec", True)
+      for view)；用 .get(default=True) 防御性兜底，覆盖 v2.37.1 历史 5-key 存档反
+      序列化场景（spec §6 不变量 #11）。v2.37.2 起 _make_needs_review_verdict 也
+      返回 6-key 含 matches_spec=True，与 .get 默认数学等价（零行为变化）。
+    - ``per_view_failed_features`` = {view_id: [feature_id]} 仅含至少 1 invisible
+      feature 的 view，给 prompt_rewriter (Task 4) 提供 per_view_failed_features
+      反馈数据。
     """
     overall = all(
         v.semantic_checks.get("matches_spec", True) for v in view_verdicts.values()
@@ -215,9 +217,18 @@ def aggregate_run_verdict(view_verdicts: dict[str, ViewVerdict]) -> RunVerdict:
 
 
 def _make_needs_review_verdict(anomalies: list[str]) -> ViewVerdict:
-    """构造严重错误情况下的 needs_review ViewVerdict（5 bool 全 False / score=0 / reason 空）。"""
+    """构造严重错误情况下的 needs_review ViewVerdict（5 bool 全 False / score=0 / reason 空）。
+
+    v2.37.2 §11 #1：加 matches_spec=True 第 6 key，与 normal path 形态一致；
+    与 aggregate_run_verdict line 199 的 .get("matches_spec", True) 默认在所有现有
+    调用路径上数学等价 → 零行为变化。
+    semantic_checks dict key 顺序固定为 _REQUIRED_BOOL_KEYS + ('matches_spec',)
+    末位（spec §6 #11 + plan task 必 cover Q6）。
+    """
+    semantic_checks: dict[str, bool] = {k: False for k in _REQUIRED_BOOL_KEYS}
+    semantic_checks["matches_spec"] = True
     return ViewVerdict(
-        semantic_checks={k: False for k in _REQUIRED_BOOL_KEYS},
+        semantic_checks=semantic_checks,
         photoreal_score=0,
         reason="",
         parse_status="ok",
