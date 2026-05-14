@@ -92,6 +92,10 @@ v2.37.2 发布后 §12 预登记 2 项（Task 4 code-review 提出）：
 
 - **AC-1** `pytest tests/jury/test_llm_client.py -v` 全套 PASS 不变（v2.37.2 后 baseline = 14 case）；新 helper 不增测试数
 - **AC-2** `_get_urlopen_request(m)` 返值上调用 `.get_header("User-agent")` 与 `.data` 都仍可用（既有测试断言成功 = 隐式证明）
+- **AC-2b** Helper 存在性与调用次数 strict 验证（layer 6 E1）：
+  - `grep -c "^def _get_urlopen_request" tests/jury/test_llm_client.py` == 1（恰 1 个 def）
+  - `grep -c "_get_urlopen_request(m)" tests/jury/test_llm_client.py` ≥ 3（1 def + ≥2 call site：原 line 312 + line 336-337 各 1 处）
+  - `grep -c "m\.call_args\[0\]\[0\]" tests/jury/test_llm_client.py` == 0（原 2 处 inline 解构全替换为 helper 调用）
 - **AC-3** `ruff check tests/jury/test_llm_client.py tools/jury/llm_client.py` clean
 - **AC-4** `tools/jury/llm_client.py:105-108` 改后 3 行注释，含 `~800 token` 实测数据
 - **AC-5** jury 子集 PASS 数 ≥ v2.37.2 baseline 503（refactor 零变化，不增不减）
@@ -155,6 +159,7 @@ self-review → CI → squash merge main → 等 main CI 全绿 → tag v2.37.3 
 - 每 commit 含 canonical + dev_sync 镜像同步（zerodrift；v2.37.2 spec §13 D3）
 - PR push 前 `git fetch origin main && git log --oneline HEAD..origin/main` 验证无并行改动（M1）
 - dev_sync 跑完后 `git status` verify mirror modified（M2）
+- **baseline `dev_sync --check` dirty 时 abort plan 主任务**（layer 6 E2 + v2.37.2 spec §13 R5 D2）：plan 第 0 task 跑 `dev_sync --check`，rc≠0 → 先 `python scripts/dev_sync.py` 同步 mirror 后再 `--check` 验 rc=0，**不需独立 cleanup commit**（gitignored mirror 不进 git）；rc≠0 后 sync 仍非 0 → abort BLOCKED 给 controller 调查
 
 ---
 
