@@ -332,6 +332,15 @@ def test_cost_lookup_unknown_returns_none() -> None:
     assert lookup_builtin_cost("llama-99") is None
 
 
+def test_cost_lookup_gpt_image() -> None:
+    """v2.37.6 §11-N5：gpt-image-* 前缀命中 $0.010/call（GISBOT e2e profile 显式值 + 单 vendor 实测来源；§4.1 ±50% 偏差仍适用）。"""
+    from tools.jury.config import lookup_builtin_cost
+
+    assert lookup_builtin_cost("gpt-image-2-pro") == 0.010
+    assert lookup_builtin_cost("gpt-image") == 0.010
+    assert lookup_builtin_cost("gpt-image-3-future-variant") == 0.010  # 前缀匹配未来变种
+
+
 def test_cost_per_call_usd_explicit_zero_accepted(tmp_path: Path) -> None:
     p = _write_config(
         tmp_path,

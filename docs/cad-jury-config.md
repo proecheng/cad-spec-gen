@@ -114,6 +114,7 @@ photo3d-jury --subsystem lifting_platform --dry-run
 |---|---|---|
 | `gpt-4o`, `gpt-4o-*` | **0.020** | OpenAI 官方公开计价（约值；按 1024×1024 图 + 256 token 输出粗估） |
 | `gpt-4-turbo*` | **0.030** | 同上 |
+| `gpt-image-2-pro`, `gpt-image*` | **0.010** | v2.37.6 §11-N5 加 · GISBOT e2e profile 显式值 + micuapi.ai 单实测；§4.1 ±50% 偏差仍适用 |
 | `gemini-2.5-flash*`, `gemini-1.5-flash*` | **0.005** | Google AI Studio 公开计价（约值） |
 | `gemini-2.5-pro*`, `gemini-1.5-pro*` | **0.015** | 同上 |
 | `claude-*-vision*`, `claude-3-*` | **0.025** | Anthropic 公开计价（约值） |
