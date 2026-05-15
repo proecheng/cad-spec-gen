@@ -467,6 +467,7 @@ v2.37.0 / v2.37.1 时代生成的 sidecar / verdict 存档不含 `matches_spec` 
 | flag | 默认 | 含义 |
 |---|---|---|
 | `--subsystem <name>` | 必填（除 `--list-profiles` / `--last-status`） | 与 photo3d-* 一致 |
+| `--override-subsystem <name>` | 未设置 = 沿用 `--subsystem` | jury Layer 0 实际查找的子系统目录名（v2.37.7 §11-N2，详见附录 A.1） |
 | `--config <path>` | `~/.claude/cad_jury_config.json` | 路径必须 `~/.claude/` 或项目内；越界需 `--allow-external-config` |
 | `--allow-external-config` | false | 显式允许 `--config` 越界 |
 | `--profile-id <id>` | active_profile_id | 临时切 profile |
@@ -479,6 +480,32 @@ v2.37.0 / v2.37.1 时代生成的 sidecar / verdict 存档不含 `matches_spec` 
 | `--debug-output <path>` | 自动 | 4xx/parse_failed 时落脱敏 jury_debug_<view>.json |
 | `--force` | false | 既有报告时不归档强制覆盖（默认是归档后再写） |
 | `--project-root <path>` | cwd | 与 photo3d-* 一致 |
+
+### 附录 A.1：`--override-subsystem` 跨项目复用（v2.37.7 §11-N2）
+
+**用途**：当 `--subsystem` 用作项目对外名（如 `GISBOT`、`jiehuo`）而 jury 实际要查找的目录是另一个 canonical 子系统名（如 `lifting_platform`）时，用 `--override-subsystem` 指定 jury Layer 0 真正查找的子系统目录名。
+
+**典型场景**：跨项目跑 GISBOT 复用 `lifting_platform` 的 jury 配置 / 证据。
+
+```bash
+# 项目对外名 = GISBOT；jury 实际跑 lifting_platform 目录的证据
+photo3d-jury --subsystem GISBOT --override-subsystem lifting_platform
+```
+
+**默认行为**：未指定 `--override-subsystem` 时 `effective_subsystem = args.subsystem`，与 v2.37.6 完全兼容、零行为差异。
+
+**报告字段**：
+
+| 场景 | `PHOTO3D_JURY_REPORT.json` / `jury_review_input.json` |
+|---|---|
+| 未指定 override | 不含 `effective_subsystem` 字段（forward-compat） |
+| 指定 override | 额外含 `effective_subsystem: "<override 值>"` |
+
+**输入校验**（违反 → exit=2）：
+
+- 禁空字符串
+- 禁路径分隔符 `/`、`\`
+- 禁路径遍历 `..`
 
 ---
 
