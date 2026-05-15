@@ -111,3 +111,27 @@ type: feat | fix | test | refactor | docs | chore
 10. **plan-drift 5 分类** — spec 写时常踩的假设漂移类型：(a) API 不存在 (b) 路径假设错 (c) 测试 helper 误用 (d) 实现细节 bug (e) 参数签名；plan 第 0 task scout grep 防御（见 memory `feedback_plan_drift_taxonomy.md`）
 
 > **新增术语门槛**：同一术语在 ≥ 3 份 spec/plan/retro 重复出现 → 开 follow-up PR 加入本表。维持 mini-glossary 精简性。
+
+---
+
+## memory 引用约定
+
+spec / plan / retro 文档引用 session memory 时，必含 ≤20 **字符**（不是字节；中文 1 char = 1 字符 ≠ 3 utf-8 bytes）inline 摘要防 memory 改名/归档后失锚（layer 5 R2 L3 教训）。
+
+**约定格式**：
+
+```
+见 memory `xxx.md`（摘要：≤20 字含义）
+```
+
+**约束范围**：
+
+- **仅未来 spec/plan/retro 文档生效**；既有文档（v2.37.5 之前）不强制 retro-fit
+- 鼓励渐进改进：触及既有文档 memory 引用时顺手补摘要
+- 新旧格式兼容：v2.37.5 §项目术语 glossary 既有写法 `（见 memory `xxx.md`）` 不删；新约定 = 新写文档时含摘要；新旧并存合法
+
+**示例**（新写）：
+
+```
+见 memory `feedback_spec_review_4layers.md`（摘要：spec ≥100 行 5 层默认审）
+```
