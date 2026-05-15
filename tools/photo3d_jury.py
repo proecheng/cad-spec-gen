@@ -575,6 +575,8 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
 
         if layer1.passed:
             lock_path = run_dir / ".jury.lock"
+            # v2.37.7 §11-N3：per-view 进度 stderr 输出 — 用户实时看到 jury 走到哪
+            total_views = len(layer0.frozen_report.get("views", [])) or 1
             with acquire_lock(lock_path):
                 for view in layer0.frozen_report.get("views", []):
                     view_name = str(view.get("view", ""))
@@ -618,6 +620,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                                 },
                             }
                         )
+                        # v2.37.7 §11-N3 (F1 fix try-success)：成功视角进度行
+                        latency_s = round(resp.latency_ms / 1000, 1)
+                        sys.stderr.write(
+                            f"△ [{view_name}/{total_views}] {profile.model} "
+                            f"photoreal={vv.photoreal_score} verdict={vv.verdict} "
+                            f"{latency_s}s\n"
+                        )
                     except JuryLlmError as exc:
                         # 失败也保守计 1 次成本（vendor 通常已计费）
                         actual_cost += profile.cost_per_call_usd or 0.0
@@ -641,6 +650,18 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                                 },
                             }
                         )
+                        # v2.37.7 §11-N3 (F1 fix except JuryLlmError)：失败视角进度行
+                        sys.stderr.write(
+                            f"△ [{view_name}/{total_views}] {profile.model} "
+                            f"ERROR {exc.error_kind} 0.0s\n"
+                        )
+                    except Exception as exc:  # noqa: BLE001 — v2.37.7 §11-N3 E2 fix：non-JuryLlmError 兜底进度 + re-raise
+                        # 兜底进度行：让用户至少看到哪个视角崩；不吞异常 → re-raise 走顶层 except
+                        sys.stderr.write(
+                            f"△ [{view_name}/{total_views}] {profile.model} "
+                            f"CRASH {type(exc).__name__}\n"
+                        )
+                        raise
 
         # === 写报告前 sha256 重读校验 ENHANCEMENT_REPORT.json ===
         er_path = (
