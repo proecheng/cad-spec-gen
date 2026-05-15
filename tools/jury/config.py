@@ -45,6 +45,7 @@ class JuryCaps:
 BUILTIN_MODEL_COST_USD: list[tuple[str, float]] = [
     ("gpt-4o", 0.020),
     ("gpt-4-turbo", 0.030),
+    ("gpt-image", 0.010),  # v2.37.6 §11-N5：GISBOT e2e profile 显式值 + micuapi.ai 单实测；§4.1 ±50% 偏差仍适用
     ("gemini-2.5-flash", 0.005),
     ("gemini-1.5-flash", 0.005),
     ("gemini-2.5-pro", 0.015),
