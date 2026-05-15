@@ -11,9 +11,17 @@
 
 ## 1. 背景与目标
 
-GISBOT 是 v2.36 自制件质量大修测试归档（`D:/Work/cad-tests/GISBOT/`），结构 = 6 阶段顶层 `01_spec/02_codegen/03_build/04_render/05_enhance/`，已跑完 enhance（7 视角 enhanced.jpg + ENHANCEMENT_REPORT.json + labeled cn/en）但**未跑过 photo3d-jury full pipeline**（之前 session 只单视角 vision verdict 测过）。
+GISBOT 是 v2.36 自制件质量大修测试归档（`D:/Work/cad-tests/GISBOT/`），结构 = 6 阶段顶层 `01_spec/02_codegen/03_build/04_render/05_enhance/`，已跑完 enhance（7 视角 enhanced.jpg + ENHANCEMENT_REPORT.json + labeled cn/en）但**未跑过 photo3d-jury full pipeline**。
 
 photo3d-jury 期望目录 = `<project_root>/cad/<subsystem>/.cad-spec-gen/runs/<active_run_id>/`（jury.py line 516-524 + 653）；与 GISBOT 6 阶段结构**不兼容**。
+
+**layer 6 E7/E8 fact-check 关键发现**（实测 ENHANCEMENT_REPORT.json + render_manifest.json）：
+- `subsystem` = **"end_effector"**（不是 "GISBOT"——GISBOT/ 是 end_effector v2.36 测试的物理复制目录归档，内部 metadata 未 rebrand）
+- `run_id` = "20260513T115709Z"（v2.36 时代既有）
+- `render_dir` = `D:\\Work\\cad-spec-gen\\cad\\output\\renders`（**绝对路径指 cad-spec-gen 仓**不是 cad-tests）
+- `views[].source_image` / `enhanced_image` 用 `cad/output/renders/V*.png|jpg` 相对 cad-spec-gen 项目根的老路径
+
+**结论**：纯 copy 方案不可行（subsystem 字段不匹配 + 绝对路径错指 + view paths 不可解析）；必须 **path mirror + subsystem 用既有内部值（end_effector）**。
 
 **目标**：跑通 GISBOT 端到端 photo3d-jury 全流程（feature_extractor + 7 视角 vision verdict + 可能 retry 闭环），验证：
 - 跨项目结构兼容性（B 方案 setup 模式 work）
@@ -90,19 +98,53 @@ photo3d-jury 期望目录 = `<project_root>/cad/<subsystem>/.cad-spec-gen/runs/<
 
 ### 3.5 D5 — CAD_SPEC.md 直接复制 GISBOT/01_spec/CAD_SPEC.md
 
-**抉择**：setup 脚本精确路径复制 `GISBOT/01_spec/CAD_SPEC.md → GISBOT/cad/GISBOT/CAD_SPEC.md`。
+**抉择**：setup 脚本精确路径复制 `GISBOT/01_spec/CAD_SPEC.md → GISBOT/cad/end_effector/CAD_SPEC.md`。
 
 **理由**：
 - GISBOT/01_spec/ 已含同名 `CAD_SPEC.md`（实测 + DESIGN_REVIEW.json/.md 共 3 文件）（layer 6 F2 修——spec 写时含糊"第一个 .md"，实测精确路径替换）
-- photo3d_jury feature_extractor (Task 9 v2.37) 默认读 `cad/<subsystem>/CAD_SPEC.md`（line 385）
+- photo3d_jury feature_extractor (Task 9 v2.37) 默认读 `cad/<subsystem>/CAD_SPEC.md`（line 385）；本 PR subsystem=end_effector（D6）
 - 若复制失败 → fail-safe matches_spec=True 兜底（spec §6 不变量 #11，v2.37.4 §12 doc）
+
+### 3.6 D6 — subsystem 用既有报告内部值 `end_effector`（不是 "GISBOT"）
+
+**抉择**：跑命令 `photo3d-jury --subsystem end_effector`（不是 `--subsystem GISBOT`）；RUN_ID 用既有 `20260513T115709Z`（不是 `gisbot_e2e_<HHMM>` — 取消 D2）。
+
+**理由**（layer 6 E7+E8 fix）：
+- ENHANCEMENT_REPORT.json + render_manifest.json 内嵌 `subsystem = "end_effector"` + `run_id = "20260513T115709Z"`；jury Layer 0 cross-validate 这些字段
+- 若 cli `--subsystem GISBOT` → 与 report 内嵌字段 mismatch → jury 报 error_kind 或 blocked
+- 用既有值匹配最小化 rewrite 工作量；语义 = "在 cad-tests/GISBOT/ 工作目录下重跑 end_effector subsystem 的 jury"
+
+**spec 名误导风险**：spec/plan/retro 标题"GISBOT jury e2e"实际跑 end_effector subsystem；retro 文档显式声明此 mapping 避免读者困惑。
+
+### 3.7 D7 — path mirror 而不是 path rewrite
+
+**抉择**：setup 脚本镜像 GISBOT 内文件到 `cad/output/renders/` + `cad/end_effector/.cad-spec-gen/runs/20260513T115709Z/` 完全模拟 cad-spec-gen 项目根布局；**不改 ENHANCEMENT_REPORT/render_manifest 文件内容**（避免 sha256/schema 漂移）。
+
+**理由**（layer 6 E7+E8 fix）：
+- ENHANCEMENT_REPORT.json 内嵌 view paths `cad/output/renders/V*.png|jpg` 相对 project_root 工作 → 在 `--project-root D:/Work/cad-tests/GISBOT` 下解析为 `D:/Work/cad-tests/GISBOT/cad/output/renders/V*` → setup 镜像后**真实存在**
+- render_manifest.json 内嵌 `render_dir = D:\\Work\\cad-spec-gen\\cad\\output\\renders` 绝对路径**仍指 cad-spec-gen** — 这是 v2.36 测试归档 metadata；本 PR 接受此 "stale absolute path" 作为 known issue
+  - jury Layer 0 用 `render_dir_rel_project` 相对路径校验为主，绝对路径仅 informational（实测 enhancement_semantic_review.py:67-79 检 `render_dir_rel_project` 不检 `render_dir` 绝对）
+  - 若实测 jury 报 absolute path mismatch → plan task 0 fallback 加一行 sed 改 render_dir 绝对路径
+
+**setup 镜像清单**（Task 1 实施）：
+```
+D:/Work/cad-tests/GISBOT/
+├── 01_spec/CAD_SPEC.md → cad/end_effector/CAD_SPEC.md
+├── 04_render/render_manifest.json → cad/output/renders/render_manifest.json
+├── 04_render/V*.png → cad/output/renders/V*.png
+├── 05_enhance/V*_enhanced.jpg → cad/output/renders/V*_enhanced.jpg
+└── 05_enhance/ENHANCEMENT_REPORT.json → cad/output/renders/ENHANCEMENT_REPORT.json
+└── cad/end_effector/.cad-spec-gen/
+    ├── ARTIFACT_INDEX.json （setup 生成，active_run_id=20260513T115709Z）
+    └── runs/20260513T115709Z/.jury.lock（jury 自动创建/清理）
+```
 
 ---
 
 ## 4. 验收
 
-- **AC-1** `_setup_jury.py` 无异常 exit 0；目录骨架建好（`cad/GISBOT/.cad-spec-gen/runs/<RUN_ID>/` + 文件 copy + ARTIFACT_INDEX 写）
-- **AC-2** `photo3d-jury --project-root D:/Work/cad-tests/GISBOT --subsystem GISBOT --budget 0.20` exit ∈ {0, 3, 10, 11, 12}（产 PHOTO3D_JURY_REPORT.json 即算成功；具体 verdict 看真 LLM）
+- **AC-1** `_setup_jury.py` 无异常 exit 0；镜像骨架建好（`cad/output/renders/V*` + `cad/end_effector/.cad-spec-gen/{ARTIFACT_INDEX.json, runs/20260513T115709Z/}` + `cad/end_effector/CAD_SPEC.md`）
+- **AC-2** `cd D:/Work/cad-tests/GISBOT && photo3d-jury --project-root . --subsystem end_effector --budget 0.20` exit ∈ {0, 3, 10, 11, 12}（产 PHOTO3D_JURY_REPORT.json 即算成功；具体 verdict 看真 LLM）（D6+E10 修：subsystem=end_effector 匹配既有 metadata；cwd 显式 cd GISBOT）
 - **AC-3** PHOTO3D_JURY_REPORT.json 含 7 视角 verdict + 顶层 `status` + `ordinary_user_message` + `first_blocking_reason`（若有）
 - **AC-4** feature_extractor 抽特征成功（或 fail-safe 静默跳过 matches_spec=True）；report 含 features count 或 anomaly 标
 - **AC-5** total cost ≤ $0.20（若超 → exit=3 cost_capped，AC-2 仍通过）
@@ -123,6 +165,9 @@ photo3d-jury 期望目录 = `<project_root>/cad/<subsystem>/.cad-spec-gen/runs/<
 | jury_review_input.json freeze sha256 mismatch | 中-低 | jury 内部 Layer 0 sha256 重读校验；mismatch 写 error_kind=blocked，retro 记 |
 | 既有 `cad/GISBOT/` 目录冲突 | 极低（实测不存在）| setup `mkdir(exist_ok=True)` 容错；若存在 abort 让用户清理 |
 | PYTHONPATH / cad-spec-gen install 状态 | 低 | retro 验证 `photo3d-jury` CLI 入口可达；fail → 用 `python -m tools.photo3d_jury` 兜底 |
+| **render_manifest.json `render_dir` 绝对路径 stale**（layer 6 E8）| 中（v2.36 测试归档既有数据，绝对路径指 cad-spec-gen 仓不是 cad-tests）| jury 主用 `render_dir_rel_project` 相对路径校验（实测 line 67-79）；plan task 0 实测若 jury 真 fail 才 fallback sed 改绝对路径 |
+| **ENHANCEMENT_REPORT.json `subsystem` 字段错位**（layer 6 E7）| 已修（D6 用 subsystem=end_effector 匹配既有 metadata） | spec D6 决策；retro 显式声明 spec 标题 "GISBOT" vs 实际 subsystem "end_effector" 的 mapping |
+| jury cwd 假设（layer 6 E10）| 低 | spec §7 流程加 `cd D:/Work/cad-tests/GISBOT &&` 显式 cwd 设定 |
 
 ---
 
@@ -142,13 +187,15 @@ photo3d-jury 期望目录 = `<project_root>/cad/<subsystem>/.cad-spec-gen/runs/<
 ```
 brainstorming（本 spec）→ writing-plans → 3-4 task plan → execute
   ↓
-Task 0: scout GISBOT 内容 + 验证 jury config + dev_sync baseline
-Task 1: 写 _setup_jury.py + dry-run 建目录骨架
-Task 2: 跑 photo3d-jury 真金 e2e + 记录 evidence
-Task 3: 写 retro 沉淀 lesson + commit 3 docs 进 git
+Task 0: scout + dev_sync baseline + 实测 ENHANCEMENT_REPORT/render_manifest 内嵌 schema（layer 6 E7+E8 验证）
+Task 1: 写 _setup_jury.py + 镜像 GISBOT/ 文件到 cad/ 子目录布局（D7 path mirror）
+Task 2: cd D:/Work/cad-tests/GISBOT && 跑 photo3d-jury --subsystem end_effector --budget 0.20 真金 e2e（D6 subsystem 用既有内部值）
+Task 3: 写 retro 沉淀 lesson + 显式声明 spec 标题 "GISBOT" vs 实际 subsystem "end_effector" 的 mapping
   ↓
 docs commits 在 cad-spec-gen 仓；plan 决定开 PR 或直接 commit main（无 production 改可直 commit）
 ```
+
+**关键 cwd 约定（layer 6 E10 fix）**：跑 `photo3d-jury` **必须** 先 `cd D:/Work/cad-tests/GISBOT/` 后跑——jury 内部某些 path 解析可能用 `Path.cwd()` 而非 `--project-root`；显式 cwd 避免 ambiguity。
 
 ### 7.1 Rollback 流程
 
