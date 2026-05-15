@@ -65,6 +65,22 @@ sys.stderr.write(
     f"△ [{view_name}/{total_views}] {profile.model} "
     f"ERROR {exc.error_kind} 0.0s\n"
 )
+
+# except Exception 通用兜底（E2 fix：non-JuryLlmError 异常如 OSError / 测试 mock 异常等）：
+# 既有 view 循环只 catch JuryLlmError；本 PR 不扩 catch 范围（不改异常处理逻辑）；
+# 用 try-finally 包裹 LLM 调用 + finally 中检查 vv 是否赋值决定 fallback 进度行。
+# 实施模板（Task 1 实施）：
+#   try:
+#       resp = request_jury_verdict(...)
+#       vv = parse_view_verdict(...)
+#       view_verdicts.append({...})
+#       sys.stderr.write(success 进度行)
+#   except JuryLlmError as exc:
+#       view_verdicts.append({...needs_review...})
+#       sys.stderr.write(error 进度行)
+#   except Exception as exc:  # E2 fix：non-JuryLlmError 异常 fallback
+#       sys.stderr.write(f"△ [{view_name}/{total_views}] {profile.model} CRASH {type(exc).__name__}\n")
+#       raise  # 不吞异常，propagate 给 jury main 处理
 ```
 
 **理由**：
@@ -87,6 +103,19 @@ sys.stderr.write(
 
 **实施伪代码**：
 ```python
+# E3 fix：输入校验（main() 早返回 exit=2 不接受无效 override）
+if args.override_subsystem is not None:
+    override = args.override_subsystem.strip()
+    if not override:  # 空字符串 / 仅空格
+        sys.stderr.write("✗ --override-subsystem 不能为空字符串\n")
+        return 2
+    if "/" in override or "\\" in override or ".." in override:  # 路径遍历防御
+        sys.stderr.write(f"✗ --override-subsystem={args.override_subsystem!r} 含非法字符 (/ \\ ..)\n")
+        return 2
+    # 复用既有 --subsystem 字符集白名单（若存在）；否则用相同 regex：
+    # [A-Za-z0-9_][A-Za-z0-9_-]{0,63}  (与 profile.id 同正则)
+    args.override_subsystem = override  # 写回 strip 后的值
+
 effective_subsystem = args.override_subsystem or args.subsystem
 # 既有 args.subsystem 用法不变（如 line 687/745 report 写）
 # 新代码用 effective_subsystem 解析 path / Layer 0 cross-check
@@ -105,6 +134,18 @@ cd D:/Work/cad-tests/GISBOT && \
     --override-subsystem end_effector \
     --budget 0.20
 ```
+
+**字段一致性表（E4+E5+E6 fix：明示 cli_subsystem vs effective_subsystem 各组件取谁）**：
+
+| 组件 | 字段 | 用谁 | 理由 |
+|---|---|---|---|
+| jury report 顶层 | `subsystem` | **args.subsystem**（cli 项目名）| 语义不变；既有 reader 不破（forward-compat 硬保障 v2.37.4 §13）|
+| jury report 顶层 | `effective_subsystem` | **args.override_subsystem**（仅 override 时存在）| 新加字段；既有 reader 不读不破 |
+| jury Layer 0 / run_dir 解析 | `cad/<X>/.cad-spec-gen/runs/<id>/` | **effective_subsystem** | jury 实际跑的 subsystem；GISBOT e2e 用例必需 |
+| ARTIFACT_INDEX.json `subsystem` 字段 | (写盘时) | **effective_subsystem** | ARTIFACT_INDEX 表 active run 的 subsystem；与 run_dir 路径一致；既有 GISBOT e2e setup 脚本写 end_effector 不变 |
+| stderr 进度行 / error 输出 | (显示) | **effective_subsystem** | 用户看的是 jury 实跑的 subsystem |
+
+**downstream reader 兼容性声明**（E4 fix）：本 PR 假设 downstream 工具读 `report["subsystem"]` 表"jury 实跑的 subsystem"——但 v2.37.4 §13 forward-compat 承诺 `subsystem` 字段语义不变 = `args.subsystem`；这是已声明的契约。若有 downstream 工具假定 `subsystem`=jury 实跑则破，本 PR retro 沉淀 lesson + §11 follow-up 登记"梳理 downstream subsystem 字段消费者"。
 
 **理由**：
 - alias 让 user 显式声明"project=GISBOT 实跑=end_effector"避免 silent mismatch（GISBOT e2e 实测 §11-N2 来源）
@@ -127,14 +168,16 @@ cd D:/Work/cad-tests/GISBOT && \
 - **AC-2** `--override-subsystem ACTUAL_SUBSYSTEM` flag 加进 argparse；不指定时 effective = `args.subsystem`（零行为变化）；既有 report `subsystem` 字段语义不变（F2 fix）
 - **AC-3** GISBOT-like 用例 `--subsystem GISBOT --override-subsystem end_effector` jury Layer 0 用 end_effector 解析 run_dir + report 含 `effective_subsystem: "end_effector"` 字段（仅 override 时存在）
 - **AC-4** AC grep strict（F4 fix：用 ERE `-cE`）：
-  - `grep -cE "△ \[" tools/photo3d_jury.py` ≥ 2（success + failure 两处进度模板，F1）
+  - `grep -cE "△ \[V" tools/photo3d_jury.py` ≥ 2（success + failure 两处进度模板含 `[V` view name 前缀；E9 fix：spec 原 `△ \[` 范围过宽改 `△ \[V` 限定 view 进度行）
   - `grep -c "override-subsystem" tools/photo3d_jury.py` ≥ 2（argparse 加 + main 用）
   - `grep -c "effective_subsystem" tools/photo3d_jury.py` ≥ 1（report 字段 + 计算）
-- **AC-5** 新增测试 3 个：
+- **AC-5** 新增测试 5 个（E2/E3 加 2 测试覆盖）：
   - `test_per_view_progress_stderr_emit_success` mock urlopen → success → capture stderr → assert 含 `△ [V1/` + `photoreal=` + `verdict=`
   - `test_per_view_progress_stderr_emit_failure`（F1）mock urlopen → raise JuryLlmError → assert stderr 含 `△ [V1/` + `ERROR` + `<error_kind>`
+  - `test_per_view_progress_stderr_emit_crash`（E2 fix）mock urlopen → raise OSError → assert stderr 含 `△ [V1/` + `CRASH` + `OSError` + 异常 re-raise
   - `test_override_subsystem_flag_used` argparse 接受 flag → mock 跑 → assert effective_subsystem 字段 + 默认情况（no flag）effective = args.subsystem 不变
-- **AC-6** 全套件：3194 baseline + 3 新测试 = **3197 PASS** / 0 regression
+  - `test_override_subsystem_input_validation`（E3 fix）3 子断言：空字符串 → exit=2；`../etc/passwd` 路径遍历 → exit=2；合法值通过 + strip 空格
+- **AC-6** 全套件：3194 baseline + 5 新测试 = **3199 PASS** / 0 regression
 - **AC-7** CI 8/8 SUCCESS
 - **AC-8** 发 v2.37.7 patch tag + GitHub Release
 
@@ -149,7 +192,7 @@ cd D:/Work/cad-tests/GISBOT && \
 | `latency_ms` int → `latency_s` float 单位错 | 低 | F3 fix：明示 `latency_s = round(latency_ms / 1000, 1)` 计算 |
 | 既有 stderr 重定向用户工作流破 | 低 | stderr 输出不影响 stdout 数据；既有 ✗ / △ 已有约定 |
 | `--single-view` 内部路径影响 | 低 | spec §6 不变量 #5：single-view 短路 line 252 之前 return，不进 per-view 循环 |
-| stderr 中文字符 Windows console 显示 | 低（v2.37.6 §11-N4 重新评估实证：jury 写 utf-8 字符串本身正确）| 进度行用 ASCII `△` + 英文字段名（model / photoreal / verdict / latency）避免 console cp936 mojibake 误判 |
+| stderr 中文字符 Windows console 显示 | 低（v2.37.6 §11-N4 重新评估实证：jury 写 utf-8 字符串本身正确）| 进度行用 **Unicode U+25B3** `△`（既有 jury line 763 已用 OK；E8 fix：spec 原措辞"ASCII"错，△ 不是 ASCII）+ 英文字段名（model / photoreal / verdict / latency）避免 console cp936 mojibake 误判 |
 | jury report `effective_subsystem` 字段破现有 reader | 低（v2.37.4 §13 forward-compat 允许加新字段）| 仅 override 时加；既有 reader 不读不破 |
 
 ---
@@ -252,3 +295,4 @@ Task 5 PR + CI + 用户授权 merge + tag v2.37.7 + Release + memory
 | h1 | LOW | per-view 进度加 retry 次数 / cost 累计字段 | 用户实测要求更详细进度信息 |
 | h2 | LOW | TTY progress bar 升级（替换 stderr 单行）| ≥ 50% 用户报"7 行进度刷屏" |
 | h3 | LOW | `--override-subsystem` 用例文档化进 jury-loop-config.md / cad-jury-config.md user guide | 用户多次问"如何跨项目跑 jury" |
+| h4 | LOW | 梳理 downstream `report["subsystem"]` 字段消费者（layer 6 E4 担忧）—— 确认无 downstream 假定 `subsystem`=jury 实跑 | 若 grep `report\["subsystem"\]` 或 `.subsystem` 用法 ≥ 1 处假定 effective 语义 |
