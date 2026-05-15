@@ -109,6 +109,15 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="photo3d-jury", description="自动照片级验收（vision LLM jury）"
     )
     p.add_argument("--subsystem")
+    p.add_argument(
+        "--override-subsystem",
+        dest="override_subsystem",
+        default=None,
+        help="alias flag (v2.37.7 §11-N2)：cli --subsystem 项目名 + "
+        "--override-subsystem 实际 subsystem；jury Layer 0 用 override 解析 "
+        "run_dir + report 加 effective_subsystem 字段；默认不指定时 "
+        "effective = --subsystem（零行为变化）",
+    )
     p.add_argument("--config", type=Path, default=None)
     p.add_argument("--allow-external-config", action="store_true")
     p.add_argument("--profile-id")
@@ -206,6 +215,21 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 _SINGLE_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
 
 
+def _resolve_effective_subsystem(args: argparse.Namespace) -> str:
+    """v2.37.7 §11-N2：从 args 派生 effective subsystem（path/Layer 0 用值）。
+
+    args.subsystem = cli 项目名（保 report.subsystem 不变 forward-compat）；
+    args.override_subsystem = 实际 subsystem（jury Layer 0/run_dir/ARTIFACT_INDEX 用此值）；
+    默认（override 未指定）effective = args.subsystem 零行为变化。
+
+    main() 已在入口对 args.override_subsystem 做 strip + 校验；
+    helper 调用方拿到的 args 已是规范化值。
+    """
+    if getattr(args, "override_subsystem", None):
+        return str(args.override_subsystem)
+    return str(args.subsystem)
+
+
 def _load_cached_features_for_subsystem(
     subsystem: str, project_root: Path
 ) -> list[dict[str, Any]]:
@@ -276,7 +300,9 @@ def _handle_single_view_mode(
     # project_root 同 main() 默认 = cwd（_handle_single_view_mode 短路在 args.project_root
     # resolve 之前；直接用 Path(args.project_root) 与 main() 后半段保持一致语义）
     project_root = Path(args.project_root).resolve()
-    features = _load_cached_features_for_subsystem(args.subsystem, project_root)
+    # v2.37.7 §11-N2：path 解析用 effective subsystem（与主 path Task 6 一致）
+    effective_subsystem = _resolve_effective_subsystem(args)
+    features = _load_cached_features_for_subsystem(effective_subsystem, project_root)
     view_prompt = _build_view_prompt(args.single_view, features)
 
     results: list[dict[str, Any]] = []
@@ -379,16 +405,18 @@ def _extract_features_for_run(
     """
     if not args.design_doc:
         return []
+    # v2.37.7 §11-N2：path 解析用 effective subsystem（与主 path 一致）
+    effective_subsystem = _resolve_effective_subsystem(args)
     spec_md_path = (
         Path(args.spec_md)
         if args.spec_md
-        else project_root / "cad" / args.subsystem / "CAD_SPEC.md"
+        else project_root / "cad" / effective_subsystem / "CAD_SPEC.md"
     )
     design_doc_path = Path(args.design_doc)
     if not spec_md_path.exists() or not design_doc_path.exists():
         return []
 
-    cache_dir = project_root / "cad" / args.subsystem / ".cad-spec-gen"
+    cache_dir = project_root / "cad" / effective_subsystem / ".cad-spec-gen"
     try:
         # 延迟 import 防 tools.jury.feature_extractor 任何 top-level 异常炸 main
         from tools.jury import feature_extractor as _fe
@@ -399,7 +427,7 @@ def _extract_features_for_run(
             design_doc_path,
             cache_dir=cache_dir,
             llm_client=fx_client,
-            subsystem=args.subsystem,
+            subsystem=effective_subsystem,
             run_id=frozen_run_id,
         )
         features = fx_result.get("features", [])
@@ -465,6 +493,23 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
         sys.stderr.write("✗ 缺 --subsystem 参数\n")
         return 2
 
+    # --- v2.37.7 §11-N2 (E3 fix)：--override-subsystem 输入校验 + effective_subsystem 计算 ---
+    # args.subsystem = cli 项目名（report subsystem 字段保留 forward-compat）
+    # effective_subsystem = args.override_subsystem or args.subsystem（默认零行为变化）
+    effective_subsystem = args.subsystem
+    if args.override_subsystem is not None:
+        override = args.override_subsystem.strip()
+        if not override:
+            sys.stderr.write("✗ --override-subsystem 不能为空字符串\n")
+            return 2
+        if "/" in override or "\\" in override or ".." in override:
+            sys.stderr.write(
+                f"✗ --override-subsystem={args.override_subsystem!r} 含非法字符 (/ \\ ..)\n"
+            )
+            return 2
+        args.override_subsystem = override  # strip 写回
+        effective_subsystem = override
+
     # --- 校验 budget ---
     if not math.isfinite(args.budget) or args.budget < 0:
         sys.stderr.write(f"✗ --budget={args.budget} 必须为有限非负数\n")
@@ -506,8 +551,9 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
 
     try:
         # === Layer 0：输入证据绑定 + sha256 freeze ===
+        # v2.37.7 §11-N2：Layer 0 + path 用 effective_subsystem（默认 = args.subsystem）
         layer0 = run_layer0(
-            project_root=project_root, subsystem=args.subsystem, caps=caps
+            project_root=project_root, subsystem=effective_subsystem, caps=caps
         )
         if not layer0.passed:
             sys.stderr.write(f"✗ Layer 0 blocked: {layer0.blocking_reasons}\n")
@@ -516,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
         run_dir = (
             project_root
             / "cad"
-            / args.subsystem
+            / effective_subsystem
             / ".cad-spec-gen"
             / "runs"
             / layer0.frozen_run_id
@@ -664,12 +710,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                         raise
 
         # === 写报告前 sha256 重读校验 ENHANCEMENT_REPORT.json ===
+        # v2.37.7 §11-N2：renders 目录用 effective_subsystem（与 Layer 0 一致）
         er_path = (
             project_root
             / "cad"
             / "output"
             / "renders"
-            / args.subsystem
+            / effective_subsystem
             / layer0.frozen_run_id
             / "ENHANCEMENT_REPORT.json"
         )
@@ -756,6 +803,9 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             "per_view_failed_features": run_verdict.per_view_failed_features,
             "matches_spec_status": matches_spec_status,
         }
+        # v2.37.7 §11-N2：仅 override 时落 effective_subsystem 字段（默认零行为）
+        if args.override_subsystem:
+            report["effective_subsystem"] = effective_subsystem
         write_json_atomic(report_path, report)
 
         # === accepted 才写 jury_review_input.json（兼容 enhance-review） ===
@@ -777,6 +827,9 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
                     for v in view_verdicts
                 ],
             }
+            # v2.37.7 §11-N2：仅 override 时落 effective_subsystem 字段（默认零行为）
+            if args.override_subsystem:
+                review_input["effective_subsystem"] = effective_subsystem
             write_json_atomic(run_dir / "jury_review_input.json", review_input)
 
         return 0
