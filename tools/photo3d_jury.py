@@ -493,10 +493,10 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
         sys.stderr.write("✗ 缺 --subsystem 参数\n")
         return 2
 
-    # --- v2.37.7 §11-N2 (E3 fix)：--override-subsystem 输入校验 + effective_subsystem 计算 ---
-    # args.subsystem = cli 项目名（report subsystem 字段保留 forward-compat）
-    # effective_subsystem = args.override_subsystem or args.subsystem（默认零行为变化）
-    effective_subsystem = args.subsystem
+    # --- v2.37.7 §11-N2 (E3 fix)：--override-subsystem 输入校验 ---
+    # 顺序契约（v2.37.8 §helper cleanup rev 5 B5）：input validation 必须在
+    # helper 调用前 — strip mutate args.override_subsystem，
+    # _resolve_effective_subsystem 直接读规范化后的 args.override_subsystem。
     if args.override_subsystem is not None:
         override = args.override_subsystem.strip()
         if not override:
@@ -508,7 +508,9 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0911,PLR0912,PL
             )
             return 2
         args.override_subsystem = override  # strip 写回
-        effective_subsystem = override
+
+    # validation 完成后调 helper（顺序契约 — 不可调换）
+    effective_subsystem = _resolve_effective_subsystem(args)
 
     # --- 校验 budget ---
     if not math.isfinite(args.budget) or args.budget < 0:
