@@ -1,10 +1,10 @@
 # v2.37.11 — ruff cleanup P1 (F401+F541+F811+E401 154 条) Retro
 
-> **PR**: <待 Task 12 填>
-> **Merged**: <待 Task 12 填> main@<待 Task 12 填>
+> **PR**: #90
+> **Merged**: 2026-05-17 main@00ff680
 > **Tag**: v2.37.11
-> **Release**: <待 Task 12 填>
-> **CI**: <待 Task 12 填> (mypy-strict / regression / test 2×3 matrix = 8 jobs)
+> **Release**: https://github.com/proecheng/cad-spec-gen/releases/tag/v2.37.11
+> **CI**: 8/8 SUCCESS (mypy-strict / regression / test 2×3 matrix = 8 jobs)
 > **回归**: 全套件 3244 PASS / 17 SKIP / 0 regression
 
 ## 1. 摘要
