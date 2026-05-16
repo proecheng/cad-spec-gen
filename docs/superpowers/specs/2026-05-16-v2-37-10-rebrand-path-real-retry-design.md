@@ -3,7 +3,7 @@
 > **PR 类型**：feat + integration test（中体量，~1.5h + ~$0.50 budget）  
 > **关联 STATUS doc**：`docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`（§11 follow-up）  
 > **关联 v2.37.9 retro**：`docs/superpowers/reports/2026-05-16-v2-37-9-jury-retry-real-vendor-retro.md`（§11-N9 新登出处）  
-> **Spec rev**：rev 1
+> **Spec rev**：rev 2（rev 1 user review 抓 1 BLOCKER + 3 MAJOR + 3 MINOR fix）
 
 ---
 
@@ -31,12 +31,13 @@
   manifest render_dir=D:\Work\cad-spec-gen\cad\output\renders  ← v2.37.7 生成时源路径未 rebrand
 ```
 
-scout grep 实证 4 文件含 `D:\Work\cad-spec-gen` 源路径：
+scout grep 实证 4 文件含 `D:\Work\cad-spec-gen` 源路径（**rev 2 D2 修正**：v2.37.9 实测后 GISBOT 处于 **mixed state** — ad-hoc patched 不完整 + 跨 separator）：
 
-- `02_codegen/CUSTOM_PARTS_AUDIT.json`
-- `04_render/render_manifest.json`
-- `cad/output/renders/end_effector/<run_id>/render_manifest.json`
-- `cad/output/renders/render_manifest.json`
+- `02_codegen/CUSTOM_PARTS_AUDIT.json` — 全 hardcode `D:\Work\cad-spec-gen`
+- `04_render/render_manifest.json` — 全 hardcode `D:\Work\cad-spec-gen`（未 ad-hoc patch）
+- `cad/output/renders/render_manifest.json` — 顶层 `render_dir/render_dir_abs_resolved` ad-hoc patched 用 `/` separator → `D:/Work/cad-tests/GISBOT`；`files[].path_abs_resolved` 仍 hardcode `D:\Work\cad-spec-gen` 用 `\`
+- `cad/output/renders/end_effector/<run_id>/render_manifest.json` — 同上 mixed
+- 4 文件涉 ~140 path values；**至少 2 个不同 source prefix**（`D:\Work\cad-spec-gen` + `D:/Work/cad-tests/GISBOT`）+ 跨 separator
 
 render_manifest 内 path 字段类型分两类：
 
@@ -88,15 +89,34 @@ python tools/dev/rebrand_test_archive.py <archive_dir> \
 
 #### 3.1.2 行为
 
+**关键 BLOCKER fix（rev 2 D1）**：v2.37.8 `_validate_inputs(args_from, args_to)` 含 path-separator block (`if "/" in val or "\\" in val: exit=2`)；若**复用**既有函数，path prefix value 必含 `\` 必 exit=2。**rev 2 加独立 `_validate_path_prefix` helper**，不复用既有函数。
+
 ```
-input validation 扩（不变量 #12）:
-  if --from-path-prefix 给但 --to-path-prefix 缺 → exit=2
-  if --to-path-prefix 给但 --from-path-prefix 缺 → exit=2
-  if --from-path-prefix == --to-path-prefix → exit=2 (same as v2.37.8 from==to 校验风格)
+独立 _validate_path_prefix(from_prefix, to_prefix, from_subsystem, to_subsystem) -> int:
+  # 互锁校验（不变量 #12）:
+  if (from_prefix is None) != (to_prefix is None) → exit=2  # 必须同时给或同时缺
+  if from_prefix is None:  # 都缺 — 复用 v2.37.8 既有 _validate_inputs（含 subsystem from!=to 校验）
+    return _validate_inputs(...)
   
-  # 特殊：T-prefix-E 语义
-  if args.from_ == args.to AND --from-path-prefix 给 → 允许（仅 path rewrite，skip subsystem rewrite）
-  if args.from_ == args.to AND --from-path-prefix 缺 → exit=2 (v2.37.8 既有错误 'from/to must differ')
+  # 都给 path-prefix：
+  if not from_prefix or not to_prefix: → exit=2 "must be non-empty"
+  if from_prefix == to_prefix: → exit=2 "must differ"
+  
+  # 不变量 #15 (rev 2 D4)：prefix 须含 drive letter + colon 防误匹配 rel path
+  if not _looks_like_abs_path(from_prefix): → exit=2 "from-path-prefix must start with drive letter (e.g. D:/, C:\\)"
+  if not _looks_like_abs_path(to_prefix): → exit=2 "to-path-prefix must start with drive letter"
+  
+  # T-prefix-E 语义：from==to (subsystem) + path-prefix 给 → 跳过 subsystem 校验只跑 path rewrite
+  if from_subsystem == to_subsystem:
+    return 0  # subsystem skip；path rewrite ON
+  
+  # subsystem from != to → 还要跑 subsystem 校验（控制字符 / 路径分隔符 / 等 v2.37.8 既有 5 条）
+  return _validate_inputs(...)
+
+
+def _looks_like_abs_path(p: str) -> bool:
+    \"\"\"rev 2 D4 — abs path 须以 drive letter (e.g. C: D:) 开头。\"\"\"
+    return len(p) >= 2 and p[1] == ":" and p[0].isalpha()
 
 扫描行为（v2.37.8 既有 scan-all 上扩 path-prefix replace）:
   对每 *.json 文件:
@@ -110,24 +130,43 @@ input validation 扩（不变量 #12）:
   atomic write + ASCII label stderr（v2.37.8 既有）
 ```
 
-#### 3.1.3 prefix 匹配规则（R1 防越界）
+#### 3.1.3 prefix 匹配规则（R1 防越界 + rev 2 D3 跨 separator）
 
-**仅前缀紧跟路径分隔符 (`\`, `/`) 或字符串 end 才匹配**：
+**仅前缀紧跟路径分隔符 (`\`, `/`) 或字符串 end 才匹配**；**跨 separator 兼容**（value 含 `/` 但 prefix 用 `\` 仍能匹配）：
 
-- `"D:\Work\cad-spec-gen\cad\output\..."` 匹配 prefix `"D:\Work\cad-spec-gen"`（紧跟 `\`）→ rewrite
-- `"D:\Work\cad-spec-gen-backup\..."` **不**匹配 prefix `"D:\Work\cad-spec-gen"`（紧跟 `-`，非分隔符）→ skip
+- `"D:\Work\cad-spec-gen\cad\..."` 匹配 prefix `"D:\Work\cad-spec-gen"`（紧跟 `\`）→ rewrite，输出保持 `\` separator
+- `"D:/Work/cad-spec-gen/cad/..."` 匹配 prefix `"D:\Work\cad-spec-gen"`（normalize 后等价；紧跟 `/`）→ rewrite
+- `"D:\Work\cad-spec-gen-backup\..."` **不**匹配（紧跟 `-` 非分隔符）→ skip
 - `"D:\Work\cad-spec-gen"`（exact match end）→ rewrite
 
-Python 实现：
+Python 实现（rev 2 D3 跨 separator）：
 
 ```python
-def _matches_prefix(s: str, prefix: str) -> bool:
-    if s == prefix:
+def _normalize_path(p: str) -> str:
+    \"\"\"统一 separator 到 `\\` 用于匹配比较（仅内部用，不写回）。\"\"\"
+    return p.replace("/", "\\")
+
+
+def _matches_prefix(value: str, from_prefix: str) -> bool:
+    \"\"\"prefix 匹配 — 跨 separator 兼容 + 边界紧跟 / 或 \\。\"\"\"
+    v_norm = _normalize_path(value)
+    p_norm = _normalize_path(from_prefix)
+    if v_norm == p_norm:
         return True
-    if s.startswith(prefix):
-        rest_first_char = s[len(prefix):][:1]
-        return rest_first_char in ("\\", "/")
+    if v_norm.startswith(p_norm):
+        rest_first_char = v_norm[len(p_norm):][:1]
+        return rest_first_char == "\\"  # normalized 后只判 \
     return False
+
+
+def _rewrite_prefix(value: str, from_prefix: str, to_prefix: str) -> str:
+    \"\"\"prefix replace — 保留 value 原 separator 风格。\"\"\"
+    # 判 value 主用 separator
+    sep = "/" if value.count("/") > value.count("\\") else "\\"
+    p_norm = _normalize_path(from_prefix)
+    v_norm = _normalize_path(value)
+    new_v = _normalize_path(to_prefix) + v_norm[len(p_norm):]
+    return new_v.replace("\\", sep) if sep == "/" else new_v
 ```
 
 #### 3.1.4 不变量
@@ -136,7 +175,9 @@ v2.37.8 既有 11 条不变量保留，新加：
 
 12. `--from-path-prefix` 与 `--to-path-prefix` 互锁（必同时给或同时缺）；缺 = v2.37.8 既有行为
 13. path-prefix replace **仅 string value**；不动 path 字段名 / key 名
-14. prefix 边界匹配（仅紧跟路径分隔符或 end-of-string）防越界匹配 `cad-spec-gen-backup` 等近似命名
+14. prefix 边界匹配（仅紧跟路径分隔符或 end-of-string）防越界匹配 `cad-spec-gen-backup` 等近似命名；跨 separator 兼容（`/` vs `\\`）
+15. **path-prefix 必须以 drive letter + colon 开头**（如 `D:\\`, `C:/`）；防误匹配 rel path 含 `cad-spec-gen` 字面（如 `model_contract_path: cad/end_effector/.cad-spec-gen/...`）
+16. **`_validate_path_prefix` 独立 helper**，不复用 v2.37.8 既有 `_validate_inputs`（含 path-separator block 与 prefix value 冲突）
 
 #### 3.1.5 测试设计（TDD — 7 unit）
 
@@ -156,13 +197,23 @@ v2.37.8 既有 11 条不变量保留，新加：
 
 ### 3.2 改动 2 — 真 retry 闭环实测
 
-#### 3.2.1 前置 ops
+#### 3.2.1 前置 ops（rev 2 D6 mixed state 2 步流程）
+
+GISBOT 当前 mixed state（v2.37.9 ad-hoc patched 不完整 + 跨 separator）。2 步 unify + rebrand：
 
 ```bash
 # 1. touch sentinel marker（v2.37.8 §3.1.0 契约 — v2.37.9 已 touched）
 ls -la D:/Work/cad-tests/GISBOT/.test-archive-marker
 
-# 2. v2.37.10 改动 1 path-prefix rebrand
+# 2a. 先 reverse 把 ad-hoc patched 已是 D:/Work/cad-tests/GISBOT 的 path 改回 D:\\Work\\cad-spec-gen
+#     unify GISBOT 到 v2.37.7 baseline state（所有 path 同源 prefix）
+python tools/dev/rebrand_test_archive.py D:/Work/cad-tests/GISBOT \
+  --from end_effector --to end_effector \
+  --from-path-prefix "D:/Work/cad-tests/GISBOT" \
+  --to-path-prefix "D:\\Work\\cad-spec-gen" \
+  --apply
+
+# 2b. 再 forward 把所有 D:\\Work\\cad-spec-gen 改为 D:\\Work\\cad-tests\\GISBOT
 python tools/dev/rebrand_test_archive.py D:/Work/cad-tests/GISBOT \
   --from end_effector --to end_effector \
   --from-path-prefix "D:\\Work\\cad-spec-gen" \
@@ -175,7 +226,11 @@ export GEMINI_API_KEY=<micuapi key>  # 同 v2.37.9 实测 vendor
 export PYTHONPATH=D:/Work/cad-spec-gen
 ```
 
-#### 3.2.2 跑 enhance-check 端到端
+**为什么 2 步**：当前 v2.37.10 工具仅支持 1 prefix per run；mixed state 含 2 个不同 source prefix（`D:\\Work\\cad-spec-gen` + `D:/Work/cad-tests/GISBOT`），单次跑只覆盖其一。**若 GISBOT 处 clean state（仅源 prefix）跑 1 步即够**。
+
+§11-N10 留 follow-up：工具支持多 prefix （`--from-path-prefix p1,p2,p3`）— 触发条件实测后看是否常态需要。
+
+#### 3.2.2 跑 enhance-check 端到端（rev 2 D7 enhance backend 细化）
 
 ```bash
 cd D:/Work/cad-tests/GISBOT
@@ -190,8 +245,20 @@ python D:/Work/cad-spec-gen/src/cad_spec_gen/data/python_tools/cad_pipeline.py \
 - 不再撞 `render_dir mismatch` block（path-prefix 已 rebrand）
 - jury 初评 verdict=needs_review（v2.37.9 已 verify）
 - orchestrator 触发 retry round（v2.37.9 改动 1b/1f 已 wire）
-- enhance vendor 重渲（用 micuapi.ai 同 backend / kind=openai_compat 或 image-gen path）
+- enhance vendor 重渲 — backend kind 视 jury_loop config 默认 `gemini_chat_image`
 - 重评 jury / `_pick_best` 选高分
+
+**Enhance backend kind 真值（rev 2 D7 细化）**：
+
+| backend kind | endpoint | micuapi.ai 兼容性 |
+| --- | --- | --- |
+| `gemini_chat_image` (default) | chat-completions + native generateContent | ✓ micuapi.ai 用 chat-completions 路径（v2.37.9 jury 实证）|
+| `openai_images_edit` | multipart POST /v1/images/edits | ❓ 未实证 micuapi.ai 是否支持此 endpoint |
+| `comfyui_workflow_cloud` | fal.ai | ✗ 不是 micuapi.ai |
+
+**实测策略**：跑默认 `gemini_chat_image` 用 micuapi.ai key + base_url；若 image gen 路径 fail，fallback 走 `openai_images_edit` kind 试 micuapi.ai `/v1/images/edits` endpoint；都 fail → 用真 Gemini API key（用户提供）。
+
+**fallback option 决策点**：若 enhance retry vendor 全 fail（micuapi.ai 不支持 image gen + 用户无真 Gemini key）→ 进 spec §7 R7 不退步路径 + retro 标实测结果。**v2.37.10 PR 不阻** —— path-prefix 工具 + 决策路径已闭环，最终质量验收 留 §11-N7 + §11-N9 联合 follow-up。
 
 #### 3.2.3 验收 AC（α option）
 
@@ -253,7 +320,9 @@ python D:/Work/cad-spec-gen/src/cad_spec_gen/data/python_tools/cad_pipeline.py \
 | R2 | sha256 字段被误改 | hash value 不含 path prefix 自然 skip；不变量 #13 仅替换 prefix 命中 string |
 | R3 | Windows `\\` vs `/` path separator 不一致 | 不变量 #14 接受任一分隔符；保留原字段 separator 风格 |
 | R4 | retry 闭环 vendor 能力不足（photoreal 未达 60）| v2.37.9 §7 R7 不退步 + AC-5 fallback / retro 记录 + §11-N7 follow-up |
-| R5 | enhance retry backend 路径与 jury vendor 不同（image-gen vs vision LLM）| 用 micuapi.ai 同 key 同 endpoint（v2.37.9 实测验证可达）|
+| R5 | enhance retry backend 路径与 jury vendor 不同（image-gen vs vision LLM）| 用 micuapi.ai 同 key 同 endpoint（v2.37.9 实测验证可达）；rev 2 D7 细化：default `gemini_chat_image` kind 先试 → fallback `openai_images_edit` → fallback 真 Gemini key（若 micuapi.ai image gen 不兼容）|
+| **R6**（rev 2 D2）| GISBOT 当前 mixed state（v2.37.9 实测残留），spec assume clean state | spec §3.2.1 加 2 步前置 ops（先 reverse unify 再 forward rebrand）|
+| **R7**（rev 2 D1）| v2.37.8 既有 `_validate_inputs` 含 path-separator block，复用会撞 | spec §3.1.2 + 不变量 #16 明示 `_validate_path_prefix` 独立 helper |
 
 ---
 
