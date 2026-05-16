@@ -3,7 +3,7 @@
 > **PR 类型**：feat + integration test（中体量）  
 > **关联 STATUS doc**：`docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`（§11 follow-up 新登 §11-N6）  
 > **关联 retro**：`docs/superpowers/reports/2026-05-15-gisbot-jury-e2e-retro.md`（GISBOT photoreal=35-40 / status=preview 不 retry 实证出处）  
-> **Spec rev**：rev 2（rev 1 layer 6 scout + rev 2 user review 抓 5 处漂移含 2 RISK-MAJOR fix）
+> **Spec rev**：rev 3（rev 1 layer 6 scout + rev 2 user review 5 处漂移 + rev 3 第二轮边界审查抓 1 BLOCKER + 1 MAJOR + 2 MINOR cascade fix）
 
 ---
 
@@ -13,7 +13,10 @@
 
 | 项 | 严重度 | 内容 | 工作量 |
 | --- | --- | --- | --- |
-| **§11-N6 改动 1** | LOW | `tools/jury/verdict.py:159` photoreal<60 升 `needs_review`（不再 preview）+ 适配 2-3 既有测试 | ~25min |
+| **§11-N6 改动 1** | LOW | `tools/jury/verdict.py:159` photoreal<60 升 `needs_review` + anomaly | ~5min |
+| **§11-N6 改动 1b**（rev 3 BLOCKER fix）| **CRITICAL** | `tools/jury_loop/orchestrator.py:199` 扩 retry 白名单含 `photoreal_below_threshold` — 否则 verdict 改完 retry 仍不启动 | ~10min |
+| **§11-N6 改动 1c**（rev 3 MAJOR fix）| **MAJOR** | `tools/photo3d_delivery_pack.py:144` status=needs_review 也走 copy_preview ship 兜底 — 防"改完比之前糟"路径 | ~5min |
+| **§11-N6 改动 1d** | LOW | 适配 2-3 既有 preview-assert 测试 | ~10min |
 | **§11-N6 改动 2** | LOW | `tools/jury_loop/config.py:48` `max_retries` 默认 1→2（支持 2 轮 retry 提升）| ~5min |
 | **§11-N6 实测** | — | GISBOT 真 vendor 端到端跑完整 retry 闭环，验证 photoreal ≥60 | ~15min + ~$0.50 |
 
@@ -129,6 +132,92 @@ Scout 揭示：
 
 - **保留 preview 路径**：`above_threshold_blocked` (line 157) + layer 1 fail (orchestrator.py 兜底) 仍有 preview 真值。这些路径的 assert 不动。
 - **改 preview→needs_review 路径**：仅当 fixture score<60 且无 anomaly 时
+
+### 3.1b 改动 1b — `tools/jury_loop/orchestrator.py:199` 扩 retry 白名单（rev 3 BLOCKER fix）
+
+#### 3.1b.1 真值证据链
+
+第二轮审查发现 spec rev 2 改 verdict.py 不够 — orchestrator 早有 needs_review 路径决策：
+
+```python
+# orchestrator.py:193-201（当前实际行为）
+if verdict.verdict == "needs_review":
+    if "matches_spec_failed" in verdict.parse_anomalies:
+        return (verdict, "matches_spec_failed")  # ← 仅这条走 retry
+    return (None, "needs_review")                  # ← 其他全走 jury_unavailable 不 retry
+```
+
+photoreal<60 改 needs_review + anomaly `photoreal_below_threshold` 后**不在 matches_spec_failed 分支** → 走 line 199 → **不 retry**。
+
+#### 3.1b.2 代码 diff
+
+```diff
+@@ -193,11 +193,15 @@ def _parse_verdict_with_anomaly_path(_json_str: str) -> tuple[Optional[ViewVerdi
+     if verdict.verdict == "needs_review":
+         # Task 9 v2.37 (C)：matches_spec_failed 路径保留 verdict 让上层走 retry 而非 jury_unavailable。
++        # v2.37.9 §11-N6：photoreal_below_threshold 同 retry path 但不 hint() — 仅重渲
+         if "matches_spec_failed" in verdict.parse_anomalies:
+             return (verdict, "matches_spec_failed")
++        if "photoreal_below_threshold" in verdict.parse_anomalies:
++            # verdict 完整可信（仅 photoreal 不达标，semantic_checks 仍 valid）
++            return (verdict, "photoreal_below_threshold")
+         return (None, "needs_review")
+     return (verdict, None)
+```
+
+#### 3.1b.3 retry path 处理差异
+
+| anomaly | retry 提示策略 | spec ref |
+| --- | --- | --- |
+| `matches_spec_failed` | `prompt_rewriter.hint(features_status)` 拼到 enhance prompt 末尾 | orchestrator.py:566 |
+| `photoreal_below_threshold`（新增）| **无 hint，仅重渲** — vendor 自然提升（更高质量）；不动 prompt template | rev 3 §3.1b |
+
+`photoreal_below_threshold` 无须 hint 因为 photoreal 是 vision LLM 对"整体真实感"打分，没具体可 hint 的 feature 修复点。retry 仅靠 vendor 重渲随机性 + 不同 seed 提升。
+
+#### 3.1b.4 测试 TDD
+
+- T-orch-photoreal-retry：mock verdict.photoreal=40 / anomaly=photoreal_below_threshold → `_parse_verdict_with_anomaly_path` 返 `(verdict, "photoreal_below_threshold")` 不是 `(None, "needs_review")`
+- T-orch-photoreal-rerun：完整 retry 闭环 mock，verify enhance 真被调一次 + retry verdict 真被评
+
+### 3.1c 改动 1c — `tools/photo3d_delivery_pack.py:144` needs_review 兜底 ship（rev 3 MAJOR fix）
+
+#### 3.1c.1 真值证据链
+
+第二轮审查发现 cascade："改完比之前糟"路径：
+
+```python
+# photo3d_delivery_pack.py:143-144（当前实际行为）
+final_deliverable = enhancement_status == "accepted"
+copy_preview = enhancement_status == "preview" and include_preview
+# ↑ status=needs_review 既不 final 也不 preview → 用户拿不到输出！
+```
+
+- v2.37.7: status=preview → `copy_preview` → 用户拿到 preview 输出（建议复核标签）
+- v2.37.9 改 verdict 后: status=needs_review → 不 final 也不 preview → **用户拿不到输出**（退步）
+
+#### 3.1c.2 代码 diff
+
+```diff
+@@ -143,7 +143,8 @@ def build_delivery_package(...):
+     final_deliverable = enhancement_status == "accepted"
+-    copy_preview = enhancement_status == "preview" and include_preview
++    # v2.37.9 §11-N6 — needs_review 兜底走 copy_preview 路径防"retry 用尽未达 60 用户拿不到输出"
++    copy_preview = enhancement_status in {"preview", "needs_review"} and include_preview
+```
+
+#### 3.1c.3 行为对比
+
+| status | v2.37.7 行为 | v2.37.9 rev 2 行为 | v2.37.9 rev 3 行为（fix）|
+| --- | --- | --- | --- |
+| accepted | final ship | final ship | final ship（不变）|
+| preview | copy_preview ship | copy_preview ship | copy_preview ship（不变）|
+| **needs_review** | （v2.37.7 photoreal<60 走 preview 不会到 needs_review）| **不 final 不 preview**（退步！）| **copy_preview ship 兜底**（rev 3 fix）|
+| accepted_pickup | final ship | final ship | final ship（不变）|
+
+#### 3.1c.4 测试 TDD
+
+- T-delivery-needs-review-ship：mock enhancement_status="needs_review" + include_preview=True → `copy_preview = True`
+- T-delivery-accepted-final：保 final ship 不变（回归 anchor）
 
 ### 3.2 改动 2 — `tools/jury_loop/config.py:48` max_retries 1→2
 
@@ -275,6 +364,8 @@ python -m cad_spec_gen.cad_pipeline enhance-check --skill end_effector --confirm
 | R6 | enhance retry 真改图后 jury 再评 LLM 出 token 限流 | gemini_chat_image 有限流退避 |
 | **R7**（rev 2 D1）| vendor 能力不足 2 轮 retry 提升不到 60 | `_pick_best` 保 baseline 不退步；实测 fail 进 retro 记录但 PR 不阻 / max_retries=3 留 §11-N7 follow-up |
 | **R8**（rev 2 D4）| retry 降分（retry_score_delta<0）| `_pick_best` 机制保留 baseline；与 v2.37.7 baseline 等价 |
+| **R9**（rev 3 B1）| orchestrator retry 路径白名单遗漏新 anomaly | 改动 1b orchestrator.py:199 +3 行 + T-orch-photoreal-retry TDD 硬保 |
+| **R10**（rev 3 B4）| status=needs_review 用户拿不到输出（cascade 退步）| 改动 1c photo3d_delivery_pack.py:144 needs_review 兜底 copy_preview + T-delivery-needs-review-ship TDD 硬保 |
 
 ---
 
@@ -310,6 +401,29 @@ python -m cad_spec_gen.cad_pipeline enhance-check --skill end_effector --confirm
 | **D3** | photoreal 真值 35-45 avg=40 不是 "35-40" | MINOR | §2.1 数据修正 |
 | **D4** | retry 可能降分（retry_score_delta<0）| MINOR | §3.3.4 含 _pick_best 行为 + §7 R8 |
 | **D5** | cmd_enhance_check 实际 entry 是 cad_pipeline.py 内 def | MINOR | §3.3.2 entry candidate 列 + plan Task 0 探查 |
+
+### 9.3 rev 2→rev 3 第二轮边界审查 fix（1 BLOCKER + 1 MAJOR + 2 MINOR）
+
+| # | 漂移 | 严重度 | rev 3 fix 落点 |
+| --- | --- | --- | --- |
+| **B1+B2** | **orchestrator.py:199 photoreal_below_threshold 走 jury_unavailable 不 retry** — rev 2 改 verdict.py 后 retry 仍不启动！PR 主目的失败 | **BLOCKER** | 新增改动 1b（orchestrator +3 行扩 retry 白名单）+ T-orch-photoreal-retry/rerun TDD |
+| **B4** | **status="needs_review" 既不 final 也不 copy_preview** — 用户拿不到输出（退步路径）| **MAJOR** | 新增改动 1c（photo3d_delivery_pack +1 行 needs_review 兜底 copy_preview）+ T-delivery-needs-review-ship TDD |
+| **B7** | conftest fixture default 改后 caller 行为变 | MINOR | plan Task 0 grep `_make()` caller 是否传 explicit max_retries |
+| **B9** | spec 内未明示 `photoreal_below_threshold` anomaly 与 matches_spec_failed 同 retry 语义 | MINOR | §3.1.2 行为表 + §3.1b.3 retry path 差异表 |
+
+### 9.4 PR 主目的闭环（rev 3 实证）
+
+| 阶段 | 路径 | 触发 |
+| --- | --- | --- |
+| 1. verdict 决策 | `verdict.py:159` photoreal<60 → needs_review + anomaly=photoreal_below_threshold | rev 2 改动 1 |
+| 2. orchestrator retry 路径 | `orchestrator.py:199` photoreal_below_threshold → (verdict, "photoreal_below_threshold") | **rev 3 改动 1b** |
+| 3. enhance retry 启动 | retry vendor 重渲（无 hint） | jury_loop 既有流程 |
+| 4. 再 jury 评分 | retry_verdict.photoreal | jury_loop 既有 |
+| 5. pick_best | retry vs baseline 选高分 | v2.37.8 spec rev 5 既有 |
+| 6. status 派生 | 看最终 verdict 集合 | photo3d_jury.py:187-192 既有 |
+| 7. delivery ship | accepted=final / preview=copy_preview / **needs_review=copy_preview** | **rev 3 改动 1c** |
+
+链路 7 步全闭环 — 无任何 1 步走"用户拿不到输出"路径。
 
 ---
 
