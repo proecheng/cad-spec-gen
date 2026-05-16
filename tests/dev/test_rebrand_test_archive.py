@@ -186,3 +186,33 @@ def test_t8_deny_list_skipped(tmp_path: Path) -> None:
     for skip_dir in [".git", "__pycache__", "node_modules", ".pytest_cache"]:
         data = json.loads((arch / skip_dir / "old.json").read_text(encoding="utf-8"))
         assert data["subsystem"] == "old", f"{skip_dir} 子目录被扫了"
+
+
+def test_t9_from_equals_to_exit_2(tmp_path: Path) -> None:
+    """T9 — --from == --to exit=2。"""
+    arch = _make_archive_tempdir(tmp_path)
+
+    cp = _run(str(arch), "--from", "x", "--to", "x", "--apply")
+
+    assert cp.returncode == 2
+    assert "must differ" in cp.stderr
+
+
+def test_t10_archive_dir_not_exist_exit_2(tmp_path: Path) -> None:
+    """T10 — archive_dir 不存在 exit=2。"""
+    fake = tmp_path / "does_not_exist"
+
+    cp = _run(str(fake), "--from", "a", "--to", "b", "--apply")
+
+    assert cp.returncode == 2
+    assert "not a directory" in cp.stderr
+
+
+def test_t11_control_char_exit_2(tmp_path: Path) -> None:
+    """T11 — --from 含控制字符 exit=2。"""
+    arch = _make_archive_tempdir(tmp_path)
+
+    cp = _run(str(arch), "--from", "a\x01b", "--to", "new", "--apply")
+
+    assert cp.returncode == 2
+    assert "control chars" in cp.stderr
