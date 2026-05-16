@@ -3,7 +3,7 @@
 > **PR 类型**：chore（pure cleanup，零语义改动，~1-2h）
 > **关联 STATUS doc**：暂无独立 STATUS（首批 cleanup，P3 落 `[tool.ruff]` 锁时再开 status doc 跟踪 3 批联动）
 > **关联 v2.37.10 retro**：`docs/superpowers/reports/2026-05-16-v2-37-10-rebrand-path-real-retry-retro.md`（"360+ ruff cleanup" follow-up 出处）
-> **Spec rev**：rev 2（rev 1 用户审查抓 1 BLOCKER + 2 MINOR cascade — F401 默认 `--fix` 真值校准 + noqa 估测真值化 + Task 0 unsafe-fixes scout 补强；rev 2 inline fix 三项后再 self-review）
+> **Spec rev**：rev 3（rev 2 用户第 2 轮边界 + 闭环审查抓 1 BLOCKER + 3 MINOR cascade — R6 描述错 + Task 0 unsafe-fixes 产物不闭环 + 5 处 fallback 路径缺失 + AC-1 缺 RUF100 兜底；rev 3 inline fix 四项后再 self-review）
 > **3 批 cleanup 拓扑**：3 独立 spec + 3 plan（贴项目惯例）；本 spec 仅覆盖 P1，P2/P3 各自 brainstorming
 
 ---
@@ -133,7 +133,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 
 ## 4. 验收标准（AC）
 
-- **AC-1 ruff 4 类清零**：`ruff check --select=F401,F541,F811,E401 .` exit 0 / `--statistics` 输出 F401/F541/F811/E401 行计数为 0（前提：改动 1 双步 `--fix` + `--unsafe-fixes` 都跑完 + 改动 2 剩余加 noqa）
+- **AC-1 ruff 4 类清零 + noqa 拼写守门**：`ruff check --select=F401,F541,F811,E401 --extend-select=RUF100 .` exit 0 / `--statistics` 输出 F401/F541/F811/E401 行计数为 0 / 同时无 `RUF100 unused-noqa` warning（前提：改动 1 双步 `--fix` + `--unsafe-fixes` 都跑完 + 改动 2 剩余加 noqa）。RUF100 兜底防 noqa code 拼错（如 `# noqa: F540` 错写为 F541）
 - **AC-2 全套件不退化**：`pytest` 3244 PASS / 17 SKIP / 0 regression（基线 v2.37.10 main@`992c791`）
 - **AC-3 noqa 注释规范**：所有新增 `# noqa: <code>` 必含 5-15 字中文注释；不允许"裸 noqa"或"`# noqa` 无 code"；统一文案 3 类（re-export / side-effect / fixture 触发）+ 罕见自由文案
 - **AC-4 commit 二分**：implementation 部分 = 恰 2 个 commit — `commit-impl-1` 仅含 ruff `--fix` 工具产物（不含 noqa 行），`commit-impl-2` 仅含人工 noqa 标注（不改源码语义，diff 全是 `+ # noqa:` 行）
@@ -146,7 +146,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 
 | Task | 行为 | 验收 |
 |---|---|---|
-| **0** | Task 0 scout — (a) 跑 `ruff check --select=F401,F541,F811,E401 . --statistics` 实跑数字校准 == spec 声明 154；(b) **新增**：跑 `ruff check --fix --unsafe-fixes --select=F401 . --diff > /tmp/ruff_unsafe.diff` 提前 review `--unsafe-fixes` 多修的 3 条 F401 具体改什么 file:line（防 hidden side-effect import 误删）；(c) 列出 4 类涉及的 file paths（防 spec 自漂移） | 实跑 statistics == spec / unsafe-fixes diff 内容已 review / file list 留 plan 文档 |
+| **0** | Task 0 scout — (a) 跑 `ruff check --select=F401,F541,F811,E401 . --statistics` 实跑数字校准 == spec 声明 154；(b) **新增**（rev 3 升级）：跑 `ruff check --fix --unsafe-fixes --select=F401 --show-fixes . 2>&1 \| tee /tmp/ruff_unsafe.txt` 提前用 `--show-fixes` 标签分离 default 不修但 unsafe-fixes 修的 3 条 F401（spec rev 2 实证 `--diff` 模式 default/unsafe 输出同 = 90 files / 123 lines 不可分；只 `--show-fixes` 或 `--fix-only` 落盘前后才能分离）；产物 = plan 文档 §scout 表 enumerate 3 条 `(file:line, 当前 import 字面, 类型判定 [side-effect / unused / re-export / typing-only])`；(c) 列出 4 类涉及的 file paths（防 spec 自漂移） | 实跑 statistics == spec / scout 表 3 行 enumerate / file list 留 plan 文档 |
 | **1a** | Step A `ruff check --fix --select=F401,F541,F811,E401 .` default 跑 → diff 检视 | `git diff --stat` 看变动文件数 / 行数；预期修 149 |
 | **1b** | Step B `ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .` 跑 → diff 检视 | `git diff --stat` 显示额外 ≤5 文件变动；预期再修 3（合计 152） |
 | **2** | 跑全套件 `pytest` 复跑 | 3244 PASS / 0 regression |
@@ -161,7 +161,21 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 | **11** | 写 retro doc `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-p1-retro.md` + commit | retro 落地 |
 | **12** | open PR → 监 CI → 等 8/8 SUCCESS → squash merge → tag v2.37.11 → GitHub Release notes | release URL |
 
-**总 commit 数 = 6**：spec rev 1 + spec rev 2 + plan + impl-1 + impl-2 + retro
+**总 commit 数 = 7**：spec rev 1 + spec rev 2 + spec rev 3 + plan + impl-1 + impl-2 + retro
+
+### 5.1 Fallback 路径表（rev 3 新增 — 闭环兜底）
+
+implementer 跑 plan 时若以下 case 触发，按表 fallback 不需中断；fallback 触发须在 retro §A 详 lesson：
+
+| 触发 case | 节点 | Fallback | 触发后 |
+| --- | --- | --- | --- |
+| Task 0 (a) statistics ≠ 154（main 漂移）| Task 0 | (1) 停 plan；(2) 更新 spec 起 rev 4 含真值数字；(3) 用户 review rev 4 后 resume | rev N+1 commit + plan §scout 表对应数字校正 |
+| Task 0 (b) unsafe-fixes 3 条任一是 side-effect import 嫌疑 | Task 0 | (1) skip Task 1b；(2) 那 3 条 file:line 进 Task 5 决策表归 `side-effect` 类；(3) Task 3 commit-impl-1 message body 注明 "skipped Step B; reason: 3 F401 hidden = side-effect import 见 plan §scout 表" | commit-impl-1 内只含 Step A 产物 + Task 5 多 3 条 noqa |
+| Task 1a / 1b 实际 fix 数差 spec 预期 > 5 | Task 1a/1b | (1) 警觉调查（可能 main 在 chore branch 起手后有 new commit 漂移 ruff）；(2) `git fetch origin main && git rebase origin/main` 同步；(3) 若仍漂移 → Task 0 fallback (a) | rev N+1 + 数字 |
+| Task 4 N（剩余条数）> 7 | Task 4 | (1) 警觉（spec 估测严重偏差）；(2) 调查每条具体 case 是否 ruff 行为漂移 / spec 假设错；(3) 必要时 spec rev 4 校准 | rev N+1 + plan §决策表扩条 |
+| Task 6 加 noqa 后 Task 7 `ruff check` 报 `RUF100 unused-noqa`（noqa code 拼错或多余）| Task 6 → 7 | (1) ruff RUF100 直接 expose 错 line：注音 code != actual violation；(2) 回 Task 5 决策表更正 code；(3) 重跑 Task 6-7 | retry 1-2 次；retro §A 登记 |
+| Task 8 `pytest` 挂 | Task 8 | (1) `git diff HEAD~1` 看 impl-2 commit 内容（理论上 diff 全 `+ # noqa:` 行不应该破代码）；(2) 若仍挂 → 回退 impl-2 commit (`git reset --soft HEAD~1`)；(3) `pytest -x` 定位首挂 test 与 impl-1 commit 内 import 删除链关联根因；(4) 加 noqa 给该 import 不删 | retry；retro §A 登记 |
+| Task 12 CI 8/8 任一 job fail | Task 12 | (1) `gh pr checks --watch` 监；(2) `gh run view <run-id> --log-failed` 看根因；(3) 修 + push；(4) 再监 | retry；retro §A 登记 |
 
 ---
 
@@ -174,7 +188,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 | **R3** 154 条 statistics 实跑 != spec 声明（main 当前漂移）| spec 自漂移 | Task 0 scout grep 强制 plan 起手前先跑 ruff statistics 校准（若 != 154，先更新 spec 再继续）|
 | **R4** commit-impl-1 + impl-2 混淆（一方 diff 漏入另一方）| review 难分辨工具 vs 人工 | AC-4 强制二分；Task 3 commit-impl-1 时 `git diff --staged` 检视 0 处 `# noqa:` 新增；Task 9 commit-impl-2 时 `git diff --staged` 检视 0 处 import 删除 |
 | **R5** P1 fix 副作用使 P2/P3 错误重新统计漂移 | P2/P3 spec 数字漂移 | retro 末记录 P1 之后 ruff statistics 重跑数字作 P2 入口 baseline（如 F841 从 39 → 38 是正常的，F841 行数变化 retro 表登记）|
-| **R6**（rev 2 新增）F811 7 条全在 tests/ fixture pattern（`broker` 函数参数 shadow line 17 module-level import）；ruff `--fix` 默认删 module-level 重复 import | 若 module-level import 被其他 fixture 真用过 → 测试挂 | 全套件 pytest 守门 + Task 5 noqa 评估时若 R6 真触发则归 "fixture 触发" 类加 noqa 不删 |
+| **R6**（rev 2 新增，**rev 3 描述修正**）F811 7 条全在 tests/ — 5 条 `test_sw_config_broker_e2e.py` + 2 条 `test_sw_config_broker_integration.py`；pattern 不是 fixture / 不是参数 shadow，**实际是 method-internal 重复 import shadow module-level line 17 import**（每 test method 头部本地 `from adapters.solidworks import sw_config_broker as broker`，rev 3 实测 5 method 全证）；ruff `--fix` 默认删 module-level (line 17) import 视为 unused — 实测安全（所有 method 都本地 import 不依赖 module-level）| 若未来新 method 漏写本地 import 直接用 `broker.X` 会 NameError | 全套件 pytest 守门 + Task 5 noqa 评估时若 R6 真触发（method 漏本地 import）则在该 test_*.py 加 `# noqa: F811  # method re-import shadow`；后续 P2/P3 cleanup 该 pattern 由 spec/plan 升级到 fixture-based 解耦 |
 | **R7**（rev 2 新增）`--unsafe-fixes` 3 条 F401 hidden 含 side-effect import / typing 假阳 / 跨模块 re-export 等边界 case | side-effect import 误删 → 运行时挂；pytest 不一定覆盖 import-time | Task 0 scout 提前 `--unsafe-fixes --diff` review 3 条；若任一 case 是 side-effect import → 从 unsafe-fixes 命令 fallback 改 Task 5 加 noqa；同时全套件 pytest 守门兜底 |
 
 ---
@@ -205,7 +219,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 
 | 类型 | 路径 |
 | --- | --- |
-| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 2**）|
+| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 3**）|
 | plan | `docs/superpowers/plans/2026-05-16-v2-37-11-ruff-cleanup-p1.md`（12 task）|
 | retro | `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-cleanup-p1-retro.md`|
 
@@ -255,14 +269,27 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 | **B** | MINOR | rev 1 noqa 估测 "5-15 条" 漂移于真值 2（即使 `--unsafe-fixes` 也修不了的剩余）| §1 摘要 + §3.1 改动 2 + §5 Task 4 改 "估 2（±5 容差）" |
 | **C** | MINOR | rev 1 §6 R1 暗示 `__init__.py` re-export 风险但实测 19 个 `__init__.py` 全无 F401（count = 0）；R5 暗示 platform-conditional 但 F811 实测全在 tests/ fixture pattern；`--unsafe-fixes` 3 条 hidden 没单独 review | §6 加 R6 (F811 tests/ fixture pattern) + R7 (`--unsafe-fixes` 3 条 Task 0 提前 review)；Task 0 加 unsafe-fixes diff scout |
 
-rev 2 inline 4 项 check：
+rev 2 inline 4 项 check 通过；3 漂移项全 inline fix。
 
-1. **Placeholder 扫描** — rev 2 数字真值化（149 / 3 / 2）；剩 `±5 容差` 是合理估测不视作 placeholder
-2. **Internal consistency** — §1 / §3.1 / §4 AC-1 / §5 Task 1a+1b / §6 R6+R7 双步法贯穿；commit 数字从 5 升 6（spec rev 1 + rev 2 + plan + impl-1 + impl-2 + retro）已在 §5 末更新；commit-impl-1 含 1a+1b 双 step 仍是单 commit（§4 AC-4 commit 二分约定不破）
-3. **Scope check** — rev 2 fix 全在 §1/§3.1/§4/§5/§6 范围内，未引入新 scope；§3.2 out-of-scope 列表不变
-4. **Ambiguity check** — rev 2 真值脚注明确"149 default + 3 unsafe + 2 noqa"分解；Task 0 scout 三步 (a)/(b)/(c) 明确
+### rev 3 用户第 2 轮边界 + 闭环审查抓获
 
-✅ rev 2 self-review 通过；3 漂移项全 inline fix。
+用户 2026-05-16 在 rev 2 commit 落 chore 分支后再次要求"再次审查边界 + 是否闭环"，抓 1 BLOCKER + 3 MINOR cascade（实证含 3 个 verify 跑）：
+
+| # | 严重度 | 漂移 / 缺口 | 实证 | rev 3 fix |
+| --- | --- | --- | --- | --- |
+| **A** | **BLOCKER** | rev 2 §6 R6 描述错：写 "fixture pattern / 函数参数 shadow" 实际是 "method-internal 重复 import shadow module-level"（误导 implementer Task 5 归错类）| `grep -nE "def test_\|from adapters.solidworks import sw_config_broker as broker" tests/test_sw_config_broker_e2e.py` 实测 5 method 头部均本地 re-import，无 fixture 参数 | §6 R6 描述全改正：method-internal pattern + 5 method 实证 + 安全性分析 + noqa 文案改 "method re-import shadow" |
+| **B** | MINOR | rev 2 Task 0 (b) 写 `--diff` 但实证 `--diff` 模式 default / unsafe-fixes 输出完全相同（90 files / 123 删行）→ 不可分离 3 条 unsafe-fix 边界 case | 实证 `ruff check . --select=F401 --fix --unsafe-fixes --diff 2>&1 \| grep -c "^---"` = `--fix --diff` 同 = 90 | §5 Task 0 (b) 命令升 `--show-fixes`；产物 = plan §scout 表 enumerate 3 条 (file:line, 当前 import 字面, 类型判定 4 类) |
+| **C** | MINOR | rev 2 §5 Task 0/1b/4/6/7+8/12 5 处 fallback 路径不闭环（异常 case 没 explicit 处理）| 闭环度评估 8/10 缺 5 处 fallback | §5 新增 §5.1 Fallback 路径表 5 行 — Task 0 statistics ≠ / Task 1b unsafe 嫌疑 / Task 4 N > 7 / Task 6 noqa code 错 / Task 8 pytest 挂 / Task 12 CI fail |
+| **D** | MINOR | rev 2 AC-1 命令 `ruff check --select=F401,F541,F811,E401 .` 不含 RUF100 → noqa code 拼错（如 noqa: F540 错为 F541）ruff 不抓 | ruff 内置 `RUF100 unused-noqa` 规则可兜底但需 explicit select | §4 AC-1 升级 `ruff check --select=F401,F541,F811,E401 --extend-select=RUF100 .` exit 0；AC 描述加"无 RUF100 unused-noqa warning" |
+
+rev 3 inline 4 项 check：
+
+1. **Placeholder 扫描** — rev 3 5.1 fallback 表全列 file/CMD 实值，无 TBD；R6 描述切换实证语；AC-1 命令字面化
+2. **Internal consistency** — A R6 描述切换不影响 §3.1/§4 命令链；B Task 0 (b) 命令升 `--show-fixes` 不破 §3.1 双步法；C §5.1 fallback 表是 §5 Task 表的 errata-layer，未改 happy path；D AC-1 加 `--extend-select=RUF100` 与 §3.1 改动 1 双步法 + 改动 2 noqa 路径一致；commit 数字从 6 升 7（多 spec rev 3 commit）已 §5 末更新
+3. **Scope check** — rev 3 fix 全在 §4/§5/§5.1/§6 R6 范围内，未引入新 in-scope；§3.2 out-of-scope 列表不变
+4. **Ambiguity check** — A 修正后 R6 实证 + 5 method line 字面；B `--show-fixes` 命令显式；C fallback 表每行 (1)(2)(3) 步骤明确；D RUF100 角色明确
+
+✅ rev 3 self-review 通过；4 漂移项全 inline fix。
 
 ---
 
@@ -274,7 +301,11 @@ rev 2 inline 4 项 check：
 | --- | --- | --- | --- |
 | **§12 f1** | rev 2 抓获 | rev 1 漂移教训：spec 写工具命令前必须 dry-run 校准（不能凭 ruff statistics `[*]` / `[-]` 标号字面推断），lesson 进 retro | open（PR 末进 retro）|
 | **§12 f2** | rev 2 抓获 | Task 0 scout 三步可推广为 ruff cleanup spec 模板（P2/P3 复用），lesson 进 retro | open（PR 末进 retro）|
+| **§12 f3** | rev 3 抓获 | rev 2 R6 描述错教训：spec 写 pattern 描述前必 grep 实证 file:line 顺序与 token 角色（"fixture pattern" vs "method-internal re-import" 完全不同语义），lesson 进 retro | open（PR 末进 retro）|
+| **§12 f4** | rev 3 抓获 | ruff `--diff` mode default / unsafe-fixes 输出相同实证：分离需 `--show-fixes` 标签或 `--fix-only` 落盘前后对比；lesson 进 retro 给 P2/P3 复用 | open（PR 末进 retro）|
+| **§12 f5** | rev 3 抓获 | Fallback 路径表 (§5.1) 模板可推广到所有 cleanup spec（plan task 表自带 happy path + errata-layer 两层），lesson 进 retro | open（PR 末进 retro）|
+| **§12 f6** | rev 3 抓获 | AC 验收命令应 explicit 加 `--extend-select=RUF100` 兜底 noqa 拼写错；通用 ruff cleanup spec 检查项；lesson 进 retro | open（PR 末进 retro）|
 
 ---
 
-**rev 2 写讫**。下一步：用户 review 本 spec 文档（rev 2，路径上方），通过后进 writing-plans 出 plan 文件。
+**rev 3 写讫**。下一步：用户 review 本 spec 文档（rev 3，路径上方），通过后进 writing-plans 出 plan 文件。
