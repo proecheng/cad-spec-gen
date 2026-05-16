@@ -68,3 +68,28 @@ def test_parse_failed_still_returns_jury_unavailable() -> None:
     verdict, anomaly_path = result
     assert verdict is None  # 不可信不走 retry
     assert anomaly_path == "needs_review"
+
+
+def test_semantic_checks_failed_returns_verdict_for_retry() -> None:
+    """T-orch-semantic-checks-retry (rev 4 真 vendor 实测 fix) — semantic_checks_failed 走 retry path。"""
+    # photoreal=80 但 photorealistic=False → semantic_checks_failed anomaly
+    payload = {
+        "photoreal_score": 80,
+        "semantic_checks": {
+            "geometry_preserved": True,
+            "material_consistent": True,
+            "photorealistic": False,  # ← 触发 not all(checks)
+            "no_extra_parts": True,
+            "no_missing_parts": True,
+        },
+        "reason": "test reason",
+        "finish_reason": "stop",
+    }
+    raw_json = json.dumps(payload)
+
+    result = _parse_verdict_with_anomaly_path(raw_json)
+
+    assert result is not None
+    verdict, anomaly_path = result
+    assert verdict is not None, "semantic_checks_failed 应保留 verdict 走 retry"
+    assert anomaly_path == "semantic_checks_failed"

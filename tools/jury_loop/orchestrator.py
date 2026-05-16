@@ -213,6 +213,8 @@ def _parse_verdict_with_anomaly_path(
             return (verdict, "matches_spec_failed")
         if "photoreal_below_threshold" in verdict.parse_anomalies:
             return (verdict, "photoreal_below_threshold")
+        if "semantic_checks_failed" in verdict.parse_anomalies:
+            return (verdict, "semantic_checks_failed")  # rev 4 改动 1f
         return (None, "needs_review")
     return (verdict, None)
 

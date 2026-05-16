@@ -155,7 +155,9 @@ def parse_view_verdict(
         # matches_spec FAIL → needs_review → orchestrator retry 路径（Task 9 集成）
         verdict = "needs_review"
     elif not all(checks.values()):
-        verdict = "preview"
+        # v2.37.9 §11-N6 改动 1e — semantic_check=False 升 needs_review 触发 retry (rev 4 真 vendor 实测 fix)
+        anomalies = anomalies + ["semantic_checks_failed"]
+        verdict = "needs_review"
     elif score < min_photoreal_score:
         # v2.37.9 §11-N6 — photoreal<60 升 needs_review 触发 retry 闭环（与 matches_spec_failed 同 retry path）
         anomalies = anomalies + ["photoreal_below_threshold"]

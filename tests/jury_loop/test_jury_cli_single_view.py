@@ -136,7 +136,9 @@ def test_single_view_single_image_emits_json_list_one_element(
     item = payload[0]
     assert item["view"] == "V1"
     assert item["image_path"] == str(img)
-    assert item["verdict"] == "preview"
+    # v2.37.9 §11-N6 改动 1e (rev 4 真 vendor 实测 fix) — photorealistic=false 触发 not all(checks)
+    # → semantic_checks_failed → needs_review（原 preview 语义升级，retry path）
+    assert item["verdict"] == "needs_review"
     assert item["photoreal_score"] == 78
 
 
