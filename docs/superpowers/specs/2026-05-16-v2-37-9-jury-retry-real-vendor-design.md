@@ -3,7 +3,7 @@
 > **PR 类型**：feat + integration test（中体量）  
 > **关联 STATUS doc**：`docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`（§11 follow-up 新登 §11-N6）  
 > **关联 retro**：`docs/superpowers/reports/2026-05-15-gisbot-jury-e2e-retro.md`（GISBOT photoreal=35-40 / status=preview 不 retry 实证出处）  
-> **Spec rev**：rev 3（rev 1 layer 6 scout + rev 2 user review 5 处漂移 + rev 3 第二轮边界审查抓 1 BLOCKER + 1 MAJOR + 2 MINOR cascade fix）
+> **Spec rev**：rev 4（rev 1 scout + rev 2 user review + rev 3 边界审查 + **rev 4 真 vendor 实测 expose 改动 1 NO-OP — elif 链顺序漏洞 fix**）
 
 ---
 
@@ -17,6 +17,8 @@
 | **§11-N6 改动 1b**（rev 3 BLOCKER fix）| **CRITICAL** | `tools/jury_loop/orchestrator.py:199` 扩 retry 白名单含 `photoreal_below_threshold` — 否则 verdict 改完 retry 仍不启动 | ~10min |
 | **§11-N6 改动 1c**（rev 3 MAJOR fix）| **MAJOR** | `tools/photo3d_delivery_pack.py:144` status=needs_review 也走 copy_preview ship 兜底 — 防"改完比之前糟"路径 | ~5min |
 | **§11-N6 改动 1d** | LOW | 适配 2-3 既有 preview-assert 测试 | ~10min |
+| **§11-N6 改动 1e**（rev 4 真 vendor 实测 fix）| **CRITICAL** | `tools/jury/verdict.py:158` `not all(checks)` 路径也升 needs_review + anomaly `semantic_checks_failed`；与 photoreal_below_threshold 并行 retry — 否则 vision LLM 真给 photorealistic=False 时 line 158 elif 先吃掉，改动 1 实测 NO-OP | ~20min |
+| **§11-N6 改动 1f**（rev 4 cascade）| LOW | `orchestrator.py:199` retry 白名单同步加 `semantic_checks_failed`（与改动 1b 平行）+ 适配 cascade test fixup | ~10min |
 | **§11-N6 改动 2** | LOW | `tools/jury_loop/config.py:48` `max_retries` 默认 1→2（支持 2 轮 retry 提升）| ~5min |
 | **§11-N6 实测** | — | GISBOT 真 vendor 端到端跑完整 retry 闭环，验证 photoreal ≥60 | ~15min + ~$0.50 |
 
@@ -132,6 +134,76 @@ Scout 揭示：
 
 - **保留 preview 路径**：`above_threshold_blocked` (line 157) + layer 1 fail (orchestrator.py 兜底) 仍有 preview 真值。这些路径的 assert 不动。
 - **改 preview→needs_review 路径**：仅当 fixture score<60 且无 anomaly 时
+
+### 3.1e 改动 1e — `tools/jury/verdict.py:158` `not all(checks)` 升 needs_review（rev 4 真 vendor 实测 fix）
+
+#### 3.1e.1 实测证据链
+
+2026-05-16 GISBOT 真 vendor 实测（成本 $0.07）实证：
+
+```
+V1-V7: photoreal=20-45 全 verdict=preview / semantic_checks.photorealistic=False
+```
+
+verdict.py elif 链顺序漏洞：
+
+```python
+# line 152-165 当前 elif 链
+if "matches_spec_failed" in anomalies:
+    verdict = "needs_review"
+elif <serious anomaly>:
+    verdict = "needs_review"
+elif not all(checks.values()):  # ← line 158 先吃 photorealistic=False
+    verdict = "preview"
+elif "above_threshold_blocked" in anomalies:
+    verdict = "preview"
+elif score < min_photoreal_score:  # ← line 161 改动 1 永远 unreachable
+    verdict = "needs_review"
+else:
+    verdict = "accepted"
+```
+
+vision LLM 对 photoreal<60 的图**一致**给 photorealistic=False（5 bool 之一），全部走 line 158 → verdict=preview，**永远到不了改动 1 line 161**。
+
+**改动 1 单元测试 fixture 用 semantic_checks 全 True**（绕过 line 158），实测真 LLM 不绕过 — fixture 不真实。
+
+#### 3.1e.2 代码 diff
+
+```diff
+@@ -156,7 +156,9 @@ def parse_view_verdict(...) -> ViewVerdict:
+     elif "above_threshold_blocked" in anomalies:
+         verdict = "preview"
+-    elif not all(checks.values()):
+-        verdict = "preview"
++    elif not all(checks.values()):
++        # v2.37.9 §11-N6 改动 1e — semantic_check=False 升 needs_review 触发 retry
++        anomalies = anomalies + ["semantic_checks_failed"]
++        verdict = "needs_review"
+     elif score < min_photoreal_score:
+         anomalies = anomalies + ["photoreal_below_threshold"]
+         verdict = "needs_review"
+```
+
+注意：原 line 158 是 `not all(checks)` 在 `above_threshold_blocked` 之前还是之后看实际真值。改动 1e 是 in-place edit `not all(checks)` 分支 — 不改 elif 顺序。
+
+#### 3.1e.3 retry path 与 photoreal_below_threshold 平行
+
+| anomaly | retry trigger | hint() 策略 |
+| --- | --- | --- |
+| `matches_spec_failed` | ✓ | `prompt_rewriter.hint(features_status)` |
+| `semantic_checks_failed`（新 rev 4）| ✓ | 无 hint，仅重渲（同 photoreal_below_threshold）|
+| `photoreal_below_threshold`（rev 2 引入）| ✓ | 无 hint，仅重渲 |
+
+orchestrator.py:199 (改动 1b 之前): 仅 matches_spec_failed
+rev 3 改动 1b: 加 photoreal_below_threshold
+rev 4 改动 1f: 加 semantic_checks_failed
+
+#### 3.1e.4 测试 TDD
+
+- T-verdict-checks-fail-becomes-needs-review: 1 view photorealistic=False / score=80 → verdict=needs_review + anomaly=semantic_checks_failed
+- T-verdict-all-true-remains-accepted: 5 bool 全 True + score=80 → accepted (回归 anchor)
+- T-orch-semantic-checks-retry: orchestrator path retry 白名单含 semantic_checks_failed
+- T-cascade-既有：grep 既有 `verdict == "preview"` from `not all(checks)` 路径 — 适配 needs_review + anomaly
 
 ### 3.1b 改动 1b — `tools/jury_loop/orchestrator.py:199` 扩 retry 白名单（rev 3 BLOCKER fix）
 
