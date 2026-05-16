@@ -61,8 +61,9 @@ def test_parse_view_verdict_back_compat_verdict_not_needs_review() -> None:
         }
     )
     v = parse_view_verdict(content, finish_reason="stop")
-    assert v.verdict in ("accepted", "preview"), (
-        f"老 fixture verdict 必须 accepted/preview, 实际 = {v.verdict}; "
+    # v2.37.9 §11-N6 — photoreal<60 升 needs_review；老 fixture score>=60 仍 accepted
+    assert v.verdict in ("accepted", "needs_review"), (
+        f"老 fixture verdict 必须 accepted/needs_review, 实际 = {v.verdict}; "
         f"parse_anomalies = {v.parse_anomalies}"
     )
     assert "content_keys_mismatch" not in v.parse_anomalies, (

@@ -157,7 +157,9 @@ def parse_view_verdict(
     elif not all(checks.values()):
         verdict = "preview"
     elif score < min_photoreal_score:
-        verdict = "preview"
+        # v2.37.9 §11-N6 — photoreal<60 升 needs_review 触发 retry 闭环（与 matches_spec_failed 同 retry path）
+        anomalies = anomalies + ["photoreal_below_threshold"]
+        verdict = "needs_review"
     else:
         verdict = "accepted"
 

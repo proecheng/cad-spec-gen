@@ -94,7 +94,9 @@ def test_photoreal_score_below_zero_clamped() -> None:
     v = parse_view_verdict(body, finish_reason="stop")
     assert v.photoreal_score == 0
     assert "clamped" in v.parse_anomalies
-    assert v.verdict == "preview"  # 0 < min 60
+    # v2.37.9 §11-N6 — photoreal<60 升 needs_review
+    assert v.verdict == "needs_review"
+    assert "photoreal_below_threshold" in v.parse_anomalies
 
 
 def test_photoreal_score_above_100_clamped() -> None:
