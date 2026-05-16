@@ -323,3 +323,77 @@ def test_t16_with_marker_continues(tmp_path: Path) -> None:
 
     assert cp.returncode == 0, cp.stderr
     assert json.loads((arch / "a.json").read_text(encoding="utf-8"))["subsystem"] == "new"
+
+
+def test_t_prefix_d_one_prefix_only_exit_2(tmp_path: Path) -> None:
+    """T-prefix-D — 缺 from-path-prefix 仅给 to-path-prefix → exit=2 (互锁)。"""
+    arch = _make_archive_tempdir(tmp_path)
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--to-path-prefix", "D:\\Work\\new", "--apply")
+
+    assert cp.returncode == 2
+    err_lower = cp.stderr.lower()
+    assert "must be" in err_lower or "互锁" in cp.stderr or "specified together" in err_lower or "with --from-path-prefix" in err_lower
+
+
+@pytest.mark.skip(reason="Task 2 集成 scan loop 后启用")
+def test_t_prefix_e_from_eq_to_with_path_prefix_allowed(tmp_path: Path) -> None:
+    """T-prefix-E — from==to (subsystem) + 给 path-prefix → 允许 (skip subsystem rewrite)。
+
+    Task 1 skip — scan loop 集成 path-prefix rewrite 后启用（Task 2）。
+    """
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "x", "render_dir": "D:\\Work\\OLD\\f"}},
+    )
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "a.json").read_text(encoding="utf-8"))
+    assert data["subsystem"] == "x"
+    assert data["render_dir"] == "D:\\Work\\NEW\\f"
+
+
+def test_t_prefix_f_from_eq_to_without_path_prefix_exit_2(tmp_path: Path) -> None:
+    """T-prefix-F — from==to (subsystem) + 不给 path-prefix → exit=2 (v2.37.8 既有)。"""
+    arch = _make_archive_tempdir(tmp_path)
+
+    cp = _run(str(arch), "--from", "x", "--to", "x", "--apply")
+
+    assert cp.returncode == 2
+    assert "must differ" in cp.stderr
+
+
+def test_t_prefix_drive_letter_required(tmp_path: Path) -> None:
+    """T-drive-letter — prefix 须以 drive letter + colon 开头 (rev 2 D4 不变量 #15)。"""
+    arch = _make_archive_tempdir(tmp_path)
+
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "cad-spec-gen",
+        "--to-path-prefix", "GISBOT",
+        "--apply",
+    )
+
+    assert cp.returncode == 2
+    assert "drive letter" in cp.stderr.lower()
+
+
+def test_t_prefix_base_validation_runs_when_skip_subsystem(tmp_path: Path) -> None:
+    """T-base-validation — rev 3 B1 fix：from==to + path-prefix 路径仍跑 archive_dir/marker 校验。"""
+    arch = _make_archive_tempdir(tmp_path, include_marker=False)
+
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+
+    # B1 fix：marker 缺失仍 exit=2，不被 subsystem skip 绕过
+    assert cp.returncode == 2
+    assert ".test-archive-marker" in cp.stderr
