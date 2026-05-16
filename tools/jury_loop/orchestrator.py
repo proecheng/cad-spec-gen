@@ -189,15 +189,30 @@ def _call_jury_subprocess(
         return (None, "json_parse_failed")
     if not isinstance(items, list) or len(items) != 1:
         return (None, "json_parse_failed")
-    verdict = parse_view_verdict(_json.dumps(items[0]))
+    return _parse_verdict_with_anomaly_path(_json.dumps(items[0]))
+
+
+def _parse_verdict_with_anomaly_path(
+    raw_json: str,
+) -> tuple[ViewVerdict | None, str | None]:
+    """解析 single-view JSON → (verdict, anomaly_path)，区分 retry 与 jury_unavailable。
+
+    v2.37.9 §11-N6 改动 1b BLOCKER fix：从 _call_jury_subprocess 抽出便于单元测试，
+    同时把 photoreal_below_threshold 加入 retry 白名单（与 matches_spec_failed 平行）。
+    """
+    verdict = parse_view_verdict(raw_json)
     if verdict.verdict == "needs_review":
         # Task 9 v2.37 (C)：matches_spec_failed 路径保留 verdict 让上层走 retry 而非 jury_unavailable。
-        # 区分两类 needs_review：
+        # 区分三类 needs_review：
         # (a) anomaly=matches_spec_failed → verdict 完整有 features_status，需 prompt_rewriter.hint
-        # (b) 其他 needs_review（parse_failed / finish_reason_invalid 等）→ verdict 不可信，
+        # (b) anomaly=photoreal_below_threshold → verdict 完整可信，仅 photoreal 不达标，
+        #     无 hint() 仅重渲（v2.37.9 §11-N6 改动 1b BLOCKER fix）
+        # (c) 其他 needs_review（parse_failed / finish_reason_invalid 等）→ verdict 不可信，
         #     仍返 (None, "needs_review") 走 jury_unavailable。
         if "matches_spec_failed" in verdict.parse_anomalies:
             return (verdict, "matches_spec_failed")
+        if "photoreal_below_threshold" in verdict.parse_anomalies:
+            return (verdict, "photoreal_below_threshold")
         return (None, "needs_review")
     return (verdict, None)
 
