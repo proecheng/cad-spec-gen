@@ -216,3 +216,71 @@ def test_t11_control_char_exit_2(tmp_path: Path) -> None:
 
     assert cp.returncode == 2
     assert "control chars" in cp.stderr
+
+
+def test_t12_atomic_write_interrupt_no_residue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T12 — mock os.replace raise / 原文件未改 / tempdir 无 .tmp 残留 (rev 5 B5 + layer 2 3.2).
+
+    subprocess 跑工具 monkeypatch 不能直接生效在子进程，故白盒测试：
+    用 importlib 动态 import 工具模块 → monkeypatch.setattr → 直调 _scan。
+    """
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "old"}},
+    )
+    original_content = (arch / "a.json").read_bytes()
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "rebrand_tool",
+        Path(__file__).resolve().parents[2] / "tools" / "dev" / "rebrand_test_archive.py",
+    )
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def fail_replace(*args: object, **kwargs: object) -> None:
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(mod.os, "replace", fail_replace)
+
+    # 直接调 _scan apply=True 跑工具内部循环（含 OSError catch → exit=0）
+    rc = mod._scan(arch, "old", "new", True)
+
+    assert rc == 0  # 工具内部 catch OSError → WARN + 继续 + exit=0
+    # 原文件未改
+    assert (arch / "a.json").read_bytes() == original_content
+    # 无 .rebrand_*.tmp 残留
+    tmps = list(arch.glob(".rebrand_*.tmp"))
+    assert tmps == [], f"残留 tmp 文件: {tmps}"
+
+
+def test_t13_large_file_skipped(tmp_path: Path) -> None:
+    """T13 — 文件 >50MB skip + WARN。"""
+    arch = _make_archive_tempdir(tmp_path)
+    huge = arch / "huge.json"
+    # 写 ~51MB JSON
+    payload = '{"subsystem": "old", "padding": "' + ("x" * 51_000_000) + '"}'
+    huge.write_text(payload, encoding="utf-8")
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0
+    assert "[WARN]" in cp.stderr
+    assert ">50MB" in cp.stderr
+
+
+def test_t14_utf8_sig_bom_compat(tmp_path: Path) -> None:
+    """T14 — utf-8-sig BOM 兼容。"""
+    arch = _make_archive_tempdir(tmp_path)
+    bom = arch / "bom.json"
+    bom.write_bytes(b"\xef\xbb\xbf" + b'{"subsystem": "old"}')
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads(bom.read_text(encoding="utf-8-sig"))
+    assert data["subsystem"] == "new"
