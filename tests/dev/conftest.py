@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 def _make_archive_tempdir(
     tmp_path: Path,
@@ -39,3 +41,20 @@ def _make_archive_tempdir(
 
 
 __all__ = ["_make_archive_tempdir"]
+
+
+_GISBOT_MARKER = Path("D:/Work/cad-tests/GISBOT/.test-archive-marker")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """rev 5 B2+B3 fix — 集成测 conftest skip 检 .test-archive-marker 真值契约。"""
+    if _GISBOT_MARKER.is_file():
+        return
+    skip_reason = pytest.mark.skip(
+        reason=(
+            f"archive marker missing: run `touch {_GISBOT_MARKER}` to enable"
+        )
+    )
+    for item in items:
+        if "requires_test_archive" in item.keywords:
+            item.add_marker(skip_reason)
