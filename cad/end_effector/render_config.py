@@ -563,7 +563,7 @@ def setup_render_passes(scene, output_dir, view_name, config):
         return  # 默认不启用，向后兼容
 
     try:
-        import bpy
+        import bpy  # noqa: F401  # Blender bpy 环境探测
     except ImportError:
         return  # Not running in Blender — skip silently
 
