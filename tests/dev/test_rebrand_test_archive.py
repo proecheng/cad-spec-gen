@@ -284,3 +284,28 @@ def test_t14_utf8_sig_bom_compat(tmp_path: Path) -> None:
     assert cp.returncode == 0, cp.stderr
     data = json.loads(bom.read_text(encoding="utf-8-sig"))
     assert data["subsystem"] == "new"
+
+
+def test_t15_missing_marker_exit_2(tmp_path: Path) -> None:
+    """T15 (rev 4 RISK-CRITICAL) — archive_dir 缺 .test-archive-marker exit=2。"""
+    # 不调 _make_archive_tempdir / 不 touch marker
+    arch = tmp_path
+    (arch / "a.json").write_text(json.dumps({"subsystem": "old"}), encoding="utf-8")
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 2
+    assert ".test-archive-marker" in cp.stderr
+
+
+def test_t16_with_marker_continues(tmp_path: Path) -> None:
+    """T16 — marker 存在则继续（白盒）。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "old"}},
+    )
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0, cp.stderr
+    assert json.loads((arch / "a.json").read_text(encoding="utf-8"))["subsystem"] == "new"
