@@ -15,7 +15,6 @@ from drawing import (
     add_line, add_circle,
     dim_linear, dim_diameter,
     add_centerline, add_centerline_circle,
-    add_thread_symbol,
     LAYER_HIDDEN,
 )
 from draw_three_view import ThreeViewSheet

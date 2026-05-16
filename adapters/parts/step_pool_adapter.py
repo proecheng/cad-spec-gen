@@ -42,7 +42,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 _PROJECT_ROOT = str(Path(__file__).parent.parent.parent)
 if _PROJECT_ROOT not in sys.path:

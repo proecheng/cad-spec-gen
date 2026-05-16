@@ -4,7 +4,6 @@ RED 阶段：这两个测试在 SwInfo 加 edition 字段 +
 模块级 reset_cache() 函数存在前必须失败。
 """
 
-import pytest
 
 
 def test_sw_info_has_edition_field():

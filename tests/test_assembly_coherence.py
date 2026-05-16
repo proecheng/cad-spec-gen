@@ -216,7 +216,7 @@ def test_flange_assembly_z_span():
         pytest.skip("No end_effector CAD_SPEC.md available")
 
     from codegen.gen_assembly import _resolve_child_offsets, _extract_all_layer_poses
-    from codegen.gen_assembly import parse_assembly_pose, parse_envelopes
+    from codegen.gen_assembly import parse_assembly_pose
     from codegen.gen_build import parse_bom_tree
 
     parts = parse_bom_tree(spec)

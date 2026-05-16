@@ -22,7 +22,6 @@ Coordinate conventions for position lists:
 
 from __future__ import annotations
 
-import math
 from typing import List, Tuple
 
 import cadquery as cq

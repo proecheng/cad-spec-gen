@@ -44,7 +44,7 @@ def test_section_6_4_legend_and_new_columns():
     """Render a minimal data dict with walker-produced envelope + unmatched
     entry and inspect the markdown output."""
     from cad_spec_section_walker import (
-        WalkerReport, WalkerStats, WalkerOutput,
+        WalkerReport, WalkerOutput,
     )
 
     cad_spec_gen = _load_top_level_cad_spec_gen()

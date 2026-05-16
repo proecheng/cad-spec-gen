@@ -19,7 +19,6 @@ import json
 import os
 import re
 import sys
-from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 

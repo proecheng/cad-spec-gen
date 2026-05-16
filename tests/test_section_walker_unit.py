@@ -1,15 +1,11 @@
 """Unit tests for cad_spec_section_walker."""
 from __future__ import annotations
 
-import pytest
 
 from cad_spec_section_walker import (
     EnvelopeData,
     MatchResult,
-    SectionFrame,
     WalkerOutput,
-    WalkerReport,
-    WalkerStats,
 )
 from cad_spec_section_walker import _canonicalize_box_axes
 

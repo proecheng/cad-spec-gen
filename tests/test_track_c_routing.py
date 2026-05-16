@@ -1,5 +1,4 @@
 # tests/test_track_c_routing.py
-import pytest
 from cad_spec_gen.parts_routing import GeomInfo, route, discover_templates, locate_builtin_templates_dir
 
 

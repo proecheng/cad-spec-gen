@@ -72,7 +72,6 @@ def check_released() -> tuple[bool, str]:
     """
     try:
         import bd_warehouse  # noqa: F401
-        from importlib import resources
         import inspect
         from bd_warehouse import fastener
         src = inspect.getsource(fastener)

@@ -20,7 +20,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from mathutils import Vector, Euler
+from mathutils import Vector
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 log = logging.getLogger("render_3d")

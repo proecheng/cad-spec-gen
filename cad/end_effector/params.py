@@ -9,7 +9,6 @@ All values extracted from design document (? lines).
 Units: mm, degrees, grams unless noted.
 """
 
-import math
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Parameters

@@ -1,9 +1,7 @@
 # tests/test_sw_preflight_report.py
 # Task 28 — emit_report 生成 HTML + JSON，且术语去技术化（主体不含 ROT 字面）
-from pathlib import Path
 from unittest.mock import MagicMock
-from sw_preflight.types import (PreflightResult, BomDryRunResult, RowOutcome,
-                                  PartCategory, FixRecord)
+from sw_preflight.types import (PreflightResult, BomDryRunResult, FixRecord)
 
 
 def test_emit_report_generates_html_and_json(tmp_path):

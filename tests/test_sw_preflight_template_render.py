@@ -1,6 +1,5 @@
 # tests/test_sw_preflight_template_render.py
 # Task 27 — 验证 sw_report.html.j2 模板渲染三段 + 状态卡 + 折叠区
-from pathlib import Path
 
 
 def test_template_renders_three_sections(tmp_path):

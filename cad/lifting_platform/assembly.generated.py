@@ -28,7 +28,6 @@ Assembly hierarchy:
 """
 
 import cadquery as cq
-import math
 import os
 import params  # noqa: F401
 

@@ -14,7 +14,6 @@ All dimensions in millimeters. Cosmetic operations wrapped in try/except.
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import cadquery as cq
 

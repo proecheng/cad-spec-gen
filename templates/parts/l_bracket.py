@@ -17,8 +17,6 @@ topologically valid without cosmetic polish.
 
 from __future__ import annotations
 
-import math
-from typing import Optional
 
 import cadquery as cq
 

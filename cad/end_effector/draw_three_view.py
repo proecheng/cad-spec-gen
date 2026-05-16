@@ -275,7 +275,6 @@ class ThreeViewSheet:
                             font_scale=notes_font_scale)
 
         # 默认粗糙度符号（右上角）— 从 SURFACE_RA 查表，不硬编码
-        from cad_spec_defaults import SURFACE_RA
         _ra_map = {"al": 3.2, "steel": 3.2, "peek": 1.6,
                    "nylon": 1.6, "rubber": 3.2}
         default_ra = _ra_map.get(material_type, 3.2) if material_type else 3.2

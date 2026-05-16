@@ -5,7 +5,6 @@ files into src/cad_spec_gen/data/ before wheel assembly, so the PyPI package
 contains everything needed by the setup wizard.
 """
 
-import os
 import shutil
 from pathlib import Path
 

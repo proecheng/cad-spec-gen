@@ -14,7 +14,6 @@ layout filled most of the sheet height. This is where the 'why is the
 technical requirements block in the upper area' visual bug came from.
 """
 import importlib.util
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 

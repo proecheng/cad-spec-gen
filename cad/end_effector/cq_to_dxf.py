@@ -330,7 +330,7 @@ def auto_annotate(solid: cq.Workplane, sheet, annotation_meta: dict = None):
         add_centerline_cross, add_centerline_h, add_centerline_v,
         add_gdt_frame, add_surface_symbol,
         AnnotationPlacer, allocate_dim_angles,
-        DIM_FIRST_OFFSET, DIM_TEXT_H, CENTERLINE_OVERSHOOT,
+        DIM_FIRST_OFFSET, CENTERLINE_OVERSHOOT,
     )
 
     meta = annotation_meta or {}

@@ -7,7 +7,6 @@ Run: python -m pytest tests/ -v
 """
 
 import json
-import math
 import os
 import sys
 import tempfile

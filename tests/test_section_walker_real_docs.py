@@ -63,7 +63,8 @@ def test_cad_pipeline_out_dir_flag_isolates_writes(tmp_path):
     """Running cad_pipeline.py spec --out-dir <tmp> must NOT mutate cad/end_effector/."""
     if not END_EFFECTOR_DOC.exists():
         pytest.skip("end_effector source doc missing")
-    import subprocess, sys
+    import subprocess
+    import sys
     cad_ee = Path("cad/end_effector")
     before = {}
     if cad_ee.exists():

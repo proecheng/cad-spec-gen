@@ -17,7 +17,6 @@ import logging
 import math
 import os
 import sys
-from mathutils import Vector
 
 log = logging.getLogger("render_exploded")
 

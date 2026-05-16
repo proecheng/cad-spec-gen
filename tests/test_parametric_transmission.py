@@ -1,4 +1,3 @@
-import cadquery as cq
 
 from adapters.parts.parametric_transmission import make_trapezoidal_lead_screw
 

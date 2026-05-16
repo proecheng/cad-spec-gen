@@ -23,7 +23,6 @@ REGEX MATCHES THE TEXT — not that the resulting envelopes are
 successfully attached to BOM assemblies.
 """
 import importlib.util
-import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent

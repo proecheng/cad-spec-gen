@@ -1,5 +1,4 @@
 # tests/test_sw_preflight_blocking_checks.py
-import pytest
 
 
 class TestBlockingChecks:

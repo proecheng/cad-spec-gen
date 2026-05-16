@@ -17,7 +17,6 @@ import logging
 import os
 import subprocess
 import sys
-import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

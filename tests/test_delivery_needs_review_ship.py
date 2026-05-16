@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 
 def _build_minimal_enhancement_report(status: str) -> dict:

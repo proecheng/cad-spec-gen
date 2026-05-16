@@ -14,8 +14,7 @@ from params import (
 from drawing import (
     add_line, add_circle,
     dim_linear, dim_diameter,
-    add_centerline, add_thread_symbol,
-    LAYER_HIDDEN, LAYER_CENTER,
+    add_centerline, LAYER_HIDDEN,
 )
 from draw_three_view import ThreeViewSheet
 from ezdxf.layouts import Modelspace

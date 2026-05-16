@@ -142,7 +142,6 @@ def test_write_enriched_placeholder_creates_files(tmp_path):
 def test_gen_parts_l2_called_before_l3_on_fallback(tmp_path):
     """FALLBACK 路径：先调 L2，L2 失败才调 L3"""
     from cad_spec_gen.data.codegen.gen_parts import _handle_l2_l3_fallback
-    from pathlib import Path
 
     call_order = []
     with patch("cad_spec_gen.data.codegen.llm_codegen._llm_generate_cadquery",

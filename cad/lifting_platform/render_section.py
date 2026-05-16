@@ -15,10 +15,8 @@ Output: cad/output/renders/V6_section.png
 
 import bpy
 import logging
-import math
 import os
 import sys
-from mathutils import Vector
 
 log = logging.getLogger("render_section")
 

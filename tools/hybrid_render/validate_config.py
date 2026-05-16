@@ -83,10 +83,10 @@ def main():
         print(f"  [OK] GLB exists: {glb_path} ({size_mb:.1f} MB)")
     elif glb_path:
         print(f"  [WARN] GLB not found: {glb_path}")
-        print(f"         Run build_all.py first to generate it")
+        print("         Run build_all.py first to generate it")
         warnings += 1
     else:
-        print(f"  [WARN] GLB path not resolved")
+        print("  [WARN] GLB path not resolved")
         warnings += 1
 
     # 3. Materials
@@ -164,7 +164,7 @@ def main():
     print(f"\n  {'=' * 56}")
     if errors == 0 and warnings == 0:
         print("  [PASS] All checks passed. Ready to render!")
-        print(f"\n  Next steps:")
+        print("\n  Next steps:")
         print(f"    blender.exe -b -P render_3d.py -- "
               f"--config {os.path.basename(config_path)} --all")
     elif errors == 0:

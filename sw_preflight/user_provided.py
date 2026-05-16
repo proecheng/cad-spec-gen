@@ -32,7 +32,7 @@ def prompt_user_provided(missing_rows: list[dict], copy_files: bool = True) -> U
         title = f"为 {row.get('name_cn','?')} 选择 STEP ({i}/{len(missing_rows)})"
         path = io.ask_step_file(title)
         if path is None:
-            sub = input(f"取消了 — 该行用 [1] stand-in / [2] 跳过: ").strip()
+            sub = input("取消了 — 该行用 [1] stand-in / [2] 跳过: ").strip()
             if sub == '2':
                 skipped.add(_bom_key(row))
             else:

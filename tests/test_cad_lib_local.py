@@ -1,5 +1,4 @@
 """Tests for src/cad_spec_gen/cad_lib.py — local-only CLI."""
-import os
 import sys
 from pathlib import Path
 
