@@ -230,7 +230,44 @@ def _process_file(path: Path, args_from: str, args_to: str) -> tuple[str, dict[s
     return "warn_type", None
 
 
-def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
+def _rewrite_path_in_data(
+    data: Any, from_prefix: str, to_prefix: str,
+) -> tuple[Any, int]:
+    """递归扫 dict/list 的 string value，含 prefix 即 rewrite。
+
+    返 (new_data, num_changed) — num_changed > 0 表示有改写。
+    """
+    if isinstance(data, str):
+        if _matches_prefix(data, from_prefix):
+            return _rewrite_prefix(data, from_prefix, to_prefix), 1
+        return data, 0
+    if isinstance(data, dict):
+        new_dict = {}
+        total = 0
+        for k, v in data.items():
+            new_v, n = _rewrite_path_in_data(v, from_prefix, to_prefix)
+            new_dict[k] = new_v
+            total += n
+        return new_dict, total
+    if isinstance(data, list):
+        new_list = []
+        total = 0
+        for item in data:
+            new_item, n = _rewrite_path_in_data(item, from_prefix, to_prefix)
+            new_list.append(new_item)
+            total += n
+        return new_list, total
+    return data, 0
+
+
+def _scan(
+    archive_dir: Path,
+    args_from: str,
+    args_to: str,
+    apply: bool,
+    from_path_prefix: str | None = None,
+    to_path_prefix: str | None = None,
+) -> int:
     candidates: list[tuple[Path, str, dict[str, Any]]] = []
     for root, dirs, files in os.walk(archive_dir, followlinks=False):
         dirs[:] = [d for d in dirs if not _should_skip_dir(d)]
@@ -238,13 +275,41 @@ def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
             if not name.endswith(".json"):
                 continue
             path = Path(root) / name
+            # 既有 subsystem rewrite path（_process_file）
             action, data = _process_file(path, args_from, args_to)
+
+            # 新加 path-prefix rewrite path（rev 2/3）
+            if from_path_prefix is not None and to_path_prefix is not None:
+                # subsystem 没改但需 read data 跑 path rewrite
+                if data is None:
+                    try:
+                        raw = path.read_bytes()
+                        text = raw.decode("utf-8-sig")
+                        data_for_path = json.loads(text)
+                    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+                        # 既有 _process_file 已 emit WARN，跳过 path rewrite
+                        continue
+                else:
+                    data_for_path = data  # subsystem 改后 data 继续 path rewrite
+
+                new_data, num_path_changed = _rewrite_path_in_data(
+                    data_for_path, from_path_prefix, to_path_prefix,
+                )
+
+                if num_path_changed > 0:
+                    if action in ("candidate_a", "candidate_b"):
+                        location = "subsystem" if action == "candidate_a" else "subsystem.name"
+                        candidates.append((path, f"{location} + {num_path_changed} path", new_data))
+                    else:
+                        candidates.append((path, f"{num_path_changed} path", new_data))
+                    continue
+
+            # 既有 action log emit（保留 v2.37.8 既有行为）
             if action == "candidate_a":
                 location = "subsystem"
             elif action == "candidate_b":
                 location = "subsystem.name"
             else:
-                # 非 candidate 路径直接 log + continue
                 if action == "warn_invalid":
                     print(f"[WARN] {path}: invalid JSON, skipped", file=sys.stderr)
                 elif action == "warn_encoding":
@@ -268,7 +333,7 @@ def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
 
     if not apply:
         for path, location, _ in candidates:
-            print(f"[DRY] {path}: {location} {args_from!r} → {args_to!r}", file=sys.stderr)
+            print(f"[DRY] {path}: {location} rewrite", file=sys.stderr)
         print(f"△ {len(candidates)} files would change (run with --apply)", file=sys.stderr)
         return 0
 
@@ -337,7 +402,11 @@ def main() -> int:
     if rc:
         return rc
 
-    return _scan(args.archive_dir, args.from_, args.to, args.apply)
+    return _scan(
+        args.archive_dir, args.from_, args.to, args.apply,
+        from_path_prefix=args.from_path_prefix,
+        to_path_prefix=args.to_path_prefix,
+    )
 
 
 if __name__ == "__main__":

@@ -336,11 +336,10 @@ def test_t_prefix_d_one_prefix_only_exit_2(tmp_path: Path) -> None:
     assert "must be" in err_lower or "互锁" in cp.stderr or "specified together" in err_lower or "with --from-path-prefix" in err_lower
 
 
-@pytest.mark.skip(reason="Task 2 集成 scan loop 后启用")
 def test_t_prefix_e_from_eq_to_with_path_prefix_allowed(tmp_path: Path) -> None:
     """T-prefix-E — from==to (subsystem) + 给 path-prefix → 允许 (skip subsystem rewrite)。
 
-    Task 1 skip — scan loop 集成 path-prefix rewrite 后启用（Task 2）。
+    Task 2 集成 scan loop 后启用。
     """
     arch = _make_archive_tempdir(
         tmp_path,
@@ -397,3 +396,134 @@ def test_t_prefix_base_validation_runs_when_skip_subsystem(tmp_path: Path) -> No
     # B1 fix：marker 缺失仍 exit=2，不被 subsystem skip 绕过
     assert cp.returncode == 2
     assert ".test-archive-marker" in cp.stderr
+
+
+def test_t_prefix_a_string_field_prefix_replace(tmp_path: Path) -> None:
+    """T-prefix-A — string 字段含 prefix 真替换。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "old", "render_dir": "D:\\Work\\OLD\\cad\\output"}},
+    )
+    cp = _run(
+        str(arch), "--from", "old", "--to", "new",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "a.json").read_text(encoding="utf-8"))
+    assert data["subsystem"] == "new"
+    assert data["render_dir"] == "D:\\Work\\NEW\\cad\\output"
+
+
+def test_t_prefix_b_dict_nested_subsystem_not_path(tmp_path: Path) -> None:
+    """T-prefix-B — dict-nested subsystem.name 不被当 path-prefix 解释。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": {"name": "old"}, "render_dir": "D:\\Work\\OLD"}},
+    )
+    cp = _run(
+        str(arch), "--from", "old", "--to", "new",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "a.json").read_text(encoding="utf-8"))
+    assert data["subsystem"]["name"] == "new"
+    assert data["render_dir"] == "D:\\Work\\NEW"
+
+
+def test_t_prefix_c_nested_list_recursive(tmp_path: Path) -> None:
+    """T-prefix-C — 嵌套 list[dict] 递归改 (files[].path_abs_resolved)。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {
+            "manifest.json": {
+                "subsystem": "x",
+                "render_dir": "D:\\Work\\OLD",
+                "files": [
+                    {"path_abs_resolved": "D:\\Work\\OLD\\f1.png"},
+                    {"path_abs_resolved": "D:\\Work\\OLD\\f2.png"},
+                ],
+            }
+        },
+    )
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "manifest.json").read_text(encoding="utf-8"))
+    assert data["files"][0]["path_abs_resolved"] == "D:\\Work\\NEW\\f1.png"
+    assert data["files"][1]["path_abs_resolved"] == "D:\\Work\\NEW\\f2.png"
+
+
+def test_t_prefix_g_idempotent_rerun(tmp_path: Path) -> None:
+    """T-prefix-G — idempotent rerun 零写盘。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "x", "render_dir": "D:\\Work\\OLD"}},
+    )
+    _run(  # 第 1 次
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    sha_before = _sha256(arch / "a.json")
+
+    cp = _run(  # 第 2 次同参数
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0
+    assert _sha256(arch / "a.json") == sha_before
+
+
+def test_t_prefix_h_boundary_match_no_overreach(tmp_path: Path) -> None:
+    """T-prefix-H — prefix 边界防越界。
+
+    prefix = "D:\\Work\\OLD" 不应匹配 "D:\\Work\\OLD-backup\\..."
+    """
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {
+            "a.json": {
+                "subsystem": "x",
+                "render_dir": "D:\\Work\\OLD-backup\\cad",
+                "render_dir2": "D:\\Work\\OLD\\cad",
+            }
+        },
+    )
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "a.json").read_text(encoding="utf-8"))
+    assert data["render_dir"] == "D:\\Work\\OLD-backup\\cad"  # 边界未匹配
+    assert data["render_dir2"] == "D:\\Work\\NEW\\cad"  # 边界匹配
+
+
+def test_t_prefix_i_exact_match_end_of_string(tmp_path: Path) -> None:
+    """T-prefix-I — exact match end-of-string 改。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "x", "render_dir": "D:\\Work\\OLD"}},
+    )
+    cp = _run(
+        str(arch), "--from", "x", "--to", "x",
+        "--from-path-prefix", "D:\\Work\\OLD",
+        "--to-path-prefix", "D:\\Work\\NEW",
+        "--apply",
+    )
+    assert cp.returncode == 0, cp.stderr
+    data = json.loads((arch / "a.json").read_text(encoding="utf-8"))
+    assert data["render_dir"] == "D:\\Work\\NEW"
