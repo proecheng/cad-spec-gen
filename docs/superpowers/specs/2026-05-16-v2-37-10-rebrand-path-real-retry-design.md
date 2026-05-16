@@ -3,7 +3,7 @@
 > **PR 类型**：feat + integration test（中体量，~1.5h + ~$0.50 budget）  
 > **关联 STATUS doc**：`docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`（§11 follow-up）  
 > **关联 v2.37.9 retro**：`docs/superpowers/reports/2026-05-16-v2-37-9-jury-retry-real-vendor-retro.md`（§11-N9 新登出处）  
-> **Spec rev**：rev 2（rev 1 user review 抓 1 BLOCKER + 3 MAJOR + 3 MINOR fix）
+> **Spec rev**：rev 3（rev 1 user review + rev 2 fix + rev 3 第二轮边界审查抓 1 BLOCKER + 1 MAJOR + 1 MINOR cascade fix）
 
 ---
 
@@ -92,11 +92,17 @@ python tools/dev/rebrand_test_archive.py <archive_dir> \
 **关键 BLOCKER fix（rev 2 D1）**：v2.37.8 `_validate_inputs(args_from, args_to)` 含 path-separator block (`if "/" in val or "\\" in val: exit=2`)；若**复用**既有函数，path prefix value 必含 `\` 必 exit=2。**rev 2 加独立 `_validate_path_prefix` helper**，不复用既有函数。
 
 ```
-独立 _validate_path_prefix(from_prefix, to_prefix, from_subsystem, to_subsystem) -> int:
+独立 _validate_path_prefix(archive_dir, from_prefix, to_prefix, from_subsystem, to_subsystem) -> int:
+  # rev 3 B1 fix：base validations 必先跑（不绕过 v2.37.8 sentinel 安全闸门）
+  if not archive_dir.is_dir(): → exit=2 "not a directory"
+  if not (archive_dir / _ARCHIVE_MARKER).is_file(): → exit=2 "archive_dir missing .test-archive-marker"
+  
   # 互锁校验（不变量 #12）:
   if (from_prefix is None) != (to_prefix is None) → exit=2  # 必须同时给或同时缺
-  if from_prefix is None:  # 都缺 — 复用 v2.37.8 既有 _validate_inputs（含 subsystem from!=to 校验）
-    return _validate_inputs(...)
+  
+  if from_prefix is None:  # 都缺 — 复用 v2.37.8 既有 _validate_inputs subsystem 校验
+    # _validate_inputs 含 from!=to / 空 / 控制字符 / 路径分隔符 5 条 subsystem 专用校验
+    return _validate_inputs(...)  # 既有逻辑（含 archive_dir/marker 跑了 2 次但 idempotent）
   
   # 都给 path-prefix：
   if not from_prefix or not to_prefix: → exit=2 "must be non-empty"
@@ -106,12 +112,15 @@ python tools/dev/rebrand_test_archive.py <archive_dir> \
   if not _looks_like_abs_path(from_prefix): → exit=2 "from-path-prefix must start with drive letter (e.g. D:/, C:\\)"
   if not _looks_like_abs_path(to_prefix): → exit=2 "to-path-prefix must start with drive letter"
   
-  # T-prefix-E 语义：from==to (subsystem) + path-prefix 给 → 跳过 subsystem 校验只跑 path rewrite
-  if from_subsystem == to_subsystem:
-    return 0  # subsystem skip；path rewrite ON
+  # subsystem 校验（除 from==to）— rev 3 B1 fix：不 early return，按需校验
+  if from_subsystem != to_subsystem:
+    # subsystem 真 rewrite，仍跑 v2.37.8 subsystem 5 条校验（控制字符 / 路径分隔符 / 等）
+    # 注意：archive_dir / marker 已在上面跑过，跑 _validate_inputs 时再跑 2 次但 idempotent OK
+    sub_rc = _validate_inputs(...)
+    if sub_rc != 0: return sub_rc
+  # else from==to: T-prefix-E 语义 — skip subsystem rewrite 但 base validations 已在 #B1 fix 跑完
   
-  # subsystem from != to → 还要跑 subsystem 校验（控制字符 / 路径分隔符 / 等 v2.37.8 既有 5 条）
-  return _validate_inputs(...)
+  return 0  # 全过
 
 
 def _looks_like_abs_path(p: str) -> bool:
@@ -178,6 +187,8 @@ v2.37.8 既有 11 条不变量保留，新加：
 14. prefix 边界匹配（仅紧跟路径分隔符或 end-of-string）防越界匹配 `cad-spec-gen-backup` 等近似命名；跨 separator 兼容（`/` vs `\\`）
 15. **path-prefix 必须以 drive letter + colon 开头**（如 `D:\\`, `C:/`）；防误匹配 rel path 含 `cad-spec-gen` 字面（如 `model_contract_path: cad/end_effector/.cad-spec-gen/...`）
 16. **`_validate_path_prefix` 独立 helper**，不复用 v2.37.8 既有 `_validate_inputs`（含 path-separator block 与 prefix value 冲突）
+17. **rev 3 B1 fix**：`_validate_path_prefix` 必先跑 base validations（archive_dir.is_dir / sentinel marker），不绕过 v2.37.8 安全闸门；subsystem skip 仅跳 subsystem 校验不跳基础
+18. **rev 3 B9 cascade**：path rewrite 后 `path_context_hash` / 类似 sha 字段失效；本 PR 不重算 sha；下游 cad_pipeline 若严格校验 sha → fail 时进 §8 follow-up `§11-N11 sha 重算`（条件触发：实测 fail）
 
 #### 3.1.5 测试设计（TDD — 7 unit）
 
@@ -228,7 +239,17 @@ export PYTHONPATH=D:/Work/cad-spec-gen
 
 **为什么 2 步**：当前 v2.37.10 工具仅支持 1 prefix per run；mixed state 含 2 个不同 source prefix（`D:\\Work\\cad-spec-gen` + `D:/Work/cad-tests/GISBOT`），单次跑只覆盖其一。**若 GISBOT 处 clean state（仅源 prefix）跑 1 步即够**。
 
-§11-N10 留 follow-up：工具支持多 prefix （`--from-path-prefix p1,p2,p3`）— 触发条件实测后看是否常态需要。
+**⚠️ rev 3 B5 WARNING — 严禁两步间跑实测**：
+
+第 1 步跑完到第 2 步跑完中间，archive 内 path 字段全指 `D:\\Work\\cad-spec-gen`（v2.37.7 源仓路径），但实际 file 在 `D:\\Work\\cad-tests\\GISBOT\\` 副本里 — **deceptive state**。**严禁此期间触发 `enhance-check` 或任何 path 校验工具** —— 会撞更深层 path mismatch fail，难以诊断。
+
+**安全约定**：
+
+- 2 步必须连续执行无中断
+- 若第 1 步失败 → 立即跑第 2 步前置（先 cat 1 个 manifest verify state）
+- CI / cron 不得在两步之间触发
+
+§11-N10 留 follow-up：工具支持多 prefix （`--from-path-prefix p1,p2,p3`）或 atomic 2 步 sub-command — 触发条件实测后看是否常态需要。
 
 #### 3.2.2 跑 enhance-check 端到端（rev 2 D7 enhance backend 细化）
 
@@ -323,6 +344,9 @@ python D:/Work/cad-spec-gen/src/cad_spec_gen/data/python_tools/cad_pipeline.py \
 | R5 | enhance retry backend 路径与 jury vendor 不同（image-gen vs vision LLM）| 用 micuapi.ai 同 key 同 endpoint（v2.37.9 实测验证可达）；rev 2 D7 细化：default `gemini_chat_image` kind 先试 → fallback `openai_images_edit` → fallback 真 Gemini key（若 micuapi.ai image gen 不兼容）|
 | **R6**（rev 2 D2）| GISBOT 当前 mixed state（v2.37.9 实测残留），spec assume clean state | spec §3.2.1 加 2 步前置 ops（先 reverse unify 再 forward rebrand）|
 | **R7**（rev 2 D1）| v2.37.8 既有 `_validate_inputs` 含 path-separator block，复用会撞 | spec §3.1.2 + 不变量 #16 明示 `_validate_path_prefix` 独立 helper |
+| **R8**（rev 3 B1）| from==to subsystem + path-prefix 路径 early-return 绕过 archive_dir/marker 基础校验 | spec §3.1.2 重构 pseudocode — base validations 必先跑；subsystem skip 仅跳 subsystem 不跳基础；不变量 #17 |
+| **R9**（rev 3 B5）| 2 步 ops 中间 deceptive state；两步间跑实测撞更深层 fail | spec §3.2.1 加 WARNING + 安全约定（必连续 / 不许 CI 触发）|
+| **R10**（rev 3 B9）| path rewrite 后 sha256 / path_context_hash 字段失效 | 不变量 #18 明示；条件触发 §11-N11 sha 重算 follow-up |
 
 ---
 
