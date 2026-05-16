@@ -3,7 +3,7 @@
 > **PR 类型**：chore（pure cleanup，零语义改动，~1-2h）
 > **关联 STATUS doc**：暂无独立 STATUS（首批 cleanup，P3 落 `[tool.ruff]` 锁时再开 status doc 跟踪 3 批联动）
 > **关联 v2.37.10 retro**：`docs/superpowers/reports/2026-05-16-v2-37-10-rebrand-path-real-retry-retro.md`（"360+ ruff cleanup" follow-up 出处）
-> **Spec rev**：rev 4（rev 3 Task 7 实施时实证 RUF100 + `--select=<subset>` 交互拖出 84 条 historical noqa 误报；rev 3 §4 AC-1 升 RUF100 兜底实证不可用，降级回去；§12 f6 内容更新 + 新加 §12 f7 sourcing rev 4 lesson）
+> **Spec rev**：rev 5（CP-3 spec compliance reviewer 实证 §6 R6 描述与 ruff 实际行为相反 — rev 3 写"删 module-level"，实证 ruff 删的是 method-internal 重复 import；rev 5 inline fix R6 描述 + §12 f8 新增 lesson "ruff F811 fix 选哪 import 删需实证不能凭 line number 推断"）
 > **3 批 cleanup 拓扑**：3 独立 spec + 3 plan（贴项目惯例）；本 spec 仅覆盖 P1，P2/P3 各自 brainstorming
 
 ---
@@ -161,7 +161,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 | **11** | 写 retro doc `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-p1-retro.md` + commit | retro 落地 |
 | **12** | open PR → 监 CI → 等 8/8 SUCCESS → squash merge → tag v2.37.11 → GitHub Release notes | release URL |
 
-**总 commit 数 = 8**：spec rev 1 + spec rev 2 + spec rev 3 + spec rev 4 + plan + impl-1 + impl-2 + retro
+**总 commit 数 = 9**：spec rev 1 + spec rev 2 + spec rev 3 + spec rev 4 + spec rev 5 + plan + impl-1 + impl-2 + retro
 
 ### 5.1 Fallback 路径表（rev 3 新增 — 闭环兜底）
 
@@ -188,7 +188,7 @@ implementer 跑 plan 时若以下 case 触发，按表 fallback 不需中断；f
 | **R3** 154 条 statistics 实跑 != spec 声明（main 当前漂移）| spec 自漂移 | Task 0 scout grep 强制 plan 起手前先跑 ruff statistics 校准（若 != 154，先更新 spec 再继续）|
 | **R4** commit-impl-1 + impl-2 混淆（一方 diff 漏入另一方）| review 难分辨工具 vs 人工 | AC-4 强制二分；Task 3 commit-impl-1 时 `git diff --staged` 检视 0 处 `# noqa:` 新增；Task 9 commit-impl-2 时 `git diff --staged` 检视 0 处 import 删除 |
 | **R5** P1 fix 副作用使 P2/P3 错误重新统计漂移 | P2/P3 spec 数字漂移 | retro 末记录 P1 之后 ruff statistics 重跑数字作 P2 入口 baseline（如 F841 从 39 → 38 是正常的，F841 行数变化 retro 表登记）|
-| **R6**（rev 2 新增，**rev 3 描述修正**）F811 7 条全在 tests/ — 5 条 `test_sw_config_broker_e2e.py` + 2 条 `test_sw_config_broker_integration.py`；pattern 不是 fixture / 不是参数 shadow，**实际是 method-internal 重复 import shadow module-level line 17 import**（每 test method 头部本地 `from adapters.solidworks import sw_config_broker as broker`，rev 3 实测 5 method 全证）；ruff `--fix` 默认删 module-level (line 17) import 视为 unused — 实测安全（所有 method 都本地 import 不依赖 module-level）| 若未来新 method 漏写本地 import 直接用 `broker.X` 会 NameError | 全套件 pytest 守门 + Task 5 noqa 评估时若 R6 真触发（method 漏本地 import）则在该 test_*.py 加 `# noqa: F811  # method re-import shadow`；后续 P2/P3 cleanup 该 pattern 由 spec/plan 升级到 fixture-based 解耦 |
+| **R6**（rev 2 新增，**rev 3 描述修正，rev 5 行为校准**）F811 7 条全在 tests/ — 5 条 `test_sw_config_broker_e2e.py` + 2 条 `test_sw_config_broker_integration.py`；pattern 不是 fixture / 不是参数 shadow，**实际是 method-internal 重复 import shadow module-level line 17 import**（每 test method 头部本地 `from adapters.solidworks import sw_config_broker as broker`，rev 3 实测 5 method 全证）；**rev 5 校准**：ruff `--fix` 实际**删的是 method-internal 重复 import 保留 module-level (line 17)**（rev 3 描述方向反了，CP-3 spec compliance reviewer 实证 commit `7204d85` diff 显示删除 5 行 8 空格缩进的 `        from adapters.solidworks import sw_config_broker as broker`，line 17 module-level import 保留不动）— 实测安全（所有 method 调用 `broker.X` 走 module-level 都正常工作，pytest 3244 全 PASS） | 若未来 ruff 升版本改变 F811 fix 方向反过来删 module-level → method body 内 `broker.X` 报 NameError | 全套件 pytest 守门 + Task 5 noqa 评估时若 R6 反向漂移触发 → 在 module-level line 17 加 `# noqa: F401  # method re-import 保留 module-level`；后续 P2/P3 cleanup 该 pattern 由 spec/plan 升级到 fixture-based 解耦 |
 | **R7**（rev 2 新增）`--unsafe-fixes` 3 条 F401 hidden 含 side-effect import / typing 假阳 / 跨模块 re-export 等边界 case | side-effect import 误删 → 运行时挂；pytest 不一定覆盖 import-time | Task 0 scout 提前 `--unsafe-fixes --diff` review 3 条；若任一 case 是 side-effect import → 从 unsafe-fixes 命令 fallback 改 Task 5 加 noqa；同时全套件 pytest 守门兜底 |
 
 ---
@@ -219,7 +219,7 @@ implementer 跑 plan 时若以下 case 触发，按表 fallback 不需中断；f
 
 | 类型 | 路径 |
 | --- | --- |
-| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 4**）|
+| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 5**）|
 | plan | `docs/superpowers/plans/2026-05-16-v2-37-11-ruff-cleanup-p1.md`（12 task）|
 | retro | `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-cleanup-p1-retro.md`|
 
@@ -308,6 +308,25 @@ rev 4 inline 4 项 check：
 
 ✅ rev 4 self-review 通过；1 BLOCKER inline fix。
 
+### rev 5 CP-3 spec compliance reviewer 实证抓获
+
+2026-05-17 CP-3 Task 10 派 fresh spec compliance reviewer subagent 跑全 PR 13 项 spec 节 verify，实证抓 1 MAJOR + 2 MINOR：
+
+| # | 严重度 | 漂移 | 实证 | rev 5 fix |
+| --- | --- | --- | --- | --- |
+| **M-1** | **MAJOR** | rev 3 §6 R6 写 "ruff --fix 默认删 module-level (line 17) import 视为 unused" 与实际 ruff 行为相反 | reviewer 跑 `git show 7204d85 -- tests/test_sw_config_broker_e2e.py \| grep -E "^-"` 显示删除 5 行 8 空格缩进的 method-internal `        from adapters.solidworks import sw_config_broker as broker`；`sed -n '15,20p'` 显示 line 17 module-level `from adapters.solidworks import sw_config_broker as broker` 仍在 HEAD | §6 R6 描述行为校准：写明 "rev 5 校准：ruff `--fix` 实际删的是 method-internal 重复 import 保留 module-level (line 17)"；缓解措施改为"若未来 ruff 升版本改变 F811 fix 方向反过来删 module-level → method body 内 broker.X 报 NameError"；§12 f8 新增 lesson |
+| **N-1**（登 retro 不动 spec）| MINOR | commit-impl-1 `7204d85` body 末段 "下一 commit (impl-2) 处理剩 5 条加 noqa（3 bpy probe + 2 真 ruff-not-fixable 残留）" 与实际 impl-2 N=3 漂移 | impl-2 `8f7691f` stat 4 files / 13 ins / 10 del；3 处 noqa（仅 bpy probe） | retro §A 沉淀 lesson "commit body 多处数字必字面对齐 sanity"；spec 不动（已 commit 不 amend）|
+| **N-2**（登 retro 不动 spec）| MINOR | spec §3.1 + §4 AC-3 "5-15 字中文注释" 字数计算标准歧义（`Blender bpy 环境探测` = 16 unicode codepoint 但 4 中文字）| 实测文案；reviewer 提议 "中文字符 ≥3 + 总字符 ≤20" 类规则 | retro §12 f9 lesson 沉淀；P2/P3 spec rev 1 起 clarify；本 spec rev 5 不动（避免 scope creep）|
+
+rev 5 inline 4 项 check：
+
+1. **Placeholder 扫描** — rev 5 §6 R6 描述实证语（reviewer 命令证据 + commit sha）；无 TBD
+2. **Internal consistency** — R6 描述与 §10 rev 5 self-review 表 + §12 f8 lesson 三处一致；commit 数 8 → 9 已 §5 末更新
+3. **Scope check** — rev 5 fix 仅在 §6 R6 + §10 + §12 范围，未引新 in-scope；N-1/N-2 明示 retro 不动 spec 避 scope creep；§3.2 out-of-scope 列表不变
+4. **Ambiguity check** — R6 "rev 5 校准" 措辞明确（写"实际删的是 X 保留 Y"+ commit sha 证据 + 反向漂移 fallback）；不会再误导
+
+✅ rev 5 self-review 通过；1 MAJOR (M-1) inline fix；2 MINOR (N-1/N-2) 登 retro。
+
 ---
 
 ## 11. § follow-up 表（本 PR 自身 self follow-up）
@@ -323,7 +342,9 @@ rev 4 inline 4 项 check：
 | **§12 f5** | rev 3 抓获 | Fallback 路径表 (§5.1) 模板可推广到所有 cleanup spec（plan task 表自带 happy path + errata-layer 两层），lesson 进 retro | open（PR 末进 retro）|
 | **§12 f6** | rev 3 抓获 + **rev 4 更新** | ~~AC 验收命令应 explicit 加 `--extend-select=RUF100` 兜底 noqa 拼写错~~（**rev 4 deprecated** — RUF100 不可在 subset 模式作 AC）；**rev 4 改为**：AC 验收应用手工 sanity（`git diff main..HEAD \| grep -cE "^\+.*# noqa:"` 计数 + 字面抽查）替代 RUF100 自动兜底；通用 ruff cleanup spec 检查项；lesson 进 retro | open（PR 末进 retro）|
 | **§12 f7** | **rev 4 抓获** | RUF100 + `--select=<subset>` 交互 historical 噪音 lesson：spec 设计 ruff lint AC 命令时，若用 `--select=<subset>` 限定 P1 规则集合，禁止再加 `--extend-select=RUF100`，因 ruff 把 subset 外 historical noqa 全标 unused 拖 80+ 条无关噪音；正确做法是单独全集模式跑 RUF100（如 `ruff check --select=RUF100 .` sanity），或用手工 grep sanity 替代；下一 P2 / P3 spec 复用此 lesson | open（PR 末进 retro）|
+| **§12 f8** | **rev 5 抓获** | ruff F811 fix 选哪 import 删需实证不能凭 line number 推断：rev 3 描述 R6 时假设 "ruff 删 module-level 视为 unused"（line 17 vs 28 推断），实际 ruff 删 method-internal 重复 import 保留 module-level；spec 写 ruff 行为描述前必须先实证一次 commit diff（`git show <impl-commit> -- <file>`）；下一 P2 / P3 spec 写 ruff fix 行为描述时禁止凭 line number 推断 | open（PR 末进 retro）|
+| **§12 f9** | **rev 5 CP-3 reviewer 抓获**（spec rev 5 不动，登 retro 改善）| spec §3.1 + §4 AC-3 "5-15 字中文注释" 字数计算标准歧义：`Blender bpy 环境探测` 按 unicode codepoint = 16 字符（11 ASCII + 1 空格 + 4 中文字），按"中文字"数 = 4 字 < 5；下一 P2/P3 spec 起约定可执行标准（如"中文字符 ≥3 + 总字符 ≤20"或"剥离 ASCII 后中文字 5-15"）| open（PR 末进 retro）|
 
 ---
 
-**rev 4 写讫**。下一步：subagent-driven 实施恢复 Task 7 retry（用 rev 4 降级 AC-1 命令 + 手工 sanity），CP-2 余下 Task 8 + 9 顺序推进。
+**rev 5 写讫**。下一步：subagent-driven 实施恢复 CP-3 code quality reviewer + CP-4（retro + PR + release）。
