@@ -144,9 +144,14 @@ def test_t6_malformed_json_skip(tmp_path: Path) -> None:
 def test_t7_archive_dir_pattern_skipped(tmp_path: Path) -> None:
     """T7 — _archive_* 子目录跳过（含 case-sensitive：_archive_ skip / _Archive_ 不 skip — Linux/macOS）。"""
     arch = _make_archive_tempdir(tmp_path)
-    # _archive_xxx 子目录
+    # _archive_xxx 子目录（小写 — case-sensitive skip）
     (arch / "_archive_20260513").mkdir()
     (arch / "_archive_20260513" / "old.json").write_text(
+        json.dumps({"subsystem": "old"}), encoding="utf-8"
+    )
+    # _Archive_xxx 子目录（大写 — case-sensitive 不 skip — 因 fnmatchcase 区分大小写）
+    (arch / "_Archive_lowercase").mkdir()
+    (arch / "_Archive_lowercase" / "ok.json").write_text(
         json.dumps({"subsystem": "old"}), encoding="utf-8"
     )
     # 正常子目录
@@ -164,6 +169,15 @@ def test_t7_archive_dir_pattern_skipped(tmp_path: Path) -> None:
             "subsystem"
         ]
         == "old"
+    )
+    # _Archive_ 子目录被扫（大小写敏感证据）— Linux/macOS 跑此 assert；Windows 文件系统不敏感可能不一致
+    # 注意：Windows tempdir 是 NTFS（默认 case-insensitive 但 case-preserving）；fnmatchcase 是大小写敏感字符串比对
+    # — 路径上文件名仍为 "_Archive_lowercase"，fnmatchcase("_Archive_lowercase", "_archive_*") == False → 不跳 → 改写
+    assert (
+        json.loads((arch / "_Archive_lowercase" / "ok.json").read_text(encoding="utf-8"))[
+            "subsystem"
+        ]
+        == "new"
     )
     # 正常子目录改写
     assert (
