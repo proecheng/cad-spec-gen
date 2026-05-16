@@ -7,7 +7,6 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sw_b9_mock_artifacts"
 

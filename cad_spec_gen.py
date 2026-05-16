@@ -840,7 +840,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     if bom:
         print(f"  §5 BOM: {bom['summary']['total_parts']} parts / ¥{bom['summary']['total_cost']:,.0f}")
     else:
-        print(f"  §5 BOM: not found")
+        print("  §5 BOM: not found")
 
     assembly = extract_assembly_pose(lines)
     print(f"  §6 Assembly: {len(assembly['coord_sys'])} coord + {len(assembly['layers'])} layers")
@@ -1127,7 +1127,7 @@ def process_doc(filepath: str, output_dir: str, force: bool = False,
     # ── Design Review phase ──
     if review or review_only or auto_fill:
         from cad_spec_reviewer import run_review, render_review, apply_auto_fill
-        print(f"\n[Design Review] Running engineering review...")
+        print("\n[Design Review] Running engineering review...")
         review_data = run_review(data)
         review_md = render_review(review_data, info, str(path), md5, data)
         review_path = cad_dir / "DESIGN_REVIEW.md"

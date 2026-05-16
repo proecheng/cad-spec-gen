@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from adapters.parts.jinja_primitive_adapter import JinjaPrimitiveAdapter
 from bom_parser import classify_part

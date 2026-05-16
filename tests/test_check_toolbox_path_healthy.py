@@ -1,7 +1,4 @@
 # tests/test_check_toolbox_path_healthy.py
-import sys
-import pytest
-from pathlib import Path
 
 
 class TestCheckToolboxPathHealthy:

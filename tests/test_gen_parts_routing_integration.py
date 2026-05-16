@@ -1,8 +1,6 @@
 """Integration test: gen_parts.py calls parts_routing and prints decisions."""
-import io
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 _REPO_ROOT = Path(__file__).parent.parent
 

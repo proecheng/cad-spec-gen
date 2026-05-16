@@ -12,7 +12,6 @@ Usage:
 
 import bpy
 import logging
-import math
 import os
 import sys
 from mathutils import Vector

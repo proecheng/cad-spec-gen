@@ -15,7 +15,6 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend
 import matplotlib.pyplot as plt
 from matplotlib import font_manager as fm
-from matplotlib.font_manager import FontProperties
 
 from ezdxf.addons.drawing import Frontend, RenderContext
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend

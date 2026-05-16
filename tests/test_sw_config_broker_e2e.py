@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import json
 import unittest.mock as mock
-from pathlib import Path
 
-import pytest
 
 from adapters.solidworks import sw_config_broker as broker
 
@@ -25,7 +23,6 @@ class TestE2EUserScenarios:
     ):
         """场景：首次装 SW + 跑 codegen 5 件 BOM。Prewarm 一次后 5 次 lookup 都 L1 hit."""
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
-        from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
         from adapters.solidworks import sw_detect
 
@@ -71,7 +68,6 @@ class TestE2EUserScenarios:
     ):
         """场景：升级期混跑（broker 新 / worker 旧）。batch 缺 exit_code → 跳过 + 单件 fallback."""
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
-        from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
         from adapters.solidworks import sw_detect
 
@@ -116,7 +112,6 @@ class TestE2EUserScenarios:
     ):
         """场景：磁盘工具把 cache 写坏 → load self-heal → prewarm 重建."""
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
-        from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
         from adapters.solidworks import sw_detect
 
@@ -154,7 +149,6 @@ class TestE2EUserScenarios:
     ):
         """场景：双进程 prewarm（last-writer-wins，known limitation §11.4）."""
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
-        from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
         from adapters.solidworks import sw_detect
 
@@ -209,7 +203,6 @@ class TestE2EUserScenarios:
     ):
         """场景：100 件大 BOM。Prewarm 一次后 100 次 lookup 都 L1 hit."""
         monkeypatch.delenv("CAD_SW_BROKER_DISABLE", raising=False)
-        from adapters.solidworks import sw_config_broker as broker
         from adapters.solidworks import sw_config_lists_cache as cache_mod
         from adapters.solidworks import sw_detect
 

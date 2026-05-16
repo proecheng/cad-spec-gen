@@ -2,7 +2,6 @@
 SLP-300 动板 Engineering Drawing
 GB/T 4458.1 三视图 A3 图纸
 """
-import math
 import os
 import sys
 
@@ -11,13 +10,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from params import (
     MOV_PLATE_W, MOV_PLATE_H, PLATE_THICK,
     LS_X, LS_Y, GS_X, GS_Y,
-    LM10UU_OD,
 )
 from drawing import (
-    add_line, add_circle, add_arc,
-    dim_linear, dim_diameter,
+    add_line, add_circle, dim_linear, dim_diameter,
     add_centerline, add_centerline_circle,
-    LAYER_HIDDEN, LAYER_CENTER,
 )
 from draw_three_view import ThreeViewSheet
 from ezdxf.layouts import Modelspace

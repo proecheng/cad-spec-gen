@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from PIL import Image
 
 from tests.test_photo3d_gate_contract import _contracts, _write_json

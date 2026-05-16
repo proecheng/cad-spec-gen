@@ -17,7 +17,6 @@ import json
 import math
 import os
 import sys
-import types
 
 SKILL_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -240,7 +239,7 @@ def build_part_registry(p):
         "material": "KWR42 force/torque sensor",
         "color_desc": "silver aluminum",
         "z_range": (flange_thick, flange_thick + s2_force_h),
-        "orientation": f"horizontal disc at top of S2 stack, mounted to 90deg arm face",
+        "orientation": "horizontal disc at top of S2 stack, mounted to 90deg arm face",
         "key_features": f"center wire-through hole {_phi(p.get('S2_FORCE_CENTER_HOLE',10))}",
     })
 
@@ -992,9 +991,9 @@ def main():
     print(f"\n  Materials: {len(generated['prompt_vars']['material_descriptions'])} entries")
     print(f"  Standard parts: {len(generated['standard_parts'])} entries")
     print(f"  Negative constraints: {len(generated['negative_constraints'])} entries")
-    print(f"\nUse --update-config to write to render_config.json")
-    print(f"Use --view V1 to see full description for a view")
-    print(f"Use --json to dump all data as JSON")
+    print("\nUse --update-config to write to render_config.json")
+    print("Use --view V1 to see full description for a view")
+    print("Use --json to dump all data as JSON")
     return 0
 
 

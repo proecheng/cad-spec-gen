@@ -1,6 +1,5 @@
 """Task 22 — prompt_user_provided 三选一主入口测试"""
 from unittest.mock import patch
-from pathlib import Path
 
 
 def test_user_choice_stand_in_returns_all_stand_in():

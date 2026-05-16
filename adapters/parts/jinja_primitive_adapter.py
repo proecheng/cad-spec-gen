@@ -20,7 +20,6 @@ regression test in A9.
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import math

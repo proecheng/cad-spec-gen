@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DATA_DIR = _REPO_ROOT / "src" / "cad_spec_gen" / "data"

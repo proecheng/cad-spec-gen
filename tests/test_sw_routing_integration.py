@@ -11,7 +11,6 @@
 import sys
 from unittest.mock import patch
 
-import pytest
 
 
 # ── Task 4: cad_spec_defaults 测试 ──────────────────────────────────────

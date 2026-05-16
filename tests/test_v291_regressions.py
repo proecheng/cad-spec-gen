@@ -36,7 +36,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 # 本文件需要从 repo 根部 import 多个脚本（assembly_validator / engineering_enhancer /
 # cad_pipeline），和 tests/test_assembly_validator.py 保持同样的导入风格。
@@ -473,7 +472,6 @@ class TestCmdEnhanceHasEngineeringDispatchBranch:
 
     def test_cad_pipeline_argparse_choices_list_includes_engineering(self):
         """双保险：直接从 argparse 构造对象里读出 choices 列表。"""
-        import argparse
 
         import cad_pipeline  # noqa: F401
 

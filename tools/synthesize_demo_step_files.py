@@ -39,7 +39,6 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from adapters.parts.vendor_synthesizer import (  # noqa: E402
-    SYNTHESIZERS,
     default_cache_root,
     list_factory_ids,
     synthesize_to_cache,
@@ -99,7 +98,7 @@ def main() -> int:
         if result is None:
             print(f"  ! {rel}")
             print(f"      {desc}")
-            print(f"      FAILED — see stderr for details")
+            print("      FAILED — see stderr for details")
             continue
         if exists_before and not args.force:
             print(f"  · {rel}   (exists, skip; pass --force to overwrite)")

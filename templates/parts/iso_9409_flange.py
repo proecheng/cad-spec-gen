@@ -219,7 +219,7 @@ def make(
         if central_bore_chamfer > 0:
             try:
                 body = (body.faces(">Z").edges("%CIRCLE")
-                        .edges(f"<<Z[-1]")
+                        .edges("<<Z[-1]")
                         .chamfer(central_bore_chamfer))
             except Exception:
                 try:

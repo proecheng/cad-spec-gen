@@ -8,7 +8,6 @@
 - 前 50 字节无 ISO-10303 → invalid_magic
 - 合法 STEP → valid
 """
-from pathlib import Path
 
 
 def test_ext_check_rejects_stl(tmp_path):

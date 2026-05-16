@@ -180,7 +180,6 @@ class TestIntegrationBrokerToCacheChain:
         )
 
         # 3. selective Path.write_text — 只对 cache 文件抛 PermissionError
-        from pathlib import Path
         original_write_text = Path.write_text
         def fake_write_text_selective(self, *args, **kwargs):
             if "sw_config_lists" in str(self):
@@ -252,7 +251,6 @@ class TestIntegrationBrokerToCacheChain:
         }), encoding="utf-8")
 
         # mock 返新 sw_version
-        from adapters.solidworks import sw_config_broker as broker
         fake_info = mock.MagicMock()
         fake_info.version_year = 24  # 新版本
         fake_info.toolbox_dir = "C:/new"

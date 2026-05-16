@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from tools.jury.verdict import parse_view_verdict
 

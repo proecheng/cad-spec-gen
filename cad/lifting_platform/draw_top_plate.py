@@ -12,7 +12,6 @@ auto_three_view() + auto_annotate() 自动生成。
 
 GB/T 4458.1 三视图 A3 图纸
 """
-import math
 import os
 import sys
 
@@ -23,11 +22,8 @@ from params import (
     LS_X, LS_Y, GS_X, GS_Y,
 )
 from drawing import (
-    add_line, add_circle, add_arc,
-    dim_linear, dim_diameter, dim_radius,
-    add_centerline, add_centerline_circle,
-    add_hatch, add_thread_symbol,
-    DIM_TEXT_H, LAYER_VISIBLE, LAYER_HIDDEN, LAYER_CENTER,
+    add_line, add_circle, dim_linear, dim_diameter, add_centerline, add_centerline_circle,
+    LAYER_HIDDEN,
 )
 from draw_three_view import ThreeViewSheet
 from ezdxf.layouts import Modelspace

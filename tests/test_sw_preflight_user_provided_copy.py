@@ -1,6 +1,5 @@
 """Task 23 — copy_to_user_provided 按 PartCategory 分流复制测试"""
 from sw_preflight.types import PartCategory
-from pathlib import Path
 
 
 def test_copy_default_category_falls_to_custom(tmp_path, monkeypatch):

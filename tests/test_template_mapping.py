@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "codegen"))
 
-from template_mapping_loader import load_template_mapping, match_template, _BUILTIN_KEYWORDS
+from template_mapping_loader import load_template_mapping, match_template
 
 
 class TestBuiltinKeywords:

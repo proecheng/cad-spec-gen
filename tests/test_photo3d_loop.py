@@ -2,8 +2,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from tests.test_photo3d_action_runner import _rerun_render_action, _user_request_action
-from tests.test_photo3d_action_runner import _write_action_inputs
 from tests.test_photo3d_gate_contract import _contracts, _write_json
 
 

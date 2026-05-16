@@ -1,5 +1,3 @@
-from pathlib import Path
-import pytest
 
 
 def test_cache_schema_version_is_2():

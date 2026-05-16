@@ -20,7 +20,6 @@ import pathlib
 import sys
 from typing import Any
 
-import pytest
 
 # 把 tools/ 加进 sys.path 让 import 工作（仓库 layout 不是 src/ pkg 结构）
 _ROOT = pathlib.Path(__file__).resolve().parent.parent

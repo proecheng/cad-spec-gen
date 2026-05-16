@@ -594,7 +594,7 @@ DIAGNOSIS_TEMPLATES = {
         suggestion="请先安装 SolidWorks Pro 或 Premium", severity='block'),
     DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED: lambda ctx: DiagnosisInfo(
         code=DiagnosisCode.SW_TOOLBOX_NOT_SUPPORTED,
-        reason=f"检测到 SW 但 Toolbox 不可用",
+        reason="检测到 SW 但 Toolbox 不可用",
         suggestion="请打开 SOLIDWORKS → 帮助 → 关于 → 查看许可证类型；按需升级 Pro/Premium 或用 SW installer 修改安装勾选 Toolbox",
         severity='block'),
     DiagnosisCode.LICENSE_PROBLEM: lambda ctx: DiagnosisInfo(

@@ -485,7 +485,6 @@ class TestSmokeTest:
     def test_smoke_test_fail_when_no_bearing_parts(
         self, tmp_path, monkeypatch, capsys
     ):
-        import unittest.mock as mock
         from tools import sw_warmup as mod
         from adapters.solidworks import sw_toolbox_catalog
 

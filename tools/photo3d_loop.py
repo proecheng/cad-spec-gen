@@ -6,7 +6,7 @@ from typing import Any
 
 from tools.contract_io import load_json_required, write_json_atomic
 from tools.path_policy import assert_within_project, project_relative
-from tools.photo3d_action_runner import command_return_code, run_photo3d_action
+from tools.photo3d_action_runner import run_photo3d_action
 from tools.photo3d_autopilot import write_photo3d_autopilot_report
 from tools.photo3d_gate import run_photo3d_gate
 

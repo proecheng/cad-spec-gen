@@ -139,7 +139,6 @@ def test_photo3d_recover_build_fails_when_runtime_signature_is_not_produced(tmp_
 
 def test_photo3d_recover_build_backfills_current_run_build_artifacts(tmp_path):
     from tools.photo3d_recover import run_photo3d_recover
-    from tools.contract_io import stable_json_hash
 
     fixture = _contracts(tmp_path)
     output_dir = tmp_path / "cad" / "output"

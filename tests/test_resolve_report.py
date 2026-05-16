@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from parts_resolver import (
     AdapterHit,
     PartQuery,
     PartsResolver,
     ResolveReport,
-    ResolveReportRow,
     ResolveResult,
 )
 from adapters.parts.jinja_primitive_adapter import JinjaPrimitiveAdapter

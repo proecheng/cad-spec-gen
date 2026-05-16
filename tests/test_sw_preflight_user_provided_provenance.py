@@ -1,7 +1,5 @@
 """Task 25 — check_provenance_validity 三态返回测试（valid / changed / source_missing）"""
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from datetime import datetime, timezone
 
 
 def test_provenance_check_source_unchanged(tmp_path):

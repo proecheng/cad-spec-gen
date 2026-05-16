@@ -1493,7 +1493,6 @@ def extract_part_placements(lines: list, bom_data=None,
 
     Returns list of placement dicts.
     """
-    from cad_spec_defaults import _parse_dims_from_text
     placements = []
     text = "\n".join(lines)
 
