@@ -3,7 +3,7 @@
 > **PR 类型**：chore（pure cleanup，零语义改动，~1-2h）
 > **关联 STATUS doc**：暂无独立 STATUS（首批 cleanup，P3 落 `[tool.ruff]` 锁时再开 status doc 跟踪 3 批联动）
 > **关联 v2.37.10 retro**：`docs/superpowers/reports/2026-05-16-v2-37-10-rebrand-path-real-retry-retro.md`（"360+ ruff cleanup" follow-up 出处）
-> **Spec rev**：rev 3（rev 2 用户第 2 轮边界 + 闭环审查抓 1 BLOCKER + 3 MINOR cascade — R6 描述错 + Task 0 unsafe-fixes 产物不闭环 + 5 处 fallback 路径缺失 + AC-1 缺 RUF100 兜底；rev 3 inline fix 四项后再 self-review）
+> **Spec rev**：rev 4（rev 3 Task 7 实施时实证 RUF100 + `--select=<subset>` 交互拖出 84 条 historical noqa 误报；rev 3 §4 AC-1 升 RUF100 兜底实证不可用，降级回去；§12 f6 内容更新 + 新加 §12 f7 sourcing rev 4 lesson）
 > **3 批 cleanup 拓扑**：3 独立 spec + 3 plan（贴项目惯例）；本 spec 仅覆盖 P1，P2/P3 各自 brainstorming
 
 ---
@@ -133,7 +133,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 
 ## 4. 验收标准（AC）
 
-- **AC-1 ruff 4 类清零 + noqa 拼写守门**：`ruff check --select=F401,F541,F811,E401 --extend-select=RUF100 .` exit 0 / `--statistics` 输出 F401/F541/F811/E401 行计数为 0 / 同时无 `RUF100 unused-noqa` warning（前提：改动 1 双步 `--fix` + `--unsafe-fixes` 都跑完 + 改动 2 剩余加 noqa）。RUF100 兜底防 noqa code 拼错（如 `# noqa: F540` 错写为 F541）
+- **AC-1 ruff 4 类清零**（rev 4 降级，去 RUF100）：`ruff check --select=F401,F541,F811,E401 .` exit 0 / `--statistics` 输出 F401/F541/F811/E401 行计数为 0（前提：改动 1 双步 `--fix` + `--unsafe-fixes` 都跑完 + 改动 2 剩余加 noqa）。**手工 sanity 替代 RUF100 兜底**：`git diff main..HEAD | grep -cE "^\+.*# noqa: (F401\|F541\|F811\|E401)"` 计数 == Task 4 enumerate 的 N（每行 noqa 字面 + 中文注释 5-15 字符合 §3.1 3 类约定）；该手工 sanity 在 plan §Task 7 实施。<br><br>**rev 4 降级理由**：rev 3 升 RUF100 实证不可用 — `--extend-select=RUF100` + `--select=<subset>` 交互下，ruff 把 select 集合外的 historical noqa code（E402 / BLE001 / ANN001 等）全部标 `non-enabled unused-noqa`，拖出本 PR 不修的 78+6 = 84 条 historical 噪音；RUF100 兜底设计本意（防 Task 6 拼写错）无法在 subset 模式实现。详 §10 rev 4 self-review + §12 f6 更新 + §12 f7 新增 lesson
 - **AC-2 全套件不退化**：`pytest` 3244 PASS / 17 SKIP / 0 regression（基线 v2.37.10 main@`992c791`）
 - **AC-3 noqa 注释规范**：所有新增 `# noqa: <code>` 必含 5-15 字中文注释；不允许"裸 noqa"或"`# noqa` 无 code"；统一文案 3 类（re-export / side-effect / fixture 触发）+ 罕见自由文案
 - **AC-4 commit 二分**：implementation 部分 = 恰 2 个 commit — `commit-impl-1` 仅含 ruff `--fix` 工具产物（不含 noqa 行），`commit-impl-2` 仅含人工 noqa 标注（不改源码语义，diff 全是 `+ # noqa:` 行）
@@ -161,7 +161,7 @@ ruff check --fix --unsafe-fixes --select=F401,F541,F811,E401 .
 | **11** | 写 retro doc `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-p1-retro.md` + commit | retro 落地 |
 | **12** | open PR → 监 CI → 等 8/8 SUCCESS → squash merge → tag v2.37.11 → GitHub Release notes | release URL |
 
-**总 commit 数 = 7**：spec rev 1 + spec rev 2 + spec rev 3 + plan + impl-1 + impl-2 + retro
+**总 commit 数 = 8**：spec rev 1 + spec rev 2 + spec rev 3 + spec rev 4 + plan + impl-1 + impl-2 + retro
 
 ### 5.1 Fallback 路径表（rev 3 新增 — 闭环兜底）
 
@@ -173,7 +173,7 @@ implementer 跑 plan 时若以下 case 触发，按表 fallback 不需中断；f
 | Task 0 (b) unsafe-fixes 3 条任一是 side-effect import 嫌疑 | Task 0 | (1) skip Task 1b；(2) 那 3 条 file:line 进 Task 5 决策表归 `side-effect` 类；(3) Task 3 commit-impl-1 message body 注明 "skipped Step B; reason: 3 F401 hidden = side-effect import 见 plan §scout 表" | commit-impl-1 内只含 Step A 产物 + Task 5 多 3 条 noqa |
 | Task 1a / 1b 实际 fix 数差 spec 预期 > 5 | Task 1a/1b | (1) 警觉调查（可能 main 在 chore branch 起手后有 new commit 漂移 ruff）；(2) `git fetch origin main && git rebase origin/main` 同步；(3) 若仍漂移 → Task 0 fallback (a) | rev N+1 + 数字 |
 | Task 4 N（剩余条数）> 7 | Task 4 | (1) 警觉（spec 估测严重偏差）；(2) 调查每条具体 case 是否 ruff 行为漂移 / spec 假设错；(3) 必要时 spec rev 4 校准 | rev N+1 + plan §决策表扩条 |
-| Task 6 加 noqa 后 Task 7 `ruff check` 报 `RUF100 unused-noqa`（noqa code 拼错或多余）| Task 6 → 7 | (1) ruff RUF100 直接 expose 错 line：注音 code != actual violation；(2) 回 Task 5 决策表更正 code；(3) 重跑 Task 6-7 | retry 1-2 次；retro §A 登记 |
+| ~~Task 6 加 noqa 后 Task 7 `ruff check` 报 `RUF100 unused-noqa`（noqa code 拼错或多余）~~（**rev 4 deprecated** — RUF100 不再用作 AC）| Task 6 → 7 | （rev 4 替代）改用手工 sanity：`git diff main..HEAD \| grep -cE "^\+.*# noqa: (F401\|F541\|F811\|E401)"` 计数 == Task 4 N + 抽查 3 行字面规范；若计数 ≠ N → 回 Task 5 决策表 + Task 6 修；若字面不规范（code 拼错 / 中文 < 5 字 / 抽象文案）→ 回 Task 5 文案更正 | retry 1-2 次；retro §A 登记 |
 | Task 8 `pytest` 挂 | Task 8 | (1) `git diff HEAD~1` 看 impl-2 commit 内容（理论上 diff 全 `+ # noqa:` 行不应该破代码）；(2) 若仍挂 → 回退 impl-2 commit (`git reset --soft HEAD~1`)；(3) `pytest -x` 定位首挂 test 与 impl-1 commit 内 import 删除链关联根因；(4) 加 noqa 给该 import 不删 | retry；retro §A 登记 |
 | Task 12 CI 8/8 任一 job fail | Task 12 | (1) `gh pr checks --watch` 监；(2) `gh run view <run-id> --log-failed` 看根因；(3) 修 + push；(4) 再监 | retry；retro §A 登记 |
 
@@ -219,7 +219,7 @@ implementer 跑 plan 时若以下 case 触发，按表 fallback 不需中断；f
 
 | 类型 | 路径 |
 | --- | --- |
-| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 3**）|
+| spec | `docs/superpowers/specs/2026-05-16-v2-37-11-ruff-cleanup-p1-design.md`（本文件，**rev 4**）|
 | plan | `docs/superpowers/plans/2026-05-16-v2-37-11-ruff-cleanup-p1.md`（12 task）|
 | retro | `docs/superpowers/reports/2026-05-16-v2-37-11-ruff-cleanup-p1-retro.md`|
 
@@ -291,6 +291,23 @@ rev 3 inline 4 项 check：
 
 ✅ rev 3 self-review 通过；4 漂移项全 inline fix。
 
+### rev 4 Task 7 实施时实证抓获
+
+2026-05-17 Task 7 implementer subagent 实施 spec rev 3 §4 AC-1 `ruff check --select=F401,F541,F811,E401 --extend-select=RUF100 .` 命令，实证抓 1 BLOCKER：
+
+| # | 严重度 | 漂移 | 实证 | rev 4 fix |
+| --- | --- | --- | --- | --- |
+| **E** | **BLOCKER** | rev 3 §4 AC-1 升 RUF100 兜底实证不可用 — `--extend-select=RUF100` + `--select=<subset>` 交互下，ruff 把 select 集合外 historical noqa 全部判 `non-enabled unused-noqa` 拖 84 条噪音，无法用作 AC | Task 7 实跑 `Found 84 errors. [*] 84 fixable`，84 = 6 (unused F401, ruff 0.5+ 改进 try-import 探测后判 historical noqa 多余) + 78 (non-enabled BLE001/E402/ANN001/PLC0415/S307/E741/ARG001 等 historical noqa code 在 P1 subset 之外)；Task 6 本 PR 加的 3 处 `import bpy # noqa: F401` 触发 RUF100 = **0**（拼写零错）| §4 AC-1 降级回 `ruff check --select=F401,F541,F811,E401 .` exit 0；加手工 sanity `git diff main..HEAD \| grep -cE "+.*# noqa:"` 计数 == N 替代 RUF100 兜底；§5.1 Fallback Task 6 deprecated 改手工 sanity；§12 f6 内容更新；§12 f7 新增 "RUF100 + select subset 交互" lesson |
+
+rev 4 inline 4 项 check：
+
+1. **Placeholder 扫描** — rev 4 数据真值化（84 = 6 + 78）；命令字面无 placeholder
+2. **Internal consistency** — §4 AC-1 + §5.1 Task 6 fallback + §10 rev 4 self-review + §12 f6/f7 全锁同一决策（RUF100 降级 → 手工 sanity）；commit 数字从 7 升 8（多 spec rev 4 commit）已 §5 末更新
+3. **Scope check** — rev 4 fix 在 §4 / §5.1 / §10 / §12 范围内；未引入新 in-scope；§3.2 out-of-scope 列表不变；P1 4 类清零主目标不变（实证已通过）
+4. **Ambiguity check** — 手工 sanity 命令字面 `git diff main..HEAD | grep -cE "^\+.*# noqa: (F401|F541|F811|E401)"` 明确；"≠ N → 回 Task 5+6" 与 "字面不规范 → 回 Task 5 文案更正" 两路径分明
+
+✅ rev 4 self-review 通过；1 BLOCKER inline fix。
+
 ---
 
 ## 11. § follow-up 表（本 PR 自身 self follow-up）
@@ -304,8 +321,9 @@ rev 3 inline 4 项 check：
 | **§12 f3** | rev 3 抓获 | rev 2 R6 描述错教训：spec 写 pattern 描述前必 grep 实证 file:line 顺序与 token 角色（"fixture pattern" vs "method-internal re-import" 完全不同语义），lesson 进 retro | open（PR 末进 retro）|
 | **§12 f4** | rev 3 抓获 | ruff `--diff` mode default / unsafe-fixes 输出相同实证：分离需 `--show-fixes` 标签或 `--fix-only` 落盘前后对比；lesson 进 retro 给 P2/P3 复用 | open（PR 末进 retro）|
 | **§12 f5** | rev 3 抓获 | Fallback 路径表 (§5.1) 模板可推广到所有 cleanup spec（plan task 表自带 happy path + errata-layer 两层），lesson 进 retro | open（PR 末进 retro）|
-| **§12 f6** | rev 3 抓获 | AC 验收命令应 explicit 加 `--extend-select=RUF100` 兜底 noqa 拼写错；通用 ruff cleanup spec 检查项；lesson 进 retro | open（PR 末进 retro）|
+| **§12 f6** | rev 3 抓获 + **rev 4 更新** | ~~AC 验收命令应 explicit 加 `--extend-select=RUF100` 兜底 noqa 拼写错~~（**rev 4 deprecated** — RUF100 不可在 subset 模式作 AC）；**rev 4 改为**：AC 验收应用手工 sanity（`git diff main..HEAD \| grep -cE "^\+.*# noqa:"` 计数 + 字面抽查）替代 RUF100 自动兜底；通用 ruff cleanup spec 检查项；lesson 进 retro | open（PR 末进 retro）|
+| **§12 f7** | **rev 4 抓获** | RUF100 + `--select=<subset>` 交互 historical 噪音 lesson：spec 设计 ruff lint AC 命令时，若用 `--select=<subset>` 限定 P1 规则集合，禁止再加 `--extend-select=RUF100`，因 ruff 把 subset 外 historical noqa 全标 unused 拖 80+ 条无关噪音；正确做法是单独全集模式跑 RUF100（如 `ruff check --select=RUF100 .` sanity），或用手工 grep sanity 替代；下一 P2 / P3 spec 复用此 lesson | open（PR 末进 retro）|
 
 ---
 
-**rev 3 写讫**。下一步：用户 review 本 spec 文档（rev 3，路径上方），通过后进 writing-plans 出 plan 文件。
+**rev 4 写讫**。下一步：subagent-driven 实施恢复 Task 7 retry（用 rev 4 降级 AC-1 命令 + 手工 sanity），CP-2 余下 Task 8 + 9 顺序推进。
