@@ -266,7 +266,7 @@ def test_one_view_401_overall_needs_review(jury_env: Path) -> None:
 
 
 def test_low_score_overall_preview(jury_env: Path) -> None:
-    """全成功但 1 视角 score=15 < min_photoreal_score=60 → preview；review_input 不写。"""
+    """v2.37.9 §11-N6 — 1 视角 score=15<60 → needs_review（retry path）；review_input 不写。"""
     bodies = [
         json.dumps(
             {
@@ -350,7 +350,8 @@ def test_low_score_overall_preview(jury_env: Path) -> None:
         / "20260508-123456"
     )
     rep = json.loads((run_dir / "PHOTO3D_JURY_REPORT.json").read_text(encoding="utf-8"))
-    assert rep["status"] == "preview"
+    # v2.37.9 §11-N6 — photoreal<60 升 needs_review（retry path），原 preview 语义改 needs_review
+    assert rep["status"] == "needs_review"
     assert not (run_dir / "jury_review_input.json").exists()
 
 

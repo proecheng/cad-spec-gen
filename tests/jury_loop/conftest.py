@@ -183,7 +183,7 @@ def tiny_loop_config():
         threshold: int = 75,
         llm_fallback: bool = False,
         score_select_strategy: str = "pick_max_jury",
-        max_retries: int = 1,
+        max_retries: int = 2,  # v2.37.9 §11-N6 mirror production default
         rule_table_path: Path | None = None,
     ):
         from tools.jury_loop.config import BackendConfig, JuryLoopConfig

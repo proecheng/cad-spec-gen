@@ -29,7 +29,7 @@ def test_load_jury_loop_config_minimal_dict() -> None:
             },
             "advanced": {
                 "threshold": 75,
-                "max_retries": 1,
+                "max_retries": 2,
                 "llm_fallback": False,
                 "rule_table_path": None,
                 "score_select_strategy": "pick_max_jury",
@@ -46,7 +46,7 @@ def test_load_jury_loop_config_minimal_dict() -> None:
     assert config.backend.model_name == "test-model"
     assert config.backend.timeout_s == 60
     assert config.advanced["threshold"] == 75
-    assert config.advanced["max_retries"] == 1
+    assert config.advanced["max_retries"] == 2
     assert config.advanced["llm_fallback"] is False
     assert config.advanced["rule_table_path"] is None
     assert config.advanced["score_select_strategy"] == "pick_max_jury"
@@ -67,7 +67,7 @@ def test_load_rejects_top_level_advanced_key_collision() -> None:
                 },
                 "advanced": {
                     "threshold": 75,
-                    "max_retries": 1,
+                    "max_retries": 2,
                     "llm_fallback": False,
                     "rule_table_path": None,
                     "score_select_strategy": "pick_max_jury",
@@ -94,7 +94,7 @@ def test_load_missing_api_key_env_warns_not_raise(
                 },
                 "advanced": {
                     "threshold": 75,
-                    "max_retries": 1,
+                    "max_retries": 2,
                     "llm_fallback": False,
                     "rule_table_path": None,
                     "score_select_strategy": "pick_max_jury",
@@ -119,7 +119,7 @@ def test_jury_loop_config_disabled_form() -> None:
             },
             "advanced": {
                 "threshold": 75,
-                "max_retries": 1,
+                "max_retries": 2,
                 "llm_fallback": False,
                 "rule_table_path": None,
                 "score_select_strategy": "pick_max_jury",

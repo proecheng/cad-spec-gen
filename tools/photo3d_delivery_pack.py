@@ -141,7 +141,8 @@ def run_photo3d_delivery_pack(
     quality_summary = _quality_summary(enhancement_report)
     warnings: list[dict[str, Any]] = []
     final_deliverable = enhancement_status == "accepted"
-    copy_preview = enhancement_status == "preview" and include_preview
+    # v2.37.9 §11-N6 改动 1c — needs_review 兜底走 copy_preview 防"retry 用尽未达 60 用户拿不到输出"
+    copy_preview = enhancement_status in {"preview", "needs_review"} and include_preview
     if final_deliverable and quality_summary.get("status") != "accepted":
         final_deliverable = False
         blocking_reasons.append({

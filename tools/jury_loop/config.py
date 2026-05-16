@@ -44,8 +44,8 @@ DEFAULT_JURY_LOOP_DICT: dict[str, Any] = {
         "timeout_s": 180,
     },
     "advanced": {
-        "threshold": 75,
-        "max_retries": 1,
+        "threshold": 75,  # v2.37.9 §2.2 双层 gate：retry 短路（score≥75 不 retry）— 不动
+        "max_retries": 2,  # v2.37.9 §11-N6 — 1→2 支持 2 轮 retry 提升 photoreal
         "llm_fallback": False,
         "rule_table_path": None,
         "score_select_strategy": "pick_max_jury",
