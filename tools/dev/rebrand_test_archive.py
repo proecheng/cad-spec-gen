@@ -77,6 +77,104 @@ def _validate_inputs(archive_dir: Path, args_from: str, args_to: str) -> int:
     return 0
 
 
+def _looks_like_abs_path(p: str) -> bool:
+    """rev 2 D4 — abs path 须以 drive letter (e.g. C: D:) 开头。"""
+    return len(p) >= 2 and p[1] == ":" and p[0].isalpha()
+
+
+def _normalize_path(p: str) -> str:
+    """统一 separator 到 \\\\ 用于匹配比较（仅内部用，不写回）。"""
+    return p.replace("/", "\\")
+
+
+def _matches_prefix(value: str, from_prefix: str) -> bool:
+    """prefix 匹配 — 跨 separator 兼容 + 边界紧跟 / 或 \\\\。"""
+    v_norm = _normalize_path(value)
+    p_norm = _normalize_path(from_prefix)
+    if v_norm == p_norm:
+        return True
+    if v_norm.startswith(p_norm):
+        rest_first_char = v_norm[len(p_norm):][:1]
+        return rest_first_char == "\\"
+    return False
+
+
+def _rewrite_prefix(value: str, from_prefix: str, to_prefix: str) -> str:
+    """prefix replace — 保留 value 原 separator 风格。"""
+    sep = "/" if value.count("/") > value.count("\\") else "\\"
+    p_norm = _normalize_path(from_prefix)
+    v_norm = _normalize_path(value)
+    new_v = _normalize_path(to_prefix) + v_norm[len(p_norm):]
+    return new_v.replace("\\", sep) if sep == "/" else new_v
+
+
+def _validate_path_prefix(
+    archive_dir: Path,
+    args_from: str,
+    args_to: str,
+    from_prefix: str | None,
+    to_prefix: str | None,
+) -> int:
+    """rev 2 + rev 3 — 独立 path-prefix 校验 helper（不复用 _validate_inputs path-separator block）。
+
+    rev 3 B1 fix: base validations (archive_dir/marker) 必先跑，subsystem skip 仅跳 subsystem 不跳基础。
+    """
+    # base validations 必先跑（B1 fix）
+    if not archive_dir.is_dir():
+        print(f"[ERROR] not a directory: {archive_dir}", file=sys.stderr)
+        return 2
+    if not (archive_dir / _ARCHIVE_MARKER).is_file():
+        print(
+            f"[ERROR] archive_dir missing {_ARCHIVE_MARKER} file "
+            f"(refuse to operate on non-archive directory)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # 互锁校验（不变量 #12）
+    if (from_prefix is None) != (to_prefix is None):
+        print(
+            "[ERROR] --from-path-prefix and --to-path-prefix must be specified together",
+            file=sys.stderr,
+        )
+        return 2
+
+    if from_prefix is None:
+        # 都缺 — 复用 v2.37.8 既有 subsystem 5 条校验（base 已跑过 idempotent）
+        return _validate_inputs(archive_dir, args_from, args_to)
+
+    # 都给 path-prefix：
+    if not from_prefix or not to_prefix:
+        print("[ERROR] --from-path-prefix / --to-path-prefix must be non-empty", file=sys.stderr)
+        return 2
+    if from_prefix == to_prefix:
+        print("[ERROR] --from-path-prefix and --to-path-prefix must differ", file=sys.stderr)
+        return 2
+
+    # 不变量 #15：prefix 须含 drive letter + colon
+    if not _looks_like_abs_path(from_prefix):
+        print(
+            "[ERROR] --from-path-prefix must start with drive letter (e.g. D:/, C:\\)",
+            file=sys.stderr,
+        )
+        return 2
+    if not _looks_like_abs_path(to_prefix):
+        print(
+            "[ERROR] --to-path-prefix must start with drive letter",
+            file=sys.stderr,
+        )
+        return 2
+
+    # subsystem 校验（除 from==to 时 skip — T-prefix-E）
+    if args_from != args_to:
+        sub_rc = _validate_inputs(archive_dir, args_from, args_to)
+        if sub_rc != 0:
+            return sub_rc
+    # else: from==to + path-prefix 给 → skip subsystem 校验；base 已跑完 (B1 fix)
+
+    return 0
+
+
 def _process_file(path: Path, args_from: str, args_to: str) -> tuple[str, dict[str, Any] | None]:
     """处理单 JSON 文件，返 (action, data_to_write or None).
 
@@ -132,7 +230,44 @@ def _process_file(path: Path, args_from: str, args_to: str) -> tuple[str, dict[s
     return "warn_type", None
 
 
-def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
+def _rewrite_path_in_data(
+    data: Any, from_prefix: str, to_prefix: str,
+) -> tuple[Any, int]:
+    """递归扫 dict/list 的 string value，含 prefix 即 rewrite。
+
+    返 (new_data, num_changed) — num_changed > 0 表示有改写。
+    """
+    if isinstance(data, str):
+        if _matches_prefix(data, from_prefix):
+            return _rewrite_prefix(data, from_prefix, to_prefix), 1
+        return data, 0
+    if isinstance(data, dict):
+        new_dict = {}
+        total = 0
+        for k, v in data.items():
+            new_v, n = _rewrite_path_in_data(v, from_prefix, to_prefix)
+            new_dict[k] = new_v
+            total += n
+        return new_dict, total
+    if isinstance(data, list):
+        new_list = []
+        total = 0
+        for item in data:
+            new_item, n = _rewrite_path_in_data(item, from_prefix, to_prefix)
+            new_list.append(new_item)
+            total += n
+        return new_list, total
+    return data, 0
+
+
+def _scan(
+    archive_dir: Path,
+    args_from: str,
+    args_to: str,
+    apply: bool,
+    from_path_prefix: str | None = None,
+    to_path_prefix: str | None = None,
+) -> int:
     candidates: list[tuple[Path, str, dict[str, Any]]] = []
     for root, dirs, files in os.walk(archive_dir, followlinks=False):
         dirs[:] = [d for d in dirs if not _should_skip_dir(d)]
@@ -140,13 +275,41 @@ def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
             if not name.endswith(".json"):
                 continue
             path = Path(root) / name
+            # 既有 subsystem rewrite path（_process_file）
             action, data = _process_file(path, args_from, args_to)
+
+            # 新加 path-prefix rewrite path（rev 2/3）
+            if from_path_prefix is not None and to_path_prefix is not None:
+                # subsystem 没改但需 read data 跑 path rewrite
+                if data is None:
+                    try:
+                        raw = path.read_bytes()
+                        text = raw.decode("utf-8-sig")
+                        data_for_path = json.loads(text)
+                    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+                        # 既有 _process_file 已 emit WARN，跳过 path rewrite
+                        continue
+                else:
+                    data_for_path = data  # subsystem 改后 data 继续 path rewrite
+
+                new_data, num_path_changed = _rewrite_path_in_data(
+                    data_for_path, from_path_prefix, to_path_prefix,
+                )
+
+                if num_path_changed > 0:
+                    if action in ("candidate_a", "candidate_b"):
+                        location = "subsystem" if action == "candidate_a" else "subsystem.name"
+                        candidates.append((path, f"{location} + {num_path_changed} path", new_data))
+                    else:
+                        candidates.append((path, f"{num_path_changed} path", new_data))
+                    continue
+
+            # 既有 action log emit（保留 v2.37.8 既有行为）
             if action == "candidate_a":
                 location = "subsystem"
             elif action == "candidate_b":
                 location = "subsystem.name"
             else:
-                # 非 candidate 路径直接 log + continue
                 if action == "warn_invalid":
                     print(f"[WARN] {path}: invalid JSON, skipped", file=sys.stderr)
                 elif action == "warn_encoding":
@@ -170,7 +333,7 @@ def _scan(archive_dir: Path, args_from: str, args_to: str, apply: bool) -> int:
 
     if not apply:
         for path, location, _ in candidates:
-            print(f"[DRY] {path}: {location} {args_from!r} → {args_to!r}", file=sys.stderr)
+            print(f"[DRY] {path}: {location} rewrite", file=sys.stderr)
         print(f"△ {len(candidates)} files would change (run with --apply)", file=sys.stderr)
         return 0
 
@@ -217,14 +380,33 @@ def main() -> int:
     parser.add_argument("archive_dir", type=Path, help="测试归档目录")
     parser.add_argument("--from", dest="from_", required=True, help="当前 subsystem 字面值")
     parser.add_argument("--to", required=True, help="目标 subsystem 字面值")
+    parser.add_argument(
+        "--from-path-prefix",
+        dest="from_path_prefix",
+        default=None,
+        help="当前 abs path 前缀（如 D:\\\\Work\\\\cad-spec-gen）；须含 drive letter；与 --to-path-prefix 互锁",
+    )
+    parser.add_argument(
+        "--to-path-prefix",
+        dest="to_path_prefix",
+        default=None,
+        help="目标 abs path 前缀（如 D:\\\\Work\\\\cad-tests\\\\GISBOT）；与 --from-path-prefix 互锁",
+    )
     parser.add_argument("--apply", action="store_true", help="真改写（缺省 dry-run preview）")
     args = parser.parse_args()
 
-    rc = _validate_inputs(args.archive_dir, args.from_, args.to)
+    rc = _validate_path_prefix(
+        args.archive_dir, args.from_, args.to,
+        args.from_path_prefix, args.to_path_prefix,
+    )
     if rc:
         return rc
 
-    return _scan(args.archive_dir, args.from_, args.to, args.apply)
+    return _scan(
+        args.archive_dir, args.from_, args.to, args.apply,
+        from_path_prefix=args.from_path_prefix,
+        to_path_prefix=args.to_path_prefix,
+    )
 
 
 if __name__ == "__main__":
