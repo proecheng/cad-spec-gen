@@ -92,6 +92,7 @@ markers = [
     "photo3d_contract: 照片级 3D 契约测试总线，默认 pytest 必跑",
     "regression: 防 future regression 标记（如 v2.27.0 baseline golden snapshot 守门）",
     "requires_jury_loop_e2e: jury-loop L4 端到端 smoke；需 GEMINI_API_KEY（retry backend）+ jury LLM key（测试自带临时 jury config）；CI / 无 key 时自动 skip",
+    "requires_test_archive: 需 D:/Work/cad-tests/<archive>/.test-archive-marker 标识合法测试归档；缺标识自动 skip",
 ]
 testpaths = ["tests"]
 # rev 5 H + plan-drift fix（Linux CI fail 后 hotfix）：

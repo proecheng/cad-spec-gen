@@ -278,7 +278,7 @@ Task 5 PR + CI + 用户授权 merge + tag v2.37.7 + Release + memory
 | 项 | 严重度 | 内容 | 状态 |
 |---|---|---|---|
 | §12 F1/F2/f3/f5/f6 + f2 | LOW | v2.37.3-v2.37.6 closed | ✓ |
-| §12 f1 | LOW | max_tokens sunset 条件 | 未闭合（batch 3）|
+| §12 f1 | LOW | max_tokens 1024 sunset 条件（STATUS §9.3 #6）| closed v2.37.2 ✓（512→1024 实证）|
 | §12 f4 | LOW | N≥50 批量场景成本评估 | 未闭合（batch 3）|
 | §11-N1 | LOW | rebrand_test_archive.py | 未闭合（batch 3 dev 工具）|
 | **§11-N2** | **LOW** | **photo3d-jury --override-subsystem** | **closed v2.37.7**（本 PR）|
