@@ -3,7 +3,7 @@
 > **PR 类型**：feat + docs cleanup（中体量）  
 > **关联 STATUS doc**：`docs/superpowers/JURY_MATCHES_SPEC_STATUS.md`（§11 follow-up）  
 > **关联 retro**：`docs/superpowers/reports/2026-05-15-gisbot-jury-e2e-retro.md`（§11-N1 原始定义出处）  
-> **Spec rev**：rev 4（layer 6 scout fix 7 处 drift / self-review fix 4 处 ambiguity / layer 2 cynical + layer 4 edge-case fix ~25 项 / **rev 4 RISK-CRITICAL: archive sentinel marker 防误传 production**）
+> **Spec rev**：rev 5（layer 6 scout fix 7 处 drift / self-review fix 4 处 ambiguity / layer 2 cynical + layer 4 edge-case fix ~25 项 / **rev 4 RISK-CRITICAL: archive sentinel marker** / **rev 5 闭环漏洞 5 处 fix**）
 
 ---
 
@@ -316,7 +316,24 @@ except (OSError, PermissionError) as exc:
 
 | # | 测试 | 断言 |
 | --- | --- | --- |
-| T1 | dry-run 默认不写文件（**SHA-256 hash 比对** — layer 2 角色 3.1 fix）| tempdir / 跑 / 文件 SHA-256 不变 / stderr `[DRY]` |
+**测试 fixture 通用约定**（rev 5 B1 fix）：所有 T1-T14 单元测试 fixture 必含**空 `.test-archive-marker` 文件**（在 tempdir 根目录 touch）；否则工具 input validation 阶段 exit=2 测试全 fail。建议抽 helper `_make_archive_tempdir(json_files: dict) -> Path`：
+
+```python
+def _make_archive_tempdir(tmp_path: Path, json_files: dict[str, dict]) -> Path:
+    """tempdir 内 touch .test-archive-marker + 写 JSON 文件。"""
+    (tmp_path / ".test-archive-marker").touch()
+    for relpath, content in json_files.items():
+        p = tmp_path / relpath
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(content), encoding="utf-8")
+    return tmp_path
+```
+
+T1-T14 测试体直接调 `_make_archive_tempdir(tmp_path, {...})`；T15 例外不 touch marker（专测 sentinel 缺失 exit=2）。
+
+| # | 测试 | 断言 |
+| --- | --- | --- |
+| T1 | dry-run 默认不写文件（**SHA-256 hash 比对** — layer 2 角色 3.1 fix）| tempdir + marker / 跑 / 文件 SHA-256 不变 / stderr `[DRY]` |
 | T2 | `--apply` 真写 pattern A（string）| 放 `{subsystem: "old"}` / `--apply` / 读回 `{subsystem: "new"}` |
 | T3 | `--apply` 真写 pattern B（dict-nested）| 放 `{subsystem: {name: "old", name_cn: "..."}}` / `--apply` / 读回 name 改 name_cn 保 |
 | T4 | 混合 archive（A + B + 无 subsystem + bool subsystem + dict 无 name）| 5 JSON / `--apply` / A+B 改 / 3 skip / stderr 详尽 |
@@ -338,8 +355,8 @@ except (OSError, PermissionError) as exc:
 - pyproject.toml 加 marker `requires_test_archive`（已实证不存在，需 Plan Task 0 加）
 - `tests/dev/test_rebrand_test_archive_integration.py::test_gisbot_rebrand` 用 marker
 - 跑命令：`pytest tests/dev/test_rebrand_test_archive_integration.py -v -m requires_test_archive`
-- conftest.py 检查 `D:/Work/cad-tests/GISBOT/05_enhance/ENHANCEMENT_REPORT.json` 存在；不存在自动 skip
-- **额外步骤**（rev 4）：本 PR retro 文档记录 `touch D:/Work/cad-tests/GISBOT/.test-archive-marker` 命令，让 ops 在跑集成测前先 touch（marker 不进 cad-spec-gen git）；测试体内若 marker 不存在则 skip + INFO（兼具 sentinel 测试自身的合法性）
+- conftest.py 检查 `D:/Work/cad-tests/GISBOT/.test-archive-marker` **存在**才接受跑（rev 5 B2 fix — sentinel marker 才是合法 archive 真值契约，不是 ENHANCEMENT_REPORT.json）；marker 不存在自动 skip + INFO `archive marker missing, run: touch D:/Work/cad-tests/GISBOT/.test-archive-marker`
+- **前置 ops 步骤**（rev 4+5 — B3 fix）：本 PR retro 文档明示 `touch D:/Work/cad-tests/GISBOT/.test-archive-marker` 命令 + 警告"此命令必须 ops 跑一次后才能跑集成测，否则 conftest 自动 skip"（marker 不进 cad-spec-gen git；GISBOT 在仓库外）
 - **测试体**（不动真 GISBOT/，layer 4 edge-case #28 fix）：
   1. `tempfile.mkdtemp()` 建 sandbox（在 tempdir 默认位置，避 OneDrive 同步 flake）
   2. `shutil.copytree(GISBOT, sandbox)` 复制整个 GISBOT 进去（含 `_archive_*` 全套）
@@ -359,6 +376,8 @@ except (OSError, PermissionError) as exc:
 ```
 
 无代码改动。
+
+**注意**（rev 5 B4 fix）：v2.37.7 spec line 282 `§12 f4 N≥50 批量场景成本评估 未闭合（batch 3）` 是真未闭合（不是 stale 标记）；**本 PR 仅改 §12 f1 行，§12 f4 行不动**。若 §12 f4 也想 reconcile 留 v2.37.9 PR（与 §6 YAGNI 一致）。
 
 ### 3.3 helper cleanup
 
@@ -380,10 +399,16 @@ def main() -> int:
 ```python
 def main() -> int:
     # ...
+    # 顺序契约（rev 5 B5 fix）：input validation 必须在 helper 调用之前，
+    # 因 strip mutate args.override_subsystem，helper 直接读 args.override_subsystem
     if args.override_subsystem:
         # 输入校验... validate args.override_subsystem（保留 — TDD red 防误删 layer 2 R4 fix）
+        # validation 内含 args.override_subsystem = args.override_subsystem.strip()
+    # validation 完成后调 helper（顺序契约 — 不可调换）
     effective_subsystem = _resolve_effective_subsystem(args)
 ```
+
+**顺序契约**（rev 5 B5 fix — 闭环漏洞）：`_resolve_effective_subsystem(args)` 直接读 `args.override_subsystem`；strip + 校验阶段会 mutate 该字段（去前后空白）。若 helper 调用早于 validation，则 helper 读未 strip 值；若 validation 早于 helper（spec 顺序），则 helper 读已 strip 值。**spec 顺序为后者**，不可调换。
 
 行为零差异。回归 `tests/jury/test_photo3d_jury_progress.py` 5 测试照常 PASS。
 
@@ -519,6 +544,18 @@ def main() -> int:
 | 30 | exit=1 触发条件未定义 | §3.1.5 exit code 表三档明示 |
 
 剩 ~14 个 edge case 是 MINOR 不进 spec（如 sort_keys 顺序、JSON 字符 escape stderr 美观性、Windows MAX_PATH 260 — 这些是 implementation 细节由实施者 grep 验证）。
+
+**rev 4 → rev 5 闭环漏洞 5 处 fix**（第二轮边界审查抓）：
+
+| # | 闭环漏洞 | rev 5 fix 落点 |
+| --- | --- | --- |
+| B1 | T1-T14 测试 fixture 漏 touch marker → 工具 exit=2 测试全 fail | §3.1.7 加测试 fixture 通用约定 + `_make_archive_tempdir(tmp_path, json_files)` helper 抽象 |
+| B2 | 集成测 conftest skip 条件检 `ENHANCEMENT_REPORT.json` 不是 sentinel marker | §3.1.7 conftest 改检 `.test-archive-marker` 存在（真值契约）|
+| B3 | GISBOT/.test-archive-marker 当前不存在 → 集成测必 skip 除非 ops 先 touch | §3.1.7 前置 ops 步骤明示 + retro 文档 touch 命令 + 警告"必先 touch" |
+| B4 | §12 f4 stale-shaped 标记可能被实施者误改 reconcile | §3.2 加 "仅 §12 f1 行改，§12 f4 行不动" 明示 |
+| B5 | helper cleanup strip mutate ↔ helper 读 args.override_subsystem 顺序契约未声明 | §3.3 加 "顺序契约：validation 早于 helper" 注释 + pseudocode 强化 |
+
+---
 
 **rev 3 → rev 4 RISK-CRITICAL fix**：
 
