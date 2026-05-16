@@ -83,3 +83,106 @@ def test_t3_apply_pattern_b_dict_nested(tmp_path: Path) -> None:
     assert data["subsystem"]["name_cn"] == "保留中文"  # name_cn 不改
     assert data["subsystem"]["part_prefix"] == "GIS-EE"  # 其他字段不改
     assert "[APPLY]" in cp.stderr
+
+
+def test_t4_mixed_archive(tmp_path: Path) -> None:
+    """T4 — 混合 archive (A + B + 无 subsystem + bool + dict 无 name)。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {
+            "a.json": {"subsystem": "old"},  # pattern A → 改
+            "b.json": {"subsystem": {"name": "old"}},  # pattern B → 改
+            "c.json": {"other": "x"},  # 无 subsystem → skip
+            "d.json": {"subsystem": True},  # bool → WARN skip
+            "e.json": {"subsystem": {"part_prefix": "x"}},  # dict 无 name → WARN
+        },
+    )
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0, cp.stderr
+    assert json.loads((arch / "a.json").read_text(encoding="utf-8"))["subsystem"] == "new"
+    assert json.loads((arch / "b.json").read_text(encoding="utf-8"))["subsystem"]["name"] == "new"
+    assert json.loads((arch / "c.json").read_text(encoding="utf-8")) == {"other": "x"}
+    assert json.loads((arch / "d.json").read_text(encoding="utf-8")) == {"subsystem": True}
+    assert "[APPLY]" in cp.stderr  # a + b
+    assert "[WARN]" in cp.stderr  # d + e
+
+
+def test_t5_idempotent_rerun(tmp_path: Path) -> None:
+    """T5 — 二次 apply 零写盘。"""
+    arch = _make_archive_tempdir(
+        tmp_path,
+        {"a.json": {"subsystem": "old"}},
+    )
+    _run(str(arch), "--from", "old", "--to", "new", "--apply")  # 第一次
+
+    sha_before = _sha256(arch / "a.json")
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")  # 第二次
+
+    assert cp.returncode == 0
+    assert _sha256(arch / "a.json") == sha_before  # 零写盘
+    assert "no candidates found" in cp.stderr
+
+
+def test_t6_malformed_json_skip(tmp_path: Path) -> None:
+    """T6 — malformed JSON skip + WARN。"""
+    arch = _make_archive_tempdir(tmp_path)
+    (arch / "bad.json").write_text("{ not json", encoding="utf-8")
+    (arch / "good.json").write_text(
+        json.dumps({"subsystem": "old"}), encoding="utf-8"
+    )
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0, cp.stderr
+    assert "[WARN]" in cp.stderr
+    assert "invalid JSON" in cp.stderr
+    assert json.loads((arch / "good.json").read_text(encoding="utf-8"))["subsystem"] == "new"
+
+
+def test_t7_archive_dir_pattern_skipped(tmp_path: Path) -> None:
+    """T7 — _archive_* 子目录跳过（含 case-sensitive：_archive_ skip / _Archive_ 不 skip — Linux/macOS）。"""
+    arch = _make_archive_tempdir(tmp_path)
+    # _archive_xxx 子目录
+    (arch / "_archive_20260513").mkdir()
+    (arch / "_archive_20260513" / "old.json").write_text(
+        json.dumps({"subsystem": "old"}), encoding="utf-8"
+    )
+    # 正常子目录
+    (arch / "normal").mkdir()
+    (arch / "normal" / "ok.json").write_text(
+        json.dumps({"subsystem": "old"}), encoding="utf-8"
+    )
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0, cp.stderr
+    # _archive_ 子目录未扫
+    assert (
+        json.loads((arch / "_archive_20260513" / "old.json").read_text(encoding="utf-8"))[
+            "subsystem"
+        ]
+        == "old"
+    )
+    # 正常子目录改写
+    assert (
+        json.loads((arch / "normal" / "ok.json").read_text(encoding="utf-8"))["subsystem"]
+        == "new"
+    )
+
+
+def test_t8_deny_list_skipped(tmp_path: Path) -> None:
+    """T8 — .git/ __pycache__/ 等普适目录跳过。"""
+    arch = _make_archive_tempdir(tmp_path)
+    for skip_dir in [".git", "__pycache__", "node_modules", ".pytest_cache"]:
+        d = arch / skip_dir
+        d.mkdir()
+        (d / "old.json").write_text(json.dumps({"subsystem": "old"}), encoding="utf-8")
+
+    cp = _run(str(arch), "--from", "old", "--to", "new", "--apply")
+
+    assert cp.returncode == 0
+    for skip_dir in [".git", "__pycache__", "node_modules", ".pytest_cache"]:
+        data = json.loads((arch / skip_dir / "old.json").read_text(encoding="utf-8"))
+        assert data["subsystem"] == "old", f"{skip_dir} 子目录被扫了"
