@@ -4,7 +4,7 @@
 > **关联 §11 follow-up**：§11-N12（v2.37.13b retro §3.3 登记 — Task 0 scout per-file-ignores enumeration 系统化）
 > **关联 retro**：`docs/superpowers/reports/2026-05-17-v2-37-13b-ruff-cleanup-p3-retro.md` §3.3
 > **关联 brainstorming**：本 session — 3 节 §1/§2/§3 用户逐节 ok 确认
-> **Spec rev**：rev 1.0（首版）
+> **Spec rev**：rev 1.1（rev 1.0 首版 + cynical L2 审查 3 BLOCKER + 4 MAJOR inline 修复；rev 1.1 实测 ruff 0.15.10 `--config` flag + mypy `-p` flag 验证）
 
 ---
 
@@ -16,9 +16,9 @@
 
 | 改动 | 严重度 | 内容 | 估时 |
 | --- | --- | --- | --- |
-| **改动 1** | LOW | 新文件 `tools/dev/lint_scope_audit.py`（~120 LOC，单脚本 + argparse subcommands） | 40min |
-| **改动 2** | LOW | 新文件 `tests/test_lint_scope_audit.py`（~150 LOC，11 unit + 5 smoke） | 30min |
-| **改动 3** | LOW | retro §3.3 N12 标记 closed + 加 spec/PR 引用 | 5min |
+| **改动 1** | LOW | 新文件 `tools/dev/lint_scope_audit.py`（~130 LOC，单脚本 + argparse subcommands）+ `pyproject.toml [project.optional-dependencies] test` 加 `'tomli; python_version < "3.11"'` 一并 commit（rev 1.1 M2：tomli dep 是 script prerequisite，不单独 commit）| 47min |
+| **改动 2** | LOW | 新文件 `tests/test_lint_scope_audit.py`（~150 LOC，13 unit + 2 real_subprocess + 1 mypy = 16） | 30min |
+| **改动 3** | LOW | retro §3.3 N12 标记 closed + 加 spec/PR/release 引用 | 5min |
 | **改动 4** | — | 全套件 PASS + CI ruff-strict + mypy-strict 9/9 守门 | AC |
 
 **N12 闭合预期**：retro §3.3 N12 行 → ✅ closed；下次 cleanup spec rev 1 的 plan Task 0 引用本工具入口。
@@ -36,7 +36,7 @@ P3 实施期 Task 0 scout 已有 `S-0.4` 步骤要求 "glob 覆盖率 = 100%（7
 
 ### 2.2 当前 baseline
 
-- pyproject.toml `[tool.ruff.lint]`：12 select codes（F401/F541/F811/E401/F841/F405/F403/E731/E702/E402/E741/F821）+ 11 per-file-ignores globs（P3 锁定）
+- pyproject.toml `[tool.ruff.lint]`：12 select codes（F401/F541/F811/E401/F841/F405/F403/E731/E702/E402/E741/F821）+ **12** per-file-ignores globs（P3 锁定 — rev 1.1 校准：rev 1.0 误算 11，含 10 E402-only + 1 F403/F405-only (`cad/**/*.py`) + 1 F403/F405/E402 (`cad/lifting_platform/*.py`)）
 - pyproject.toml `[[tool.mypy.overrides]]`：4 个 `ignore_errors=true` 模块（`adapters.solidworks.sw_detect` / `adapters.solidworks.sw_config_lists_cache` / `cad_paths` / `tools.contract_io`）+ 1 个 `strict=true` 模块（`adapters.solidworks.sw_config_broker`）
 - ruff CI ruff-strict gate enforce 新违规
 - mypy CI mypy-strict gate enforce 触动 strict scope 模块
@@ -49,7 +49,7 @@ P3 实施期 Task 0 scout 已有 `S-0.4` 步骤要求 "glob 覆盖率 = 100%（7
 - `missing_glob`：文件有 violation 但**不在任何** per-file-ignores glob（spec 漏掉的 — P3 retro 那种）
 
 **mypy 子命令** 抓一类：
-- `dischargeable`：`ignore_errors=true` 模块今天跑 `mypy --strict <module>` exit 0 → 建议出列
+- `dischargeable`：`ignore_errors=true` 模块今天跑 `mypy --strict -p <module>` exit 0 → 建议出列
 
 ---
 
@@ -65,7 +65,7 @@ python tools/dev/lint_scope_audit.py all     # 顺序跑两者
 
 **默认行为**：所有 subcommand `exit 0` informational mode（无 `--fail-on-drift` flag — 推迟到将来真触发 CI 化再加）。
 
-**外部依赖**：仅 stdlib（py3.11+ 的 `tomllib`；py3.10 fallback 用 `tomli`，try/except import）。**零新 pip dep**。
+**外部依赖**：仅 stdlib（py3.11+ 的 `tomllib`；py3.10 fallback 用 `tomli`，try/except import）。**rev 1.1 M2 fix**：本 PR 同步把 `tomli; python_version < "3.11"` 加入 `pyproject.toml [project.optional-dependencies] test`，确保 CI py3.10 matrix 能装到（CI tests.yml 已用 `pip install -e .[test]` 装 test extras，自动 cover）。本仓 `requires-python = ">=3.10"` 不变。
 
 ### 3.2 内部模块化（pure 函数 + 两处 subprocess 边界）
 
@@ -74,8 +74,8 @@ python tools/dev/lint_scope_audit.py all     # 顺序跑两者
 | `_load_pyproject() → dict` | tomllib 读 pyproject.toml | 文件读取 |
 | `_load_ruff_config(pyproject) → tuple[dict[str, list[str]], list[str]]` | 解 `[tool.ruff.lint]` → `(globs_to_codes, select_codes)` | 纯 |
 | `_load_mypy_overrides(pyproject) → list[str]` | 解 `[[tool.mypy.overrides]]` → ignore_errors=true 模块列表 | 纯 |
-| `_run_ruff_json() → list[tuple[str, str]]` | `ruff check --output-format=json .` | subprocess |
-| `_run_mypy_strict_per_module(module) → bool` | `python -m mypy --strict <module>` exit 0? | subprocess |
+| `_run_ruff_json() → list[tuple[str, str]]` | `ruff check --config 'lint.per-file-ignores={}' --output-format=json .` — **关键**：inline 覆盖 per-file-ignores 为空 dict，强制 ruff 报告**所有真违规**（不被 ignore 抑制）；否则 P3 收官状态返 `[]` 导致 over_permissive 100% false positive（rev 1.1 B2 fix；已实测 ruff 0.15.10 此 flag 工作） | subprocess |
+| `_run_mypy_strict_per_module(module) → bool` | `python -m mypy --strict -p <module>` exit 0?（**关键 `-p` flag**：mypy 不接受裸 dotted name，必须显式 `-p` 当作 package；rev 1.1 B3 fix 实测；`cad_paths` 为 repo root 模块，dotted=`cad_paths`，mypy 用 explicit_package_bases 解析 OK） | subprocess |
 | `_compute_ruff_drift(globs_to_codes, select_codes, violations) → tuple[list, list]` | set diff 算 over_permissive + missing_glob | 纯 |
 | `_compute_mypy_dischargeable(modules, per_module_results) → list[str]` | 过滤 OK 模块 | 纯 |
 | `_render_ruff_report(over_permissive, missing_glob) → str` | 拼 markdown | 纯 |
@@ -103,19 +103,21 @@ stdout
 ### 3.4 关键设计决策
 
 - **不修复**：脚本只读 + report，绝不动 pyproject.toml；user-curated config 由人决策
-- **glob 匹配**：手撸 `_match_glob(glob, path)` ~20 行 — normalize `\\` → `/` + 把 `**` 视为"零或多段 path segment"（regex 模式 `[\w\-./]*` 经 `re.escape` 处理）。**零新外部 dep**；避免引入 `pathspec` 等库。R-1 由 §6 AC-13 smoke 断言"P3 收官状态 0 missing_glob"实测兜底
+- **glob 匹配**：手撸 `_match_glob(glob, path)` ~20 行 — normalize `\\` → `/` 后用 regex 转换：`/` 段间分隔字面量；`**` → `.*`（任意 dir level，含 0 段）；`*` → `[^/]*`（单段无 `/`）；`?` → `[^/]`。其余字符 `re.escape`。锚 `^` + `$`。`fnmatch.fnmatch` 不可用（不支持 `**`）。**零新外部 dep**；避免引入 `pathspec` 等库。R-1 由 §6 AC-13 smoke 断言"P3 收官状态 0 missing_glob"实测兜底（rev 1.1 M1 fix：原 `[\w\-./]*` 模式拼错 — `\w` 不含 `-` 和 `.`，`**` 段语义错；本节改正）
 - **mypy 子命令必慢路径**：N=4 模块 × ~5s ≈ 20s；不并行（subprocess 资源 race + 输出顺序不可控）；不缓存（N 小且 mypy 自带 incremental cache）
 - **Windows 路径**：subprocess 调用的 `ruff check` 输出 JSON 内 `filename` 字段使用 Windows `\` 或 POSIX `/` 取决于 ruff version；统一 `path.replace("\\", "/")` 后匹配
 
 ### 3.5 报告格式（markdown stdout）
 
+**报告日期**：所有 markdown 头部 `(YYYY-MM-DD)` 用 `datetime.now().date().isoformat()` 运行时渲染，不 hardcode（rev 1.1 N1 fix）。
+
 **ruff 子命令**：
 ```markdown
-# Lint scope audit — ruff (2026-05-17)
+# Lint scope audit — ruff ({date})
 
 ## 配置摘要
 - select: 12 codes
-- per-file-ignores: 11 globs
+- per-file-ignores: 12 globs
 
 ## ✅ over_permissive (N)
 - `<glob>` covers `<code>` but no actual violations match this glob — consider narrowing
@@ -131,18 +133,34 @@ stdout
 
 **mypy 子命令**：
 ```markdown
-# Lint scope audit — mypy (2026-05-17)
+# Lint scope audit — mypy ({date})
 
 ## 配置摘要
 - ignore_errors=true 模块：4 个
 
 ## ✅ dischargeable (N)
-- `<module>` — `mypy --strict` exit 0；建议从 [[tool.mypy.overrides]] 出列
+- `<module>` — `mypy --strict -p <module>` exit 0；建议从 [[tool.mypy.overrides]] 出列
 ...
 
 ## 结论
 - 无可出列 / N 项可出列
 ```
+
+**`all` subcommand 部分失败 fallback wording**（rev 1.1 M4 fix）：
+
+- 若 `[tool.ruff]` 段缺失 → all 报告头部输出：
+  ```markdown
+  # Lint scope audit — all ({date})
+
+  ## ⚠ ruff 段跳过
+  pyproject.toml `[tool.ruff]` 段缺失 — ruff drift 检测不可用。
+  
+  ---
+  
+  # Lint scope audit — mypy ({date})
+  ...（正常 mypy 段）
+  ```
+- 若 `[[tool.mypy.overrides]]` 无 ignore_errors=true 模块 → mypy 段头部输出 `## 结论 - 无 ignore_errors 模块`（保持 §4 表的 exit 0 行为）。两 段都 OK 时 `---` 分隔顺序拼接。
 
 ---
 
@@ -158,7 +176,7 @@ stdout
 | `ruff` 不在 PATH | `shutil.which("ruff") is None` | stderr 报错 + 终止 | 3 |
 | `mypy` 不在 PATH | 同 | 同 | 3 |
 | `ruff check` 输出非 JSON（version 漂移）| `json.JSONDecodeError` | stderr + 终止 | 4 |
-| `mypy --strict <module>` 跑挂（import error / 模块不存在）| subprocess 非 0 且 stderr 显示 import error | 视为"still has errors" → 不出列；warn 到 stderr | 0（继续）|
+| `mypy --strict -p <module>` 跑挂（import error / 模块不存在 / 真有 type error）| subprocess 非 0 | 视为"still has errors" → 不出列；warn 到 stderr 含 stderr 头几行帮 debug | 0（继续）|
 | `[tool.ruff.lint.per-file-ignores]` 段缺失但 `[tool.ruff]` 在 | `globs_to_codes = {}` | 跑正常，所有 violation 进 missing_glob | 0 |
 | 真实 ruff 0 violation 且无 over_permissive | findings 全空 | markdown 显示"✅ 无 drift" | 0 |
 
@@ -229,7 +247,7 @@ RED → GREEN → REFACTOR：
 | **AC-8** | 全套件 baseline +16 | `pytest` | ≥3241 + 16 PASS（13 unit + 2 real_subprocess + 1 mypy = 16）| commit 2 后 |
 | **AC-9** | ruff-strict CI gate pass | `.github/workflows/tests.yml` ruff-strict job | exit 0 | PR 后 |
 | **AC-10** | mypy-strict CI gate pass | `.github/workflows/tests.yml` mypy-strict job | exit 0（无新 strict 模块加入）| PR 后 |
-| **AC-11** | 新脚本本身无 ruff/mypy 违规 | `ruff check tools/dev/lint_scope_audit.py && mypy --strict tools/dev/lint_scope_audit.py` | 都 exit 0 | commit 1 后 |
+| **AC-11** | 新脚本本身无 ruff 违规（CI ruff-strict 自动 cover）+ 本地手测 mypy --strict clean（**非 CI gate**，rev 1.1 M3 fix：现 CI mypy-strict job 由 `[[tool.mypy.overrides]] strict=true` 块决定 file 列表，仅 `sw_config_broker`；`tools/dev/lint_scope_audit.py` 不进 mypy-strict CI scope 是 by-design — 渐进式 typing 政策不应因新 dev tool 扩张 strict scope；commit 1 实施时本地 `mypy --strict tools/dev/lint_scope_audit.py` 应 exit 0，AC 用本地手测验，不进 CI gate）| `ruff check tools/dev/lint_scope_audit.py`（CI）+ 本地 `mypy --strict tools/dev/lint_scope_audit.py` | ruff CI exit 0 + 本地 mypy exit 0 | commit 1 后 |
 | **AC-12** | retro §3.3 N12 标记改 closed | git diff retro doc | N12 行 → ✅ + 加 spec/PR/release 引用 | commit 3 后 |
 | **AC-13** | 当前 pyproject 实测无 ruff drift | `python tools/dev/lint_scope_audit.py ruff` | stdout 含 "✅ 无 drift" 或仅 over_permissive（不应 missing_glob，因 P3 已收官）| smoke test 锚定 |
 
@@ -239,8 +257,8 @@ RED → GREEN → REFACTOR：
 
 | ID | 风险 | 级别 | 缓解 |
 |---|---|---|---|
-| **R-1** | 手撸 glob 匹配语义与 ruff 不一致（双星 / 多 segment）→ 误报 | MED | smoke test 跑真 pyproject 断言"P3 收官状态 0 missing_glob"实测兜底；若误报 → unit test 增量 case + 修 `_match_glob` regex 模式；不引入 `pathspec` dep |
-| **R-2** | mypy ignore_errors 模块今天可能确实仍有 type error → dischargeable 列表空 | LOW | 是预期结果（"渐进式 typing 政策"，由业务节奏决定何时出列）；空列表也是有效报告 |
+| **R-1** | 手撸 glob 匹配语义与 ruff 不一致（双星 / 多 segment）→ 误报 | MED | smoke test 跑真 pyproject 断言"P3 收官状态 0 missing_glob"实测兜底；**rev 1.1 N2 fix**：同 smoke 加断言 over_permissive 数 ≤ 12 globs（合理上界，防 B2 类 100% false positive 回归）；若误报 → unit test 增量 case + 修 `_match_glob` regex 模式；不引入 `pathspec` dep |
+| **R-2** | mypy ignore_errors 模块的 dischargeable 列表为空 / 非空均合理 | LOW | **rev 1.1 校准**：本 session 实测 `mypy --strict -p adapters.solidworks.sw_detect` 当前 **exit 0 clean** → 首次运行至少 1 项 dischargeable；非 0 列表是预期。dischargeable 仅 *建议*，是否出列 = 渐进式 typing 业务决策（由 sw_detect transitive import broker / jury gate 是否影响 strict scope 决定），脚本不替决策 |
 | **R-3** | tomllib 在 py3.10 缺失 | LOW | try/except import + tomli fallback；CI 已 test py3.10/3.11/3.12 |
 | **R-4** | ruff JSON 输出格式版本漂移 | LOW | pin ruff version 与本仓既有约定一致；本仓 `feedback_preflight_mirror_ci.md` 教训已 cover |
 | **R-5** | 脚本本身 ruff/mypy 违规导致 PR CI fail | LOW | AC-11 commit 1 后立验；TDD 顺序 unit 先 RED 自然驱动接口设计干净 |
@@ -251,16 +269,18 @@ RED → GREEN → REFACTOR：
 ## 8. 提交序
 
 ```
-Commit 1 — feat(dev-tools): tools/dev/lint_scope_audit.py
-  + new script 单 file ~120 LOC + argparse subcommands (ruff/mypy/all)
-  + ruff: per-file-ignores over_permissive + missing_glob 两类 drift
-  + mypy: [[tool.mypy.overrides]] ignore_errors=true dischargeable
+Commit 1 — feat(dev-tools): tools/dev/lint_scope_audit.py + pyproject tomli dep
+  + new script 单 file ~130 LOC + argparse subcommands (ruff/mypy/all)
+  + ruff: 用 --config 'lint.per-file-ignores={}' inline strip + over_permissive/missing_glob 两类 drift (rev 1.1 B2 fix)
+  + mypy: -p <dotted> flag invocation (rev 1.1 B3 fix) + ignore_errors=true dischargeable
+  + _match_glob regex impl: ** → .* / * → [^/]* (rev 1.1 M1 fix)
+  + pyproject.toml [project.optional-dependencies] test 加 tomli; python_version<"3.11" (rev 1.1 M2 fix)
   + 默认 informational mode (exit 0)
   + 闭合 §11-N12
 
 Commit 2 — test(dev-tools): tests/test_lint_scope_audit.py
-  + 11 unit + 5 smoke
-  + 验证 pyproject 解析 + glob 匹配 + drift 算法 + 报告渲染
+  + 13 unit + 2 real_subprocess + 1 mypy = 16 tests
+  + 验证 pyproject 解析 + glob 匹配 + drift 算法 + 报告渲染 + 错误路径
 
 Commit 3 — docs(retro): v2.37.13b retro §3.3 N12 → closed
   + 引用 spec / plan / PR # / merge SHA / release tag
