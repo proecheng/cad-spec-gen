@@ -1257,7 +1257,7 @@ def generate_assembly(spec_path: str) -> str:
     """
     parts = parse_bom_tree(spec_path)
     pose = parse_assembly_pose(spec_path)
-    connections = parse_connections(spec_path)
+    connections = parse_connections(spec_path)  # noqa: F841  # 超规则 残留
 
     # Separate assemblies and their children
     assemblies = [p for p in parts if p["is_assembly"]]
@@ -1323,7 +1323,7 @@ def generate_assembly(spec_path: str) -> str:
         else:
             # Hierarchical BOM (GIS-EE-001): suffix is the station number
             from cad_spec_defaults import strip_part_prefix
-            suffix = strip_part_prefix(pno).split("-")[-1] if "-" in strip_part_prefix(pno) else strip_part_prefix(pno)
+            suffix = strip_part_prefix(pno).split("-")[-1] if "-" in strip_part_prefix(pno) else strip_part_prefix(pno)  # noqa: F841  # 超规则 残留
             # Children match by prefix: GIS-EE-001-xx
             children = [p for p in parts
                          if p["part_no"].startswith(pno + "-") and not p["is_assembly"]]
@@ -1347,7 +1347,7 @@ def generate_assembly(spec_path: str) -> str:
             # Compute child suffix for display: GIS-EE-001-01 → "01", SLP-100 → "100"
             from cad_spec_defaults import strip_part_prefix
             c_stripped = strip_part_prefix(child["part_no"])
-            c_suffix = c_stripped.split("-")[-1] if "-" in c_stripped else c_stripped
+            c_suffix = c_stripped.split("-")[-1] if "-" in c_stripped else c_stripped  # noqa: F841  # 超规则 残留
             make_buy = child.get("make_buy", "")
             placement_rows = _placement_rows_for_part(
                 child["part_no"],

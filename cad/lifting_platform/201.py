@@ -19,6 +19,7 @@ a design-doc line above. If the doc is ambiguous, raise a DESIGN QUESTION
 before writing geometry.
 """
 
+# ruff: noqa: F403, F405
 import cadquery as cq
 from params import *
 

@@ -8,6 +8,7 @@ Source-of-truth:
 坐标系：Local +Z = 板法线（NEMA23 贴这面）；assembly 平移到右支撑条底部
 """
 
+# ruff: noqa: F403, F405
 import math
 
 import cadquery as cq

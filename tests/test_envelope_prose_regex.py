@@ -129,7 +129,7 @@ def test_extract_part_envelopes_regex_finds_real_design_doc_envelopes():
     fix must address _find_nearest_assembly() semantics.
     """
     import re
-    extractors = _load_repo_root_extractors()
+    extractors = _load_repo_root_extractors()  # noqa: F841  # 测试 fixture
     # Access the P2 regex by re-running it directly. We re-declare the
     # patterns here (identical to what's in extract_part_envelopes) to
     # verify they exist and match.

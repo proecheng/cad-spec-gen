@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>cad-spec-gen · 系统全景图 v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0: #0a1424;
+    --bg-1: #122036;
+    --bg-2: #1a2c47;
+    --bg-3: #243b5c;
+    --border: #2c4869;
+    --border-soft: rgba(120, 175, 225, .15);
+    --text: #e8eef5;
+    --text-dim: #a8bdd4;
+    --text-faint: #6c87a3;
+
+    --accent: #4cc9d3;
+    --accent-deep: #2596a0;
+    --accent-glow: rgba(76, 201, 211, .20);
+
+    --green: #5ee2a0;
+    --amber: #ffc857;
+    --rose: #ff6b8a;
+    --violet: #b794f4;
+    --blue: #7eb8ff;
+
+    --shadow-md: 0 4px 12px rgba(0,0,0,.32);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,.48);
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    --header-h: 72px;
+    --nav-h: 56px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg-0);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 16px;
+    overflow-x: hidden;
+  }
+  code, .mono { font-family: "JetBrains Mono", "SFMono-Regular", monospace; font-size: .92em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: var(--accent); color: var(--bg-0); }
+
+  /* =================== HEADER =================== */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10, 20, 36, .92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    height: var(--header-h);
+    display: flex; align-items: center;
+  }
+  .topbar .wrap { display: flex; align-items: center; gap: 20px; width: 100%; }
+  .logo {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 18px; font-weight: 600;
+    color: var(--accent);
+    padding: 6px 12px;
+    border: 1.5px solid var(--accent-deep);
+    border-radius: var(--radius-sm);
+    background: var(--accent-glow);
+  }
+  .title-h { font-size: 22px; font-weight: 700; color: var(--text); }
+  .title-h .v { font-size: 14px; color: var(--text-dim); font-weight: 500; margin-left: 8px; }
+  .badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 13px; padding: 5px 12px; border-radius: 999px;
+    font-weight: 500; letter-spacing: .02em;
+    border: 1px solid;
+  }
+  .b-main { color: var(--green); background: rgba(94, 226, 160, .12); border-color: rgba(94, 226, 160, .4); }
+  .b-version { color: var(--accent); background: var(--accent-glow); border-color: var(--accent-deep); }
+  .b-ci { color: var(--blue); background: rgba(126, 184, 255, .12); border-color: rgba(126, 184, 255, .4); }
+
+  /* =================== TAB NAV =================== */
+  .tabnav {
+    position: sticky; top: var(--header-h); z-index: 99;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    height: var(--nav-h);
+    display: flex; align-items: center;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .tabnav .wrap { display: flex; gap: 4px; width: 100%; }
+  .tabnav button {
+    background: transparent; color: var(--text-dim);
+    border: none; cursor: pointer;
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    padding: 12px 18px; border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .tabnav button:hover { color: var(--text); background: var(--bg-2); }
+  .tabnav button.active {
+    color: var(--accent); background: var(--accent-glow);
+    border-color: var(--accent-deep);
+  }
+  .tabnav button .ix { font-family: "JetBrains Mono", monospace; font-size: 12px; opacity: .7; margin-right: 8px; }
+
+  /* =================== LAYOUT =================== */
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
+  section.page { padding: 40px 0 80px; display: none; }
+  section.page.active { display: block; }
+
+  .page-head {
+    margin-bottom: 32px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+  }
+  .page-head h2 { font-size: 32px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .page-head .desc { color: var(--text-dim); font-size: 16px; max-width: 720px; }
+  .page-head .num { font-family: "JetBrains Mono", monospace; font-size: 13px; color: var(--accent); }
+
+  /* =================== STAT TILES =================== */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .stat {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    position: relative; overflow: hidden;
+  }
+  .stat::before {
+    content: ""; position: absolute; top: 0; left: 0;
+    width: 4px; height: 100%; background: var(--accent);
+  }
+  .stat .label { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+  .stat .value { font-size: 32px; font-weight: 700; color: var(--text); font-family: "JetBrains Mono", monospace; }
+  .stat .value .unit { font-size: 16px; color: var(--text-dim); font-weight: 500; margin-left: 4px; }
+  .stat .delta { font-size: 13px; color: var(--green); margin-top: 6px; }
+  .stat.amber::before { background: var(--amber); }
+  .stat.green::before { background: var(--green); }
+  .stat.violet::before { background: var(--violet); }
+
+  /* =================== CARD =================== */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--accent-deep); }
+  .card h3 { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+  .card .desc { color: var(--text-dim); font-size: 14.5px; line-height: 1.6; }
+  .card .meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--text-faint); margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-soft); }
+
+  /* =================== ACCORDION =================== */
+  details.acc {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md); margin-bottom: 12px;
+    overflow: hidden;
+  }
+  details.acc[open] { border-color: var(--accent-deep); }
+  details.acc > summary {
+    cursor: pointer; list-style: none;
+    padding: 18px 22px;
+    display: flex; align-items: center; gap: 14px;
+    font-size: 16px; font-weight: 600;
+    transition: background .15s;
+  }
+  details.acc > summary::-webkit-details-marker { display: none; }
+  details.acc > summary:hover { background: var(--bg-2); }
+  details.acc > summary::before {
+    content: "▸"; color: var(--accent); font-size: 14px;
+    transition: transform .2s;
+  }
+  details.acc[open] > summary::before { transform: rotate(90deg); }
+  details.acc .body { padding: 0 22px 22px 50px; color: var(--text-dim); font-size: 14.5px; }
+  details.acc .body p { margin-bottom: 10px; }
+  details.acc .body ul { margin: 10px 0 14px 20px; }
+  details.acc .body li { margin: 4px 0; }
+  details.acc .body code { background: var(--bg-2); padding: 2px 6px; border-radius: 3px; color: var(--accent); }
+
+  /* =================== PIPELINE =================== */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  .phase {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    cursor: pointer;
+    transition: all .15s;
+    position: relative;
+  }
+  .phase:hover { border-color: var(--accent-deep); transform: translateY(-2px); }
+  .phase.active { border-color: var(--accent); background: var(--bg-2); }
+  .phase .ph-ix {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px; color: var(--accent);
+    letter-spacing: .12em; margin-bottom: 4px;
+  }
+  .phase .ph-name { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+  .phase .ph-prog {
+    height: 6px; background: var(--bg-3);
+    border-radius: 3px; overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .phase .ph-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); transition: width .4s; }
+  .phase .ph-pct { font-size: 13px; color: var(--text-dim); font-family: "JetBrains Mono", monospace; }
+  .phase-detail {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 24px; margin-bottom: 28px;
+    display: none;
+  }
+  .phase-detail.shown { display: block; }
+  .phase-detail h4 { font-size: 20px; margin-bottom: 14px; color: var(--accent); }
+  .phase-detail .pd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
+  .phase-detail .pd-section { }
+  .phase-detail .pd-section .lab { font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+  .phase-detail .pd-section ul { list-style: none; }
+  .phase-detail .pd-section li { padding: 4px 0; color: var(--text-dim); font-size: 14.5px; }
+  .phase-detail .pd-section li::before { content: "→ "; color: var(--accent); margin-right: 4px; }
+  @media (max-width: 900px) { .pipeline { grid-template-columns: repeat(3, 1fr); } .phase-detail .pd-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 540px) { .pipeline { grid-template-columns: repeat(2, 1fr); } }
+
+  /* =================== TIMELINE =================== */
+  .timeline {
+    position: relative;
+    margin-top: 24px;
+    padding-left: 30px;
+  }
+  .timeline::before {
+    content: ""; position: absolute; left: 7px; top: 0; bottom: 0;
+    width: 2px; background: var(--border);
+  }
+  .tl-item {
+    position: relative; padding: 12px 0 12px 28px;
+  }
+  .tl-item::before {
+    content: ""; position: absolute; left: -26px; top: 18px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--bg-1); border: 2px solid var(--accent);
+  }
+  .tl-item.major::before { background: var(--accent); }
+  .tl-item .tl-meta { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--accent); margin-bottom: 4px; }
+  .tl-item .tl-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .tl-item .tl-desc { font-size: 14px; color: var(--text-dim); line-height: 1.55; }
+  .tl-item .tl-tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tl-tag { font-size: 11px; padding: 2px 8px; border-radius: 3px; background: var(--bg-2); color: var(--text-dim); font-family: "JetBrains Mono", monospace; }
+
+  /* =================== EVIDENCE GALLERY =================== */
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .gal-item {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md); overflow: hidden;
+    cursor: pointer; transition: all .15s;
+  }
+  .gal-item:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .gal-item img { width: 100%; height: auto; display: block; aspect-ratio: 16/9; object-fit: cover; }
+  .gal-item .gal-meta { padding: 12px 14px; }
+  .gal-item .gal-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .gal-item .gal-sub { font-size: 12.5px; color: var(--text-dim); }
+
+  /* lightbox */
+  .lightbox {
+    display: none;
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,.92);
+    align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .lightbox.shown { display: flex; }
+  .lightbox img { max-width: 95vw; max-height: 95vh; object-fit: contain; box-shadow: var(--shadow-lg); }
+  .lightbox .close {
+    position: absolute; top: 20px; right: 30px;
+    color: white; font-size: 32px; cursor: pointer;
+    background: rgba(255,255,255,.1); border-radius: 50%;
+    width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* =================== METRIC BAR (jury 实测) =================== */
+  .metric-row {
+    display: grid; grid-template-columns: 80px 1fr 60px;
+    gap: 14px; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border-soft);
+    font-family: "JetBrains Mono", monospace; font-size: 14px;
+  }
+  .metric-row:last-child { border-bottom: none; }
+  .metric-row .mr-name { color: var(--text); font-weight: 600; }
+  .metric-row .mr-bar { height: 10px; background: var(--bg-3); border-radius: 5px; overflow: hidden; }
+  .metric-row .mr-fill { height: 100%; transition: width .6s ease; border-radius: 5px; }
+  .metric-row .mr-fill.low { background: linear-gradient(90deg, var(--rose), var(--amber)); }
+  .metric-row .mr-fill.mid { background: linear-gradient(90deg, var(--amber), var(--green)); }
+  .metric-row .mr-fill.high { background: linear-gradient(90deg, var(--green), var(--accent)); }
+  .metric-row .mr-val { color: var(--text); text-align: right; font-weight: 600; }
+
+  /* =================== TABLE =================== */
+  table.t {
+    width: 100%; border-collapse: collapse;
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md); overflow: hidden;
+    font-size: 14.5px;
+  }
+  table.t th, table.t td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+  table.t th { background: var(--bg-2); color: var(--accent); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+  table.t td { color: var(--text-dim); }
+  table.t tr:last-child td { border-bottom: none; }
+  table.t tr:hover td { background: var(--bg-2); color: var(--text); }
+  table.t code { background: var(--bg-2); padding: 2px 6px; border-radius: 3px; color: var(--accent); font-size: 13px; }
+  .pill {
+    display: inline-block; font-size: 12px; padding: 2px 10px;
+    border-radius: 999px; font-family: "JetBrains Mono", monospace;
+    border: 1px solid;
+  }
+  .pill-green { color: var(--green); border-color: rgba(94,226,160,.4); background: rgba(94,226,160,.10); }
+  .pill-amber { color: var(--amber); border-color: rgba(255,200,87,.4); background: rgba(255,200,87,.10); }
+  .pill-rose { color: var(--rose); border-color: rgba(255,107,138,.4); background: rgba(255,107,138,.10); }
+  .pill-blue { color: var(--blue); border-color: rgba(126,184,255,.4); background: rgba(126,184,255,.10); }
+  .pill-violet { color: var(--violet); border-color: rgba(183,148,244,.4); background: rgba(183,148,244,.10); }
+
+  /* =================== KV =================== */
+  .kv {
+    display: grid;
+    grid-template-columns: minmax(140px, 200px) 1fr;
+    gap: 8px 24px;
+    font-size: 14.5px;
+  }
+  .kv dt { color: var(--text-faint); font-size: 13px; padding-top: 6px; }
+  .kv dd { color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+  .kv dd:last-child, .kv dd:nth-last-child(-n+1) { border-bottom: none; }
+
+  /* =================== METHODOLOGY DIAGRAM =================== */
+  .method-flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 20px 0;
+  }
+  .method-step {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    position: relative;
+  }
+  .method-step .ms-num {
+    width: 28px; height: 28px;
+    background: var(--accent); color: var(--bg-0);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-family: "JetBrains Mono", monospace;
+    margin-bottom: 10px;
+  }
+  .method-step .ms-name { font-weight: 600; color: var(--text); font-size: 15px; margin-bottom: 6px; }
+  .method-step .ms-desc { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+
+  /* =================== FOOTER =================== */
+  footer {
+    background: var(--bg-1); border-top: 1px solid var(--border);
+    padding: 30px 0;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 13.5px;
+    margin-top: 40px;
+  }
+  footer code { color: var(--accent); }
+
+  /* =================== UTIL =================== */
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .col { flex: 1; min-width: 0; }
+  .mb { margin-bottom: 28px; }
+  .mt { margin-top: 28px; }
+  h3.sec { font-size: 20px; font-weight: 700; color: var(--text); margin: 28px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+  h4.sub { font-size: 17px; font-weight: 600; color: var(--accent); margin: 18px 0 10px; }
+  p.lead { color: var(--text-dim); font-size: 15.5px; line-height: 1.7; max-width: 840px; }
+  .quote {
+    border-left: 3px solid var(--accent);
+    padding: 10px 16px; margin: 16px 0;
+    background: var(--bg-1); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 14.5px; color: var(--text-dim);
+  }
+
+  /* responsive */
+  @media (max-width: 768px) {
+    body { font-size: 15px; }
+    .topbar { height: auto; padding: 12px 0; }
+    .topbar .wrap { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .title-h { font-size: 18px; }
+    .badges { margin-left: 0; }
+    .page-head h2 { font-size: 26px; }
+    .kv { grid-template-columns: 1fr; }
+    .kv dt { padding-top: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<header class="topbar">
+  <div class="wrap">
+    <div class="logo">cad-spec-gen</div>
+    <div class="title-h">
+      系统全景图<span class="v">v2 · 2026-05-15</span>
+    </div>
+    <div class="badges">
+      <span class="badge b-main">main @ 2ab0003</span>
+      <span class="badge b-version">v2.37.5 latest</span>
+      <span class="badge b-ci">CI 15/15 一次过</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ TAB NAV ============ -->
+<nav class="tabnav">
+  <div class="wrap">
+    <button data-tab="overview" class="active"><span class="ix">01</span>概览</button>
+    <button data-tab="pipeline"><span class="ix">02</span>6 阶段管线</button>
+    <button data-tab="progress"><span class="ix">03</span>进度时间线</button>
+    <button data-tab="evidence"><span class="ix">04</span>效果展示</button>
+    <button data-tab="method"><span class="ix">05</span>审查方法论</button>
+    <button data-tab="resources"><span class="ix">06</span>资源 / 术语</button>
+  </div>
+</nav>
+
+<!-- ============ PAGE 1: 概览 ============ -->
+<section id="overview" class="page active">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>概览</h2>
+        <p class="desc">从 CAD 设计文档到照片级渲染图，端到端 AI 增强 + LLM 评分自动验收闭环。</p>
+      </div>
+      <div class="num">~99% 完工 · 15 PR 连续一次过 CI</div>
+    </div>
+
+    <p class="lead mb">本项目把工程师的 <strong>设计文档</strong>（中文 Markdown）转换为可交付的 <strong>照片级 3D 渲染图</strong>，跨 6 阶段管线（spec → codegen → build → render → enhance → annotate/deliver），AI 评分自动验收闭环把人工 review 成本降至最低。Windows-only，CAD 后端走 SolidWorks/CadQuery，渲染走 Blender，AI 增强走多 backend（gemini/fal/comfyui/engineering），评分走 OpenAI 兼容 vision LLM。</p>
+
+    <!-- 关键指标 -->
+    <h3 class="sec">关键指标</h3>
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="label">CI 全套件 PASS</div>
+        <div class="value">3193<span class="unit">/ 17 skipped</span></div>
+        <div class="delta">↑ 0 regression（连续 v2.37.x 系列）</div>
+      </div>
+      <div class="stat amber">
+        <div class="label">连续 CI 8/8 一次过</div>
+        <div class="value">15<span class="unit">PR</span></div>
+        <div class="delta">PR #67-72 / #75-78 / #80-84</div>
+      </div>
+      <div class="stat green">
+        <div class="label">v2.37.x patch 系列</div>
+        <div class="value">v2.37.5<span class="unit">latest</span></div>
+        <div class="delta">v2.37.0 → v2.37.5 + GISBOT e2e</div>
+      </div>
+      <div class="stat violet">
+        <div class="label">真金 e2e 单 run cost</div>
+        <div class="value">$0.07<span class="unit">/ 7 视角</span></div>
+        <div class="delta">micuapi.ai gpt-image-2-pro 实测</div>
+      </div>
+    </div>
+
+    <!-- 项目定位 -->
+    <h3 class="sec">核心定位</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h3>北极星 5 gate</h3>
+        <div class="desc">任何新 plan 必过：<strong>零配置</strong> / <strong>稳定可靠</strong> / <strong>结果准确</strong> / <strong>SW 装即用</strong> / <strong>傻瓜式操作</strong>。session 6 用户拍板，5 项一票否决。</div>
+        <div class="meta"><span class="pill pill-blue">不变约束</span></div>
+      </div>
+      <div class="card">
+        <h3>Windows-only 范围</h3>
+        <div class="desc">SolidWorks 集成只支持 Windows；sw-smoke CI 跨平台只为 mock 不回归，不是跨平台产品路径。Linux/macOS 不在产品 scope。</div>
+        <div class="meta"><span class="pill pill-violet">范围限定</span></div>
+      </div>
+      <div class="card">
+        <h3>傻瓜式用户视角</h3>
+        <div class="desc">默认用户外行（工程师不是 AI 专家）；只问业务语义（"做一个升降平台"），不问技术选型；wizard / autopilot 把多步骤合一个命令。</div>
+        <div class="meta"><span class="pill pill-blue">UX 北极星</span></div>
+      </div>
+      <div class="card">
+        <h3>AI 不能补缺件</h3>
+        <div class="desc">AI 增强是"提质量"不是"造内容"。CAD 自制件几何必须由 CadQuery 真实生成；jury matches_spec 维度验证设计特征是否真在图里可见，<strong>禁止伪造照片级最终交付</strong>。</div>
+        <div class="meta"><span class="pill pill-rose">硬约束</span></div>
+      </div>
+    </div>
+
+    <!-- 当前焦点 -->
+    <h3 class="sec">当前焦点（2026-05-15）</h3>
+    <div class="quote">
+      v2.37.x 系列 patch cleanup（5 PR 已发，§12 follow-up 闭合 5 / 8 项）+ Tier 2 GISBOT 端到端真金 e2e 验证已落地。下一步选项：§12 残 3 项（f1/f2/f4）/ §11 新登 5 项（rebrand 工具 / jury --override-subsystem / 进度提示 / mojibake 防御 / 估价表校准）。
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGE 2: 6 阶段管线 ============ -->
+<section id="pipeline" class="page">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>6 阶段管线</h2>
+        <p class="desc">从 SPEC（人写中文 Markdown）到 DELIVER（外行可验收照片级交付），每阶段独立验证。</p>
+      </div>
+      <div class="num">点击 phase 卡片查看详情</div>
+    </div>
+
+    <div class="pipeline">
+      <div class="phase" data-phase="spec">
+        <div class="ph-ix">PHASE 01</div>
+        <div class="ph-name">SPEC</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 89%"></div></div>
+        <div class="ph-pct">~89%</div>
+      </div>
+      <div class="phase" data-phase="codegen">
+        <div class="ph-ix">PHASE 02</div>
+        <div class="ph-name">CODEGEN</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 86%"></div></div>
+        <div class="ph-pct">~86%</div>
+      </div>
+      <div class="phase" data-phase="build">
+        <div class="ph-ix">PHASE 03</div>
+        <div class="ph-name">BUILD</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 76%"></div></div>
+        <div class="ph-pct">~76%</div>
+      </div>
+      <div class="phase" data-phase="render">
+        <div class="ph-ix">PHASE 04</div>
+        <div class="ph-name">RENDER</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 82%"></div></div>
+        <div class="ph-pct">~82%</div>
+      </div>
+      <div class="phase" data-phase="enhance">
+        <div class="ph-ix">PHASE 05</div>
+        <div class="ph-name">ENHANCE</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 90%"></div></div>
+        <div class="ph-pct">~90%</div>
+      </div>
+      <div class="phase" data-phase="deliver">
+        <div class="ph-ix">PHASE 06</div>
+        <div class="ph-name">ANNOTATE / DELIVER</div>
+        <div class="ph-prog"><div class="ph-bar" style="width: 72%"></div></div>
+        <div class="ph-pct">~72%</div>
+      </div>
+    </div>
+
+    <!-- phase 详情面板（默认显示 spec） -->
+    <div id="phase-detail-spec" class="phase-detail shown">
+      <h4>PHASE 01 · SPEC — 人写中文设计文档</h4>
+      <p class="lead">工程师写一份 <code>CAD_SPEC.md</code>（中文），含产品意图、零件清单 BOM、装配关系、特征列表。<code>cad-spec-gen project-guide --product-goal "做升降平台"</code> 多轮渐进 wizard 帮忙补 KPI。</p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li><code>CAD_SPEC.md</code> — 设计意图 + BOM + features</li>
+            <li><code>DESIGN_REVIEW.json</code> — 5 角色自动审查</li>
+            <li><code>PROJECT_GUIDE.json</code> — 多轮 KPI 收集</li>
+            <li><code>matches_spec_features.json</code> — v2.37 加，jury 评分对账用</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">v2.37 关键改进</div>
+          <ul>
+            <li>feature_extractor 从 spec 抽 12 features（per-process 1 次 cache）</li>
+            <li>jury 评分对账 matches_spec 维度</li>
+            <li>FAIL → MATCHES_SPEC_TODO.md + 自动 retry 闭环</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="phase-detail-codegen" class="phase-detail">
+      <h4>PHASE 02 · CODEGEN — Spec → Python 参数化模型</h4>
+      <p class="lead">从 CAD_SPEC.md 自动生成 CadQuery / Build123d 脚本（<code>params.py</code> + <code>build_all.py</code>），调用模型库（GB/JIS/DIN 标准件 + 自制件几何）。</p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li><code>params.py</code> + <code>build_all.py</code></li>
+            <li>jinja_primitive 生成 elastic/locating/transmission</li>
+            <li>5 批模型库（标准件 + 自制件，GB 330 件 STEP 缓存）</li>
+            <li>SW Toolbox 路由命中（v2.17 后 sw_toolbox available）</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">质量大修 v1 (v2.36)</div>
+          <ul>
+            <li>自制件 hand-completed envelope 自检</li>
+            <li><code>custom_parts_audit.py</code> 503 行审计 + 12 测试</li>
+            <li>cad_pipeline build 强制门禁</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="phase-detail-build" class="phase-detail">
+      <h4>PHASE 03 · BUILD — 几何构建 + 装配校验</h4>
+      <p class="lead">CadQuery 跑 build_all.py 产 <code>STEP</code> + <code>GLB</code>；assembly placement 计算每件 world transform；GATE-3.5 装配校验防 placement collapse。</p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li>STEP 文件（每件 + 装配体）</li>
+            <li>GLB 文件（Blender 渲染输入）</li>
+            <li><code>ASSEMBLY_REPORT.json</code> — placement / 实例 / instance_id</li>
+            <li>2D 工程图（GB/T 标准）</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">关键 gate</div>
+          <ul>
+            <li>GATE-3.5 placement_collapse_detect</li>
+            <li>envelope_vs_bbox 自制件契约校验</li>
+            <li>chain_of_custody BOM → GLB 件数对齐</li>
+            <li>scaffold_marker_scan 未完工标记扫描</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="phase-detail-render" class="phase-detail">
+      <h4>PHASE 04 · RENDER — Blender 7 视角渲染</h4>
+      <p class="lead">Blender 渲染 7 标准视角（front_iso / rear_oblique / side / exploded / ortho / cross_section / section_side），用 SW Toolbox 真材质（如有）或 PBR 替代。<code>render_manifest.json</code> 记 visible_instance_ids 作多视角实例证据。</p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li><code>V1-V7_*.png</code> — 7 视角 1920×1080</li>
+            <li><code>render_manifest.json</code> v2 — 多视角 evidence</li>
+            <li>RENDER_QUALITY_REPORT.json</li>
+            <li>RENDER_VISUAL_REGRESSION.json — 缺件证据 blocker</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">v2.35 队列 C/D</div>
+          <ul>
+            <li>render_manifest 视角级 visible_instance_ids</li>
+            <li>缺件 → contract blocker（render_visual_regression）</li>
+            <li>路径 hash 防 stale evidence</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="phase-detail-enhance" class="phase-detail">
+      <h4>PHASE 05 · ENHANCE — AI 照片级增强 + jury 闭环</h4>
+      <p class="lead">渲染图 → AI backend 增强（gemini_chat_image / fal / comfyui / engineering 4 backend）→ vision LLM 评分（jury）→ 分数 &lt; 60 阈值按反馈自动重试一次 → 选高分张交付。<strong>SP1 jury→prompt 闭环已完工 CP-0~CP-8。</strong></p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li><code>V*_enhanced.jpg</code> — 照片级</li>
+            <li><code>ENHANCEMENT_REPORT.json</code> + loop_summary</li>
+            <li><code>&lt;V&gt;_enhance_meta.json</code> — 视角明细单</li>
+            <li><code>PHOTO3D_JURY_REPORT.json</code> — vision LLM 评分</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">jury 评分 6 维度</div>
+          <ul>
+            <li>geometry_preserved（measured）</li>
+            <li>material_consistent（measured）</li>
+            <li>photorealistic（measured，阈值 60）</li>
+            <li>no_extra_parts / no_missing_parts</li>
+            <li><strong>matches_spec</strong>（derived，v2.37 加）</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="phase-detail-deliver" class="phase-detail">
+      <h4>PHASE 06 · ANNOTATE + DELIVER — 标注 + 外行验收</h4>
+      <p class="lead">labeled cn/en 自动标注 7 视角；<code>photo3d-deliver</code> 打包 delivery/README.md 外行验收页（头条徽章 + 内嵌图 + 复核状态表 + 下一步）。</p>
+      <div class="pd-grid">
+        <div class="pd-section">
+          <div class="lab">关键产物</div>
+          <ul>
+            <li><code>V*_labeled_cn.jpg</code> + <code>V*_labeled_en.jpg</code></li>
+            <li><code>delivery/</code> 包（含 README.md 外行验收页）</li>
+            <li><code>DELIVERY_PACKAGE.json</code> — 含 view_evidence 字段</li>
+            <li>blocking_reasons / model_quality_summary</li>
+          </ul>
+        </div>
+        <div class="pd-section">
+          <div class="lab">v2.35 队列 D</div>
+          <ul>
+            <li>delivery/README.md 重写为外行验收页</li>
+            <li>头条徽章 + 内嵌 enhanced 图 + 复核状态表</li>
+            <li>view_evidence 字段（每视角可见 instance ids）</li>
+            <li>下一步决策树（blocking / preview / accepted）</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGE 3: 进度时间线 ============ -->
+<section id="progress" class="page">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>进度时间线</h2>
+        <p class="desc">v2.37 系列 cleanup 周期（spec → plan → execute → review → merge），连续 15 PR 一次过 CI。</p>
+      </div>
+      <div class="num">2026-05-12 → 2026-05-15</div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-item major">
+        <div class="tl-meta">2026-05-15 · PR #84 merged @ 2ab0003</div>
+        <div class="tl-title">Tier 2 GISBOT 端到端 photo3d-jury 真金 e2e</div>
+        <div class="tl-desc">跑通 D:/Work/cad-tests/GISBOT 端到端 photo3d-jury 全流程：status=preview / cost $0.07 / 7 LLM calls all HTTP 200 / overall_matches_spec=True。3 docs 进 git，0 production 改，不发 tag。沉淀 6 lessons + §11 follow-up 5 新登（rebrand 工具 / --override-subsystem / 进度提示 / mojibake / 估价表校准 2×）。</div>
+        <div class="tl-tags"><span class="tl-tag">真金 e2e</span><span class="tl-tag">$0.07</span><span class="tl-tag">7 views</span></div>
+      </div>
+
+      <div class="tl-item major">
+        <div class="tl-meta">2026-05-15 · v2.37.5 @ 27b2c5c</div>
+        <div class="tl-title">CLAUDE.md 项目术语 glossary（§12 f3 cleanup）</div>
+        <div class="tl-desc">CLAUDE.md（always-loaded context）末尾加 §"项目术语 glossary" 10 项核心术语（北极星 5 gate / canonical-mirror / pure refactor / 5 层 + 1 scout 等）+ disclaimer + 新增术语门槛治理规则。CLAUDE.md 83 → 113 行。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.5</span><span class="tl-tag">10 terms</span></div>
+      </div>
+
+      <div class="tl-item major">
+        <div class="tl-meta">2026-05-14 · v2.37.4 @ 5f074f5</div>
+        <div class="tl-title">cad-jury-config.md §12+§13 输出字段语义 + 版本承诺</div>
+        <div class="tl-desc">§12 PHOTO3D_JURY_REPORT 6 字段对照表（5 measured + 1 derived matches_spec）+ FAQ"5 项全 False 但 matches_spec=True 是兜底语义"。§13 v2.37.x 版本承诺（schema_version=1 不变 / DISABLE_LLM=1 唯一 kill switch / v2.37.0 起存档零迁移）+ 边界澄清下限 v2.36 / 上限 v2.38.0。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.4</span><span class="tl-tag">§12 f5+f6</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-14 · v2.37.3 @ a5f8c95</div>
+        <div class="tl-title">mock helper 抽取 + max_tokens line rationale</div>
+        <div class="tl-desc">F1 `_get_urlopen_request(m)` test helper 消除 2 处 `m.call_args[0][0]` 解构耦合。F2 `tools/jury/llm_client.py:106` 注释加 1 行实测 ~800 token / 2× 余量 rationale。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.3</span><span class="tl-tag">§12 F1+F2</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-14 · v2.37.2 @ 82ecd7a</div>
+        <div class="tl-title">_make_needs_review_verdict 6-key + max_tokens 1024</div>
+        <div class="tl-desc">§11 #1 修 helper 返回 5→6 key（matches_spec=True 与 aggregate `.get(default=True)` 等价）。§11 #6 max_tokens 512→1024 防 features_status 截断（micuapi.ai 实测 9/12 features_status 被截）。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.2</span><span class="tl-tag">§11 #1+#6</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-14 · v2.37.1 @ c1ac1ab</div>
+        <div class="tl-title">第三方代理兼容 hotfix</div>
+        <div class="tl-desc">2 真 bug 修：(a) urllib 默认 UA `Python-urllib/3.x` 被 micuapi.ai anti-bot 403 拦 → 加显式 `User-Agent: cad-spec-gen-jury`；(b) LLM JSON 输出含 markdown 围栏 `\`\`\`json...\`\`\`` → 加 `_strip_markdown_fence` helper。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.1</span><span class="tl-tag">2 真 bug</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-13 · v2.37.0 @ 12e4deb</div>
+        <div class="tl-title">jury matches_spec 维度（设计文档语义对账）</div>
+        <div class="tl-desc">photo3d-jury 加第 6 维度 `matches_spec`：vision LLM 看设计文档 12 features 是否在图里可见。FAIL → MATCHES_SPEC_TODO.md + DELIVERY_PACKAGE.json status=blocked + 自动 retry 闭环。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.37.0</span><span class="tl-tag">主功能</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-13 · v2.36.0/.1 @ d7d2580</div>
+        <div class="tl-title">自制件质量大修 v1</div>
+        <div class="tl-desc">CP-1 自制件几何手工补完 + CP-2 自制件审计工具 503 行（envelope_vs_bbox / chain_of_custody / scaffold_marker_scan / placement_collapse_detect）+ cad_pipeline build 强制门禁。v2.36.1 latent bug 修 `_offset_from_instance` 空 dict 短路。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.36.x</span><span class="tl-tag">CP-1+CP-2</span></div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-meta">2026-05-12 · v2.35.0 @ 6bb2737</div>
+        <div class="tl-title">render_manifest 多视角实例证据 + delivery README 外行验收页</div>
+        <div class="tl-desc">队列 C：render_manifest v2 加 visible_instance_ids（每视角可见实例 ids）+ contract blocker 防少件。队列 D：delivery/README.md 重写外行验收页（头条徽章 + 内嵌图 + 复核状态表）+ DELIVERY_PACKAGE.json 加 view_evidence 字段。</div>
+        <div class="tl-tags"><span class="tl-tag">v2.35.0</span><span class="tl-tag">队列 C+D</span></div>
+      </div>
+    </div>
+
+    <h3 class="sec mt">§12 follow-up 闭合状态</h3>
+    <table class="t">
+      <thead><tr><th>项</th><th>内容</th><th>状态</th><th>PR</th></tr></thead>
+      <tbody>
+        <tr><td><code>F1</code></td><td>mock helper 抽取</td><td><span class="pill pill-green">closed</span></td><td>v2.37.3 / #81</td></tr>
+        <tr><td><code>F2</code></td><td>line 105 注释扩 rationale</td><td><span class="pill pill-green">closed</span></td><td>v2.37.3 / #81</td></tr>
+        <tr><td><code>f3</code></td><td>CLAUDE.md spec mini-glossary</td><td><span class="pill pill-green">closed</span></td><td>v2.37.5 / #83</td></tr>
+        <tr><td><code>f5</code></td><td>cad-jury-config §12 输出字段语义</td><td><span class="pill pill-green">closed</span></td><td>v2.37.4 / #82</td></tr>
+        <tr><td><code>f6</code></td><td>cad-jury-config §13 版本承诺</td><td><span class="pill pill-green">closed</span></td><td>v2.37.4 / #82</td></tr>
+        <tr><td><code>f1</code></td><td>max_tokens sunset 条件</td><td><span class="pill pill-amber">未闭合</span></td><td>—</td></tr>
+        <tr><td><code>f2</code></td><td>spec memory inline 摘要</td><td><span class="pill pill-amber">未闭合</span></td><td>—</td></tr>
+        <tr><td><code>f4</code></td><td>N≥50 批量成本评估</td><td><span class="pill pill-amber">未闭合</span></td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ PAGE 4: 效果展示 ============ -->
+<section id="evidence" class="page">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>效果展示 — GISBOT e2e 实测</h2>
+        <p class="desc">v2.36 自制件质量大修 end_effector 子系统，7 视角 photo3d-jury 真金评分（micuapi.ai gpt-image-2-pro，cost $0.07）。</p>
+      </div>
+      <div class="num">2026-05-13 enhanced · 2026-05-15 jury</div>
+    </div>
+
+    <!-- 效果对比：raw enhanced 对照 -->
+    <h3 class="sec">未标注 enhanced 渲染图（示例：V1 front_iso）</h3>
+    <div class="gallery">
+      <div class="gal-item" data-img="assets/system-overview/V1_enhanced_raw.jpg">
+        <img src="assets/system-overview/V1_enhanced_raw.jpg" alt="V1 front_iso raw enhanced" loading="lazy">
+        <div class="gal-meta">
+          <div class="gal-name">V1 · front_iso（未标注）</div>
+          <div class="gal-sub">Blender 渲染 → AI 增强 → 照片级</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- jury 真金评分 -->
+    <h3 class="sec">jury 真金评分（micuapi.ai · gpt-image-2-pro · 7 视角 / $0.07）</h3>
+    <div style="background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px;">
+      <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+        <div style="font-size:18px;font-weight:600;color:var(--text);">总评 status</div>
+        <span class="pill pill-amber" style="font-size:14px;padding:4px 14px;">preview</span>
+        <div style="color:var(--text-dim);font-size:14px;">7 视角 photoreal_score 均 35-45 < 60 阈值；semantic_checks 5/6 全 pass（仅 photorealistic=False 因 score &lt; 阈值）</div>
+      </div>
+      <div style="margin: 18px 0;">
+        <div class="metric-row"><span class="mr-name">V1 · front_iso</span><div class="mr-bar"><div class="mr-fill mid" style="width:67%"></div></div><span class="mr-val">40 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V2 · rear_oblique</span><div class="mr-bar"><div class="mr-fill mid" style="width:67%"></div></div><span class="mr-val">40 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V3 · side_elevation</span><div class="mr-bar"><div class="mr-fill mid" style="width:58%"></div></div><span class="mr-val">35 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V4 · exploded</span><div class="mr-bar"><div class="mr-fill mid" style="width:67%"></div></div><span class="mr-val">40 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V5 · ortho_front</span><div class="mr-bar"><div class="mr-fill mid" style="width:58%"></div></div><span class="mr-val">35 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V6 · cross_section</span><div class="mr-bar"><div class="mr-fill mid" style="width:75%"></div></div><span class="mr-val">45 / 100</span></div>
+        <div class="metric-row"><span class="mr-name">V7 · section_side</span><div class="mr-bar"><div class="mr-fill mid" style="width:75%"></div></div><span class="mr-val">45 / 100</span></div>
+      </div>
+      <dl class="kv mt">
+        <dt>overall_matches_spec</dt><dd><span class="pill pill-green">True</span> · 12 features 全在图里可见</dd>
+        <dt>deterministic_gate</dt><dd><span class="pill pill-green">passed</span></dd>
+        <dt>n_calls / retries</dt><dd>7 / 0 · 全 first attempt HTTP 200 / 平均 latency ~15s/view</dd>
+        <dt>actual_cost</dt><dd><code>$0.07</code> USD（budget $0.20，2.5× 余量）</dd>
+        <dt>vendor</dt><dd>micuapi.ai · model <code>gpt-image-2-pro</code></dd>
+      </dl>
+    </div>
+
+    <!-- 7 视角标注图 grid -->
+    <h3 class="sec">7 视角自动标注交付图（中文）</h3>
+    <p class="lead mb">labeled cn/en 是 deliver 阶段自动产物；BOM 件号叠在 enhanced 图上方便外行核对。点击图查看大图。</p>
+
+    <div class="gallery">
+      <div class="gal-item" data-img="assets/system-overview/V1_front_iso_20260513_1959_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V1_front_iso_20260513_1959_20260513_2006_enhanced_labeled_cn.jpg" alt="V1" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V1 · front_iso · 标注 cn</div><div class="gal-sub">photoreal 40 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V2_rear_oblique_20260513_2000_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V2_rear_oblique_20260513_2000_20260513_2006_enhanced_labeled_cn.jpg" alt="V2" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V2 · rear_oblique · 标注 cn</div><div class="gal-sub">photoreal 40 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V3_side_elevation_20260513_2001_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V3_side_elevation_20260513_2001_20260513_2006_enhanced_labeled_cn.jpg" alt="V3" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V3 · side_elevation · 标注 cn</div><div class="gal-sub">photoreal 35 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V4_exploded_20260513_2002_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V4_exploded_20260513_2002_20260513_2006_enhanced_labeled_cn.jpg" alt="V4" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V4 · exploded · 标注 cn</div><div class="gal-sub">photoreal 40 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V5_ortho_front_20260513_2002_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V5_ortho_front_20260513_2002_20260513_2006_enhanced_labeled_cn.jpg" alt="V5" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V5 · ortho_front · 标注 cn</div><div class="gal-sub">photoreal 35 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V6_cross_section_20260513_2004_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V6_cross_section_20260513_2004_20260513_2006_enhanced_labeled_cn.jpg" alt="V6" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V6 · cross_section · 标注 cn</div><div class="gal-sub">photoreal 45 / matches_spec ✓</div></div>
+      </div>
+      <div class="gal-item" data-img="assets/system-overview/V7_section_side_20260513_2005_20260513_2006_enhanced_labeled_cn.jpg">
+        <img src="assets/system-overview/V7_section_side_20260513_2005_20260513_2006_enhanced_labeled_cn.jpg" alt="V7" loading="lazy">
+        <div class="gal-meta"><div class="gal-name">V7 · section_side · 标注 cn</div><div class="gal-sub">photoreal 45 / matches_spec ✓</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGE 5: 审查方法论 ============ -->
+<section id="method" class="page">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>审查方法论</h2>
+        <p class="desc">spec → plan → execute → review → merge 全程纪律。连续 15 PR 一次过 CI 8/8 的工程实证。</p>
+      </div>
+      <div class="num">superpowers + 6 层 review</div>
+    </div>
+
+    <h3 class="sec">5 层 + 1 scout 审查（spec ≥ 100 行默认走）</h3>
+    <p class="lead mb">每层抓不同 bug 类别。layer 1-4 静态分析；layer 5 是 5 角色并行 adversarial；layer 6 是 writing-plans 入口 scout grep 实际代码验证 spec 假设。</p>
+
+    <div class="method-flow">
+      <div class="method-step">
+        <div class="ms-num">1</div>
+        <div class="ms-name">Self-review</div>
+        <div class="ms-desc">写完 spec 4 项 inline check：placeholder / 内部一致 / scope / ambiguity</div>
+      </div>
+      <div class="method-step">
+        <div class="ms-num">2</div>
+        <div class="ms-name">Cynical re-read</div>
+        <div class="ms-desc">改完是否变差？隐性副作用 / 副效应</div>
+      </div>
+      <div class="method-step">
+        <div class="ms-num">3</div>
+        <div class="ms-name">Code-spec 对照</div>
+        <div class="ms-desc">spec 引用真假事实 grep + Read 验证</div>
+      </div>
+      <div class="method-step">
+        <div class="ms-num">4</div>
+        <div class="ms-name">Edge-case hunter</div>
+        <div class="ms-desc">method-driven 路径枚举边界条件，只报 unhandled paths</div>
+      </div>
+      <div class="method-step">
+        <div class="ms-num">5</div>
+        <div class="ms-name">5 角色 + dry-run</div>
+        <div class="ms-desc">Murphy 悲观 / 1 年后维护者 / SRE / QA / holistic dry-run</div>
+      </div>
+      <div class="method-step">
+        <div class="ms-num">6</div>
+        <div class="ms-name">writing-plans scout</div>
+        <div class="ms-desc">进 plan 前 grep 真实代码 hardcode 验证 spec 假设</div>
+      </div>
+    </div>
+
+    <h3 class="sec">subagent-driven 执行流</h3>
+    <p class="lead mb">主 agent 每 plan task 派发 fresh subagent；2 阶段 review（spec compliance + code quality）；fresh context 防污染。15 PR 连续一次过 CI 实证。</p>
+
+    <table class="t">
+      <thead><tr><th>阶段</th><th>角色</th><th>关键产物</th><th>纪律</th></tr></thead>
+      <tbody>
+        <tr><td>brainstorming</td><td>主 agent</td><td>spec doc / 设计决策表 D1-Dn</td><td>HARD-GATE 必走 / 一次问一个 / YAGNI</td></tr>
+        <tr><td>writing-plans</td><td>主 agent</td><td>plan 含 4-7 task / 每 step 2-5 min</td><td>无 placeholder / type consistency / spec coverage</td></tr>
+        <tr><td>execute Task N</td><td>fresh subagent</td><td>code + test commit</td><td>TDD RED→GREEN→REFACTOR / 显式 R 步</td></tr>
+        <tr><td>spec compliance review</td><td>fresh subagent</td><td>✅ / ❌ findings</td><td>不信 implementer report / 独立 grep 验证</td></tr>
+        <tr><td>code quality review</td><td>fresh subagent</td><td>Strengths / Issues / Assessment</td><td>spec compliance ✓ 后才跑</td></tr>
+        <tr><td>merge + retro</td><td>主 agent</td><td>PR + retro doc + memory</td><td>lesson 沉淀进 memory 跨 PR 复用</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sec mt">TDD 三步铁律</h3>
+    <div class="card-grid">
+      <div class="card">
+        <h3>RED · 先写失败测试</h3>
+        <div class="desc">禁止跳步直接写实现代码；先 assertion 锁定行为，pytest -v 验证 FAILED。</div>
+      </div>
+      <div class="card">
+        <h3>GREEN · 最小实现</h3>
+        <div class="desc">测试通过后不得多写额外逻辑；YAGNI 严格执行；spec 没要求的不做。</div>
+      </div>
+      <div class="card">
+        <h3>REFACTOR · 显式 R 步</h3>
+        <div class="desc">scope 小可标"REFACTOR: 无冗余可清，跳过"；commit message 必含 R 步声明，防"测试通过即停手"。</div>
+      </div>
+    </div>
+
+    <h3 class="sec">plan-drift 5 分类（实施期常踩）</h3>
+    <table class="t">
+      <thead><tr><th>类别</th><th>典型表现</th><th>防御</th></tr></thead>
+      <tbody>
+        <tr><td>(a) API 不存在</td><td>spec 引用的 function/class 实际不存在</td><td>plan task 0 grep 验证</td></tr>
+        <tr><td>(b) 路径假设错</td><td>spec 写 `cad/<sub>/` 实际是 `01_spec/`</td><td>plan task 0 cat 实测 JSON schema</td></tr>
+        <tr><td>(c) 测试 helper 误用</td><td>抄 fixture 但 conftest 不收 / marker 未注册</td><td>看 conftest + pyproject markers 再用</td></tr>
+        <tr><td>(d) 实现细节 bug</td><td>逻辑错 / 边界处理漏</td><td>edge-case hunter + 5 角色 review</td></tr>
+        <tr><td>(e) 参数签名漂</td><td>spec 给 kwargs 实际是 positional</td><td>grep 实际 signature 验证</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ PAGE 6: 资源 / 术语 ============ -->
+<section id="resources" class="page">
+  <div class="wrap">
+    <div class="page-head">
+      <div>
+        <h2>资源 / 术语</h2>
+        <p class="desc">v2.37.5 加进 CLAUDE.md 的 10 项核心术语 + 文档地图。</p>
+      </div>
+      <div class="num">v2.37.5 glossary</div>
+    </div>
+
+    <h3 class="sec">10 项核心术语 glossary（CLAUDE.md 同步）</h3>
+    <div class="card-grid">
+      <div class="card"><h3>1 · 北极星 5 gate</h3><div class="desc">零配置 / 稳定可靠 / 结果准确 / SW 装即用 / 傻瓜式操作。任何新 plan 必过。</div></div>
+      <div class="card"><h3>2 · v2.25+ tag-only release</h3><div class="desc">纯 git tag + GitHub Release notes 发布；不 bump <code>pyproject.toml</code>（停留 <code>2.24.0</code>）。用户 <code>pip install git+https://...@vX.Y.Z</code>。</div></div>
+      <div class="card"><h3>3 · canonical / mirror</h3><div class="desc"><code>tools/jury/*.py</code> = canonical（git tracked）；<code>src/cad_spec_gen/data/tools/jury/*.py</code> = mirror（gitignored，<code>scripts/dev_sync.py</code> 同步）。hatch_build COPY_DIRS 打包。</div></div>
+      <div class="card"><h3>4 · §11 vs §12 follow-up 轨道</h3><div class="desc">§11 = 项目级 STATUS doc follow-up；§12 = 单 spec PR-self follow-up。两个独立轨道不混。</div></div>
+      <div class="card"><h3>5 · pure refactor / no-RED phase</h3><div class="desc">refactor 或 docs-only PR 用既有测试作 GREEN safety net；TDD R-only 模式；commit body 必显式标注。</div></div>
+      <div class="card"><h3>6 · 5 层 + 1 scout 审查</h3><div class="desc">spec ≥ 100 行默认跑：self / cynical / code-spec / edge-case / 5 角色 + dry-run 五层 + writing-plans 入口 scout grep。</div></div>
+      <div class="card"><h3>7 · subagent-driven 模式</h3><div class="desc">主 agent 每 task 派发 fresh subagent + 2 阶段 review（spec compliance + code quality）；连续 15 PR 一次过 CI 实证。</div></div>
+      <div class="card"><h3>8 · layer 6 grep AC predicates</h3><div class="desc">spec AC 用 exclusion-zone（<code>grep -v</code>）或 indent-anchor；OR pattern 用 <code>grep -cE "X|Y"</code> 显式 ERE 跨平台可靠。</div></div>
+      <div class="card"><h3>9 · sw-smoke CI flake</h3><div class="desc"><code>sw-smoke.yml</code> 的 <code>actions/upload-artifact@v7</code> 步是已知 transient flake；与 <code>tests.yml</code> 8 job release gate 无关。</div></div>
+      <div class="card"><h3>10 · plan-drift 5 分类</h3><div class="desc">spec 写时假设漂移：(a) API 不存在 (b) 路径假设错 (c) 测试 helper 误用 (d) 实现细节 bug (e) 参数签名。plan 第 0 task scout grep 防御。</div></div>
+    </div>
+
+    <h3 class="sec">关键文档地图</h3>
+    <table class="t">
+      <thead><tr><th>类别</th><th>路径</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>项目规范</td><td><code>CLAUDE.md</code></td><td>开发流程 / TDD / 中文规范 / 术语 glossary</td></tr>
+        <tr><td>用户 doc</td><td><code>docs/cad-jury-config.md</code></td><td>jury 配置 + §12 输出语义 + §13 版本承诺</td></tr>
+        <tr><td>用户 doc</td><td><code>docs/jury-loop-config.md</code></td><td>enhance.jury_loop 自动重试闭环</td></tr>
+        <tr><td>用户 doc</td><td><code>docs/cad-help-guide-zh.md</code></td><td>cad-spec-gen 完整用户指南（中文）</td></tr>
+        <tr><td>设计</td><td><code>docs/superpowers/specs/</code></td><td>每 feature 一份 design doc</td></tr>
+        <tr><td>实施</td><td><code>docs/superpowers/plans/</code></td><td>每 spec 一份 plan doc（4-7 task）</td></tr>
+        <tr><td>沉淀</td><td><code>docs/superpowers/reports/</code></td><td>每 PR 一份 retro doc（lessons + §11/§12 follow-up）</td></tr>
+        <tr><td>STATUS</td><td><code>docs/superpowers/JURY_MATCHES_SPEC_STATUS.md</code></td><td>v2.37 jury 模块累计 status + §11 follow-up 表</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sec mt">memory 索引</h3>
+    <p class="lead">主 agent session memory 在 <code>~/.claude/projects/D--Work-cad-spec-gen/memory/</code>（本仓 maintainer 本机；其他开发者本机路径相对应）。<code>MEMORY.md</code> 是索引，每条 memory 一行。关键近期：</p>
+    <ul style="margin-top:14px;list-style:none;">
+      <li style="padding:6px 0;"><code>project_gisbot_jury_e2e_done.md</code> — 2026-05-15 Tier 2 GISBOT 真金 e2e</li>
+      <li style="padding:6px 0;"><code>project_v2_37_5_done.md</code> — 2026-05-15 CLAUDE.md glossary</li>
+      <li style="padding:6px 0;"><code>project_v2_37_4_done.md</code> — 2026-05-14 cad-jury-config §12+§13</li>
+      <li style="padding:6px 0;"><code>project_v2_37_3_done.md</code> — 2026-05-14 mock helper + line rationale</li>
+      <li style="padding:6px 0;"><code>project_v2_37_2_done.md</code> — 2026-05-14 6-key + max_tokens 1024</li>
+      <li style="padding:6px 0;"><code>project_north_star.md</code> — 北极星 5 gate 拍板源</li>
+      <li style="padding:6px 0;"><code>feedback_spec_review_4layers.md</code> — spec ≥ 100 行 4 层审查</li>
+      <li style="padding:6px 0;"><code>feedback_subagent_driven_main_agent_scouts.md</code> — scout grep 教训</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    cad-spec-gen 系统全景图 v2 · 生成于 2026-05-15 · main @ <code>2ab0003</code> · v2.37.5<br>
+    超过 1500 行 spec/plan/retro doc 沉淀；超过 3193 测试 PASS；连续 15 个 PR 一次过 CI 8/8。
+  </div>
+</footer>
+
+<!-- ============ LIGHTBOX ============ -->
+<div class="lightbox" id="lightbox">
+  <div class="close">×</div>
+  <img id="lightbox-img" src="" alt="" />
+</div>
+
+<script>
+  // ============ TAB NAV ============
+  const tabs = document.querySelectorAll('.tabnav button');
+  const pages = document.querySelectorAll('section.page');
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tab;
+      tabs.forEach(b => b.classList.toggle('active', b === btn));
+      pages.forEach(p => p.classList.toggle('active', p.id === target));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  // ============ PIPELINE PHASE TOGGLE ============
+  const phases = document.querySelectorAll('.phase');
+  const details = document.querySelectorAll('.phase-detail');
+  phases.forEach(ph => {
+    ph.addEventListener('click', () => {
+      const target = ph.dataset.phase;
+      phases.forEach(p => p.classList.toggle('active', p === ph));
+      details.forEach(d => d.classList.toggle('shown', d.id === 'phase-detail-' + target));
+    });
+  });
+  // default: spec active
+  document.querySelector('.phase[data-phase="spec"]').classList.add('active');
+
+  // ============ LIGHTBOX ============
+  const lb = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  document.querySelectorAll('.gal-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const src = item.dataset.img;
+      lbImg.src = src;
+      lb.classList.add('shown');
+    });
+  });
+  lb.addEventListener('click', () => lb.classList.remove('shown'));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') lb.classList.remove('shown');
+  });
+
+  // ============ KEYBOARD NAV (1-6) ============
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= 6) {
+      tabs[n - 1].click();
+    }
+  });
+</script>
+
+</body>
+</html>

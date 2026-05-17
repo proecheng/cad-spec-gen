@@ -297,7 +297,7 @@ class BdWarehouseAdapter(PartsAdapter):
             m = re.search(rx, text)
             if m:
                 d = float(m.group(1))
-                l = float(m.group(2))
+                l = float(m.group(2))  # noqa: F841  # 超规则 残留
                 pitch_map = {1.6: 0.35, 2: 0.4, 2.5: 0.45, 3: 0.5,
                              4: 0.7, 5: 0.8, 6: 1.0, 8: 1.25,
                              10: 1.5, 12: 1.75, 14: 2.0, 16: 2.0,

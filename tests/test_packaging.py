@@ -132,7 +132,7 @@ def test_wheel_install_smoke(tmp_path):
     else:
         pip_exe = venv_dir / "bin" / "pip"
         cad_lib_exe = venv_dir / "bin" / "cad-lib"
-        python_exe = venv_dir / "bin" / "python"
+        python_exe = venv_dir / "bin" / "python"  # noqa: F841  # 测试 保留
 
     # Install the wheel into the fresh venv
     install_result = subprocess.run(

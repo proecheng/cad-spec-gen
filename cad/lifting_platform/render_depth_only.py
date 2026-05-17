@@ -259,7 +259,7 @@ def main():
                 bpy.data.objects.remove(obj, do_unlink=True)
 
         # Setup camera (pass full config for frame_fill)
-        cam_obj = setup_camera(scene, cam_preset, bounding_r, config)
+        cam_obj = setup_camera(scene, cam_preset, bounding_r, config)  # noqa: F841  # 占位 保留
 
         log.info("Rendering depth: %s", view_key)
         setup_depth_compositor(scene, output_exr)

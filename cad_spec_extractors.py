@@ -409,7 +409,7 @@ def extract_tolerances(lines: list) -> dict:
         param_i = next((i for i, c in enumerate(cols) if "参数" in c or "尺寸" in c), 0)
         val_i = next((i for i, c in enumerate(cols) if "值" in c or "设计" in c), 1)
         tol_i = next((i for i, c in enumerate(cols) if "公差" in c or "偏差" in c), -1)
-        remark_i = next((i for i, c in enumerate(cols) if "说明" in c or "备注" in c), -1)
+        remark_i = next((i for i, c in enumerate(cols) if "说明" in c or "备注" in c), -1)  # noqa: F841  # 超规则 残留
 
         for row in tbl["rows"]:
             if len(row) <= param_i:
@@ -989,7 +989,7 @@ def extract_part_features(lines: list, bom_parts: list) -> dict:
             ]
         }
     """
-    text = "\n".join(lines)
+    text = "\n".join(lines)  # noqa: F841  # 超规则 残留
     features_by_part = {}
 
     # Build part name lookup for fuzzy matching

@@ -36,7 +36,8 @@ def mock_sw_detect(monkeypatch):
     fake_info = mock.MagicMock()
     fake_info.version_year = 24
     fake_info.toolbox_dir = "C:\\SOLIDWORKS Data\\Toolbox"
-    _fake_detect = lambda: fake_info
+    def _fake_detect():
+        return fake_info
     monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
     # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
     monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -254,7 +255,8 @@ class TestIntegrationBrokerToCacheChain:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24  # 新版本
         fake_info.toolbox_dir = "C:/new"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)

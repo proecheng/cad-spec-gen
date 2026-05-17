@@ -60,7 +60,7 @@ def end_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 
 
 def draw_guide_shaft_sheet(output_dir: str) -> str:
-    scale = 1.0
+    scale = 1.0  # noqa: F841  # 占位 保留
     sheet = ThreeViewSheet(
         part_no="SLP-P02",
         name="导向轴",
