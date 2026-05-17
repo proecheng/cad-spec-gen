@@ -16,6 +16,7 @@ BOM: SLP-P01 丝杠 L350
 └──────────────────────────────────────────────────────────────────────────┘
 """
 
+# ruff: noqa: F403, F405
 import cadquery as cq
 from params import *
 
