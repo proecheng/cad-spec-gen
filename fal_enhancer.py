@@ -157,21 +157,27 @@ def _upload_with_retry(file_path, max_retries=3):
 def _find_depth_for_png(png_path):
     """Locate the depth EXR/PNG corresponding to a render PNG.
 
-    Search order:
-    1. {stem}_depth_.exr (Blender render pass output)
-    2. {stem}_depth.png (pre-converted)
-    3. {dir}/V{N}_depth_*.exr (glob pattern)
+    Search strategy:
+    - Glob `{dir}/*depth*.exr` filtered by view-key prefix (V1, V2, etc.) →
+      convert matched EXR to a temp PNG via convert_depth_exr_to_png.
+    - Fallback: glob `{dir}/*depth*.png` filtered by view-key → return as-is.
+
+    The view-key (parsed from the leading underscore-segment of the PNG basename,
+    e.g. "V1_front_iso.png" → "V1") is the disambiguator: a V1 PNG only matches
+    V1_*depth*.exr, not V2_*depth*.
 
     Returns (depth_png_path, is_temp) or (None, False).
+
+    Note (§11-N5 v2.37.13a triage): an earlier docstring promised "Step 1 exact
+    match by reconstructed {stem}_depth_ prefix + Step 2 glob fallback" but
+    Step 1 was never implemented; only Step 2's wide glob + view_key filter
+    ran. The dead prefix-construction (`exr_exact = ...`) and its noqa: F841
+    were removed since the wide-glob path is functionally complete.
     """
     import glob as _glob
 
-    stem = os.path.splitext(png_path)[0]
     render_dir = os.path.dirname(png_path)
 
-    # 1. Exact match: {stem}_depth_.exr
-    exr_exact = stem.replace(os.path.basename(stem),  # noqa: F841  # 超规则 残留
-                              os.path.basename(stem).split("_")[0] + "_depth_")
     for exr_candidate in _glob.glob(os.path.join(render_dir, "*depth*.exr")):
         # Match by view key (V1, V2, etc.)
         view_key = os.path.basename(png_path).split("_")[0]  # "V1"

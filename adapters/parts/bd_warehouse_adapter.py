@@ -297,7 +297,13 @@ class BdWarehouseAdapter(PartsAdapter):
             m = re.search(rx, text)
             if m:
                 d = float(m.group(1))
-                l = float(m.group(2))  # noqa: F841  # 超规则 残留
+                # regex group 2 (length) is intentionally captured as a format
+                # validator (rejects bare "M6" without ×length so this branch
+                # only fires on screws with explicit length); the numeric value
+                # is NOT used in csv_key — per catalog yaml line 211:
+                # "Size format: M{d}-{pitch}" — length is by-design dropped here
+                # (§11-N5 v2.37.13a triage). If a fastener needs length-specific
+                # lookup, use spec.size = "M{d}-{pitch}-{l}" explicit override.
                 pitch_map = {1.6: 0.35, 2: 0.4, 2.5: 0.45, 3: 0.5,
                              4: 0.7, 5: 0.8, 6: 1.0, 8: 1.25,
                              10: 1.5, 12: 1.75, 14: 2.0, 16: 2.0,
