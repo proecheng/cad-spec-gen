@@ -148,7 +148,7 @@ def review_mechanical(data):
         max_weight_g = max(station_weights)
         F = max_weight_g / 1000.0 * 9.81  # N
         M = F * arm_l  # N·mm (force at arm tip)
-        I = arm_w * arm_t**3 / 12.0  # mm⁴
+        I = arm_w * arm_t**3 / 12.0  # noqa: E741  # 惯性矩公式标准符号 mm⁴
         y = arm_t / 2.0
         sigma = M * y / I if I > 0 else float('inf')  # MPa
         # 尝试从 BOM 获取实际材质，不硬编码 7075-T6
@@ -545,10 +545,10 @@ def review_assembly(data):
     layers = data.get("assembly", {}).get("layers", [])
     layer_pnos = set()
     excluded_pnos = set()
-    for l in layers:
-        m_pno = re.search(r"([A-Z]+-[A-Z]+-\d+)", l.get("part", ""))
+    for layer in layers:
+        m_pno = re.search(r"([A-Z]+-[A-Z]+-\d+)", layer.get("part", ""))
         if m_pno:
-            if l.get("exclude"):
+            if layer.get("exclude"):
                 excluded_pnos.add(m_pno.group(1))
             else:
                 layer_pnos.add(m_pno.group(1))

@@ -759,7 +759,7 @@ class SwParametricAdapter:
             return None
 
         end_hole_d_mm = float(params.get("end_hole_d") or 0) or w_mm * 0.3
-        l = l_mm / 1000
+        length = l_mm / 1000
         w = w_mm / 1000
         t = t_mm / 1000
         end_hole_d = end_hole_d_mm / 1000
@@ -773,11 +773,11 @@ class SwParametricAdapter:
             ftMgr = model.FeatureManager
             skMgr = model.SketchManager
 
-            # 矩形臂体（长 l 沿 X，宽 w 沿 Z，高 t 沿 Y）
+            # 矩形臂体（长 length 沿 X，宽 w 沿 Z，高 t 沿 Y）
             model.Extension.SelectByID2(
                 "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)
             skMgr.InsertSketch(True)
-            skMgr.CreateCenterRectangle(0, 0, 0, l / 2, w / 2, 0)
+            skMgr.CreateCenterRectangle(0, 0, 0, length / 2, w / 2, 0)
             skMgr.InsertSketch(True)
             ftMgr.FeatureExtrusion3(
                 True, False, False, 0, 0, t, 0.0,
@@ -786,7 +786,7 @@ class SwParametricAdapter:
                 True, True, True, 0, 0.0, False)
 
             # 两端孔 Cut（Through All，孔轴沿 Y 方向）
-            offset = l / 2 - end_hole_d
+            offset = length / 2 - end_hole_d
             if end_hole_d > 0 and offset > 0:
                 model.Extension.SelectByID2(
                     "上视基准面", "PLANE", 0, 0, 0, False, 0, _VARIANT_NULL, 0)

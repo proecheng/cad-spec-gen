@@ -122,16 +122,16 @@ def _extract_edges(compound, offset_x: float, offset_y: float,
             cy = -circ.Location().Y() * scale + offset_y
             r = circ.Radius() * scale
             f = adaptor.FirstParameter()
-            l = adaptor.LastParameter()
+            last_param = adaptor.LastParameter()
 
-            if abs(l - f - 2 * math.pi) < 0.01:
+            if abs(last_param - f - 2 * math.pi) < 0.01:
                 # Full circle
                 result.append(("CIRCLE", cx, cy, r))
             else:
                 # Arc — convert parameter to angle in degrees
                 # HLR projects circles; angles are in the projection plane
                 start_deg = math.degrees(f)
-                end_deg = math.degrees(l)
+                end_deg = math.degrees(last_param)
                 # Flip Y: negate angles
                 result.append(("ARC", cx, cy, r, -end_deg, -start_deg))
 

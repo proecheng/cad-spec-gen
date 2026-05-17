@@ -42,11 +42,11 @@ from adapters.parts.base import PartsAdapter
 
 def _gen_motor(dims: dict) -> str:
     d = dims.get("d", 22)
-    l = dims.get("l", 50)
+    length = dims.get("l", 50)
     sd = dims.get("shaft_d", 4)
     sl = dims.get("shaft_l", 12)
     return f"""    # Simplified motor: cylinder + shaft
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     # Output shaft
     body = body.faces(">Z").workplane().circle({sd/2}).extrude({sl})
     return body"""
@@ -54,11 +54,11 @@ def _gen_motor(dims: dict) -> str:
 
 def _gen_reducer(dims: dict) -> str:
     d = dims.get("d", 25)
-    l = dims.get("l", 35)
+    length = dims.get("l", 35)
     sd = dims.get("shaft_d", 6)
     sl = dims.get("shaft_l", 10)
     return f"""    # Simplified reducer/gearbox: cylinder + output shaft
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     body = body.faces(">Z").workplane().circle({sd/2}).extrude({sl})
     return body"""
 
@@ -68,9 +68,9 @@ def _gen_spring(dims: dict) -> str:
     # generate a solid pin instead of an annular disc spring.
     if "d" in dims and "l" in dims and "od" not in dims:
         d = dims["d"]
-        l = dims["l"]
+        length = dims["l"]
         return f"""    # Simplified spring pin: solid cylinder
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     return body"""
     od = dims.get("od", dims.get("d", 10))
     t = dims.get("t", 0.7)
@@ -97,42 +97,42 @@ def _gen_bearing(dims: dict) -> str:
 def _gen_sensor(dims: dict) -> str:
     if "d" in dims:
         d = dims["d"]
-        l = dims.get("l", 12)
+        length = dims.get("l", 12)
         return f"""    # Simplified sensor: cylinder
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     return body"""
     w = dims.get("w", 20)
     h = dims.get("h", 15)
-    l = dims.get("l", 12)
+    length = dims.get("l", 12)
     return f"""    # Simplified sensor: box
-    body = cq.Workplane("XY").box({w}, {h}, {l}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {h}, {length}, centered=(True, True, False))
     return body"""
 
 
 def _gen_pump(dims: dict) -> str:
     w = dims.get("w", 30)
     h = dims.get("h", 25)
-    l = dims.get("l", 40)
+    length = dims.get("l", 40)
     return f"""    # Simplified pump: box with port stubs
-    body = cq.Workplane("XY").box({w}, {h}, {l}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {h}, {length}, centered=(True, True, False))
     # Input/output port stubs
-    body = body.faces(">X").workplane().center(0, {l/2}).circle(3).extrude(5)
-    body = body.faces("<X").workplane().center(0, {l/2}).circle(3).extrude(5)
+    body = body.faces(">X").workplane().center(0, {length/2}).circle(3).extrude(5)
+    body = body.faces("<X").workplane().center(0, {length/2}).circle(3).extrude(5)
     return body"""
 
 
 def _gen_connector(dims: dict) -> str:
     d = dims.get("d", 10)
-    l = min(dims.get("l", 25), 50)  # cap for assembly visualization
+    length = min(dims.get("l", 25), 50)  # cap for assembly visualization
     if "w" in dims:
         w = dims["w"]
         h = dims.get("h", 3)
-        l = min(dims.get("l", 8), 50)
+        length = min(dims.get("l", 8), 50)
         return f"""    # Simplified flat connector
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     return body"""
     return f"""    # Simplified round connector
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     return body"""
 
 
@@ -173,8 +173,8 @@ def _parse_size_pair_mm(text: str, default: tuple[float, float]) -> tuple[float,
     matches = re.findall(r"(\d+(?:\.\d+)?)\s*[×xX]\s*(\d+(?:\.\d+)?)\s*mm", text)
     if not matches:
         return default
-    w, l = matches[-1]
-    return float(w), float(l)
+    w, length = matches[-1]
+    return float(w), float(length)
 
 
 def _parse_size_triplet_mm(
@@ -204,24 +204,24 @@ def _parse_array_grid(text: str, default: tuple[int, int] = (4, 4)) -> tuple[int
 
 def _gen_zif_connector(dims: dict, pins: int) -> str:
     w = dims.get("w", 12)
-    l = dims.get("l", 8)
+    length = dims.get("l", 8)
     h = dims.get("h", 3)
     pitch = w / (pins + 1)
     pad_w = max(pitch * 0.45, 0.18)
-    pad_l = max(l * 0.18, 0.8)
-    actuator_l = max(l * 0.22, 1.0)
+    pad_l = max(length * 0.18, 0.8)
+    actuator_l = max(length * 0.22, 1.0)
     actuator_h = max(h * 0.22, 0.4)
     return f"""    # Semi-parametric ZIF connector: base, flip-lock actuator, contact row
-    base = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    base = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     actuator = (cq.Workplane("XY")
-                .center(0, {l * 0.24})
+                .center(0, {length * 0.24})
                 .box({w * 0.92}, {actuator_l}, {actuator_h}, centered=(True, True, False))
                 .translate((0, 0, {h})))
     body = base.union(actuator)
     for i in range({pins}):
         x = (i - ({pins} - 1) / 2.0) * {pitch}
         pad = (cq.Workplane("XY")
-               .center(x, {-l * 0.36})
+               .center(x, {-length * 0.36})
                .box({pad_w}, {pad_l}, {max(h * 0.08, 0.12)}, centered=(True, True, False))
                .translate((0, 0, {h + 0.03})))
         body = body.union(pad)
@@ -256,27 +256,27 @@ def _gen_ffc_ribbon(dims: dict, pins: int, actual_length: float) -> tuple[str, d
 
 def _gen_pcb_board(dims: dict) -> str:
     w = dims.get("w", 45)
-    l = dims.get("l", 35)
+    length = dims.get("l", 35)
     h = dims.get("h", 1.6)
     return f"""    # Semi-parametric PCB assembly: board, corner holes, ICs, connector pads
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     for x in ({-w * 0.42}, {w * 0.42}):
-        for y in ({-l * 0.38}, {l * 0.38}):
-            body = body.faces(">Z").workplane().center(x, y).hole({min(w, l) * 0.08})
+        for y in ({-length * 0.38}, {length * 0.38}):
+            body = body.faces(">Z").workplane().center(x, y).hole({min(w, length) * 0.08})
     main_ic = (cq.Workplane("XY")
                .center({-w * 0.16}, 0)
-               .box({w * 0.26}, {l * 0.22}, {max(h * 0.65, 0.8)}, centered=(True, True, False))
+               .box({w * 0.26}, {length * 0.22}, {max(h * 0.65, 0.8)}, centered=(True, True, False))
                .translate((0, 0, {h})))
     aux_ic = (cq.Workplane("XY")
-              .center({w * 0.22}, {l * 0.12})
-              .box({w * 0.18}, {l * 0.16}, {max(h * 0.45, 0.6)}, centered=(True, True, False))
+              .center({w * 0.22}, {length * 0.12})
+              .box({w * 0.18}, {length * 0.16}, {max(h * 0.45, 0.6)}, centered=(True, True, False))
               .translate((0, 0, {h})))
     body = body.union(main_ic).union(aux_ic)
     for i in range(8):
         x = (i - 3.5) * {w * 0.07}
         pad = (cq.Workplane("XY")
-               .center(x, {-l * 0.42})
-               .box({w * 0.035}, {l * 0.08}, {max(h * 0.12, 0.15)}, centered=(True, True, False))
+               .center(x, {-length * 0.42})
+               .box({w * 0.035}, {length * 0.08}, {max(h * 0.12, 0.15)}, centered=(True, True, False))
                .translate((0, 0, {h + 0.02})))
         body = body.union(pad)
     return body"""
@@ -284,26 +284,26 @@ def _gen_pcb_board(dims: dict) -> str:
 
 def _gen_sma_bulkhead(dims: dict) -> str:
     d = dims.get("d", 6.5)
-    l = dims.get("l", 15)
+    length = dims.get("l", 15)
     nut_d = max(d * 1.65, 8.0)
     return f"""    # Semi-parametric SMA bulkhead connector: coax barrel, hex nut, center pin
-    barrel = cq.Workplane("XY").circle({d / 2}).extrude({l})
-    hex_nut = cq.Workplane("XY").polygon(6, {nut_d}).extrude({max(d * 0.38, 2.0)}).translate((0, 0, {l * 0.42}))
-    rear_thread = cq.Workplane("XY").circle({d * 0.38}).extrude({l * 0.28}).translate((0, 0, {l}))
-    center_pin = cq.Workplane("XY").circle({max(d * 0.08, 0.35)}).extrude({l * 0.18}).translate((0, 0, {-l * 0.18}))
+    barrel = cq.Workplane("XY").circle({d / 2}).extrude({length})
+    hex_nut = cq.Workplane("XY").polygon(6, {nut_d}).extrude({max(d * 0.38, 2.0)}).translate((0, 0, {length * 0.42}))
+    rear_thread = cq.Workplane("XY").circle({d * 0.38}).extrude({length * 0.28}).translate((0, 0, {length}))
+    center_pin = cq.Workplane("XY").circle({max(d * 0.08, 0.35)}).extrude({length * 0.18}).translate((0, 0, {-length * 0.18}))
     body = barrel.union(hex_nut).union(rear_thread).union(center_pin)
     return body"""
 
 
 def _gen_m12_connector(dims: dict, pins: int) -> str:
     d = dims.get("d", 12)
-    l = dims.get("l", 18)
+    length = dims.get("l", 18)
     flange_d = max(d * 1.35, 16)
     pin_circle = d * 0.28
     return f"""    # Semi-parametric M12 connector: threaded shell, flange, coded pin face
-    shell = cq.Workplane("XY").circle({d / 2}).extrude({l})
-    flange = cq.Workplane("XY").polygon(6, {flange_d}).extrude({max(d * 0.22, 2.6)}).translate((0, 0, {l * 0.34}))
-    cable_gland = cq.Workplane("XY").circle({d * 0.38}).extrude({l * 0.38}).translate((0, 0, {l}))
+    shell = cq.Workplane("XY").circle({d / 2}).extrude({length})
+    flange = cq.Workplane("XY").polygon(6, {flange_d}).extrude({max(d * 0.22, 2.6)}).translate((0, 0, {length * 0.34}))
+    cable_gland = cq.Workplane("XY").circle({d * 0.38}).extrude({length * 0.38}).translate((0, 0, {length}))
     body = shell.union(flange).union(cable_gland)
     for i in range({pins}):
         angle = 6.283185307179586 * i / {pins}
@@ -313,42 +313,42 @@ def _gen_m12_connector(dims: dict, pins: int) -> str:
                .center(x, y)
                .circle({max(d * 0.035, 0.35)})
                .extrude({max(d * 0.08, 0.8)})
-               .translate((0, 0, {l + l * 0.38})))
+               .translate((0, 0, {length + length * 0.38})))
         body = body.union(pin)
     key = (cq.Workplane("XY")
            .center(0, {-d * 0.28})
            .box({d * 0.16}, {d * 0.36}, {max(d * 0.08, 0.8)}, centered=(True, True, False))
-           .translate((0, 0, {l + l * 0.38})))
+           .translate((0, 0, {length + length * 0.38})))
     body = body.union(key)
     return body"""
 
 
 def _gen_uhf_sensor(dims: dict) -> str:
     d = dims.get("d", 45)
-    l = dims.get("l", 60)
+    length = dims.get("l", 60)
     return f"""    # Semi-parametric UHF sensor: cylindrical body, antenna face, cable exit
-    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
-    face = cq.Workplane("XY").circle({d * 0.43}).extrude({max(d * 0.04, 1.2)}).translate((0, 0, {l}))
+    body = cq.Workplane("XY").circle({d / 2}).extrude({length})
+    face = cq.Workplane("XY").circle({d * 0.43}).extrude({max(d * 0.04, 1.2)}).translate((0, 0, {length}))
     antenna = (cq.Workplane("XY")
                .box({d * 0.58}, {d * 0.16}, {max(d * 0.04, 1.0)}, centered=(True, True, False))
-               .translate((0, 0, {l + max(d * 0.04, 1.2)})))
+               .translate((0, 0, {length + max(d * 0.04, 1.2)})))
     cable = (cq.Workplane("YZ")
              .circle({max(d * 0.045, 1.2)})
              .extrude({d * 0.42})
-             .translate(({d / 2}, 0, {l * 0.58})))
+             .translate(({d / 2}, 0, {length * 0.58})))
     body = body.union(face).union(antenna).union(cable)
     return body"""
 
 
 def _gen_pressure_array(dims: dict, rows: int, cols: int) -> str:
     w = dims.get("w", 20)
-    l = dims.get("l", 20)
+    length = dims.get("l", 20)
     h = dims.get("h", 0.6)
-    pad = min(w / (cols * 1.8), l / (rows * 1.8))
+    pad = min(w / (cols * 1.8), length / (rows * 1.8))
     pitch_x = w / (cols + 1)
-    pitch_y = l / (rows + 1)
+    pitch_y = length / (rows + 1)
     return f"""    # Semi-parametric pressure array: thin film carrier, {rows}x{cols} sensing pads, flex tail
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     for r in range({rows}):
         for c in range({cols}):
             x = (c - ({cols} - 1) / 2.0) * {pitch_x}
@@ -359,21 +359,21 @@ def _gen_pressure_array(dims: dict, rows: int, cols: int) -> str:
                    .translate((0, 0, {h + 0.02})))
             body = body.union(pad)
     tail = (cq.Workplane("XY")
-            .center(0, {-l * 0.72})
-            .box({w * 0.32}, {l * 0.42}, {h}, centered=(True, True, False)))
+            .center(0, {-length * 0.72})
+            .box({w * 0.32}, {length * 0.42}, {h}, centered=(True, True, False)))
     body = body.union(tail)
     return body"""
 
 
 def _gen_fluid_reservoir(dims: dict) -> str:
     d = dims.get("d", 38)
-    l = dims.get("l", 280)
-    cap_l = max(min(l * 0.035, 8.0), 3.0)
-    band_w = max(min(l * 0.02, 6.0), 2.0)
+    length = dims.get("l", 280)
+    cap_l = max(min(length * 0.035, 8.0), 3.0)
+    band_w = max(min(length * 0.02, 6.0), 2.0)
     boss_d = max(d * 0.24, 5.0)
     return f"""    # Semi-parametric fluid reservoir: cylinder, end caps, clamp bands, fill boss
-    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
-    for z in ({cap_l}, {l - cap_l - band_w}):
+    body = cq.Workplane("XY").circle({d / 2}).extrude({length})
+    for z in ({cap_l}, {length - cap_l - band_w}):
         band = (cq.Workplane("XY")
                 .circle({d / 2})
                 .circle({max(d / 2 - 1.1, d * 0.42)})
@@ -381,30 +381,30 @@ def _gen_fluid_reservoir(dims: dict) -> str:
                 .translate((0, 0, z)))
         body = body.union(band)
     front = cq.Workplane("XY").circle({d * 0.43}).extrude({cap_l})
-    rear = cq.Workplane("XY").circle({d * 0.43}).extrude({cap_l}).translate((0, 0, {l - cap_l}))
+    rear = cq.Workplane("XY").circle({d * 0.43}).extrude({cap_l}).translate((0, 0, {length - cap_l}))
     fill_boss = (cq.Workplane("XY")
                  .center(0, {d * 0.22})
                  .circle({boss_d / 2})
                  .extrude({max(d * 0.12, 3.0)})
-                 .translate((0, 0, {l * 0.55})))
+                 .translate((0, 0, {length * 0.55})))
     body = body.union(front).union(rear).union(fill_boss)
     return body"""
 
 
 def _gen_solvent_cartridge(dims: dict) -> str:
     d = dims.get("d", 25)
-    l = dims.get("l", 110)
-    cap_l = max(min(l * 0.06, 7.0), 3.0)
+    length = dims.get("l", 110)
+    cap_l = max(min(length * 0.06, 7.0), 3.0)
     plunger_d = max(d * 0.22, 4.0)
     port_d = max(d * 0.26, 5.0)
     return f"""    # Semi-parametric solvent cartridge: piston tank, seal caps, M8 quick connector
-    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    body = cq.Workplane("XY").circle({d / 2}).extrude({length})
     seal_cap = cq.Workplane("XY").circle({d * 0.48}).extrude({cap_l})
-    body = body.union(seal_cap).union(seal_cap.translate((0, 0, {l - cap_l})))
+    body = body.union(seal_cap).union(seal_cap.translate((0, 0, {length - cap_l})))
     plunger = (cq.Workplane("XY")
                .circle({plunger_d / 2})
-               .extrude({max(l * 0.16, 12.0)})
-               .translate((0, 0, {l - max(l * 0.16, 12.0)})))
+               .extrude({max(length * 0.16, 12.0)})
+               .translate((0, 0, {length - max(length * 0.16, 12.0)})))
     m8_port = (cq.Workplane("XY")
                .circle({port_d / 2})
                .extrude({max(d * 0.35, 8.0)})
@@ -520,10 +520,10 @@ def _gen_cleaning_tape_cassette(dims: dict) -> str:
 
 def _gen_spring_pin_assembly(dims: dict) -> str:
     d = dims.get("d", 4)
-    l = dims.get("l", 20)
-    tip_l = min(max(d * 0.8, 2.0), l * 0.28)
+    length = dims.get("l", 20)
+    tip_l = min(max(d * 0.8, 2.0), length * 0.28)
     overlap = min(0.05, tip_l * 0.04)
-    stem_l = l - tip_l + overlap
+    stem_l = length - tip_l + overlap
     stem_r = d * 0.44
     tip_r = max(d * 0.10, 0.25)
     collar_l = max(d * 0.28, 0.8)
@@ -536,7 +536,7 @@ def _gen_spring_pin_assembly(dims: dict) -> str:
            .loft(combine=True)
            .translate((0, 0, {stem_l - overlap})))
     body = body.union(tip)
-    for z in (0, {l * 0.30}, {l * 0.62}):
+    for z in (0, {length * 0.30}, {length * 0.62}):
         collar = (cq.Workplane("XY")
                   .circle({d / 2})
                   .extrude({collar_l})
@@ -547,12 +547,12 @@ def _gen_spring_pin_assembly(dims: dict) -> str:
 
 def _gen_mini_dc_motor(dims: dict) -> str:
     d = dims.get("d", 16)
-    l = dims.get("l", 30)
+    length = dims.get("l", 30)
     shaft_d = dims.get("shaft_d", 2)
-    shaft_l = min(dims.get("shaft_l", 8), max(l * 0.18, 3.0))
-    rear_l = max(l * 0.08, 1.8)
-    front_l = max(l * 0.09, 2.0)
-    can_l = l - rear_l - front_l
+    shaft_l = min(dims.get("shaft_l", 8), max(length * 0.18, 3.0))
+    rear_l = max(length * 0.08, 1.8)
+    front_l = max(length * 0.09, 2.0)
+    can_l = length - rear_l - front_l
     terminal_w = max(d * 0.10, 1.2)
     terminal_l = max(d * 0.18, 2.0)
     terminal_h = max(rear_l * 0.35, 0.6)
@@ -560,7 +560,7 @@ def _gen_mini_dc_motor(dims: dict) -> str:
     can = cq.Workplane("XY").circle({d / 2}).extrude({can_l}).translate((0, 0, {rear_l}))
     rear = cq.Workplane("XY").circle({d * 0.46}).extrude({rear_l})
     front = cq.Workplane("XY").circle({d * 0.47}).extrude({front_l}).translate((0, 0, {rear_l + can_l}))
-    shaft = cq.Workplane("XY").circle({shaft_d / 2}).extrude({shaft_l}).translate((0, 0, {l - shaft_l}))
+    shaft = cq.Workplane("XY").circle({shaft_d / 2}).extrude({shaft_l}).translate((0, 0, {length - shaft_l}))
     body = can.union(rear).union(front).union(shaft)
     for y in ({-d * 0.18}, {d * 0.18}):
         tab = (cq.Workplane("XY")
@@ -682,35 +682,35 @@ def _gen_belleville_spring_washer(dims: dict) -> str:
 
 def _gen_viscoelastic_damping_pad(dims: dict) -> str:
     d = dims.get("d", 15)
-    l = dims.get("l", 10)
-    rib_h = max(min(l * 0.08, 0.8), 0.3)
+    length = dims.get("l", 10)
+    rib_h = max(min(length * 0.08, 0.8), 0.3)
     return f"""    # Semi-parametric viscoelastic damping pad: rubber puck with concentric damping ribs
-    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    body = cq.Workplane("XY").circle({d / 2}).extrude({length})
     for r in ({d * 0.20}, {d * 0.33}):
         rib = (cq.Workplane("XY")
                .circle(r)
                .circle(max(r - {max(d * 0.045, 0.35)}, 0.1))
                .extrude({rib_h})
-               .translate((0, 0, {l - rib_h})))
+               .translate((0, 0, {length - rib_h})))
         body = body.union(rib)
     return body"""
 
 
 def _gen_tungsten_counterweight_slug(dims: dict) -> str:
     d = dims.get("d", 14)
-    l = dims.get("l", 13)
-    chamfer = min(max(d * 0.04, 0.25), l * 0.18)
-    groove_h = max(min(l * 0.08, 0.8), 0.25)
+    length = dims.get("l", 13)
+    chamfer = min(max(d * 0.04, 0.25), length * 0.18)
+    groove_h = max(min(length * 0.08, 0.8), 0.25)
     groove_r = d * 0.43
     return f"""    # Semi-parametric tungsten counterweight slug: dense chamfered tuning mass
-    body = cq.Workplane("XY").circle({d / 2}).extrude({l})
+    body = cq.Workplane("XY").circle({d / 2}).extrude({length})
     body = body.faces(">Z").edges().chamfer({chamfer})
     body = body.faces("<Z").edges().chamfer({chamfer})
     top_mark = (cq.Workplane("XY")
                 .circle({groove_r})
                 .circle({groove_r * 0.82})
                 .extrude({groove_h})
-                .translate((0, 0, {l - groove_h})))
+                .translate((0, 0, {length - groove_h})))
     body = body.union(top_mark)
     return body"""
 
@@ -736,14 +736,14 @@ def _gen_elastomer_cushion_pad(dims: dict) -> str:
 def _gen_linear_bearing_lmxxuu(dims: dict) -> str:
     od = dims.get("od", dims.get("d", 19))
     id_ = dims.get("id", 10)
-    l = dims.get("w", dims.get("l", 29))
-    groove_w = max(min(l * 0.08, 2.2), 1.2)
+    length = dims.get("w", dims.get("l", 29))
+    groove_w = max(min(length * 0.08, 2.2), 1.2)
     groove_depth = max(min((od - id_) * 0.08, 0.8), 0.35)
     groove_inner_r = max(od / 2 - groove_depth, id_ / 2 + 0.5)
-    z1 = max(l * 0.16, groove_w)
-    z2 = min(l * 0.84 - groove_w, l - 2 * groove_w)
+    z1 = max(length * 0.16, groove_w)
+    z2 = min(length * 0.84 - groove_w, length - 2 * groove_w)
     return f"""    # LMxxUU linear bearing: long sleeve with bore and retaining grooves
-    body = cq.Workplane("XY").circle({od/2}).circle({id_/2}).extrude({l})
+    body = cq.Workplane("XY").circle({od/2}).circle({id_/2}).extrude({length})
     for z in ({z1:.3f}, {z2:.3f}):
         groove = (cq.Workplane("XY")
                   .circle({od/2 + 0.05:.3f})
@@ -880,15 +880,15 @@ def _gen_lead_screw_support_block(dims: dict) -> str:
 
 def _gen_clamping_coupling_l070(dims: dict) -> str:
     d = dims.get("d", 25)
-    l = dims.get("l", 30)
+    length = dims.get("l", 30)
     bore_d = dims.get("bore_d", 6.35)
-    groove_w = max(min(l * 0.06, 1.8), 1.0)
+    groove_w = max(min(length * 0.06, 1.8), 1.0)
     groove_inner_r = max(d / 2 - 0.8, bore_d / 2 + 1.0)
     slot_w = max(d * 0.12, 2.0)
     screw_d = max(bore_d * 0.55, 3.0)
     return f"""    # L070 clamping coupling: split cylindrical coupler with twin clamp grooves
-    body = cq.Workplane("XY").circle({d/2}).circle({bore_d/2}).extrude({l})
-    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+    body = cq.Workplane("XY").circle({d/2}).circle({bore_d/2}).extrude({length})
+    for z in ({length * 0.28:.3f}, {length * 0.68:.3f}):
         groove = (cq.Workplane("XY")
                   .circle({d/2 + 0.05:.3f})
                   .circle({groove_inner_r:.3f})
@@ -896,10 +896,10 @@ def _gen_clamping_coupling_l070(dims: dict) -> str:
                   .translate((0, 0, z)))
         body = body.cut(groove)
     split = (cq.Workplane("XY")
-             .box({slot_w:.3f}, {d + 0.2:.3f}, {l + 0.2:.3f}, centered=(True, True, False))
+             .box({slot_w:.3f}, {d + 0.2:.3f}, {length + 0.2:.3f}, centered=(True, True, False))
              .translate(({d * 0.32:.3f}, 0, -0.1)))
     body = body.cut(split)
-    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+    for z in ({length * 0.28:.3f}, {length * 0.68:.3f}):
         screw_socket = (cq.Workplane("YZ")
                         .center(0, z)
                         .circle({screw_d/2:.3f})
@@ -950,15 +950,15 @@ def _gen_linear_guide_carriage(dims: dict) -> str:
 
 def _gen_clamping_coupling_lxx(dims: dict) -> str:
     d = dims.get("d", 25)
-    l = dims.get("l", 30)
+    length = dims.get("l", 30)
     bore_d = min(dims.get("bore_d", 6.35), d * 0.72)
-    groove_w = max(min(l * 0.06, 1.8), 1.0)
+    groove_w = max(min(length * 0.06, 1.8), 1.0)
     groove_inner_r = max(d / 2 - 0.8, bore_d / 2 + 1.0)
     slot_w = max(d * 0.12, 2.0)
     screw_d = max(bore_d * 0.55, 3.0)
     return f"""    # Lxx clamping coupling: split cylindrical coupler with twin clamp grooves
-    body = cq.Workplane("XY").circle({d/2:.3f}).circle({bore_d/2:.3f}).extrude({l:.3f})
-    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+    body = cq.Workplane("XY").circle({d/2:.3f}).circle({bore_d/2:.3f}).extrude({length:.3f})
+    for z in ({length * 0.28:.3f}, {length * 0.68:.3f}):
         groove = (cq.Workplane("XY")
                   .circle({d/2 + 0.05:.3f})
                   .circle({groove_inner_r:.3f})
@@ -966,10 +966,10 @@ def _gen_clamping_coupling_lxx(dims: dict) -> str:
                   .translate((0, 0, z)))
         body = body.cut(groove)
     split = (cq.Workplane("XY")
-             .box({slot_w:.3f}, {d + 0.2:.3f}, {l + 0.2:.3f}, centered=(True, True, False))
+             .box({slot_w:.3f}, {d + 0.2:.3f}, {length + 0.2:.3f}, centered=(True, True, False))
              .translate(({d * 0.32:.3f}, 0, -0.1)))
     body = body.cut(split)
-    for z in ({l * 0.28:.3f}, {l * 0.68:.3f}):
+    for z in ({length * 0.28:.3f}, {length * 0.68:.3f}):
         screw_socket = (cq.Workplane("YZ")
                         .center(0, z)
                         .circle({screw_d/2:.3f})
@@ -1151,19 +1151,19 @@ def _gen_pu_buffer_pad(dims: dict) -> str:
 
 def _gen_cylindrical_proximity_sensor(dims: dict) -> str:
     d = dims.get("d", 8)
-    l = dims.get("l", 45)
+    length = dims.get("l", 45)
     groove_w = max(min(d * 0.055, 0.65), 0.35)
     groove_inner_r = max(d / 2 - 0.18, d * 0.42)
     return f"""    # Cylindrical proximity sensor: threaded barrel with sensing nose
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    for z in ({l * 0.18:.3f}, {l * 0.28:.3f}, {l * 0.38:.3f}, {l * 0.48:.3f}, {l * 0.58:.3f}):
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
+    for z in ({length * 0.18:.3f}, {length * 0.28:.3f}, {length * 0.38:.3f}, {length * 0.48:.3f}, {length * 0.58:.3f}):
         thread_groove = (cq.Workplane("XY")
                          .circle({d/2 + 0.03:.3f})
                          .circle({groove_inner_r:.3f})
                          .extrude({groove_w:.3f})
                          .translate((0, 0, z)))
         body = body.cut(thread_groove)
-    nose = cq.Workplane("XY").circle({d * 0.36:.3f}).extrude({min(l * 0.08, 3.0):.3f})
+    nose = cq.Workplane("XY").circle({d * 0.36:.3f}).extrude({min(length * 0.08, 3.0):.3f})
     body = body.union(nose)
     return body"""
 
@@ -1264,23 +1264,23 @@ def _gen_compact_pneumatic_cylinder(dims: dict) -> str:
 
 def _gen_guide_shaft_protective_cap(dims: dict) -> str:
     d = dims.get("d", 10)
-    l = dims.get("l", 8)
+    length = dims.get("l", 8)
     pocket_d = max(d * 0.68, d - 3.0)
     wall = max((d - pocket_d) / 2, 1.0)
     return f"""    # guide shaft protective cap: closed cylindrical end cap with shaft pocket
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    pocket = cq.Workplane("XY").circle({pocket_d/2:.3f}).extrude({l * 0.72:.3f})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
+    pocket = cq.Workplane("XY").circle({pocket_d/2:.3f}).extrude({length * 0.72:.3f})
     body = body.cut(pocket)
     lip = (cq.Workplane("XY")
            .circle({d/2:.3f})
            .circle({max(d/2 - wall * 0.55, pocket_d/2):.3f})
-           .extrude({l * 0.18:.3f}))
+           .extrude({length * 0.18:.3f}))
     body = body.union(lip)
-    for z in ({l * 0.30:.3f}, {l * 0.52:.3f}):
+    for z in ({length * 0.30:.3f}, {length * 0.52:.3f}):
         grip = (cq.Workplane("XY")
                 .circle({d/2 + 0.02:.3f})
                 .circle({max(d/2 - 0.45, pocket_d/2 + 0.2):.3f})
-                .extrude({l * 0.08:.3f})
+                .extrude({length * 0.08:.3f})
                 .translate((0, 0, z)))
         body = body.cut(grip)
     return body"""
@@ -1429,13 +1429,13 @@ def _gen_pneumatic_solenoid_valve(dims: dict) -> str:
 
 def _gen_pneumatic_push_fitting(dims: dict) -> str:
     d = dims.get("d", 12)
-    l = dims.get("l", 22)
+    length = dims.get("l", 22)
     tube_d = min(dims.get("tube_d", 6), d * 0.72)
     hex_d = min(d * 0.96, max(tube_d * 1.6, d * 0.72))
     collet_d = min(d, max(tube_d * 1.55, tube_d + 3.0))
-    hex_l = l * 0.34
-    collet_l = l * 0.32
-    thread_l = l - hex_l - collet_l
+    hex_l = length * 0.34
+    collet_l = length * 0.32
+    thread_l = length - hex_l - collet_l
     return f"""    # Pneumatic push fitting: hex body, threaded stub, push collet, tube bore
     hex_body = cq.Workplane("XY").polygon(6, {hex_d:.3f}).extrude({hex_l:.3f})
     thread = (cq.Workplane("XY")
@@ -2200,13 +2200,13 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
         default_d = 25 if "L070" in text_upper else 20
         default_l = 30 if "L070" in text_upper else 25
         d = dims.get("d", default_d)
-        l = dims.get("l", default_l)
+        length = dims.get("l", default_l)
         bore_d = _parse_first_float_after(
             r"(?:孔径|bore)\s*[Φφ]?\s*(\d+(?:\.\d+)?)",
             text,
             dims.get("bore_d", 6.35),
         )
-        tpl_dims = {"d": d, "l": l, "bore_d": min(bore_d, d * 0.72)}
+        tpl_dims = {"d": d, "l": length, "bore_d": min(bore_d, d * 0.72)}
         return {
             "template": "clamping_coupling_lxx",
             "body_code": _gen_clamping_coupling_lxx(tpl_dims),
@@ -2714,8 +2714,8 @@ def _specialized_template(query, dims: dict) -> Optional[dict]:
 
     if category == "other" and _contains_any(text, ["压力", "阵列"]):
         rows, cols = _parse_array_grid(text)
-        w, l = _parse_size_pair_mm(text, default=(20, 20))
-        tpl_dims = {"w": w, "l": l, "h": 0.6}
+        w, length = _parse_size_pair_mm(text, default=(20, 20))
+        tpl_dims = {"w": w, "l": length, "h": 0.6}
         return {
             "template": "pressure_array",
             "body_code": _gen_pressure_array(tpl_dims, rows, cols),
@@ -2949,33 +2949,33 @@ def _gen_seal(dims: dict) -> str:
 
 def _gen_tank(dims: dict) -> str:
     d = dims.get("d", 38)
-    l = dims.get("l", 280)
+    length = dims.get("l", 280)
     return f"""    # Simplified tank: cylinder with domed ends
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     return body"""
 
 
 def _gen_locating(dims: dict) -> str:
     d = dims.get("d", 3)
-    l = dims.get("l", 10)
+    length = dims.get("l", 10)
     chamfer = max(d * 0.1, 0.3)
     return f"""    # Simplified locating pin: cylinder with chamfered tip
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     body = body.faces(">Z").edges().chamfer({chamfer:.3f})
     return body"""
 
 
 def _gen_locating_pin(dims: dict) -> str:
     d = dims.get("d", 5)
-    l = dims.get("l", 20)
+    length = dims.get("l", 20)
     chamfer = max(d * 0.08, 0.25)
-    groove_z = max(min(l * 0.12, 2.0), 0.8)
-    groove_h = max(min(l * 0.035, 0.8), 0.25)
+    groove_z = max(min(length * 0.12, 2.0), 0.8)
+    groove_h = max(min(length * 0.035, 0.8), 0.25)
     groove_od = d + 0.06
     groove_id = max(d - chamfer * 0.9, d * 0.78)
     return f"""    # Semi-parametric locating pin: precision dowel with chamfers and relief grooves
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
-    for z in ({groove_z:.3f}, {l - groove_z - groove_h:.3f}):
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
+    for z in ({groove_z:.3f}, {length - groove_z - groove_h:.3f}):
         groove = (cq.Workplane("XY")
                   .circle({groove_od/2:.3f})
                   .circle({groove_id/2:.3f})
@@ -2993,15 +2993,15 @@ def _gen_locating_pin(dims: dict) -> str:
 def _gen_elastic(dims: dict) -> str:
     if "d" in dims and "l" in dims:
         d = dims["d"]
-        l = dims["l"]
+        length = dims["l"]
         return f"""    # Simplified elastic part: solid cylinder (rubber spring/damper)
-    body = cq.Workplane("XY").circle({d/2}).extrude({l})
+    body = cq.Workplane("XY").circle({d/2}).extrude({length})
     return body"""
     w = dims.get("w", 20)
     h = dims.get("h", 5)
-    l = dims.get("l", 120)
+    length = dims.get("l", 120)
     return f"""    # Simplified elastic part: rectangular block (leaf spring)
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     return body"""
 
 
@@ -3030,9 +3030,9 @@ def _gen_generic(dims: dict) -> str:
     return body"""
     w = dims.get("w", 20)
     h = dims.get("h", 5)
-    l = dims.get("l", dims.get("d", 20))
+    length = dims.get("l", dims.get("d", 20))
     return f"""    # Generic rectangular block
-    body = cq.Workplane("XY").box({w}, {l}, {h}, centered=(True, True, False))
+    body = cq.Workplane("XY").box({w}, {length}, {h}, centered=(True, True, False))
     return body"""
 
 
