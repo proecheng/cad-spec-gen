@@ -72,7 +72,7 @@ def _get_section_views():
         }, {})]
 
     cameras = _CONFIG.get("camera", {})
-    global_section = _CONFIG.get("section", {})
+    global_section = _CONFIG.get("section", {})  # noqa: F841  # 占位 保留
     views = []
     for vid, cam in sorted(cameras.items()):
         if cam.get("type") != "section":

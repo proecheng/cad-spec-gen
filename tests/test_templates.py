@@ -245,7 +245,7 @@ def test_all_templates_have_complete_contract(name):
 def test_new_templates_are_generic(name):
     """New templates (not iso_9409_flange which has illustrative GISBOT mention)
     must not reference any specific subsystem."""
-    mod = _load_template_module(name)
+    mod = _load_template_module(name)  # noqa: F841  # 测试 fixture
     source = (_TEMPLATES_DIR / f"{name}.py").read_text(encoding="utf-8").lower()
     forbidden = ["end_effector", "end-effector", "lifting_platform",
                  "lifting-platform", "gisbot", "applicator"]

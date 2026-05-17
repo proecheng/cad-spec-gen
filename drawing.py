@@ -516,7 +516,7 @@ def add_section_symbol(msp: Modelspace,
 
     # Direction of cutting line
     line_angle = math.atan2(ey - sy, ex - sx)
-    line_len = math.hypot(ex - sx, ey - sy)
+    line_len = math.hypot(ex - sx, ey - sy)  # noqa: F841  # 调试 残留
 
     # Thick end strokes (粗实线)
     cos_a, sin_a = math.cos(line_angle), math.sin(line_angle)

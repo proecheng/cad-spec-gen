@@ -66,9 +66,9 @@ def make_assembly() -> cq.Assembly:
     C_AMBER = cq.Color(0.85, 0.65, 0.13)
     C_BLUE = cq.Color(0.35, 0.55, 0.75)
     C_GREEN = cq.Color(0.15, 0.5, 0.25)
-    C_BRONZE = cq.Color(0.7, 0.42, 0.2)
+    C_BRONZE = cq.Color(0.7, 0.42, 0.2)  # noqa: F841  # 占位 保留
     C_PURPLE = cq.Color(0.5, 0.18, 0.65)
-    C_RUBBER = cq.Color(0.1, 0.1, 0.1)
+    C_RUBBER = cq.Color(0.1, 0.1, 0.1)  # noqa: F841  # 占位 保留
 
     # ── Colors (standard/purchased parts) ──
     C_STD_BEARING = cq.Color(0.6, 0.6, 0.65)

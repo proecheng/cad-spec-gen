@@ -96,7 +96,7 @@ def side_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 
     # 孔（隐线）
     for dy in [LS_Y * s, -LS_Y * s]:
-        cy = oy + h / 2
+        cy = oy + h / 2  # noqa: F841  # 占位 保留
         cx_h = ox + w / 2 + dy
         add_line(msp, (cx_h - 12 * s, oy), (cx_h - 12 * s, oy + h),
                  layer=LAYER_HIDDEN)

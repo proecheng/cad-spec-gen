@@ -97,7 +97,7 @@ def end_view(msp: Modelspace, ox: float, oy: float, scale: float) -> None:
 
 
 def draw_screw_sheet(output_dir: str) -> str:
-    scale = 0.5  # 丝杠较长，缩小
+    scale = 0.5  # noqa: F841  # 占位 保留 — 丝杠较长，缩小
     sheet = ThreeViewSheet(
         part_no="SLP-P01",
         name="丝杠Tr16x4",

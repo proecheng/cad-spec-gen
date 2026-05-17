@@ -83,7 +83,7 @@ def build_part_registry(p):
     reducer_len = p.get("REDUCER_LENGTH", 25.0)
     motor_body_len = p.get("MOTOR_BODY_LENGTH", 48.0)
     motor_flange_thick = p.get("MOTOR_FLANGE_THICK", 2.0)
-    motor_total = p.get("MOTOR_TOTAL_LENGTH", 73.0)
+    motor_total = p.get("MOTOR_TOTAL_LENGTH", 73.0)  # noqa: F841  # 超规则 残留
 
     parts = []
 
@@ -227,7 +227,7 @@ def build_part_registry(p):
     s2_sleeve_od = p.get("S2_SLEEVE_OD", 12.0)
     s2_sleeve_h = p.get("S2_SLEEVE_H", 14.0)
     s2_guide_dia = p.get("S2_GUIDE_DIA", 4.0)
-    s2_envelope_h = p.get("S2_ENVELOPE_H", 120.0)
+    s2_envelope_h = p.get("S2_ENVELOPE_H", 120.0)  # noqa: F841  # 超规则 残留
 
     parts.append({
         "name": "ae_force_sensor",

@@ -251,7 +251,7 @@ def review_assembly(data):
     """
     items = []
     params = [p for p in (data.get("params", []) + data.get("derived", [])) if isinstance(p, dict)]
-    tolerances = data.get("tolerances", {})
+    tolerances = data.get("tolerances", {})  # noqa: F841  # 超规则 残留
     idx = 0
 
     # --- B1: 配合尺寸链 — 中心孔 vs 输出轴 ---

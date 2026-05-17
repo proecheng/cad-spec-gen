@@ -789,7 +789,7 @@ def generate_part_files(
     try:
         full_meta = _parse_annotation_meta(spec_path, "")
     except Exception:
-        full_meta = {"dim_tolerances": [], "gdt": [], "surfaces": []}
+        full_meta = {"dim_tolerances": [], "gdt": [], "surfaces": []}  # noqa: F841  # 超规则 残留
 
     template_dir = os.path.join(_PROJECT_ROOT, "templates")
     env = jinja2.Environment(

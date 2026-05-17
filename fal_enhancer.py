@@ -170,7 +170,7 @@ def _find_depth_for_png(png_path):
     render_dir = os.path.dirname(png_path)
 
     # 1. Exact match: {stem}_depth_.exr
-    exr_exact = stem.replace(os.path.basename(stem),
+    exr_exact = stem.replace(os.path.basename(stem),  # noqa: F841  # 超规则 残留
                               os.path.basename(stem).split("_")[0] + "_depth_")
     for exr_candidate in _glob.glob(os.path.join(render_dir, "*depth*.exr")):
         # Match by view key (V1, V2, etc.)

@@ -144,10 +144,12 @@ def test_gen_parts_l2_called_before_l3_on_fallback(tmp_path):
     from cad_spec_gen.data.codegen.gen_parts import _handle_l2_l3_fallback
 
     call_order = []
-    with patch("cad_spec_gen.data.codegen.llm_codegen._llm_generate_cadquery",
-               side_effect=lambda *a, **kw: call_order.append("L2") or None) as mock_l2, \
-         patch("cad_spec_gen.data.codegen.gen_parts._write_enriched_placeholder",
-               side_effect=lambda *a, **kw: call_order.append("L3")) as mock_l3:
+    with (
+        patch("cad_spec_gen.data.codegen.llm_codegen._llm_generate_cadquery",
+              side_effect=lambda *a, **kw: call_order.append("L2") or None) as mock_l2,  # noqa: F841  # 测试 fixture
+        patch("cad_spec_gen.data.codegen.gen_parts._write_enriched_placeholder",
+              side_effect=lambda *a, **kw: call_order.append("L3")) as mock_l3,  # noqa: F841  # 测试 fixture
+    ):
         _handle_l2_l3_fallback(
             part_name="弹簧限力机构",
             spec_text="弹簧限力机构",
