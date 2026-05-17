@@ -5,7 +5,7 @@
 > **关联 v2.37.11 retro**：`docs/superpowers/reports/2026-05-16-v2-37-11-ruff-cleanup-p1-retro.md`（P1 → P2 → P3 三批 cleanup 拓扑）
 > **关联 v2.37.12 retro**：`docs/superpowers/reports/2026-05-17-v2-37-12-ruff-cleanup-p2-retro.md`（§11-N1+N2+N6 待 P3 闭合）
 > **关联 v2.37.13a**：v2.37.12 §11-N5 latent bug triage 已 PR #94 closed；本 PR retro 集中沉淀
-> **Spec rev**：rev 1.2（rev 1 = brainstorming archeology + Option A 用户决策 inline；rev 1.1 = L1-L5 self-cascade 5 项 fix；**rev 1.2 = 用户审查发现 11 项 fix inline 闭合** 含 1 BLOCKER + 2 HIGH + 4 MED + 4 LOW）
+> **Spec rev**：rev 1.3（rev 1 archeology + Option A 决策；rev 1.1 L1-L5 self 5 fix；rev 1.2 user review 11 fix；**rev 1.3 边界+闭环 14 fix inline 闭合**：3 HIGH + 6 MED + 5 LOW；累计 30 fix）
 
 ---
 
@@ -269,7 +269,7 @@ select = [
 # 文件 (D-3 闭合 — 加 ignore 无效)。Template 渲染产物 .py 由上方 cad/**/*.py glob cover
 ```
 
-> **注意**：`cad/lifting_platform/*.py` glob 合并 E402+F403+F405 三 ignore（cover std_*.py + render_depth_only.py）；`cad/**/*.py` 双星 cover 其他 subsystem 子目录与 future 增量 — over-permissive 但 by-design（cad/ 树全是 codegen scaffolds + 几何代码，import * 是 codegen 模板模式 by-design）。glob 间无冲突（per-file-ignores 按 path 匹配累加）。
+> **注意**（含 E-1 闭合 glob 重叠语义）：`cad/lifting_platform/*.py` glob 合并 E402+F403+F405 三 ignore（cover std_*.py + render_depth_only.py）；`cad/**/*.py` 双星 cover 其他 subsystem 子目录与 future 增量 — over-permissive 但 by-design（cad/ 树全是 codegen scaffolds + 几何代码，import * 是 codegen 模板模式 by-design）。glob 间**多重匹配语义**：ruff per-file-ignores 文档明示多 glob 匹配同一 file 时 **ignore codes 取 union**（如 cad/lifting_platform/std_p01.py 同时匹配 `cad/**/*.py` 得 F403/F405 + `cad/lifting_platform/*.py` 得 F403/F405/E402 → 最终 ignore F403/F405/E402 三 codes union）。需 ruff ≥ 0.5 才支持 `**` 双星 glob — 本项目 ruff 0.15.10 OK（E-2 实证 LOW finding 兜底）。
 
 #### 3.1.E 删 P2 25 file `# ruff: noqa: F403, F405` 注释（§11-N1 真闭合）
 
@@ -335,6 +335,28 @@ P2 v2.37.12 PR #92 加的 25 file-scoped noqa（11 `cad/end_effector/ee_*.py` + 
 
 ## 4. 实施步骤
 
+### 4.-1 Commit dependency 图（严格串行 — F-2 闭合）
+
+```
+Task 0 (Scout)
+  └─→ Commit 1 (F821 TYPE_CHECKING) ──→ [立验 ruff --select=F821 exit 0]
+        └─→ Commit 2 (E741 按决策表 rename) ──→ [立验 ruff --select=E741 exit 0
+                                                + AC-8 + AC-8b 决策表-代码一致性
+                                                + 跑 Task 0 T0.6 jinja 模板 `{{ l }}` grep 复核]
+              └─→ Commit 3 (pyproject [tool.ruff] config) ──→ [立验 AC-6 config 落地
+                                                              + AC-1 首次启用 (用 ruff check . 
+                                                              = pyproject default = 12 select)
+                                                              + AC-7 E402 silent (per-file-ignores 生效)]
+                    └─→ Commit 4 (删 P2 26 处 noqa) ──→ [立验 AC-9 + AC-1 仍 exit 0]
+                          └─→ Commit 5 (CI ruff-strict job) ──→ [yaml lint 本地 + push 后 CI 跑]
+                                └─→ push → AC-9 CI watcher
+```
+
+**严格约束**（F-2 闭合）：
+- commit 1-5 必须**严格串行**，不可并行（commit 3 config 启用前 commit 4 删 noqa 会让 ruff F403/F405 大量报）
+- 每 commit 完成后立即跑对应 AC，**fail 则 reset 该 commit**，不进下一 commit
+- subagent 实施时主 agent 按上图驱动；不批量并行 commit
+
 ### 4.0 Task 0 — Scout（强制，~20min）
 
 | Step | 命令 / 操作 | 输出 |
@@ -344,7 +366,7 @@ P2 v2.37.12 PR #92 加的 25 file-scoped noqa（11 `cad/end_effector/ee_*.py` + 
 | T0.2 | F821 archeology 3 file（spec §2.5 已 archeology — Task 0 复验） | 确认 3 处都 forward-ref 非真 bug |
 | T0.3 | E402 file 分布 grep（spec §2.6 已实测）| 验证 glob 覆盖率 = 74/74 |
 | T0.4a | `.venv/Scripts/ruff.exe check --select=E741 . > tmp/p3_e741_loc.txt` | 取全 46 file:line 列表 |
-| T0.4b | 逐 file:line 读上下文 ±3 行按 §2.7 分类表分类 → 写 `tmp/p3_e741_decisions.md` 决策表 | 每行 `file:line \| 分类 \| rename_target \| 理由`；若 ≥ 5 迭代变量 → 升级 plan（L4 闭合） |
+| T0.4b | 逐 file:line 读上下文 ±3 行按 §2.7 分类表分类 → 写 `tmp/p3_e741_decisions.md` 决策表 | 决策表 **schema 严格定义**（F-1 闭合）：每行 markdown 表行 `\| file:line \| 分类 \| rename_target \| 理由 \|`；含表头 `\| file:line \| 分类 \| rename_target \| 理由（≤15 中文 + trace key） \|` + 表分隔 `\|---\|---\|---\|---\|`；分类 ∈ `{函数参数, 局部变量, 迭代变量, 列表推导, Lambda, 数学保留, 其他}`；rename_target ∈ `{length, item, elem, point, ..., NOQA}`（NOQA = 数学保留 case）；若 ≥ 5 迭代变量 → 升级 plan（L4 闭合） |
 | T0.5 | **关键**：jinja_primitive_adapter.py 外部 keyword `l=` 调用方 grep | 0 外部 = 单文件改 / ≥1 = 升级 plan |
 | T0.6 | `grep -rnE "{{[^}]*\bl\b[^}]*}}" templates/` 模板内 `l` 引用 | 0 = 安全 / ≥1 = 联动改模板 |
 | T0.7 | `git ls-files \| grep -i "agents\.md"` | AGENTS.md 真路径列表 |
@@ -376,9 +398,15 @@ Commit msg 模板见 §7.1。
 
 验：
 ```bash
-.venv/Scripts/ruff.exe check --select=E741 .
+# (1) ruff E741 整仓清零
+.venv/Scripts/ruff.exe check --select=E741 .  # exit 0
+
+# (2) jinja 模板 `{{ l }}` 复跑 grep (F-7 闭合 — commit 2 改完应重 verify)
+grep -rnE "\{\{[^}]*\bl\b[^}]*\}\}" templates/ || echo "OK no {{ l }} in templates"
+
+# (3) AC-8b 决策表-代码 rename target 一致性验
+python tools/_p3_e741_consistency_check.py  # 写入 plan 第 4.2 内
 ```
-exit 0
 
 Commit msg 模板见 §7.2。
 
@@ -428,7 +456,7 @@ Commit msg 模板见 §7.5。
 
 | # | AC 描述 | 验证命令 | 通过条件 | 检测时机 |
 |---|---|---|---|---|
-| **AC-1** | ruff 全 12 规则（P1+P2+P3）整仓 exit 0 | `.venv/Scripts/ruff.exe check .` | exit 0 | commit 4 后 + CI |
+| **AC-1** | ruff 全 12 规则（P1+P2+P3）整仓 exit 0（**F-3 + E-5 闭合**：明示用 pyproject default = select 12 规则；多时机跑） | `.venv/Scripts/ruff.exe check .`（**自动**走 pyproject [tool.ruff.lint.select]）；命令也可显式 `--select=F401,F541,F811,E401,F841,F405,F403,E731,E702,E402,E741,F821` 等价 | exit 0 | **commit 3 后首启用**（pyproject 加完）+ **commit 4 后**（删 noqa 不引入新 errors）+ **commit 5 后** + **CI ruff-strict job** |
 | **AC-2** | 全套件 pytest 无回归 | `.venv/Scripts/python.exe -m pytest -q --no-header` | PASS ≥ 3239（baseline 含 v2.37.13a +2 tests），0 NEW fail | commit 5 后 + CI |
 | **AC-3** | AGENTS.md 不动（同 P2 模式）| path-aware grep | echo OK | per-commit + PR |
 | **AC-4** | pyproject.toml `version` 不动 | `grep '^version' pyproject.toml` | `version = "2.24.0"` | PR pre-merge |
@@ -436,7 +464,7 @@ Commit msg 模板见 §7.5。
 | **AC-6** | `[tool.ruff]` section 完整落地 | `grep -q '^\[tool\.ruff\]' pyproject.toml && grep -q '^\[tool\.ruff\.lint\]' pyproject.toml && grep -q '^\[tool\.ruff\.lint\.per-file-ignores\]' pyproject.toml` | 全 exit 0 | commit 3 后 |
 | **AC-7** | per-file-ignores 实际生效（E402 silent）| `.venv/Scripts/ruff.exe check --select=E402 .` | exit 0 | commit 3 后 |
 | **AC-8** | jinja_primitive_adapter.py E741 ruff 全清零 + 决策表行数 = 46（D-2 闭合）| `.venv/Scripts/ruff.exe check --select=E741 adapters/parts/jinja_primitive_adapter.py` exit 0 + `wc -l tmp/p3_e741_decisions.md` ≥ 46 行决策 | exit 0 + 46 决策 | commit 2 后 |
-| **AC-8b** | 决策表 rename target 与代码一致（D-2 闭合）：每个非 noqa 决策必在代码内可见 rename | python 脚本：解析 `tmp/p3_e741_decisions.md` 每行 `<file:line> \| rename \| <target>` → 验 file `<line>` 行内出现 `<target>` 标识符 + 不出现 `\bl\b` 原变量名 | 全 PASS | commit 2 后 |
+| **AC-8b** | 决策表 rename target 与代码一致（D-2 + E-4 闭合）：每个非 NOQA 决策必在代码内可见 rename | python 脚本：解析 `tmp/p3_e741_decisions.md` 每行 → 验 file `<line>` 行内出现 `<target>` 标识符 + 不出现 `\bl\b` 原变量名 | 全 PASS | **commit 2 后 local 跑**（决策表 tmp/ 不入仓 → 不能在 CI 跑；E-4 闭合） |
 | **AC-9** | 25 file noqa 全删 | `grep -rnE "# ruff: noqa: F403, F405" cad/ templates/ \| wc -l` | = 0 | commit 4 后 |
 | **AC-10** | CI ruff-strict job 加入 + 全绿 | `gh pr checks <PR> \| grep ruff-strict` | status = success | PR 开后 |
 | **AC-11** | ruff fixture 漂移防御生效（intentional F401 fail）| CI job 内运行 | exit ≠ 0 → CI step PASS（fixture 设计为 fail）| CI 内 |
@@ -597,12 +625,13 @@ chore(ruff): v2.37.13b — ruff cleanup P3 完工（123→0）+ [tool.ruff] conf
 
 ## 9. §11 follow-up（本 PR 闭合 + 新登记）
 
-### 9.1 本 PR 闭合
+### 9.1 本 PR 闭合（含 §11-N5 retro 集中沉淀 — F-4 闭合）
 
 | ID | 闭合 |
 |---|---|
 | **§11-N1** P3 `[tool.ruff]` config + per-file-ignores 替 P2 25 file noqa | ✅ commit 3 + commit 4 闭合 |
 | **§11-N2** P3 CI ruff-strict job | ✅ commit 5 闭合 |
+| **§11-N5** F841 fallback latent bug triage | ✅ 已 v2.37.13a (PR #94) 闭合；本 PR retro **集中沉淀** P1+P2+P3+v2.37.13a 系列总览 |
 
 ### 9.2 本 PR 新登记
 
@@ -719,3 +748,30 @@ L1 (placeholder/一致性) 未找 fix；L2 (code-spec) ruff 0.15.10 `[tool.ruff.
 ---
 
 **Spec rev 1.2 完成（720 → 770+ 行，累计 16 项 fix inline 闭合 = 5 self-cascade + 11 user review）。可进 writing-plans。**
+
+### 13.3 边界 + 闭环 review 追加发现（spec rev 1.2 → 1.3，14 项 fix inline 闭合，F-6 同步）
+
+> **触发**：用户审 rev 1.2 时要求"再次审查 / 边界 / 是否闭环"；rev 1.3 一次合并 14 项 fix。
+
+| ID | 类别 | 严重度 | 修复点 | spec 位置 | 已落？ |
+|---|---|---|---|---|---|
+| **E-1** | 边界 | MED | per-file-ignores 多 glob 匹配语义 = ignore codes union；明示 ruff 文档约束 + 双星支持需 ruff ≥ 0.5 | §3.1.D 注 | ✓ |
+| **E-2** | 边界 | LOW | ruff 双星 `**` glob 需 0.5+；本项目 0.15.10 OK | §3.1.D 注 | ✓（合 E-1） |
+| **E-3** | 边界 | LOW | enriched_envelope.py TYPE_CHECKING 副作用：module-level 无其他 cq 运行时引用 — 实证安全 | §3.1.A 注 | ☐（LOW，rev 1.3 不强 fix） |
+| **E-4** | 边界 | MED | AC-8b 改 commit 2 后 **local** 跑（决策表 tmp/ 不入仓） | §5 AC-8b | ✓ |
+| **E-5** | 边界 | MED | AC-1 明示用 pyproject default = select 12 规则（与 `--select=...` 显式传等价）| §5 AC-1 | ✓ |
+| **F-1** | 闭环 | **HIGH** | T0.4b 决策表 schema 严格定义（字段顺序 + 分类 enum + rename_target enum + NOQA case） | §4.0 T0.4b | ✓ |
+| **F-2** | 闭环 | **HIGH** | §4.-1 commit dependency 图 + 严格串行约束 | §4.-1 | ✓ |
+| **F-3** | 闭环 | **HIGH** | AC-1 多时机明示（commit 3 后首启 + commit 4 后 + commit 5 后 + CI） | §5 AC-1 | ✓ |
+| **F-4** | 闭环 | MED | §9.1 加 §11-N5 闭合（retro 集中沉淀） | §9.1 | ✓ |
+| **F-5** | 闭环 | LOW | §10 §12 f4 retro 重述深度模糊；rev 1.3 不强 fix | §10 | ☐（LOW，retro 阶段 implementer 视情） |
+| **F-6** | 闭环 | MED | §13 fix landing 状态自动同步（D-1~16 状态由 plan 阶段填）→ rev 1.3 自身闭合方式：本表 √ 标记追加 | §13/13.1/13.2/13.3 | ✓（all rev 1.3 fix 已 ✓ in 本表） |
+| **F-7** | 闭环 | MED | §4.2 commit 2 内 added jinja 模板复跑 grep step | §4.2 | ✓ |
+| **F-8** | 闭环 | LOW | §6 cascade 5 layer 时间线 — rev 1.3 LOW 不强 fix | §6 | ☐（LOW，spec 默认 L1-L5 都在 spec rev 阶段；implementation per-task reviewer 独立） |
+| **F-9** | 闭环 | LOW | §3.1.F CI ruff-strict job 默认继承 workflow trigger (push + pull_request) — 首次跑在本 PR push 时 | §3.1.F | ☐（LOW，yaml 默认行为已 OK） |
+
+**rev 1.3 总览**：14 项 findings 中 11 项 inline 闭合（✓）+ 3 LOW 推 §11-N6+/N6++/N6+++ 后续处理或 implementer 视情。
+
+---
+
+**Spec rev 1.3 完成（721 → ~810 行；累计 30 fix inline = 5 self-cascade + 11 user review + 14 边界+闭环；全 BLOCKER + HIGH 闭合）。可进 writing-plans。**
