@@ -20,6 +20,16 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.dev import lint_scope_audit as lsa  # noqa: E402
 
 
+def _ruff_available() -> bool:
+    """检查 ruff 是否在测试环境（pyproject test extras 不含 ruff；CI ruff-strict job 独立装）"""
+    return lsa._find_executable("ruff") is not None
+
+
+def _mypy_available() -> bool:
+    """检查 mypy 是否在测试环境"""
+    return lsa._find_executable("mypy") is not None
+
+
 def test_load_ruff_config_parses_globs_and_select():
     """spec §3.2: _load_ruff_config → (globs_to_codes, select_codes)"""
     pyproject = {
@@ -196,6 +206,7 @@ def test_render_ruff_report_empty_findings_shows_ok():
 
 
 @pytest.mark.real_subprocess
+@pytest.mark.skipif(not _ruff_available(), reason="ruff not in test env (CI: ruff-strict job 独立 install)")
 def test_ruff_subcommand_against_current_pyproject():
     """spec AC-2 + rev 1.2 M5/B5: smoke ruff 子命令 cwd=REPO_ROOT"""
     result = subprocess.run(
@@ -212,6 +223,7 @@ def test_ruff_subcommand_against_current_pyproject():
 
 @pytest.mark.real_subprocess
 @pytest.mark.mypy
+@pytest.mark.skipif(not _mypy_available(), reason="mypy not in test env")
 def test_mypy_subcommand_against_current_pyproject():
     """spec AC-3 + rev 1.2 N7 + rev 1.3 M10: 只断 4 模块名在报告中出现"""
     result = subprocess.run(
@@ -234,6 +246,7 @@ def test_mypy_subcommand_against_current_pyproject():
 
 
 @pytest.mark.real_subprocess
+@pytest.mark.skipif(not _ruff_available() or not _mypy_available(), reason="ruff or mypy not in test env")
 def test_all_subcommand_runs_both():
     """spec AC-4: all 子命令两段都跑"""
     result = subprocess.run(
