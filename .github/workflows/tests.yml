@@ -158,3 +158,37 @@ jobs:
             exit 1
           fi
           echo "✓ fixture correctly fails — gate 配置正确"
+
+  # ─── ruff strict CI gate (§11-N2) ─────────────────────────────────────
+  # Scope: 全仓 ruff check .（走 pyproject.toml [tool.ruff.lint] 12 规则集
+  # + per-file-ignores）。P1+P2+P3 cleanup 后维持 exit 0 守门。
+  ruff-strict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install ruff (pin 与本地 .venv 一致版本)
+        # 本地 .venv ruff==0.15.10 (Task 0 T0.1b 实证)；CI 必须装同版本防
+        # 0.16+ 行为差异（如 default ruleset / hidden fix / per-file-ignores 解析）
+        run: pip install "ruff==0.15.10"
+      - name: Run ruff check (P1+P2+P3 全规则集 守门)
+        # 走 pyproject.toml [tool.ruff.lint.select] 12 规则 + per-file-ignores
+        run: ruff check .
+      - name: Verify ruff fixture catches violations (防 gate 漂移)
+        # 用 mktemp -d + trap cleanup 避免 repo 内污染
+        run: |
+          FIXTURE_DIR=$(mktemp -d)
+          trap "rm -rf $FIXTURE_DIR" EXIT
+          cat > "$FIXTURE_DIR/_ruff_invalid_fixture.py" <<'PYFIX'
+          # Intentional unused import (F401) for ruff gate 漂移检测
+          import os
+          x = 1
+          PYFIX
+          if ruff check --select=F401 "$FIXTURE_DIR/_ruff_invalid_fixture.py"; then
+            echo "ERROR: ruff fixture should fail (intentional F401) but passed"
+            echo "→ ruff gate 配置漂移：检查 pyproject.toml [tool.ruff.lint.select]"
+            exit 1
+          fi
+          echo "✓ fixture correctly fails — ruff gate 配置正确"
