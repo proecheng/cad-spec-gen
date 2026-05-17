@@ -4,7 +4,7 @@
 > **关联 §11 follow-up**：§11-N12（v2.37.13b retro §3.3 登记 — Task 0 scout per-file-ignores enumeration 系统化）
 > **关联 retro**：`docs/superpowers/reports/2026-05-17-v2-37-13b-ruff-cleanup-p3-retro.md` §3.3
 > **关联 brainstorming**：本 session — 3 节 §1/§2/§3 用户逐节 ok 确认
-> **Spec rev**：rev 1.1（rev 1.0 首版 + cynical L2 审查 3 BLOCKER + 4 MAJOR inline 修复；rev 1.1 实测 ruff 0.15.10 `--config` flag + mypy `-p` flag 验证）
+> **Spec rev**：rev 1.2（rev 1.0 首版 + rev 1.1 L1+L2 13 fix + **rev 1.2 L3 edge-case hunter 12 fix**：3 new BLOCKER（B4 filename 绝对 / B5 cad_paths 多副本 / **B6 mypy false positive 同 B2 量级 showstopper** — pyproject `ignore_errors=true` 自抑制致 dischargeable 100% 假阳）+ 5 MAJOR + 4 MINOR；rev 1.2 cumulative cascade = 25 fix 与 P3 30 fix 同量级）
 
 ---
 
@@ -16,8 +16,8 @@
 
 | 改动 | 严重度 | 内容 | 估时 |
 | --- | --- | --- | --- |
-| **改动 1** | LOW | 新文件 `tools/dev/lint_scope_audit.py`（~130 LOC，单脚本 + argparse subcommands）+ `pyproject.toml [project.optional-dependencies] test` 加 `'tomli; python_version < "3.11"'` 一并 commit（rev 1.1 M2：tomli dep 是 script prerequisite，不单独 commit）| 47min |
-| **改动 2** | LOW | 新文件 `tests/test_lint_scope_audit.py`（~150 LOC，13 unit + 2 real_subprocess + 1 mypy = 16） | 30min |
+| **改动 1** | LOW | 新文件 `tools/dev/lint_scope_audit.py`（**~160 LOC**，单脚本 + argparse subcommands；rev 1.2 增量：`_make_mypy_stripped_config` tempfile 逻辑 ~20 行 + `_normalize_ruff_filename` abs→rel ~5 行 + cwd assertion ~5 行）+ `pyproject.toml [project.optional-dependencies] test` 加 `'tomli; python_version < "3.11"'` 一并 commit（rev 1.1 M2：tomli dep 是 script prerequisite，不单独 commit）| 55min |
+| **改动 2** | LOW | 新文件 `tests/test_lint_scope_audit.py`（**~180 LOC**，15 unit + 2 real_subprocess + 1 mypy = **18 tests**；rev 1.2 +2 for B4/B6 helpers）| 35min |
 | **改动 3** | LOW | retro §3.3 N12 标记 closed + 加 spec/PR/release 引用 | 5min |
 | **改动 4** | — | 全套件 PASS + CI ruff-strict + mypy-strict 9/9 守门 | AC |
 
@@ -73,14 +73,15 @@ python tools/dev/lint_scope_audit.py all     # 顺序跑两者
 |---|---|---|
 | `_load_pyproject() → dict` | tomllib 读 pyproject.toml | 文件读取 |
 | `_load_ruff_config(pyproject) → tuple[dict[str, list[str]], list[str]]` | 解 `[tool.ruff.lint]` → `(globs_to_codes, select_codes)` | 纯 |
-| `_load_mypy_overrides(pyproject) → list[str]` | 解 `[[tool.mypy.overrides]]` → ignore_errors=true 模块列表 | 纯 |
-| `_run_ruff_json() → list[tuple[str, str]]` | `ruff check --config 'lint.per-file-ignores={}' --output-format=json .` — **关键**：inline 覆盖 per-file-ignores 为空 dict，强制 ruff 报告**所有真违规**（不被 ignore 抑制）；否则 P3 收官状态返 `[]` 导致 over_permissive 100% false positive（rev 1.1 B2 fix；已实测 ruff 0.15.10 此 flag 工作） | subprocess |
-| `_run_mypy_strict_per_module(module) → bool` | `python -m mypy --strict -p <module>` exit 0?（**关键 `-p` flag**：mypy 不接受裸 dotted name，必须显式 `-p` 当作 package；rev 1.1 B3 fix 实测；`cad_paths` 为 repo root 模块，dotted=`cad_paths`，mypy 用 explicit_package_bases 解析 OK） | subprocess |
+| `_load_mypy_overrides(pyproject) → list[str]` | 解 `[[tool.mypy.overrides]]` → ignore_errors=true 模块列表。**rev 1.2 M8 fix**：每个 override block 的 `module` 字段可为 str 或 list[str]，统一展开成 list[str] 后过滤 ignore_errors=true 块 | 纯 |
+| `_run_ruff_json() → list[tuple[str, str]]` | `ruff check --config 'lint.per-file-ignores={}' --output-format=json .` — **关键**：inline 覆盖 per-file-ignores 为空 dict，强制 ruff 报告**所有真违规**；否则 P3 收官状态返 `[]` 导致 over_permissive 100% false positive（rev 1.1 B2 fix；实测 ruff 0.15.10 工作）。**rev 1.2 B4 fix**：JSON 输出 `filename` 字段是 absolute Windows path（实测 `D:\Work\...\file.py`），算法前先 `Path(fn).relative_to(Path.cwd()).as_posix()` normalize 成 `/`-分隔 relative path | subprocess + cwd 必须 = repo root |
+| `_make_mypy_stripped_config(pyproject) → Path` | **rev 1.2 B6 fix（核心新增）**：写 tempfile pyproject 保留 `[tool.mypy]` 主段（`python_version` / `strict_optional` / `warn_redundant_casts` / `warn_unused_ignores` / `ignore_missing_imports` / `explicit_package_bases`）+ `strict=true` override（如有），**剥离所有 `ignore_errors=true` overrides**。返 tmp 文件路径，调用方负责清理 | tempfile I/O |
+| `_run_mypy_strict_per_module(module, stripped_config_path) → bool` | `python -m mypy --strict --config-file <stripped_config> --disable-error-code=import-untyped -p <module>` exit 0?（**B6 关键**：用 stripped pyproject 跳过 `ignore_errors=true` 自抑制；`-p` flag 必需（rev 1.1 B3）；`--disable-error-code=import-untyped` 忽略外部库缺 type stub 的噪音（如本仓 pywin32 / win32com 无 stub，rev 1.2 M6 fix），让判定聚焦在模块**自身的**类型完整性；`cad_paths` 顶层模块靠 explicit_package_bases=true 解析；smoke test cwd 必须 = repo root（B5）防多副本歧义） | subprocess + cwd 必须 = repo root |
 | `_compute_ruff_drift(globs_to_codes, select_codes, violations) → tuple[list, list]` | set diff 算 over_permissive + missing_glob | 纯 |
 | `_compute_mypy_dischargeable(modules, per_module_results) → list[str]` | 过滤 OK 模块 | 纯 |
 | `_render_ruff_report(over_permissive, missing_glob) → str` | 拼 markdown | 纯 |
 | `_render_mypy_report(dischargeable, all_modules) → str` | 拼 markdown | 纯 |
-| `main() → int` | argparse + dispatch | I/O + sys.exit |
+| `main() → int` | argparse + dispatch；**rev 1.2 M9 fix**：`subparsers = parser.add_subparsers(required=True)` 显式 required，防 py3.7+ 默认非 required 引起无 subcommand silent exit 0 | I/O + sys.exit |
 
 ### 3.3 数据流
 
@@ -90,22 +91,34 @@ pyproject.toml
 config dict
      ↓ _load_ruff_config / _load_mypy_overrides
 {globs: codes} / [ignore modules]
-     ↓ _run_ruff_json / _run_mypy_strict_per_module (subprocess)
+     │
+     │   mypy 子命令 only:
+     │   ↓ _make_mypy_stripped_config  (rev 1.2 B6)
+     │   tempfile.NamedTemporaryFile(suffix='.toml')
+     │   <stripped pyproject 无 ignore_errors override>
+     ↓
+     ↓ _run_ruff_json (subprocess, ruff --config 'lint.per-file-ignores={}')
+     ↓ _run_mypy_strict_per_module (subprocess, mypy --config-file <stripped>
+                                              --disable-error-code=import-untyped
+                                              -p <module>)
 violations / per-module exit codes
-     ↓ _compute_*_drift (pure)
+     │   ruff 子命令: filename normalize abs → rel (rev 1.2 B4)
+     ↓ _compute_*_drift (pure, set diff)
 findings (over_permissive / missing_glob / dischargeable)
      ↓ _render_*_report
 markdown
      ↓ print
 stdout
+     └ tempfile cleanup (try/finally)
 ```
 
 ### 3.4 关键设计决策
 
-- **不修复**：脚本只读 + report，绝不动 pyproject.toml；user-curated config 由人决策
-- **glob 匹配**：手撸 `_match_glob(glob, path)` ~20 行 — normalize `\\` → `/` 后用 regex 转换：`/` 段间分隔字面量；`**` → `.*`（任意 dir level，含 0 段）；`*` → `[^/]*`（单段无 `/`）；`?` → `[^/]`。其余字符 `re.escape`。锚 `^` + `$`。`fnmatch.fnmatch` 不可用（不支持 `**`）。**零新外部 dep**；避免引入 `pathspec` 等库。R-1 由 §6 AC-13 smoke 断言"P3 收官状态 0 missing_glob"实测兜底（rev 1.1 M1 fix：原 `[\w\-./]*` 模式拼错 — `\w` 不含 `-` 和 `.`，`**` 段语义错；本节改正）
-- **mypy 子命令必慢路径**：N=4 模块 × ~5s ≈ 20s；不并行（subprocess 资源 race + 输出顺序不可控）；不缓存（N 小且 mypy 自带 incremental cache）
-- **Windows 路径**：subprocess 调用的 `ruff check` 输出 JSON 内 `filename` 字段使用 Windows `\` 或 POSIX `/` 取决于 ruff version；统一 `path.replace("\\", "/")` 后匹配
+- **不修复**：脚本只读 + report，绝不动 pyproject.toml；user-curated config 由人决策；rev 1.2 mypy 子命令写 **tempfile** 是工作副本，**永不写回** pyproject.toml
+- **glob 匹配**：手撸 `_match_glob(glob, path)` ~20 行 — normalize `\\` → `/` 后用 regex 转换：`/` 段间分隔字面量；`**` → `.*`（任意 dir level，含 0 段）；`*` → `[^/]*`（单段无 `/`）；`?` → `[^/]`。其余字符 `re.escape`。锚 `^` + `$`。`fnmatch.fnmatch` 不可用（不支持 `**`）。**零新外部 dep**；避免引入 `pathspec` 等库。R-1 由 §6 AC-13 smoke 断言"P3 收官状态 0 missing_glob"实测兜底（rev 1.1 M1 fix）。**rev 1.2 N6**：不支持 char class `[!abc]`（pyproject 实际未用，spec 显示限制）
+- **mypy 子命令必慢路径**：N=4 模块 × ~5s ≈ 20s + tempfile 写一次 +<10ms；不并行（subprocess 资源 race + 输出顺序不可控）；不缓存（N 小且 mypy 自带 incremental cache）
+- **mypy 子命令必绕过 pyproject self-suppress（rev 1.2 B6 fix 核心）**：直接调 `mypy --strict -p <m>` 会被 pyproject `[[tool.mypy.overrides]] ignore_errors=true` 自抑制返 0 → 100% false positive；必须 `_make_mypy_stripped_config` 写 tempfile 剥离 ignore_errors override 后 `mypy --config-file <stripped>` 才能拿到模块**自身**真错。`--disable-error-code=import-untyped` 同时抑制外部依赖（pywin32 / win32com）缺 stub 的噪音，让判定聚焦"模块自身的类型完整性"
+- **Windows 路径 + cwd**（rev 1.2 B4/B5 fix）：ruff JSON 实测 `filename` = abs Windows path（如 `D:\Work\...\file.py`），必须 normalize 到 `/`-分隔 relative path 再 glob 匹配；同时 subprocess 调 ruff/mypy **必须设 `cwd=<repo root>`**（脚本可用 `Path(__file__).parent.parent.parent` 推断），防多个 cad_paths.py 副本（root + `.pytest_tmp_*/.../site-packages/cad_spec_gen/data/python_tools/cad_paths.py`）的 sys.path 解析歧义
 
 ### 3.5 报告格式（markdown stdout）
 
@@ -139,12 +152,18 @@ stdout
 - ignore_errors=true 模块：4 个
 
 ## ✅ dischargeable (N)
-- `<module>` — `mypy --strict -p <module>` exit 0；建议从 [[tool.mypy.overrides]] 出列
+- `<module>` — stripped config + `mypy --strict -p <module>` exit 0；建议从 [[tool.mypy.overrides]] 出列
+  - **rev 1.2 M7 caveat**：本工具用 stripped config（剥离 ignore_errors override）+ `--disable-error-code=import-untyped` 判定。出列前请人工手测原 pyproject 下 `mypy --strict -p <module>` 实质 clean（确认不依赖外部类型 stub 才能 pass），再 commit
 ...
 
+## ⚠ still has errors (M)
+- `<module>` — stripped config 下 N errors（如 `15 errors in sw_detect.py`），保留 ignore_errors=true 合理；首行 mypy stderr 显示具体规则
+
 ## 结论
-- 无可出列 / N 项可出列
+- dischargeable: N 项 / still has errors: M 项 / 总计 N+M = 配置中 ignore_errors=true 模块数
 ```
+
+**rev 1.2 N7 校准**：当前 4/4 模块在 stripped config 下都有真错（N=0, M=4），报告 still has errors 段会列出全部 4 模块名 + 各自 error 数。AC-3 "列出 4 模块"由本段满足，不依赖 dischargeable 非空。
 
 **`all` subcommand 部分失败 fallback wording**（rev 1.1 M4 fix）：
 
@@ -179,6 +198,11 @@ stdout
 | `mypy --strict -p <module>` 跑挂（import error / 模块不存在 / 真有 type error）| subprocess 非 0 | 视为"still has errors" → 不出列；warn 到 stderr 含 stderr 头几行帮 debug | 0（继续）|
 | `[tool.ruff.lint.per-file-ignores]` 段缺失但 `[tool.ruff]` 在 | `globs_to_codes = {}` | 跑正常，所有 violation 进 missing_glob | 0 |
 | 真实 ruff 0 violation 且无 over_permissive | findings 全空 | markdown 显示"✅ 无 drift" | 0 |
+| **tempfile 创建失败**（rev 1.2 B6）| `OSError`（disk full / permission）| stderr 报错 + 终止；不退路本调用 | 5 |
+| **tempfile cleanup 失败**（rev 1.2 B6）| `try/finally` 内捕获 unlink 失败 | warn 到 stderr 但不阻塞主流程 | 0 |
+| **mypy `--disable-error-code=import-untyped` 旧版不支持**（mypy < 0.991）| subprocess stderr "unknown option" | warn + 不带此 flag retry 一次；若仍 fail → 视 module 为 "still has errors" | 0（continue）|
+| **cwd 不在 repo root**（rev 1.2 B5）| 启动检测 `(cwd / "pyproject.toml").exists()` | 自动 cd 到 `Path(__file__).parent.parent.parent`；若仍找不到 → stderr 报错 + 终止 | 2 |
+| **多个 `cad_paths.py` 副本**（rev 1.2 B5）| mypy `-p` 解析靠 sys.path + explicit_package_bases=true | cwd=repo root + 显式 PYTHONPATH 排除 `.pytest_tmp_*` 路径；smoke test 同样保障 | — |
 
 ---
 
@@ -186,19 +210,21 @@ stdout
 
 **新文件**：`tests/test_lint_scope_audit.py`（~150 LOC）
 
-### 5.1 Unit tests（核心算法，11 个 — 全离线、毫秒级）
+### 5.1 Unit tests（核心算法，13 个 — 全离线、毫秒级；rev 1.2 +2 for B6/B4）
 
 | Test | 验证 |
 |---|---|
 | `test_load_ruff_config_parses_globs_and_select` | 给 inline TOML 字符串 → 返 `(globs_to_codes, select_codes)` 正确 |
 | `test_load_ruff_config_missing_section_returns_none` | 缺 `[tool.ruff]` → None（按设计契约）|
-| `test_match_globs_handles_double_star` | `cad/**/*.py` 匹配 `cad/end_effector/foo.py` ✅、`adapters/parts/foo.py` ❌ |
+| `test_match_globs_handles_double_star` | `cad/**/*.py` 匹配 `cad/end_effector/foo.py` ✅、`cad/foo.py` ✅（0 dir level）、`adapters/parts/foo.py` ❌ |
 | `test_match_globs_normalizes_windows_paths` | 输入 `cad\end_effector\foo.py` → 正确匹配 `cad/**/*.py` |
+| `test_normalize_ruff_filename_strips_absolute_prefix` | **rev 1.2 B4**：输入 `D:\Work\cad-spec-gen\adapters\parts\foo.py` + cwd=`D:\Work\cad-spec-gen` → 返 `adapters/parts/foo.py` |
 | `test_compute_ruff_drift_over_permissive` | glob 覆盖 file 但无 violation → 进 over_permissive |
 | `test_compute_ruff_drift_missing_glob` | file 有 violation 但无 glob → 进 missing_glob |
 | `test_compute_ruff_drift_perfect_match` | glob 与 violation 完全对齐 → 两类皆空 |
 | `test_load_mypy_overrides_filters_ignore_errors_true` | 混合 strict=true + ignore_errors=true → 只返 ignore_errors=true |
 | `test_load_mypy_overrides_handles_module_list_or_string` | `module = "x"` 和 `module = ["x","y"]` 两种 TOML 形式都解 |
+| `test_make_mypy_stripped_config_removes_ignore_errors_blocks` | **rev 1.2 B6**：输入完整 pyproject dict → tmp 文件 contents 不含 `ignore_errors = true` 行，保留 `[tool.mypy]` 主段 + strict=true overrides |
 | `test_render_ruff_report_includes_both_sections` | findings 含两类 → markdown 含两标题 |
 | `test_render_ruff_report_empty_findings_shows_ok` | findings 全空 → 显示"✅ 无 drift" |
 
@@ -206,13 +232,16 @@ stdout
 
 | Test | 类型 | 验证 | marker |
 |---|---|---|---|
-| `test_ruff_subcommand_against_current_pyproject` | smoke | `subprocess.run([python, script, "ruff"])` → exit 0 + stdout 含 markdown 头 | `real_subprocess` |
-| `test_mypy_subcommand_against_current_pyproject` | smoke | 同上 mypy → 含 4 模块名 | `mypy` + `real_subprocess` |
+| `test_ruff_subcommand_against_current_pyproject` | smoke | `subprocess.run([sys.executable, script, "ruff"], cwd=REPO_ROOT)` → exit 0 + stdout 含 markdown 头 | `real_subprocess` |
+| `test_mypy_subcommand_against_current_pyproject` | smoke | 同上 mypy → 含 4 模块名（每模块给 dischargeable 或 still-has-errors 状态；**rev 1.2 N7 校准**：当前 stripped config 实测 4/4 仍有真错，dischargeable 列表 = 空，但 4 模块名都列在报告里）| `mypy` + `real_subprocess` |
 | `test_all_subcommand_runs_both` | smoke | 两段都出现 | `real_subprocess` |
 | `test_ruff_missing_executable_exits_3` | unit | mock `shutil.which("ruff") → None` → exit 3 | （无 marker）|
 | `test_pyproject_missing_section_exits_2` | unit | tmp_path 写残缺 pyproject → exit 2 | （无 marker）|
 
-**总计 16 个**：unit 13（§5.1 11 + §5.2 后 2）+ smoke real_subprocess 2（§5.2 前 2 不含 mypy）+ smoke mypy 1（§5.2 第 2 含 mypy marker）
+**总计 18 个**（rev 1.2 +2 from 16）：unit 15（§5.1 13 + §5.2 后 2）+ smoke real_subprocess 2（§5.2 前 2 不含 mypy）+ smoke mypy 1（§5.2 第 2 含 mypy marker）
+
+**rev 1.2 M5 fix**：smoke test 用 `sys.executable` 不 hardcode `"python"`（PATH 不一定有；CI matrix 各 Python 版本隔离 `.venv`）。
+**rev 1.2 B5 fix**：smoke test 显式 `cwd=REPO_ROOT`（`REPO_ROOT = Path(__file__).parent.parent`，pytest test dir 是 `tests/`），防多 `cad_paths.py` 副本歧义。
 
 ### 5.3 TDD 顺序
 
@@ -239,12 +268,12 @@ RED → GREEN → REFACTOR：
 |---|---|---|---|---|
 | **AC-1** | 新脚本可执行 | `python tools/dev/lint_scope_audit.py --help` | exit 0 + 列 3 subcommands | commit 1 后 |
 | **AC-2** | ruff 子命令对当前 pyproject 跑通 | `python tools/dev/lint_scope_audit.py ruff` | exit 0 + markdown 头 | commit 1 后 |
-| **AC-3** | mypy 子命令对当前 pyproject 跑通 | `python tools/dev/lint_scope_audit.py mypy` | exit 0 + 列出 4 模块 | commit 1 后 |
+| **AC-3** | mypy 子命令对当前 pyproject 跑通 | `python tools/dev/lint_scope_audit.py mypy` | exit 0 + 列出 4 模块（dischargeable=0 是 rev 1.2 实测预期：stripped config + `--disable-error-code=import-untyped` 下 4 模块都仍有自身 type error，N7 校准）| commit 1 后 |
 | **AC-4** | all 子命令两段都跑 | `python tools/dev/lint_scope_audit.py all` | exit 0 + 两段 markdown | commit 1 后 |
-| **AC-5** | unit tests 全 PASS | `pytest tests/test_lint_scope_audit.py -m "not real_subprocess and not mypy"` | **13 passed**（§5.1 11 + §5.2 后 2）| commit 2 后 |
+| **AC-5** | unit tests 全 PASS | `pytest tests/test_lint_scope_audit.py -m "not real_subprocess and not mypy"` | **15 passed**（§5.1 13 + §5.2 后 2；rev 1.2 +2 for B4/B6 helpers）| commit 2 后 |
 | **AC-6** | real_subprocess smoke 全 PASS | `pytest tests/test_lint_scope_audit.py -m "real_subprocess and not mypy"` | **2 passed** | commit 2 后 |
 | **AC-7** | mypy smoke 跑通 | `pytest tests/test_lint_scope_audit.py -m "mypy"` | **1 passed** | commit 2 后 |
-| **AC-8** | 全套件 baseline +16 | `pytest` | ≥3241 + 16 PASS（13 unit + 2 real_subprocess + 1 mypy = 16）| commit 2 后 |
+| **AC-8** | 全套件 baseline +18 | `pytest` | ≥3241 + 18 PASS（15 unit + 2 real_subprocess + 1 mypy = 18）| commit 2 后 |
 | **AC-9** | ruff-strict CI gate pass | `.github/workflows/tests.yml` ruff-strict job | exit 0 | PR 后 |
 | **AC-10** | mypy-strict CI gate pass | `.github/workflows/tests.yml` mypy-strict job | exit 0（无新 strict 模块加入）| PR 后 |
 | **AC-11** | 新脚本本身无 ruff 违规（CI ruff-strict 自动 cover）+ 本地手测 mypy --strict clean（**非 CI gate**，rev 1.1 M3 fix：现 CI mypy-strict job 由 `[[tool.mypy.overrides]] strict=true` 块决定 file 列表，仅 `sw_config_broker`；`tools/dev/lint_scope_audit.py` 不进 mypy-strict CI scope 是 by-design — 渐进式 typing 政策不应因新 dev tool 扩张 strict scope；commit 1 实施时本地 `mypy --strict tools/dev/lint_scope_audit.py` 应 exit 0，AC 用本地手测验，不进 CI gate）| `ruff check tools/dev/lint_scope_audit.py`（CI）+ 本地 `mypy --strict tools/dev/lint_scope_audit.py` | ruff CI exit 0 + 本地 mypy exit 0 | commit 1 后 |
@@ -258,7 +287,7 @@ RED → GREEN → REFACTOR：
 | ID | 风险 | 级别 | 缓解 |
 |---|---|---|---|
 | **R-1** | 手撸 glob 匹配语义与 ruff 不一致（双星 / 多 segment）→ 误报 | MED | smoke test 跑真 pyproject 断言"P3 收官状态 0 missing_glob"实测兜底；**rev 1.1 N2 fix**：同 smoke 加断言 over_permissive 数 ≤ 12 globs（合理上界，防 B2 类 100% false positive 回归）；若误报 → unit test 增量 case + 修 `_match_glob` regex 模式；不引入 `pathspec` dep |
-| **R-2** | mypy ignore_errors 模块的 dischargeable 列表为空 / 非空均合理 | LOW | **rev 1.1 校准**：本 session 实测 `mypy --strict -p adapters.solidworks.sw_detect` 当前 **exit 0 clean** → 首次运行至少 1 项 dischargeable；非 0 列表是预期。dischargeable 仅 *建议*，是否出列 = 渐进式 typing 业务决策（由 sw_detect transitive import broker / jury gate 是否影响 strict scope 决定），脚本不替决策 |
+| **R-2** | mypy ignore_errors 模块的 dischargeable 列表为空 / 非空均合理 | LOW | **rev 1.2 校准**（rev 1.1 误判已修）：rev 1.1 实测"sw_detect mypy --strict clean"是被 pyproject `ignore_errors=true` 自抑制的假象（B6 真因）；rev 1.2 stripped config 实测下 4/4 模块全有真错（sw_detect 15 errors / 其余类似）→ 首次运行 dischargeable = 空。这是合理状态 — 当前模块确实仍是历史债。空列表是有效报告 |
 | **R-3** | tomllib 在 py3.10 缺失 | LOW | try/except import + tomli fallback；CI 已 test py3.10/3.11/3.12 |
 | **R-4** | ruff JSON 输出格式版本漂移 | LOW | pin ruff version 与本仓既有约定一致；本仓 `feedback_preflight_mirror_ci.md` 教训已 cover |
 | **R-5** | 脚本本身 ruff/mypy 违规导致 PR CI fail | LOW | AC-11 commit 1 后立验；TDD 顺序 unit 先 RED 自然驱动接口设计干净 |
@@ -270,16 +299,25 @@ RED → GREEN → REFACTOR：
 
 ```
 Commit 1 — feat(dev-tools): tools/dev/lint_scope_audit.py + pyproject tomli dep
-  + new script 单 file ~130 LOC + argparse subcommands (ruff/mypy/all)
-  + ruff: 用 --config 'lint.per-file-ignores={}' inline strip + over_permissive/missing_glob 两类 drift (rev 1.1 B2 fix)
-  + mypy: -p <dotted> flag invocation (rev 1.1 B3 fix) + ignore_errors=true dischargeable
+  + new script 单 file ~160 LOC + argparse subcommands (ruff/mypy/all)
+  + ruff: --config 'lint.per-file-ignores={}' inline strip (rev 1.1 B2 fix)
+        + filename abs→rel normalize (rev 1.2 B4 fix)
+        + over_permissive/missing_glob 两类 drift
+  + mypy: _make_mypy_stripped_config tempfile 剥离 ignore_errors override (rev 1.2 B6 fix)
+        + --disable-error-code=import-untyped 忽略外部库 stub 噪音 (rev 1.2 M6 fix)
+        + mypy --config-file <stripped> --strict -p <dotted> flag (rev 1.1 B3 fix)
+        + ignore_errors=true dischargeable
+  + cwd 显式 = repo root + 多 cad_paths.py 副本 disambiguation (rev 1.2 B5 fix)
   + _match_glob regex impl: ** → .* / * → [^/]* (rev 1.1 M1 fix)
+  + argparse subparsers required=True (rev 1.2 M9 fix)
+  + _load_mypy_overrides 处理 module 字段两形态 (rev 1.2 M8 fix)
   + pyproject.toml [project.optional-dependencies] test 加 tomli; python_version<"3.11" (rev 1.1 M2 fix)
   + 默认 informational mode (exit 0)
   + 闭合 §11-N12
 
 Commit 2 — test(dev-tools): tests/test_lint_scope_audit.py
-  + 13 unit + 2 real_subprocess + 1 mypy = 16 tests
+  + 15 unit + 2 real_subprocess + 1 mypy = 18 tests (rev 1.2 +2 for B4/B6)
+  + smoke test 用 sys.executable + cwd=REPO_ROOT (rev 1.2 M5+B5)
   + 验证 pyproject 解析 + glob 匹配 + drift 算法 + 报告渲染 + 错误路径
 
 Commit 3 — docs(retro): v2.37.13b retro §3.3 N12 → closed
