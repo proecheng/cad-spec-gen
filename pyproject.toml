@@ -55,6 +55,7 @@ all = [
 test = [
     "pytest>=7.0",
     "hypothesis>=6.0",
+    "tomli; python_version < '3.11'",  # rev 1.1 M2 fix: lint_scope_audit.py py3.10 fallback
 ]
 
 [project.scripts]
