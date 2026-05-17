@@ -1442,8 +1442,9 @@ class TestPrewarmConfigLists:
         from adapters.solidworks import sw_detect
 
         sw_detect._reset_cache()
-        _fake_detect = lambda: sw_detect.SwInfo(installed=True, version_year=24,
-                                                toolbox_dir="C:/SW")
+        def _fake_detect():
+            return sw_detect.SwInfo(installed=True, version_year=24,
+                                                        toolbox_dir="C:/SW")
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -1788,8 +1789,9 @@ class TestListConfigsViaComThreeLayer:
     def fake_sw(self, monkeypatch):
         from adapters.solidworks import sw_detect
         sw_detect._reset_cache()
-        _fake_detect = lambda: sw_detect.SwInfo(installed=True, version_year=24,
-                                                toolbox_dir="C:/SW")
+        def _fake_detect():
+            return sw_detect.SwInfo(installed=True, version_year=24,
+                                                        toolbox_dir="C:/SW")
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -2027,7 +2029,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2073,7 +2076,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2124,7 +2128,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2169,7 +2174,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2210,7 +2216,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2253,7 +2260,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2292,7 +2300,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2332,7 +2341,8 @@ class TestI2EnvelopePersistence:
             installed = False
             version_year = 0
             toolbox_dir = ""
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2419,7 +2429,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2461,7 +2472,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -2519,7 +2531,8 @@ class TestI2EnvelopePersistence:
         class FakeInfo:
             version_year = 2025
             toolbox_dir = "C:/new"
-        _fake_detect = lambda: FakeInfo()
+        def _fake_detect():
+            return FakeInfo()
         monkeypatch.setattr(
             "adapters.solidworks.sw_detect.detect_solidworks", _fake_detect,
         )
@@ -3028,9 +3041,10 @@ class TestRev5BrokerRcDispatch:
         from adapters.solidworks import sw_detect
 
         sw_detect._reset_cache()
-        _fake_detect = lambda: sw_detect.SwInfo(
-            installed=True, version_year=24, toolbox_dir="C:/SW",
-        )
+        def _fake_detect():
+            return sw_detect.SwInfo(
+                    installed=True, version_year=24, toolbox_dir="C:/SW",
+                )
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)

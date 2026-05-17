@@ -46,7 +46,8 @@ class TestGroupingLogic:
     def test_groups_by_prefix(self):
         """Sibling face nodes get gathered under their canonical name."""
         # Use a fake mesh stand-in (any object) — we never call mesh methods here
-        fake = lambda: object()
+        def fake():
+            return object()
         geometry = {
             "EE-001-01": fake(),
             "EE-001-01_1": fake(),
@@ -63,7 +64,8 @@ class TestGroupingLogic:
     def test_grouping_is_deterministic(self):
         """Sub-mesh order inside each group is sorted by name so the
         merge produces byte-identical output across runs."""
-        fake = lambda: object()
+        def fake():
+            return object()
         geometry = {
             "P_3": fake(),
             "P_1": fake(),
@@ -77,7 +79,8 @@ class TestGroupingLogic:
     def test_singleton_components_pass_through(self):
         """A part with no per-face split (single mesh node) is its own
         group of one — no merge needed but the API stays uniform."""
-        fake = lambda: object()
+        def fake():
+            return object()
         geometry = {"single_part": fake()}
         groups = group_meshes_by_prefix(geometry)
         assert groups == {"single_part": [("single_part", geometry["single_part"])]}

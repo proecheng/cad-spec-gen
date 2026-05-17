@@ -32,7 +32,8 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -77,7 +78,8 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -122,7 +124,8 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -158,7 +161,8 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
@@ -212,7 +216,8 @@ class TestE2EUserScenarios:
         fake_info = mock.MagicMock()
         fake_info.version_year = 24
         fake_info.toolbox_dir = "C:/SW"
-        _fake_detect = lambda: fake_info
+        def _fake_detect():
+            return fake_info
         monkeypatch.setattr(sw_detect, "detect_solidworks", _fake_detect)
         # M-6: broker 持有模块级绑定，必须同时 patch broker namespace
         monkeypatch.setattr(broker, "detect_solidworks", _fake_detect)
