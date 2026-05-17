@@ -18,7 +18,6 @@ CP-1 Task 5e hand-completed 2026-05-13（从 codegen scaffold 升级到带特征
 - SLP-403 装左支撑条顶面 (-80, ±5)（局部坐标，§6.2 step 16）
 """
 
-# ruff: noqa: F403, F405
 import cadquery as cq
 from params import *
 

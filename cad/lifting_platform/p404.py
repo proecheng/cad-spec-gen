@@ -10,7 +10,6 @@ CP-1 Task 5f hand-completed 2026-05-13（从 codegen scaffold 升级到带特征
 设计依据：tmp/_custom_parts_spec.md §6
 """
 
-# ruff: noqa: F403, F405
 import cadquery as cq
 from params import *
 

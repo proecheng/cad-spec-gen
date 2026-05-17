@@ -8,7 +8,6 @@ Source-of-truth:
 坐标系：Local +Z = 板法线 (板厚方向)；assembly_layout 把局部 +Z 翻成全局 +Y (升降方向)
 """
 
-# ruff: noqa: F403, F405
 import cadquery as cq
 from params import *
 
