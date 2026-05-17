@@ -4,7 +4,7 @@
 > **关联 §11 follow-up**：§11-N12（v2.37.13b retro §3.3 登记 — Task 0 scout per-file-ignores enumeration 系统化）
 > **关联 retro**：`docs/superpowers/reports/2026-05-17-v2-37-13b-ruff-cleanup-p3-retro.md` §3.3
 > **关联 brainstorming**：本 session — 3 节 §1/§2/§3 用户逐节 ok 确认
-> **Spec rev**：rev 1.2（rev 1.0 首版 + rev 1.1 L1+L2 13 fix + **rev 1.2 L3 edge-case hunter 12 fix**：3 new BLOCKER（B4 filename 绝对 / B5 cad_paths 多副本 / **B6 mypy false positive 同 B2 量级 showstopper** — pyproject `ignore_errors=true` 自抑制致 dischargeable 100% 假阳）+ 5 MAJOR + 4 MINOR；rev 1.2 cumulative cascade = 25 fix 与 P3 30 fix 同量级）
+> **Spec rev**：rev 1.3（rev 1.0 首版 + rev 1.1 L1+L2 13 fix + rev 1.2 L3 edge-case 12 fix + **rev 1.3 L4 5 角色 + L5 闭环 dry-run 6 fix**：实测 B7/M10 候选 BLOCKER RESOLVED；2 MAJOR (M10 跨平台 smoke flake + M11 实施期 smoke fail 路径) + 4 MINOR (N8-N11 流程层 caveat/placeholder/graceful degrade)；rev 1.3 cumulative cascade = **31 fix**，超 P3 30 fix — N12 引入新算法+新工具+新 stripped config 机制比纯规则 cleanup 更复杂合理）
 
 ---
 
@@ -134,6 +134,9 @@ stdout
 
 ## ✅ over_permissive (N)
 - `<glob>` covers `<code>` but no actual violations match this glob — consider narrowing
+  - **rev 1.3 N8 caveat**：本工具用 `--config 'lint.per-file-ignores={}'` strip per-file-ignores 后跑 ruff 计算真违规集合再做 set diff。安全删除 glob 前请人工 verify：
+    (1) 该 glob path pattern 下 future cleanup PR 不会再引入此 code 的 by-design 违规
+    (2) 删 glob 后跑 `ruff check .` 仍 exit 0（无其他 path 误触发）
 ...
 
 ## ❌ missing_glob (N)
@@ -203,6 +206,7 @@ stdout
 | **mypy `--disable-error-code=import-untyped` 旧版不支持**（mypy < 0.991）| subprocess stderr "unknown option" | warn + 不带此 flag retry 一次；若仍 fail → 视 module 为 "still has errors" | 0（continue）|
 | **cwd 不在 repo root**（rev 1.2 B5）| 启动检测 `(cwd / "pyproject.toml").exists()` | 自动 cd 到 `Path(__file__).parent.parent.parent`；若仍找不到 → stderr 报错 + 终止 | 2 |
 | **多个 `cad_paths.py` 副本**（rev 1.2 B5）| mypy `-p` 解析靠 sys.path + explicit_package_bases=true | cwd=repo root + 显式 PYTHONPATH 排除 `.pytest_tmp_*` 路径；smoke test 同样保障 | — |
+| **ruff/mypy 输出非预期 schema**（rev 1.3 N11 graceful degrade）| `json.JSONDecodeError` 或 mypy stderr 不可解析 | stderr 提示 "ruff/mypy version 不匹配 / 输出 schema 漂移；本工具 pin ruff 0.15.x + mypy 1.x 验证" + 终止 | 4 |
 
 ---
 
@@ -233,7 +237,7 @@ stdout
 | Test | 类型 | 验证 | marker |
 |---|---|---|---|
 | `test_ruff_subcommand_against_current_pyproject` | smoke | `subprocess.run([sys.executable, script, "ruff"], cwd=REPO_ROOT)` → exit 0 + stdout 含 markdown 头 | `real_subprocess` |
-| `test_mypy_subcommand_against_current_pyproject` | smoke | 同上 mypy → 含 4 模块名（每模块给 dischargeable 或 still-has-errors 状态；**rev 1.2 N7 校准**：当前 stripped config 实测 4/4 仍有真错，dischargeable 列表 = 空，但 4 模块名都列在报告里）| `mypy` + `real_subprocess` |
+| `test_mypy_subcommand_against_current_pyproject` | smoke | 同上 mypy → **只断言** 4 模块名都出现在报告中（**rev 1.3 M10 fix**：不断言具体 error 数 — Linux CI 上 pywin32 不装时 `ignore_missing_imports=true` + `--strict` 组合会让 `import` 变 Any 然后产生 `no-untyped-call` 错（非 import-untyped/not-found 类），error 数跨平台差异大；只断"4 模块在报告 still has errors 段或 dischargeable 段任一"避免 flake；rev 1.2 N7 校准：当前 stripped config 4/4 仍有真错，dischargeable 列表 = 空）| `mypy` + `real_subprocess` |
 | `test_all_subcommand_runs_both` | smoke | 两段都出现 | `real_subprocess` |
 | `test_ruff_missing_executable_exits_3` | unit | mock `shutil.which("ruff") → None` → exit 3 | （无 marker）|
 | `test_pyproject_missing_section_exits_2` | unit | tmp_path 写残缺 pyproject → exit 2 | （无 marker）|
@@ -322,6 +326,17 @@ Commit 2 — test(dev-tools): tests/test_lint_scope_audit.py
 
 Commit 3 — docs(retro): v2.37.13b retro §3.3 N12 → closed
   + 引用 spec / plan / PR # / merge SHA / release tag
+
+实施期 smoke fail 处理路径（rev 1.3 M11 fix）:
+  - commit 1 后 AC-2/3/4 跑 smoke 期间如 ruff missing_glob ≠ 0
+    → implementer 派单回主 agent；主 agent 三选一决策：
+      (a) inline 补 pyproject [tool.ruff.lint.per-file-ignores] glob
+          （新增 path 是 by-design 的 sys.path/import 模式）
+      (b) 升级 spec rev 1.4 加新 finding
+      (c) 终止 commit 1，让 user 决策
+  - mypy 子命令 smoke fail（4 模块名缺）一般不可能；如真发生 → spec rev
+    1.4 升级或回查 pyproject [[tool.mypy.overrides]] 解析逻辑
+  - 主 agent 决策记录追加到 plan retro，不进 spec
 ```
 
 ---
@@ -333,8 +348,10 @@ Commit 3 — docs(retro): v2.37.13b retro §3.3 N12 → closed
 ```markdown
 ## Task 0: Scout
 - [ ] **S-0.X.Y** 跑 `python tools/dev/lint_scope_audit.py <ruff|mypy>` → 输出贴到 `tmp/{spec}_scout_report.md`
-  - **预期 baseline**：0 missing_glob / 0 dischargeable（按 P3 收官状态）
-  - **非 0**：spec inline 修补 per-file-ignores 或 ignore_errors 列表，无升级
+  - **预期 baseline**（rev 1.3 N10 校准）：
+    - **ruff**: 0 missing_glob（P3 收官状态全 cover）+ over_permissive 列表可非空（合法 — 需 spec 决策"是否窄化 glob"）
+    - **mypy**: dischargeable 列表为空（当前 4/4 历史债模块在 stripped config 下仍有真错）+ still has errors 列表 = 4 模块名（rev 1.2 N7 实测）
+  - **非预期**（如 missing_glob 突现 ≠ 0 / dischargeable 出现新模块）：spec inline 修补 per-file-ignores 或 ignore_errors 列表，无升级（5 层审查 inline fix 工艺）
 ```
 
 ---
@@ -342,10 +359,15 @@ Commit 3 — docs(retro): v2.37.13b retro §3.3 N12 → closed
 ## 10. §11-N12 闭合判定
 
 - ✅ helper script `tools/dev/lint_scope_audit.py` 落地
-- ✅ 测试覆盖 11 unit + 5 smoke
-- ✅ CI ruff-strict + mypy-strict gate 守门脚本本身
+- ✅ 测试覆盖 15 unit + 3 smoke = 18（rev 1.2 校准）
+- ✅ CI ruff-strict gate 守门脚本本身（mypy-strict 非 gate，本地手测，rev 1.1 M3）
 - ✅ retro §3.3 N12 标记改 closed + 加 spec/PR/release 引用
 - ✅ 文档复用入口（§9）
+
+**rev 1.3 N9 closure 占位说明**：
+- PR # / merge SHA / release tag 三个占位由实施期填入（commit 3 时已知）
+- release tag 命名由 user 决策；不属 spec scope；按本仓 v2.25+ tag-only release 模式，候选 `v2.37.14`（patch 级 — N12 是 internal dev tool 不破坏 user-facing 行为）或 `v2.37.13c`（cleanup 子号续接）
+- 若该 PR merge 后选择**不发 tag**（视为内部工艺改进），则 release 行写 "internal, no tag"
 
 ---
 
