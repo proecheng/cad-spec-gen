@@ -5,7 +5,7 @@
 > **关联 v2.37.11 retro**：`docs/superpowers/reports/2026-05-16-v2-37-11-ruff-cleanup-p1-retro.md`（P1 → P2 → P3 三批 cleanup 拓扑）
 > **关联 v2.37.12 retro**：`docs/superpowers/reports/2026-05-17-v2-37-12-ruff-cleanup-p2-retro.md`（§11-N1+N2+N6 待 P3 闭合）
 > **关联 v2.37.13a**：v2.37.12 §11-N5 latent bug triage 已 PR #94 closed；本 PR retro 集中沉淀
-> **Spec rev**：rev 1.1（rev 1 = brainstorming archeology + Option A 用户决策 inline；rev 1.1 = L1-L5 self-cascade 5 项 fix inline 闭合）
+> **Spec rev**：rev 1.2（rev 1 = brainstorming archeology + Option A 用户决策 inline；rev 1.1 = L1-L5 self-cascade 5 项 fix；**rev 1.2 = 用户审查发现 11 项 fix inline 闭合** 含 1 BLOCKER + 2 HIGH + 4 MED + 4 LOW）
 
 ---
 
@@ -23,9 +23,9 @@
 | **改动 6** | MED | CI tests.yml 加 `ruff-strict` job（参考 mypy-strict 结构）| 15min |
 | **改动 7** | — | 全套件 PASS + CI 8/8 → 9 jobs SUCCESS + AC 1-12 守门 | AC |
 
-**P3 完结后状态**：
-- `ruff check .`（默认走 pyproject [tool.ruff]）exit 0
-- 全 401 errors（含 P1 154 + P2 143 + P3 123 - 19 noqa 已删）≈ 0 errors
+**P3 完结后状态**（C-1 BLOCKER 闭合 — 重写为正确算术）：
+- `ruff check .`（默认走 pyproject [tool.ruff]）exit 0；12 规则 0 errors（含 P3 清掉 123 + 删 26 处冗余 noqa）
+- ruff cleanup 三批累计处理 **420 codes**（P1 154 + P2 143 + P3 123）+ 净 noqa 净增量从 P2 的 +26 file-scoped + ~28 inline 减到 0 file-scoped (config 替代) + 类似 P2 inline 数量（cleanup 链总 noqa 量基本不变；只是从 file 注释迁到 config）
 - 12 规则集锁定 + CI gate 守门 → 任何新 ruff violation 立即被 PR 拦截
 - 项目 ruff cleanup 链 P1 → P2 → P3 全部完工 → 后续不再需要 batch cleanup PR
 
@@ -60,9 +60,9 @@ Found 123 errors.
 | ruff codes | F401+F541+F811+E401 | F841+F405+F403+E731+E702 | E402+E741+F821 |
 | 数量 | 154 | 143 | 123 |
 | 修法 | safe `--fix` 双步 | manual + scope-aware noqa + 决策表 | per-file-ignores config + 单文件 rename + TYPE_CHECKING |
-| spec rev | 5 | 1.2（含 L4/L5）| 1（含 L1-L5 cascade）|
+| spec rev | 5 | 1.2（含 L4/L5）| 1.2（rev 1 + L1-L5 self 5 fix + user review 11 fix = 16 total）|
 | PR | #90 | #92 | **TBD** |
-| fix 数 (cascade) | 21 | 47 | TBD（≥30 预期）|
+| fix 数 (cascade) | 21 | 47 | 16（L1-L5 self 5 + user review 11；C-3 闭合 — 实测 vs 预期 ≥30 偏差因 P3 scope 更窄 + brainstorming archeology 已大幅前移）|
 | 新机制 | 无 | scope-aware noqa | **[tool.ruff] config 锁 + CI ruff-strict gate** |
 
 ### 2.3 项目当前 baseline (main @ a95ec47 v2.37.13a)
@@ -134,15 +134,16 @@ Found 123 errors.
 - 在 `_render_screw(d, l, ...)` 之类函数签名中 `l` = "length"（mm 单位螺丝长度）
 - 在 jinja primitive 函数体内 `l` 作为局部变量传递长度
 
-**Rename 策略（L4 fix-1 重要细化）**：不能盲改 — 必须先按**语义分类**每个 `l`：
+**Rename 策略（L4 fix-1 + A-2 闭合 重要细化）**：不能盲改 — 必须先按**语义分类**每个 `l`：
 
-| 语义分类 | 推荐改名 | 实证标志 |
+| 语义分类 | 推荐 action | 实证标志 |
 |---|---|---|
-| 函数参数（length 维度）| `l` → `length` | `def f(d, l, h):` 函数签名 + 函数体把 `l` 传给 `.extrude(l)` 等 |
-| 局部变量（length 值）| `l` → `length` | `l = compute_length(...)` |
-| **迭代变量** `for l in ...` | `l` → 视上下文（`item`/`elem`/`point`...）| `for l in points:` / `[... for l in ...]` 类 |
-| 列表推导 `[... for l in ...]` | 同上 | `[expr for l in iter]` |
-| Lambda 参数 `lambda l: ...` | 同上 | `lambda l: l ** 2` |
+| 函数参数（length 维度）| `l` → `length` rename | `def f(d, l, h):` 函数签名 + 函数体把 `l` 传给 `.extrude(l)` 等 |
+| 局部变量（length 值）| `l` → `length` rename | `l = compute_length(...)` |
+| **迭代变量** `for l in ...` | `l` → 视上下文 rename（`item`/`elem`/`point`...）| `for l in points:` / `[... for l in ...]` 类 |
+| 列表推导 `[... for l in ...]` | 同上 rename | `[expr for l in iter]` |
+| Lambda 参数 `lambda l: ...` | 同上 rename | `lambda l: l ** 2` |
+| **数学/物理 convention 保留**（A-2 新加）| **inline noqa: E741 + trace key**（不 rename） | `l` 在数学公式注释里明示如 `# l: length per ISO 7089` 或 `pitch = π × l / N` 等约定俗成 magnitude 符号 — rename 反降可读性 |
 | 其他 | 个案审 | （Task 0 sub-step 抽样） |
 
 **L4 闭合**：rev 1 假设全 46 个 `l` 都是 "length" → 错。Task 0 T0.4 升级为 T0.4a + T0.4b：
@@ -258,14 +259,17 @@ select = [
 "render_depth_only.py" = ["E402"]
 "cad_spec_gen.py" = ["E402"]
 
-# F403/F405 by-design: codegen import * 模板 + 25 现存脚手架
+# F403/F405 by-design: codegen import * 模板 + 25 现存脚手架 + future cad/ subsystem
 # (替代 v2.37.12 P2 的 25 file file-scoped # ruff: noqa: F403, F405 注释)
-"cad/end_effector/*.py" = ["F403", "F405"]
-"cad/lifting_platform/*.py" = ["F403", "F405", "E402"]  # 合并 E402 if std_*.py
-"templates/part_module.py.j2" = ["F403", "F405"]  # jinja 模板源
+# A-3 闭合：用 cad/**/*.py 双星 glob cover 全 cad/ 树（含 future 新 subsystem
+# 如 cad/new_xxx/），防 dev 加新 codegen subsystem 后 scaffold 报 F403/F405
+"cad/**/*.py" = ["F403", "F405"]
+"cad/lifting_platform/*.py" = ["F403", "F405", "E402"]  # std_*.py 合并 E402 ignore
+# 注：templates/part_module.py.j2 不在 per-file-ignores 内 — ruff 默认不 lint .j2
+# 文件 (D-3 闭合 — 加 ignore 无效)。Template 渲染产物 .py 由上方 cad/**/*.py glob cover
 ```
 
-> **注意**：`cad/lifting_platform/*.py` glob 同时 cover `std_*.py` 的 E402（合并 E402+F403+F405 三 ignore）；`cad/end_effector/*.py` 不需 E402（仅 F403/F405）。glob 间无冲突（per-file-ignores 按 path 匹配累加）。
+> **注意**：`cad/lifting_platform/*.py` glob 合并 E402+F403+F405 三 ignore（cover std_*.py + render_depth_only.py）；`cad/**/*.py` 双星 cover 其他 subsystem 子目录与 future 增量 — over-permissive 但 by-design（cad/ 树全是 codegen scaffolds + 几何代码，import * 是 codegen 模板模式 by-design）。glob 间无冲突（per-file-ignores 按 path 匹配累加）。
 
 #### 3.1.E 删 P2 25 file `# ruff: noqa: F403, F405` 注释（§11-N1 真闭合）
 
@@ -285,8 +289,10 @@ P2 v2.37.12 PR #92 加的 25 file-scoped noqa（11 `cad/end_effector/ee_*.py` + 
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - name: Install ruff
-        run: pip install "ruff>=0.15"
+      - name: Install ruff (pin 与本地 .venv 一致版本 — D-4 闭合)
+        # 本地 .venv ruff==0.15.10 (Task 0 T0.1b 实测)；CI 必须装同版本防
+        # 0.16+ 行为差异（如 default ruleset / hidden fix / per-file-ignores 解析）
+        run: pip install "ruff==0.15.10"
       - name: Run ruff check (P1+P2+P3 全规则集 守门)
         # 走 pyproject.toml [tool.ruff.lint.select]（12 规则 + per-file-ignores）
         # 任何新 ruff violation 立 fail：阻止 P1/P2/P3 cleanup 回归
@@ -342,7 +348,7 @@ P2 v2.37.12 PR #92 加的 25 file-scoped noqa（11 `cad/end_effector/ee_*.py` + 
 | T0.5 | **关键**：jinja_primitive_adapter.py 外部 keyword `l=` 调用方 grep | 0 外部 = 单文件改 / ≥1 = 升级 plan |
 | T0.6 | `grep -rnE "{{[^}]*\bl\b[^}]*}}" templates/` 模板内 `l` 引用 | 0 = 安全 / ≥1 = 联动改模板 |
 | T0.7 | `git ls-files \| grep -i "agents\.md"` | AGENTS.md 真路径列表 |
-| T0.8 | `ls .github/workflows/*.yml \| xargs -I{} basename {} .yml` | CI workflow 总数 `ci_workflow_count`（同 P2，但 P3 会加 1 job → 8 → **9** jobs） |
+| T0.8 | `ls .github/workflows/*.yml \| xargs -I{} basename {} .yml` + `gh workflow view tests --yaml \| grep -cE "^  [a-z_-]+:$"` | **workflow 数** = 2 (tests + sw-smoke) 不增加；**job 数** = 8 → 9（加 ruff-strict）。D-5 闭合：明示 workflow file count（.yml 文件数）vs job count（workflow 内 named jobs）不同维度 |
 | T0.9 | `.venv/Scripts/python.exe -m pytest -q --no-header 2>&1 \| tail -5` | baseline pytest PASS（应 = 3239 含 v2.37.13a 新测试） |
 | T0.10 | 检查 codegen 模板是否需 `from __future__ import annotations` 加 TYPE_CHECKING 块 | 确认 enriched_envelope.py 已有；gen_std_parts.py 待加 |
 
@@ -429,7 +435,8 @@ Commit msg 模板见 §7.5。
 | **AC-5** | cad/* 几何代码不动（仅删 noqa 行） | `git diff origin/main -- cad/end_effector/*.py cad/lifting_platform/*.py \| grep -cE '^[+-][^+\-]'` | ≤ 30（25 file × 1 noqa 行 - = 25 + 5 余量；P3 不应加任何 cad/* 内容）| per-commit + PR |
 | **AC-6** | `[tool.ruff]` section 完整落地 | `grep -q '^\[tool\.ruff\]' pyproject.toml && grep -q '^\[tool\.ruff\.lint\]' pyproject.toml && grep -q '^\[tool\.ruff\.lint\.per-file-ignores\]' pyproject.toml` | 全 exit 0 | commit 3 后 |
 | **AC-7** | per-file-ignores 实际生效（E402 silent）| `.venv/Scripts/ruff.exe check --select=E402 .` | exit 0 | commit 3 后 |
-| **AC-8** | jinja_primitive_adapter.py 无 `l` 变量 | `grep -nE "^\s*l\s*=\|\bl,\b\|\(l\)\|\bdef.*\(.*\bl\b" adapters/parts/jinja_primitive_adapter.py \| wc -l` | = 0 | commit 2 后 |
+| **AC-8** | jinja_primitive_adapter.py E741 ruff 全清零 + 决策表行数 = 46（D-2 闭合）| `.venv/Scripts/ruff.exe check --select=E741 adapters/parts/jinja_primitive_adapter.py` exit 0 + `wc -l tmp/p3_e741_decisions.md` ≥ 46 行决策 | exit 0 + 46 决策 | commit 2 后 |
+| **AC-8b** | 决策表 rename target 与代码一致（D-2 闭合）：每个非 noqa 决策必在代码内可见 rename | python 脚本：解析 `tmp/p3_e741_decisions.md` 每行 `<file:line> \| rename \| <target>` → 验 file `<line>` 行内出现 `<target>` 标识符 + 不出现 `\bl\b` 原变量名 | 全 PASS | commit 2 后 |
 | **AC-9** | 25 file noqa 全删 | `grep -rnE "# ruff: noqa: F403, F405" cad/ templates/ \| wc -l` | = 0 | commit 4 后 |
 | **AC-10** | CI ruff-strict job 加入 + 全绿 | `gh pr checks <PR> \| grep ruff-strict` | status = success | PR 开后 |
 | **AC-11** | ruff fixture 漂移防御生效（intentional F401 fail）| CI job 内运行 | exit ≠ 0 → CI step PASS（fixture 设计为 fail）| CI 内 |
@@ -476,21 +483,23 @@ ruff F821 报 3 处 undefined name 但实测都是 forward-ref string annotation
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
-### 7.2 commit 2 (E741 rename)
+### 7.2 commit 2 (E741 按分类表 rename)
 
 ```
-fix(ruff/P3-A2): E741 (46) rename `l` → `length` in jinja_primitive_adapter.py
+fix(ruff/P3-A2): E741 (46) 按分类表 rename `l` in jinja_primitive_adapter.py
 
 46 条 E741 ambiguous variable name 全在 adapters/parts/jinja_primitive_adapter.py
-一个文件，全为 `l`（语义为 "length" mm 单位螺丝长度）。本 commit mechanical
-rename `l` → `length`：
+一个文件，全为 `l`。Task 0 T0.4b 实证按 spec §2.7 决策表分类：
 
-- 函数签名 `def f(d, l, h)` → `def f(d, length, h)`
-- 函数体 `l` 引用 → `length`
-- 调用方 keyword `l=...` → `length=...`（Task 0 实测 0 外部调用方）
-- jinja 模板 `{{ l }}` → `{{ length }}`（Task 0 实测 0 模板引用）
+- 函数参数/局部变量 (length 维度): <X> 处 → rename `l` → `length`
+- 迭代变量 (for l in ...): <Y> 处 → rename `l` → <视上下文 item/elem/point/etc>
+- 列表推导/Lambda 参数: <Z> 处 → rename 视上下文
+- 数学/物理 convention 保留: <W> 处 → inline noqa: E741 + trace key（不 rename — D-1 闭合）
 
-匹配项目其他 fastener 函数命名约定（如 bd_warehouse `length` 参数）。
+校验: X + Y + Z + W = 46 ✓（AC-8 grep 验决策表 vs ruff 实测；AC-8b 验决策表 → 代码 rename target 一致）
+
+匹配项目其他 fastener 函数命名约定（如 bd_warehouse `length` 参数）；
+数学保留 case 防 mechanical rename 降可读性。
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
@@ -633,7 +642,7 @@ chore(ruff): v2.37.13b — ruff cleanup P3 完工（123→0）+ [tool.ruff] conf
 | PR | #90 | #92 | TBD | TBD |
 | 新机制 | — | scope-aware noqa | **config + CI gate** | TBD |
 | §11 follow-up trigger | f9 noqa 字数 | N5 latent bug → v2.37.13a closed | N1+N2 closed | TBD |
-| Release tag | v2.37.11 | v2.37.12 | v2.37.13b（含 v2.37.13a 主线全集）| TBD |
+| Release tag | v2.37.11 | v2.37.12 | v2.37.13b（独立 tag；v2.37.13a 是先前 release，本 PR 不"含"它 — C-2 闭合）| TBD |
 
 ---
 
@@ -688,3 +697,25 @@ L1 (placeholder/一致性) 未找 fix；L2 (code-spec) ruff 0.15.10 `[tool.ruff.
 ---
 
 **Spec rev 1.1 完成（630→ ~720 行，5 层 cascade 5 项 fix inline 闭合）。下一步：用户审 spec → 转 writing-plans。**
+
+### 13.2 User review 追加发现（spec rev 1.1 → 1.2，11 项 fix inline 闭合）
+
+> **触发**：用户审 rev 1.1 时要求 "审查方案 / 防改完不如之前 / 漂移 / 数据一致性"；rev 1.2 一次合并 11 项 fix。
+
+| ID | 类别 | 严重度 | 修复点 | spec 位置 | 已落？ |
+|---|---|---|---|---|---|
+| **A-1** | 改完不如之前 | MED | E402 per-file-ignores glob over-permissive 已记 §3.1.D 注 — 容忍（by-design 模式 + AC-7 验覆盖率） | §3.1.D 注 | ✓ |
+| **A-2** | 改完不如之前 | MED | E741 §2.7 决策表加"数学/物理 convention 保留 inline noqa"分类（不 rename） | §2.7 第 6 行 | ✓ |
+| **A-3** | 改完不如之前 | **HIGH** | 模板删 noqa + glob 升级 `cad/**/*.py` 双星 cover future subsystem | §3.1.D | ✓ |
+| **D-1** | 漂移 | **HIGH** | §7.2 commit msg 改为反映按分类表 rename（不是 mechanical `l → length`） | §7.2 | ✓ |
+| **D-2** | 漂移 | MED | AC-8 拆为 AC-8 (ruff exit 0) + AC-8b（决策表-代码 rename target 一致性） | §5 AC-8/8b | ✓ |
+| **D-3** | 漂移 | LOW | 删 per-file-ignores 中 `templates/part_module.py.j2`（ruff 不 lint .j2） | §3.1.D | ✓ |
+| **D-4** | 漂移 | MED | CI `pip install "ruff==0.15.10"` pin 与本地 .venv 一致 | §3.1.F | ✓ |
+| **D-5** | 漂移 | LOW | T0.8 明示 workflow file count vs job count 两维度 | §4.0 T0.8 | ✓ |
+| **C-1** | 数据 | **BLOCKER** | §1 "401 errors" 算术错（154+143+123=420）— 重写为正确表述 | §1 末"P3 完结后状态" | ✓ |
+| **C-2** | 数据 | LOW | §11 衔接表 wording — v2.37.13b 不"含" v2.37.13a（独立 tags） | §11 表 | ✓ |
+| **C-3** | 数据 | MED | §2.2 拓扑表 fix 数 P3 改 16（5 self + 11 user review）替 "TBD（≥30 预期）" | §2.2 表 | ✓ |
+
+---
+
+**Spec rev 1.2 完成（720 → 770+ 行，累计 16 项 fix inline 闭合 = 5 self-cascade + 11 user review）。可进 writing-plans。**
