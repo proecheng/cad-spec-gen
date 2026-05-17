@@ -26,6 +26,24 @@ except ImportError:
     import tomli as tomllib  # type: ignore[no-redef,import-not-found,unused-ignore]  # py3.10 fallback
 
 
+def _find_executable(name: str) -> str | None:
+    """spec hotfix: find executable in PATH or venv bin/Scripts dir.
+
+    CI runners often don't have venv on PATH; subprocess.run() inheriting PATH
+    won't see ruff/mypy installed via pip even though they're available.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    # 检查 sys.executable 的同级目录（venv Scripts/bin）
+    venv_bin = Path(sys.executable).parent
+    for ext in ("", ".exe"):
+        candidate = venv_bin / f"{name}{ext}"
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def _load_pyproject(path: Path | None = None) -> dict[str, Any]:
     """读 pyproject.toml 返回 dict（spec §3.2）"""
     if path is None:
@@ -291,12 +309,13 @@ def _render_mypy_report(
 
 def _run_ruff_json(cwd: Path) -> list[tuple[str, str]]:
     """spec §3.2 B2+B4: 用 --config strip per-file-ignores 拿真违规；normalize filename"""
-    if shutil.which("ruff") is None:
-        print("Error: ruff not in PATH", file=sys.stderr)
+    ruff_exe = _find_executable("ruff")
+    if ruff_exe is None:
+        print("Error: ruff not in PATH or venv", file=sys.stderr)
         raise SystemExit(3)
     result = subprocess.run(
         [
-            "ruff",
+            ruff_exe,
             "check",
             "--config",
             "lint.per-file-ignores={}",
@@ -329,8 +348,9 @@ def _run_mypy_strict_per_module(
 
     返 (is_clean, error_count)：is_clean = exit 0；error_count 取"Found N errors"或 0。
     """
-    if shutil.which("mypy") is None:
-        print("Error: mypy not in PATH", file=sys.stderr)
+    mypy_exe = _find_executable("mypy")
+    if mypy_exe is None:
+        print("Error: mypy not in PATH or venv", file=sys.stderr)
         raise SystemExit(3)
     result = subprocess.run(
         [
@@ -440,10 +460,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             print(_cmd_ruff(cwd))
         except SystemExit as e:
-            if e.code == 2:
+            if e.code in (2, 3):  # 2=missing section, 3=missing executable
                 print(
-                    "# Lint scope audit — all\n\n## ⚠ ruff 段跳过\n"
-                    "pyproject.toml [tool.ruff] 段缺失 — ruff drift 检测不可用。\n"
+                    f"# Lint scope audit — all\n\n## ⚠ ruff 段跳过\n"
+                    f"ruff 不可用 or pyproject [tool.ruff] 段缺失 — exit code {e.code}\n"
                 )
             else:
                 raise

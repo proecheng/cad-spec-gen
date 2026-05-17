@@ -5,7 +5,6 @@ Spec: docs/superpowers/specs/2026-05-17-lint-scope-audit-design.md rev 1.3
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -66,11 +65,14 @@ def test_match_globs_normalizes_windows_paths():
     assert lsa._match_glob("tests/*.py", "tests\\foo.py") is True
 
 
-def test_normalize_ruff_filename_strips_absolute_prefix():
-    """spec rev 1.2 B4: ruff JSON filename 是 absolute Windows path"""
-    cwd = Path("D:/Work/cad-spec-gen")
-    abs_path = "D:\\Work\\cad-spec-gen\\adapters\\parts\\bd_warehouse_adapter.py"
-    result = lsa._normalize_ruff_filename(abs_path, cwd=cwd)
+def test_normalize_ruff_filename_strips_absolute_prefix(tmp_path):
+    """spec rev 1.2 B4: ruff JSON filename 是 absolute path（platform-portable test via tmp_path）"""
+    sub_dir = tmp_path / "adapters" / "parts"
+    sub_dir.mkdir(parents=True)
+    abs_file = sub_dir / "bd_warehouse_adapter.py"
+    abs_file.touch()
+
+    result = lsa._normalize_ruff_filename(str(abs_file), cwd=tmp_path)
     assert result == "adapters/parts/bd_warehouse_adapter.py"
 
 
@@ -247,8 +249,8 @@ def test_all_subcommand_runs_both():
 
 
 def test_ruff_missing_executable_exits_3(monkeypatch):
-    """spec §4: ruff 不在 PATH → exit 3"""
-    monkeypatch.setattr(shutil, "which", lambda name: None if name == "ruff" else "/usr/bin/" + name)
+    """spec §4: ruff 不在 PATH or venv → exit 3"""
+    monkeypatch.setattr(lsa, "_find_executable", lambda name: None)
     with pytest.raises(SystemExit) as exc_info:
         lsa.main(["ruff"])
     assert exc_info.value.code == 3
