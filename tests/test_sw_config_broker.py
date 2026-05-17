@@ -3234,9 +3234,12 @@ class TestRev5BrokerRcDispatch:
         spec §3.3 batch 分流 + §7.2 表格。
         当前 broker 写所有 entries（无 rc 过滤），故 RED：rc=3 entry 也被写入。
         """
-        p_ok = tmp_path / "ok.sldprt"; p_ok.write_bytes(b"a" * 100)
-        p_term = tmp_path / "term.sldprt"; p_term.write_bytes(b"b" * 200)
-        p_trans = tmp_path / "trans.sldprt"; p_trans.write_bytes(b"c" * 300)
+        p_ok = tmp_path / "ok.sldprt"
+        p_ok.write_bytes(b"a" * 100)
+        p_term = tmp_path / "term.sldprt"
+        p_term.write_bytes(b"b" * 200)
+        p_trans = tmp_path / "trans.sldprt"
+        p_trans.write_bytes(b"c" * 300)
 
         results = [
             {"path": str(p_ok), "configs": ["A1", "A2"], "exit_code": 0},
@@ -3271,7 +3274,8 @@ class TestRev5BrokerRcDispatch:
         spec §3.3 rev 3 C2 修复 — 旧 worker stdout 缺 exit_code 不可信。
         """
         import logging
-        p1 = tmp_path / "legacy.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "legacy.sldprt"
+        p1.write_bytes(b"x" * 100)
         results = [{"path": str(p1), "configs": []}]  # 缺 exit_code
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -3295,7 +3299,8 @@ class TestRev5BrokerRcDispatch:
 
         spec §3.3 向后兼容三层 + §3.2 rc=4 单件路径对齐。
         """
-        p1 = tmp_path / "legacy4.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "legacy4.sldprt"
+        p1.write_bytes(b"x" * 100)
         results = [{"path": str(p1), "configs": [], "exit_code": 4}]
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -3314,7 +3319,8 @@ class TestRev5BrokerRcDispatch:
 
         spec §3.3 + §7.7 invariant I10：未识别 rc 单件 vs batch 行为对齐。
         """
-        p1 = tmp_path / "unknown.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "unknown.sldprt"
+        p1.write_bytes(b"x" * 100)
         results = [{"path": str(p1), "configs": [], "exit_code": 99}]
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -3334,7 +3340,8 @@ class TestRev5BrokerRcDispatch:
         spec §3.3 + Edge 10：worker EXIT_USAGE 是外部错（broker 端 BUG）— prewarm 完整 fallback。
         I-2 修复：envelope 已落盘但 entries 为空。
         """
-        p1 = tmp_path / "rc64.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "rc64.sldprt"
+        p1.write_bytes(b"x" * 100)
 
         def fake_run(cmd, **kwargs):
             class FakeProc:
@@ -3364,7 +3371,8 @@ class TestRev5BrokerRcDispatch:
         但 _save 抛 OSError 在 try block 内末尾——会被 catch；envelope 升级时的 _save
         失败也已处理（line 572 except Exception）。本测试确保整体不抛。
         """
-        p1 = tmp_path / "save_fail.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "save_fail.sldprt"
+        p1.write_bytes(b"x" * 100)
         results = [{"path": str(p1), "configs": ["A"], "exit_code": 0}]
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -3394,7 +3402,8 @@ class TestRev5BrokerRcDispatch:
 
         spec §7.7 invariant I4：transient sldprt 永不污染持久化 L1 cache。
         """
-        p_trans = tmp_path / "i4_trans.sldprt"; p_trans.write_bytes(b"z" * 100)
+        p_trans = tmp_path / "i4_trans.sldprt"
+        p_trans.write_bytes(b"z" * 100)
         results = [{"path": str(p_trans), "configs": [], "exit_code": 3}]
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -3418,7 +3427,8 @@ class TestRev5BrokerRcDispatch:
         broker 必须按 §3.3 rc=2 分支 OVERRIDE 为 []。当前 broker 不区分 rc，
         会写 ['JUNK']，故 RED。
         """
-        p_term = tmp_path / "i5_term.sldprt"; p_term.write_bytes(b"y" * 100)
+        p_term = tmp_path / "i5_term.sldprt"
+        p_term.write_bytes(b"y" * 100)
         # ★ 故意：rc=2 但 configs 非空（worker 不该这样返但要防御）
         results = [{"path": str(p_term), "configs": ["JUNK"], "exit_code": 2}]
         fake_run, _calls = self._make_batch_run_factory(rc=0, batch_results=results)
@@ -3442,7 +3452,8 @@ class TestRev5BrokerRcDispatch:
         spec §7.7 invariant I10：单件 vs batch 路径未知 rc 处理对齐。
         """
         # === Phase A：batch 路径（rc=99 entry）===
-        p_b = tmp_path / "i10_batch.sldprt"; p_b.write_bytes(b"a" * 100)
+        p_b = tmp_path / "i10_batch.sldprt"
+        p_b.write_bytes(b"a" * 100)
         results = [{"path": str(p_b), "configs": [], "exit_code": 99}]
         fake_run_batch, _ = self._make_batch_run_factory(rc=0, batch_results=results)
         monkeypatch.setattr("subprocess.run", fake_run_batch)
@@ -3482,7 +3493,8 @@ class TestRev5BrokerRcDispatch:
         作为 regression sentinel；若未来 L1 hit 短路被破，本测试抓到。
         """
         import subprocess as _sp
-        p1 = tmp_path / "neg1.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "neg1.sldprt"
+        p1.write_bytes(b"x" * 100)
         st = p1.stat()
         cache_mod._save_config_lists_cache({
             "schema_version": 1,
@@ -3556,7 +3568,8 @@ class TestRev5BrokerRcDispatch:
         entries 不写（worker 失败）。
         """
         import subprocess as _sp
-        p1 = tmp_path / "neg3.sldprt"; p1.write_bytes(b"x" * 100)
+        p1 = tmp_path / "neg3.sldprt"
+        p1.write_bytes(b"x" * 100)
         st = p1.stat()
         # 预填 envelope=旧 sw_version
         cache_mod._save_config_lists_cache({
@@ -3627,7 +3640,8 @@ class TestRev5BrokerRcDispatch:
         spec §7.5 矩阵：JSON 错 × L1 部分填充。
         """
         import subprocess as _sp
-        p_other = tmp_path / "other.sldprt"; p_other.write_bytes(b"o" * 100)
+        p_other = tmp_path / "other.sldprt"
+        p_other.write_bytes(b"o" * 100)
         st_other = p_other.stat()
         cache_mod._save_config_lists_cache({
             "schema_version": 1,
@@ -3673,8 +3687,10 @@ class TestRev5BrokerRcDispatch:
         spec §7.5 矩阵 + §11 known limitation：last-writer-wins 但 partial write 不允许。
         """
         import subprocess as _sp
-        p1 = tmp_path / "atom1.sldprt"; p1.write_bytes(b"x" * 100)
-        p2 = tmp_path / "atom2.sldprt"; p2.write_bytes(b"y" * 200)
+        p1 = tmp_path / "atom1.sldprt"
+        p1.write_bytes(b"x" * 100)
+        p2 = tmp_path / "atom2.sldprt"
+        p2.write_bytes(b"y" * 200)
 
         # === Phase A：成功 prewarm 写 L1 含 p1 ===
         results_a = [{"path": str(p1), "configs": ["A_CFG"], "exit_code": 0}]
