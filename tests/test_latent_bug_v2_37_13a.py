@@ -41,3 +41,42 @@ def test_bd_warehouse_metric_screw_drops_length_by_design():
     assert adapter._auto_extract_size_from_text("M6×20", class_info) == \
            adapter._auto_extract_size_from_text("M6×50", class_info), \
            "csv_key must be length-invariant (by-design per catalog yaml line 211)"
+
+
+def test_fal_enhancer_find_depth_via_glob_view_key(tmp_path, monkeypatch):
+    """§11-N5 Bug 2 characterization: _find_depth_for_png matches via glob + view_key filter.
+
+    Original code had a docstring promising "Step 1 exact match + Step 2 glob fallback"
+    but implementation only ran Step 2 (wide glob filtered by view_key prefix).
+    This test pins the actual working behavior: V1 PNG finds V1_depth_*.exr,
+    V2_depth_*.exr is correctly excluded by the view-key prefix filter.
+    """
+    from fal_enhancer import _find_depth_for_png
+
+    # Setup: V1 PNG + V1_depth_0001.exr in same dir
+    png = tmp_path / "V1_front_iso.png"
+    png.write_bytes(b"fake png")
+    depth_exr = tmp_path / "V1_depth_0001.exr"
+    depth_exr.write_bytes(b"fake exr")
+    # V2 EXR should NOT match V1 PNG (view-key filter)
+    v2_exr = tmp_path / "V2_depth_0001.exr"
+    v2_exr.write_bytes(b"fake v2 exr")
+
+    # Mock convert_depth_exr_to_png — we test selection logic, not conversion
+    called_with: list[str] = []
+
+    def fake_convert(exr_in, output_path=None, rgb_png_path=None):
+        called_with.append(str(exr_in))
+        if output_path is not None:
+            Path(output_path).write_bytes(b"fake converted")
+
+    monkeypatch.setattr("fal_enhancer.convert_depth_exr_to_png", fake_convert)
+
+    result_path, is_temp = _find_depth_for_png(str(png))
+
+    # V1 EXR was matched, V2 was not
+    assert len(called_with) == 1
+    assert "V1_depth" in Path(called_with[0]).name
+    assert "V2_depth" not in Path(called_with[0]).name
+    assert is_temp is True  # returned tmp file (from convert)
+    assert result_path is not None
