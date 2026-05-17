@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import cadquery as cq
 
 # ── 比例常量 ──────────────────────────────────────────────────────────────────
 _ENRICH_FLANGE_ID_RATIO   = 0.50   # 中心孔 id = od × 此值

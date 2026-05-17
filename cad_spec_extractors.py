@@ -593,7 +593,7 @@ def extract_connection_matrix(lines: list, fasteners: list,
 
     # From assembly layers: each layer connects to its parent (layer with lower level number)
     # This produces parallel topology (all L3 items connect to L2 parent, not each other)
-    active_layers = [l for l in assembly_layers if not l.get("exclude", False)]
+    active_layers = [layer for layer in assembly_layers if not layer.get("exclude", False)]
     for i in range(1, len(active_layers)):
         b = active_layers[i]
         # Find nearest preceding layer with a strictly lower level
@@ -1503,7 +1503,7 @@ def extract_part_placements(lines: list, bom_data=None,
         block = block_match.group(1)
         if "→" not in block:
             continue
-        chain_lines = [l.strip() for l in block.strip().splitlines() if l.strip()]
+        chain_lines = [line.strip() for line in block.strip().splitlines() if line.strip()]
         if len(chain_lines) < 2:
             continue
 

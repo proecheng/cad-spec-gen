@@ -168,3 +168,42 @@ module = [
     "tools.contract_io",
 ]
 ignore_errors = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# 全 P1+P2+P3 已清规则 — 锁定为 CI ruff-strict gate
+select = [
+    "F401",  # P1 unused-import
+    "F541",  # P1 f-string-missing-placeholders
+    "F811",  # P1 redefined-while-unused
+    "E401",  # P1 multiple-imports-on-one-line
+    "F841",  # P2 unused-variable
+    "F405",  # P2 undefined-local-from-import-star-usage
+    "F403",  # P2 undefined-local-with-import-star
+    "E731",  # P2 lambda-assignment
+    "E702",  # P2 multiple-statements-on-one-line-semicolon
+    "E402",  # P3 module-import-not-at-top
+    "E741",  # P3 ambiguous-variable-name
+    "F821",  # P3 undefined-name
+]
+
+[tool.ruff.lint.per-file-ignores]
+# E402 by-design: sys.path / cad_lib 注入 / conditional imports
+"tests/test_section_walker_unit.py" = ["E402"]
+"tests/test_cad_lib_local.py" = ["E402"]
+"tools/*.py" = ["E402"]
+"codegen/*.py" = ["E402"]
+"sw_preflight/*.py" = ["E402"]
+"adapters/parts/*.py" = ["E402"]  # 闭合 Task 0 CONCERN-2: 4 adapter E402 by-design
+"cad/**/render_depth_only.py" = ["E402"]
+"cad/end_effector/*.py" = ["E402"]  # render_3d/render_exploded/render_section E402 by-design
+"render_depth_only.py" = ["E402"]
+"cad_spec_gen.py" = ["E402"]
+
+# F403/F405 by-design: codegen import * 模板 + 25 现存脚手架 + future cad/ subsystem
+# (替代 v2.37.12 P2 的 25 file file-scoped # ruff: noqa: F403, F405 注释)
+"cad/**/*.py" = ["F403", "F405"]
+"cad/lifting_platform/*.py" = ["F403", "F405", "E402"]

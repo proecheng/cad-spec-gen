@@ -44,6 +44,10 @@ from codegen.gen_assembly import parse_envelopes
 from codegen.gen_build import parse_bom_tree
 from codegen.library_routing import build_library_part_query, is_library_routed_row
 from parts_resolver import PartQuery, default_resolver
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from parts_resolver import PartsResolver
 
 # Categories the pipeline never tries to generate geometry for.
 # Kept here (not in the adapter) because this is the enter-point filter.

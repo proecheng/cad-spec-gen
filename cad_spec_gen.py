@@ -405,10 +405,10 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     sections.append("")
     sections.append(_md_table(
         ["层级", "零件/模块", "固定/运动", "连接方式", "偏移(Z/R/θ)", "轴线方向", "排除"],
-        [[l["level"], l["part"], l["fixed_moving"], l["connection"],
-          l["offset"], l["axis_dir"],
-          "exclude" if l.get("exclude") else ""]
-         for l in assembly.get("layers", [])]
+        [[layer["level"], layer["part"], layer["fixed_moving"], layer["connection"],
+          layer["offset"], layer["axis_dir"],
+          "exclude" if layer.get("exclude") else ""]
+         for layer in assembly.get("layers", [])]
     ))
 
     # §6.3 零件级定位
@@ -534,7 +534,7 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
     ))
 
     # §9 装配约束
-    excludes = [l for l in assembly.get("layers", []) if l.get("exclude")]
+    excludes = [layer for layer in assembly.get("layers", []) if layer.get("exclude")]
     if excludes:
         sections.append("## 9. 装配约束")
         sections.append("")
@@ -542,7 +542,7 @@ def render_spec(chapter: str, filepath: str, md5: str, data: dict) -> str:
         sections.append("")
         sections.append(_md_table(
             ["零件/模块", "原因"],
-            [[l["part"], l.get("exclude_reason", "（未说明）")] for l in excludes]
+            [[layer["part"], layer.get("exclude_reason", "（未说明）")] for layer in excludes]
         ))
 
     # §9.2 Assembly constraints (auto-derived)
