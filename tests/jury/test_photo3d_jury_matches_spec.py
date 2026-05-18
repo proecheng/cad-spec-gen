@@ -486,15 +486,16 @@ def _payload_features_visible(view: str, *, visible: bool) -> dict[str, Any]:
     }
 
 
-def test_photo3d_jury_report_includes_run_verdict_aggregate(
+def test_photo3d_jury_partial_fail_yields_warn_status(
     jury_env_with_specs: Path,
 ) -> None:
     """跑完所有视角后 PHOTO3D_JURY_REPORT.json 顶层应含 overall_matches_spec
     + per_view_failed_features + matches_spec_status。
 
-    场景：iso visible=True，front visible=False（fx1 missing）→
-    overall_matches_spec=False / per_view_failed_features={"front": ["fx1"]}
-    / matches_spec_status="fail"。
+    场景：iso visible=True，front visible=False（fx1 missing）= partial fail
+    → overall_matches_spec=False / per_view_failed_features={"front": ["fx1"]}
+    / matches_spec_status='warn'（v2.37.15 起 partial fail = warn，单元层 AC-1a；
+    v2.37.14 之前归 'fail'）。
     """
     iter_responses = iter(
         [
@@ -551,8 +552,9 @@ def test_photo3d_jury_report_includes_run_verdict_aggregate(
         f"per_view_failed_features 应 {{'front': ['fx1']}}；"
         f"实际 {rep.get('per_view_failed_features')!r}"
     )
-    assert rep["matches_spec_status"] == "fail", (
-        f"matches_spec_status 应 'fail'；实际 {rep.get('matches_spec_status')!r}"
+    assert rep["matches_spec_status"] == "warn", (
+        f"matches_spec_status 应 'warn'（v2.37.15 起 partial fail = warn）；"
+        f"实际 {rep.get('matches_spec_status')!r}"
     )
 
 
