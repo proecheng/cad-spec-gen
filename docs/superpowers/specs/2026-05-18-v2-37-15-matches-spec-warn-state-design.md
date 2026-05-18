@@ -87,12 +87,15 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
     决策表（用 RunVerdict 现有字段直接派生，零 schema 变动）：
 
     - 'pass'：所有视角 matches_spec=True（含 total_views=0 空集 all=True）
-    - 'warn'：部分视角失败（至少 1 失败 + 至少 1 通过；0 < failed_views < total_views）
-    - 'fail'：所有视角都失败（failed_views == total_views > 0）
+    - 'warn'：部分视角失败 — passing_views > 0 AND failed_views > 0
+    - 'fail'：所有视角都失败 OR 失败视角无 feature-level 证据（防御性）
 
-    不变量：overall_matches_spec=False → per_view_failed_features 非空（由
-    aggregate_run_verdict 构造保证：matches_spec=False 仅来源于"valid
-    features_status 中至少 1 invisible"，必进 per_view_failed_features；见 §5 I-6）。
+    判定用「双条件 warn」防御性写法，不依赖 §5 I-6 构造不变量：
+    - LLM 输出异常路径（features_status 含 visible:False 但缺 feature_id）下，
+      aggregate_run_verdict 构造的 RunVerdict 可能 overall_matches_spec=False
+      但 per_view_failed_features={}。此时 failed_views=0，passing_views=total_views，
+      落 'fail' 分支（保守 — 不假装 partial visible）。
+    - 见 §6 AC-8（defensive fail）。
 
     Args:
         run: aggregate_run_verdict 返回的 RunVerdict
@@ -104,22 +107,25 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
         return "pass"
     total_views = len(run.view_verdicts)
     failed_views = len(run.per_view_failed_features)
-    # 不变量保证 failed_views >= 1（见 docstring + §5 I-6）
-    if failed_views < total_views:
+    passing_views = total_views - failed_views
+    # warn 双条件 — 必须同时满足：至少 1 视角通过 + 至少 1 视角显式 feature-level 失败
+    if passing_views > 0 and failed_views > 0:
         return "warn"
     return "fail"
 ```
 
 ### 3.2 决策表（含边界）
 
-| 输入 | total_views | failed_views | overall_matches_spec | 输出 |
-|---|---:|---:|---:|---|
-| 全视角通过 | 3 | 0 | True | `pass` |
-| 空 RunVerdict | 0 | 0 | True | `pass`（空集 all=True） |
-| 部分视角失败 | 3 | 1 | False | `warn` |
-| 部分视角失败 | 5 | 2 | False | `warn` |
-| 全视角失败 | 3 | 3 | False | `fail` |
-| 单视角失败 | 1 | 1 | False | `fail`（单视角无 partial） |
+| # | 输入 | total | failed | passing | overall | 输出 | 说明 |
+|---|---|---:|---:|---:|---:|---|---|
+| 1 | 全视角通过 | 3 | 0 | 3 | True | `pass` | early return |
+| 2 | 空 RunVerdict | 0 | 0 | 0 | True | `pass` | 空集 all=True → early return |
+| 3 | 部分视角失败 (1/3 失败) | 3 | 1 | 2 | False | `warn` | 双条件命中 |
+| 4 | 部分视角失败 (2/5 失败) | 5 | 2 | 3 | False | `warn` | 双条件命中 |
+| 5 | 部分视角失败 (4/5 失败，边界) | 5 | 4 | 1 | False | `warn` | passing_views=1 仍命中 |
+| 6 | 全视角失败 | 3 | 3 | 0 | False | `fail` | passing=0 |
+| 7 | 单视角失败 | 1 | 1 | 0 | False | `fail` | passing=0（单视角无 partial） |
+| 8 | I-6 异常路径（LLM 缺 feature_id） | 1 | 0 | 1 | False | `fail` | **defensive** — failed=0 但 overall=False → 保守 fail，见 §6 AC-8 |
 
 ---
 
@@ -135,8 +141,35 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 
 | 文件 | 改动 | 行数估 |
 |---|---|---:|
-| `tests/jury/test_photo3d_jury_matches_spec.py` | 补 AC-1/2/3/4/5 各 case | ~50 |
+| `tests/jury/test_photo3d_jury_matches_spec.py` | **修 + 补**（详 §4.2.1） | ~80 |
 | `tests/jury/test_cmd_enhance_check_matches_spec.py` | 透传 'warn' 用例（AC-6） | ~30 |
+| `tests/jury_loop/test_matches_spec_e2e_smoke.py` | docstring 加注脚（M-2，零行为） | ~5 |
+
+#### 4.2.1 `test_photo3d_jury_matches_spec.py` 具体修补单
+
+**修（B-2）— 现有 fixture 是 partial fail，本来 assert `'fail'`，新行为下应 assert `'warn'`**：
+
+| 函数 | 现 fixture | 现 assert | 新 assert | rename 后名 |
+|---|---|---|---|---|
+| `test_photo3d_jury_report_includes_run_verdict_aggregate` | 2 views, iso pass + front fail | `'fail'` | `'warn'` | `test_photo3d_jury_partial_fail_yields_warn_status` |
+| 同上 docstring (M-1) | "matches_spec_status='fail'" | — | "matches_spec_status='warn'（v2.37.15 起 partial fail = warn）" | — |
+
+该函数修后**天然成为 AC-1a 实施载体**（无需再补独立 AC-1a 测试）。
+
+**补**（新 case，每 case 独立单测，绕过 jury subprocess 走 deriver 直测，fixture 用直接构造的 `RunVerdict`）：
+
+| 测试名 | AC | fixture |
+|---|---|---|
+| `test_derive_status_partial_fail_1_of_3_yields_warn` | AC-1b | 3 views, 1 failed |
+| `test_derive_status_partial_fail_2_of_5_yields_warn` | AC-1c | 5 views, 2 failed |
+| `test_derive_status_partial_fail_4_of_5_yields_warn_boundary` | AC-1d | 5 views, 4 failed（passing=1 边界） |
+| `test_derive_status_all_views_fail_yields_fail` | AC-2 | 3 views, 3 failed |
+| `test_derive_status_all_views_pass_yields_pass` | AC-3 | 2 views, 0 failed |
+| `test_derive_status_empty_run_verdict_yields_pass` | AC-4 | total=0 |
+| `test_derive_status_single_view_fail_yields_fail` | AC-5 | 1 view, 1 failed |
+| `test_derive_status_overall_false_with_no_per_view_evidence_yields_fail_defensive` | AC-8 | 构造 RunVerdict(view_verdicts={"v1": ...}, overall=False, per_view_failed_features={})，模拟 LLM 异常路径 |
+
+注：AC-2/3/5 也可走 jury subprocess fixture（更 e2e），但 deriver 直测对 AC-8 必要（构造 I-6 异常 RunVerdict 难走真 jury 路径）。统一走 deriver 直测简化。
 
 ### 4.3 文档
 
@@ -174,7 +207,7 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 - **I-3**：`'fail'` 触发条件等价收窄到「全视角失败」；原 `'fail'` 涵盖的「部分视角失败」case 现归 `'warn'`
 - **I-4**：delivery 层 `'fail' → blocked` 行为零变化
 - **I-5**：`'warn'` 不触发 delivery blocked（`delivery_status=accepted`）
-- **I-6**：构造不变量 — `overall_matches_spec=False → len(per_view_failed_features) >= 1`（由 `aggregate_run_verdict` 构造保证：`matches_spec=False` 仅来源于「valid features_status 中至少 1 invisible」，必进 per_view_failed_features）
+- **I-6**：~~构造不变量 — `overall_matches_spec=False → len(per_view_failed_features) >= 1`~~ **【撤回】审查 L5 edge-case hunter 证伪**：LLM 输出异常路径（features_status 含 `{"visible": False}` 但缺 `feature_id`）下，`aggregate_run_verdict` 可让 `overall_matches_spec=False` 同时 `per_view_failed_features={}` —— `valid_features` 过滤只看 `isinstance(dict)`，`missing` 列表过滤要求 `"feature_id" in f`，两路径过滤条件不一致 → I-6 不严密。**实施层用 §3.1 双条件防御**（`passing_views > 0 ∧ failed_views > 0` 才 warn，否则 fail），不依赖 I-6；deriver 行为与 RunVerdict 数据契约**完全解耦**。
 - **I-7**：下游 fail-safe（status 缺/烂/不是 dict → `None`）保留
 
 ### 5.1 I-3 行为变更影响 — 半闭环 fail-safe
@@ -196,21 +229,48 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 
 | AC | 触发条件 | 期望 |
 |---|---|---|
-| **AC-1** | 2 views，1 view matches_spec=False（features_status 含 invisible） | `_derive_matches_spec_status` returns `'warn'` |
+| **AC-1a** | 2 views，1 view matches_spec=False（features_status 含 invisible，有 feature_id） | `_derive_matches_spec_status` returns `'warn'`（B-2 修后的现有 fixture）|
+| **AC-1b** | 3 views, 1 failed | returns `'warn'` |
+| **AC-1c** | 5 views, 2 failed | returns `'warn'` |
+| **AC-1d** | 5 views, 4 failed（边界，passing_views=1） | returns `'warn'` |
 | **AC-2** | 3 views，3 views matches_spec=False | returns `'fail'` |
 | **AC-3** | 2 views，0 views fail | returns `'pass'` |
 | **AC-4** | total_views=0（空 RunVerdict） | returns `'pass'`（空集 all=True，保留现行为） |
 | **AC-5** | 单视角失败 (total=1, failed=1) | returns `'fail'`（单视角无 partial） |
 | **AC-6** | jury 出 `matches_spec_status='warn'` → enhance-check 透传 | `ENHANCEMENT_REPORT.quality_summary.matches_spec_status == 'warn'` 且 `delivery_status == 'accepted'`（不 blocked） |
 | **AC-7** | docs — `JURY_MATCHES_SPEC_STATUS.md` §9.3 表 | #2 行加 `closed v2.37.15` 标记 + #3 行加 `closed-by-v2.31.1` 标记 + archeology 注脚指 `35629fa` |
+| **AC-8** | **defensive** — 构造 `RunVerdict(view_verdicts={"v1": ...}, overall_matches_spec=False, per_view_failed_features={})` 模拟 LLM 异常路径 | returns `'fail'`（保守，不返 'warn'；双条件防御命中） |
 
 ### 6.1 TDD 节奏
 
-- AC-1～5：5 个 RED → 5 个 GREEN（每个 AC 独立 fixture，标注 `matches_spec_status_partial_fail_returns_warn` 等）
-- AC-6：单 RED → GREEN（透传链路 fixture，复用 `test_enhance_check_transits_matches_spec_status_pass` pattern）
+- AC-1a：**修** `test_photo3d_jury_report_includes_run_verdict_aggregate` 的 assert + rename + docstring（B-2 + M-1，TDD 视为先 RED 再 GREEN —— 改 assert 后 pytest 立即 RED，实现改完即 GREEN）
+- AC-1b/c/d, AC-2, AC-3, AC-4, AC-5, AC-8：每个独立 deriver 直测 fixture，RED → GREEN
+- AC-6：透传链路 fixture，复用 `test_enhance_check_transits_matches_spec_status_pass` pattern
 - AC-7：docs-only，纯文档 PR-task（不要求 RED phase）
 
-**禁 pure refactor / no-RED phase**：本 PR 引入新 enum 值 `'warn'` 是行为变更，不适用 pure refactor 路径（项目术语 §5）。
+**禁 pure refactor / no-RED phase**：本 PR 引入新 enum 值 `'warn'` + defensive 'fail' 路径，是行为变更，不适用 pure refactor 路径（项目术语 §5）。
+
+### 6.2 反向 sanity check（plan 实施前手跑）
+
+不依赖 jury subprocess，纯单测 deriver 决策矩阵：
+
+```python
+# 8 cases 全表，与 §3.2 决策表行号对应
+@pytest.mark.parametrize("total, failed, overall, expected", [
+    (3, 0, True,  "pass"),    # 决策表 #1
+    (0, 0, True,  "pass"),    # 决策表 #2
+    (3, 1, False, "warn"),    # 决策表 #3
+    (5, 2, False, "warn"),    # 决策表 #4
+    (5, 4, False, "warn"),    # 决策表 #5
+    (3, 3, False, "fail"),    # 决策表 #6
+    (1, 1, False, "fail"),    # 决策表 #7
+    (1, 0, False, "fail"),    # 决策表 #8（defensive）
+])
+def test_derive_status_decision_matrix(total, failed, overall, expected):
+    ...
+```
+
+可选择加 — 但已被 AC-1～8 单测覆盖，是 nice-to-have（plan 视具体进度决定加不加，不强制）。
 
 ---
 
@@ -248,7 +308,8 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 
 - `quality_summary.matches_spec_status` 新增 `'warn'` 值
 - 含义：「**部分视角与设计不符**，可交付但建议复核」
-- 旧值 `'pass'` / `'fail'` 触发条件不变（但 `'fail'` 收窄到「全视角失败」）
+- `'pass'` 触发条件不变
+- `'fail'` 收窄到「全视角失败 + LLM 异常路径 defensive」；原 `'fail'` 涵盖的「部分视角失败」case 现归 `'warn'`
 
 ### 9.2 backward compat
 
@@ -260,13 +321,23 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 
 #### 9.2.2 外部消费方（**有行为变更，需告知**）
 
-`'fail'` 触发条件**等价收窄**到「全视角失败」。原 `'fail'` 涵盖的「partial fail」case 现归 `'warn'`：
+`'fail'` 触发条件**收窄**到「全视角失败 + defensive 异常路径」。原 `'fail'` 涵盖的「partial fail」case 现归 `'warn'`：
 
 - ✅ 若外部代码判 `status == 'fail'` 表"完蛋了"：行为变更 — partial fail 现归 'warn'，不再命中此分支
 - ✅ 若外部代码判 `status == 'pass'` 表"完美"：零变化（'pass' 触发条件不变）
 - ⚠️ 若外部代码想覆盖「任何失败」：需改为 `status in ('fail', 'warn')`
 
-release notes 必显式提示外部消费方的迁移路径。
+**scout 结果（仓内 zero impact）** — 已 grep 所有 `matches_spec_status.*==.*['"]fail` 命中点：
+
+| 文件:行 | 性质 | 影响 |
+|---|---|---|
+| `photo3d_delivery_pack.py:457` | docstring | 无（说明文字） |
+| `tests/test_photo3d_delivery_pack.py:505/569` | fixture 直接构造 status | 无（不走 deriver） |
+| `tests/jury/test_cmd_enhance_check_matches_spec.py:96/131` | fixture 直接构造 status | 无（不走 deriver） |
+| `tests/jury/test_photo3d_jury_matches_spec.py:554/613` | 走 deriver | **是 B-2 — 已纳入 §4.2.1 修补单** |
+| `tests/jury_loop/test_matches_spec_e2e_smoke.py:28/42` | manual e2e skip | 无（仅 docstring，M-2 加注脚） |
+
+→ 仓内**零外部消费方代码**。§9.2.2 风险面**仅指仓外 SDK 用户**。release notes 仍需显式提示迁移路径以保仓外用户。
 
 ### 9.3 风险评估
 
