@@ -193,21 +193,37 @@ def _decide_status(layer1_pass: bool, view_verdicts: list[dict[str, Any]]) -> st
 
 
 def _derive_matches_spec_status(run: RunVerdict) -> str:
-    """v2.37 Task 7：决策 matches_spec_status（'pass' | 'warn' | 'fail' | 'blocked'）。
+    """v2.37.15：派生 matches_spec_status ∈ {'pass', 'warn', 'fail'}。
 
-    本 task 简化决策（Task 9 retry 接入后再扩 'warn'/'blocked'）：
-    - overall_matches_spec=True → 'pass'（无 features 或全 visible 都走这条）
-    - overall_matches_spec=False → 'fail'（Task 9 retry 中间态再改 'warn'，
-      达 N retry 上限再升 'blocked'）
+    决策表（用 RunVerdict 现有字段直接派生，零 schema 变动）：
+
+    - 'pass'：所有视角 matches_spec=True（含 total_views=0 空集 all=True）
+    - 'warn'：部分视角失败 — passing_views > 0 AND failed_views > 0
+    - 'fail'：所有视角都失败 OR 失败视角无 feature-level 证据（防御性）
+
+    判定用「双条件 warn」防御性写法，不依赖 aggregate_run_verdict 构造不变量：
+    - LLM 输出异常路径（features_status 含 visible:False 但缺 feature_id）下，
+      aggregate_run_verdict 构造的 RunVerdict 可能 overall_matches_spec=False
+      但 per_view_failed_features={}。此时 failed_views=0，passing_views=total_views，
+      落 'fail' 分支（保守 — 不假装 partial visible）。
 
     Args:
         run: aggregate_run_verdict 返回的 RunVerdict
 
     Returns:
-        'pass' | 'fail'（Task 9 扩 'warn' / 'blocked'）
+        'pass' | 'warn' | 'fail'
     """
     if run.overall_matches_spec:
         return "pass"
+    total_views = len(run.view_verdicts)
+    failed_views = len(run.per_view_failed_features)
+    # 注：aggregate_run_verdict 构造保证 failed.keys ⊆ view_verdicts.keys，
+    # 故 passing_views >= 0；非法 fixture 构造（phantom key）下 passing_views
+    # 可负，但短路 `passing_views > 0` 下负数也走 False，仍正确 fall 'fail'。
+    passing_views = total_views - failed_views
+    # warn 双条件 — 必须同时满足：至少 1 视角通过 + 至少 1 视角显式 feature-level 失败
+    if passing_views > 0 and failed_views > 0:
+        return "warn"
     return "fail"
 
 

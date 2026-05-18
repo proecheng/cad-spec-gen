@@ -552,7 +552,8 @@ def _write_matches_spec_todo(
                     lines.append(f"  - {v_id}：未见")
 
     if not listed:
-        # matches_spec_status='fail' 但 per_view_failed_features 空（极端边界）
+        # matches_spec_status='fail' 但 per_view_failed_features 空
+        # （v2.37.15 起 = features_status 异常路径 defensive，或 jury 解析失败）
         lines.append("- (无具体特征条目，请查 PHOTO3D_JURY_REPORT.json 排查)")
 
     lines += [

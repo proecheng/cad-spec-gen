@@ -34,6 +34,10 @@ def test_e2e_matches_spec_pass_on_v2_36_1_main_end_effector() -> None:
 def test_e2e_matches_spec_fail_when_arms_removed() -> None:
     """反向：故意 break ee_001_01.py 删 4 臂 union -> matches_spec FAIL with missing flange_arms_4。
 
+    注（v2.37.15）：本 fixture 假设全视角 features 集合相同（全删 flange_arms_4 → 全失败）→
+    matches_spec_status='fail'。若 features 出现 per-view 差异（部分视角缺特征），
+    partial fail 应为 'warn' 而非 'fail'。
+
     手动跑步骤：
     1. git stash（保护工作树）
     2. 编辑 cad/end_effector/ee_001_01.py 注释掉 4 臂 union 段
