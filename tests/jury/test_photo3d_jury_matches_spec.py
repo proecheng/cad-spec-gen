@@ -24,9 +24,11 @@ import pytest
 from tools.photo3d_jury import (
     _JURY_PROMPT,
     _build_view_prompt,
+    _derive_matches_spec_status,
     _extract_features_for_run,
     main,
 )
+from tools.jury.verdict import RunVerdict, ViewVerdict
 
 
 def _make_args(
@@ -41,6 +43,58 @@ def _make_args(
     ns.design_doc = design_doc
     ns.subsystem = subsystem
     return ns
+
+
+def _make_view_verdict(
+    *, matches_spec: bool, has_features: bool = True
+) -> ViewVerdict:
+    """构造测 ViewVerdict — matches_spec 直接控制 semantic_checks。"""
+    semantic_checks = {
+        "anchor_visible": True,
+        "no_obvious_missing": True,
+        "no_extra_anomaly": True,
+        "shape_proportions": True,
+        "viewpoint_correct": True,
+        "matches_spec": matches_spec,
+    }
+    features_status = (
+        [{"feature_id": "f1", "visible": matches_spec}] if has_features else []
+    )
+    return ViewVerdict(
+        semantic_checks=semantic_checks,
+        photoreal_score=85,
+        reason="",
+        parse_status="ok",
+        parse_anomalies=[],
+        verdict="accepted" if matches_spec else "needs_review",
+        features_status=features_status,
+    )
+
+
+def _make_run_verdict(
+    *, total: int, failed: int, force_overall: bool | None = None
+) -> RunVerdict:
+    """构造测 RunVerdict — 直接控制 total / failed 计数。
+
+    Args:
+        total: 总视角数
+        failed: 失败视角数（必须 <= total，除非测试 AC-8 defensive）
+        force_overall: 显式覆盖 overall_matches_spec（用于 AC-8 构造非法 RunVerdict）
+    """
+    view_verdicts: dict[str, ViewVerdict] = {}
+    per_view_failed: dict[str, list[str]] = {}
+    for i in range(total):
+        view_id = f"v{i + 1}"
+        is_failed = i < failed
+        view_verdicts[view_id] = _make_view_verdict(matches_spec=not is_failed)
+        if is_failed:
+            per_view_failed[view_id] = ["f1"]
+    overall = (failed == 0) if force_overall is None else force_overall
+    return RunVerdict(
+        view_verdicts=view_verdicts,
+        overall_matches_spec=overall,
+        per_view_failed_features=per_view_failed,
+    )
 
 
 # ---------- _build_view_prompt 单测（不依赖 main() 状态） ----------
@@ -908,4 +962,62 @@ def test_handle_single_view_corrupt_cache_falls_back_safely(
     assert code == 0
     assert captured_prompts[0] == _JURY_PROMPT, (
         "cache 烂时应回落 _JURY_PROMPT（fail-safe，不阻塞 single-view）"
+    )
+
+
+# ---------- Task 2：_derive_matches_spec_status 直测（RED 阶段） ----------
+
+
+def test_derive_status_partial_fail_1_of_3_yields_warn() -> None:
+    """AC-1b：3 views, 1 failed → 'warn'（决策表 #3）。"""
+    run = _make_run_verdict(total=3, failed=1)
+    assert _derive_matches_spec_status(run) == "warn"
+
+
+def test_derive_status_partial_fail_2_of_5_yields_warn() -> None:
+    """AC-1c：5 views, 2 failed → 'warn'（决策表 #4）。"""
+    run = _make_run_verdict(total=5, failed=2)
+    assert _derive_matches_spec_status(run) == "warn"
+
+
+def test_derive_status_partial_fail_4_of_5_yields_warn_boundary() -> None:
+    """AC-1d：5 views, 4 failed（passing_views=1 边界）→ 'warn'（决策表 #5）。"""
+    run = _make_run_verdict(total=5, failed=4)
+    assert _derive_matches_spec_status(run) == "warn"
+
+
+def test_derive_status_all_views_fail_yields_fail() -> None:
+    """AC-2：3 views, 3 failed → 'fail'（决策表 #6，passing=0）。"""
+    run = _make_run_verdict(total=3, failed=3)
+    assert _derive_matches_spec_status(run) == "fail"
+
+
+def test_derive_status_all_views_pass_yields_pass() -> None:
+    """AC-3：2 views, 0 failed → 'pass'（决策表 #1）。"""
+    run = _make_run_verdict(total=2, failed=0)
+    assert _derive_matches_spec_status(run) == "pass"
+
+
+def test_derive_status_empty_run_verdict_yields_pass() -> None:
+    """AC-4：空 RunVerdict (total=0) → 'pass'（决策表 #2，空集 all=True）。"""
+    run = _make_run_verdict(total=0, failed=0)
+    assert _derive_matches_spec_status(run) == "pass"
+
+
+def test_derive_status_single_view_fail_yields_fail() -> None:
+    """AC-5：1 view, 1 failed → 'fail'（决策表 #7，passing=0 单视角无 partial）。"""
+    run = _make_run_verdict(total=1, failed=1)
+    assert _derive_matches_spec_status(run) == "fail"
+
+
+def test_derive_status_overall_false_with_no_per_view_evidence_yields_fail_defensive() -> None:
+    """AC-8：构造 RunVerdict overall=False ∧ per_view_failed_features={}
+    模拟 LLM 异常路径（features_status 含 visible:False 但缺 feature_id）→ 'fail' defensive。
+
+    决策表 #8。spec §3.1 双条件防御命中 fail。
+    """
+    run = _make_run_verdict(total=1, failed=0, force_overall=False)
+    assert _derive_matches_spec_status(run) == "fail", (
+        "defensive: overall=False ∧ per_view_failed_features={} → 'fail'，"
+        "不返 'warn'（双条件 passing > 0 ∧ failed > 0 不满足）"
     )
