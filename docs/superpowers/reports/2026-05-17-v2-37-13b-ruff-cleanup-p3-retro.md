@@ -60,7 +60,7 @@ P3 (v2.37.13b) 是 ruff cleanup 三批链的最后一批，清 E402 (74) + E741 
 |---|---|---|
 | **§11-N10** | E741 决策表分类后行号偏移容忍机制 — Task 2 实施时 ~5 行偏移在 AC-8b consistency check 内有效；P4 spec 可正式定义 ±5 行窗口约束 | P4 cleanup spec 起 |
 | **§11-N11** | spec §5 AC-5 阈值公式与 P3 实际 scope 微误差（E741 实际跨 37 个变量 > AC-5 公式 30 门槛，实质 OK）→ 未来 cleanup spec AC-5 公式应按当批 ruff codes scope 重算，不抄前批 | 下次 cleanup spec rev 0 起 |
-| **§11-N12** | Task 0 scout 应枚举 per-file-ignores glob 候选文件数（P3 实施期发现 spec §3.1.D 漏 `adapters/parts` + `cad/end_effector` 共 8 个 E402 / 11 文件） | ✅ **closed** — `tools/dev/lint_scope_audit.py` 落地（spec rev 1.3 / 4 轮审查 31 fix / 18 tests）；PR #<填> / merge SHA `<填>` / release tag `<填>`（命名 user 决策） |
+| **§11-N12** | Task 0 scout 应枚举 per-file-ignores glob 候选文件数（P3 实施期发现 spec §3.1.D 漏 `adapters/parts` + `cad/end_effector` 共 8 个 E402 / 11 文件） | ✅ **closed** — `tools/dev/lint_scope_audit.py` 落地（spec rev 1.3 / 4 轮审查 31 fix / 18 tests / CI 2 iter hotfix 6 fix = **累计 43 fix**）；PR [#97](https://github.com/proecheng/cad-spec-gen/pull/97) / merge SHA `099c332` / release tag [`v2.37.14`](https://github.com/proecheng/cad-spec-gen/releases/tag/v2.37.14) |
 
 ---
 
