@@ -214,3 +214,42 @@ def test_enhance_check_no_active_run_id_matches_spec_none(tmp_path: Path) -> Non
     )
 
     assert report["quality_summary"]["matches_spec_status"] is None
+
+
+def test_enhance_check_transits_matches_spec_status_warn(tmp_path: Path) -> None:
+    """AC-6：matches_spec_status='warn' 透传到 ENHANCEMENT_REPORT.quality_summary
+    且 delivery_status='accepted'（不 blocked，与 'fail' 路径区别）。"""
+    from tools.enhance_consistency import build_enhancement_report
+
+    subsystem = "demo"
+    run_id = "RUN001"
+    render_dir = tmp_path / "cad" / "output" / "renders" / subsystem / run_id
+    src_v1 = render_dir / "V1_front.png"
+    enhanced_v1 = render_dir / "V1_front_20260514_1200_enhanced.jpg"
+    _source(src_v1)
+    _source(enhanced_v1)
+
+    _write_jury_report(
+        tmp_path,
+        subsystem=subsystem,
+        run_id=run_id,
+        payload={
+            "schema_version": 1,
+            "subsystem": subsystem,
+            "run_id": run_id,
+            "matches_spec_status": "warn",
+        },
+    )
+
+    report = build_enhancement_report(
+        tmp_path,
+        _manifest(tmp_path, render_dir, [("V1", src_v1)], subsystem=subsystem, run_id=run_id),
+        enhanced_images=[enhanced_v1],
+    )
+
+    assert report["quality_summary"]["matches_spec_status"] == "warn", (
+        f"应透传 matches_spec_status=warn，实际 quality_summary={report['quality_summary']}"
+    )
+    assert report["delivery_status"] == "accepted", (
+        f"warn 不应 blocked，delivery_status 应为 accepted，实际={report['delivery_status']}"
+    )
