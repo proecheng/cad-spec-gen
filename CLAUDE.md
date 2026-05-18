@@ -32,6 +32,36 @@ brainstorming → write-plan → execute-plan → code-review → receiving-code
 
 独立子任务可通过 `superpowers:executing-plans` 的并行 subagent 分发机制同时执行，以加快交付。
 
+### Plan 中 verify 命令必抄 CI（防 N-16 类 false-alarm）
+
+**适用范围**：本节规则仅约束 **plan 文件**（`docs/superpowers/plans/*.md`）中的 verify step（步骤含"运行 ruff" / "运行 mypy" / "运行 pytest" 等之类的 CI 镜像验证）。**不**约束本地开发 pre-commit 提示（见 `## 技术规范 → Python` 的 `uv run ruff check .` 是本地工作流），**不**约束单文件 / single-test pytest 调用。
+
+plan verify step 中所有 ruff / mypy / pytest 命令必须 **verbatim 抄** `.github/workflows/tests.yml` 中对应 step 的整行命令（含 quote 风格 / 空格 / 续行符），**不许** 自加 path scope / select override。否则会触发 pyproject 配置外的 false-alarm（v2.37.15 plan Task 8 实证：写 `ruff check tools/ src/ tests/` 触发 24 historical errors，应改 `ruff check .`）。
+
+**verify 命令白名单**（截至 2026-05-18 / v2.37.15）：
+
+| 用途 | tests.yml step 名 | plan 中允许写法 |
+|---|---|---|
+| ruff lint 全仓 | `ruff-strict` → "Run ruff check (P1+P2+P3 全规则集 守门)" | `ruff check .` |
+| mypy broker | `mypy-strict` → "Run mypy strict on sw_config_broker.py" | `mypy --platform=win32 adapters/solidworks/sw_config_broker.py` |
+| mypy jury | `mypy-strict` → "Run mypy strict on tools/jury" | `mypy --strict tools/jury tools/photo3d_jury.py tools/_file_lock.py` |
+| mypy render-QA | `mypy-strict` → "Run mypy strict on render QA / path_policy" | `mypy --strict tools/enhance_consistency.py tools/render_qa.py tools/path_policy.py tools/view_instance_evidence.py` |
+| pytest 全套 (Linux) | `test` → "Run tests with coverage gate (Linux / macOS)" | `pytest tests/ -v --tb=short -m "not mypy" --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov-report=term-missing --cov-fail-under=95` |
+| pytest 全套 (Windows) | `test` → "Run tests with coverage gate (Windows, PYTHONUTF8=1)" | `pytest tests/ -v --tb=short -m "not mypy" --cov=adapters.solidworks.sw_config_broker --cov=adapters.solidworks.sw_config_lists_cache --cov=adapters.solidworks.sw_list_configs_worker --cov-report=term-missing --cov-fail-under=95` |
+| pytest regression | `regression` → "Run parts_resolver unit tests with kill switch" | `pytest tests/test_parts_resolver.py tests/test_parts_adapters.py -v` |
+
+**narrowing 允许 vs scope override 禁止**：
+
+- ✓ 允许 `-k filter` / `-x` / `--lf` 等 selector narrowing（在 CI scope 内做子集筛选）
+- ✗ 禁止 `ruff check tools/ src/`（path override）/ `ruff check --select=X`（rule override）/ `mypy --strict <与 tests.yml 不同的 files>` / `pytest tests/ --cov=other`（cov target override）
+
+**sync 责任**：`tests.yml` 中 ruff / mypy / pytest step 增删改时，PR **建议同步改本表**（INFO，非阻断）；reviewer 抓 `tests.yml` diff 含 lint/test 命令变动但 CLAUDE.md 未动 → 提示同步即可。
+
+**例外**：
+
+- 单测 / single-test pytest（如 `pytest tests/test_foo.py::test_bar -v`）不算 verify step，可自由写
+- 本地 pre-commit 检查（见 `## 技术规范 → Python` 的 `uv run` 形式）独立轨道，不在本节范围
+
 ---
 
 ## 技术规范
