@@ -107,6 +107,9 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
         return "pass"
     total_views = len(run.view_verdicts)
     failed_views = len(run.per_view_failed_features)
+    # 注：aggregate_run_verdict 构造保证 failed.keys ⊆ view_verdicts.keys，
+    # 故 passing_views >= 0；非法 fixture 构造（phantom key）下 passing_views
+    # 可负，但短路 `passing_views > 0` 下负数也走 False，仍正确 fall 'fail'。
     passing_views = total_views - failed_views
     # warn 双条件 — 必须同时满足：至少 1 视角通过 + 至少 1 视角显式 feature-level 失败
     if passing_views > 0 and failed_views > 0:
@@ -135,7 +138,8 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 
 | 文件 | 改动 | 行数估 |
 |---|---|---:|
-| `src/cad_spec_gen/data/tools/photo3d_jury.py:195-211` | `_derive_matches_spec_status` 重写 + docstring 改 v2.37.15 语义 | ~10 |
+| `src/cad_spec_gen/data/tools/photo3d_jury.py:195-211` | `_derive_matches_spec_status` 重写 + docstring 改 v2.37.15 语义 | ~12 |
+| `src/cad_spec_gen/data/tools/photo3d_delivery_pack.py:555` | **注释更新**（v2.37.15 语义校准）：`"matches_spec_status='fail' 但 per_view_failed_features 空（极端边界）"` → `"matches_spec_status='fail' 但 per_view_failed_features 空（v2.37.15 起 = features_status 异常路径 defensive，或 jury 解析失败）"` | ~1 |
 
 ### 4.2 测试
 
@@ -177,12 +181,13 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 |---|---|
 | `docs/superpowers/JURY_MATCHES_SPEC_STATUS.md` §9.3 | #2 标 closed v2.37.15 + #3 标 closed-by-v2.31.1（archeology 注脚指 `35629fa`） |
 
-### 4.4 不动文件（明示）
+### 4.4 不动文件（明示，函数体层）
 
-| 文件 | 原因 |
+| 文件 / 函数 | 原因 |
 |---|---|
-| `photo3d_delivery_pack.py::_check_matches_spec_failed_blocked` | delivery 层 fail→blocked 行为零变化 |
-| `enhance_consistency.py::_read_jury_matches_spec_status` | 透传层 fail-safe（None）已覆盖新 enum 值 |
+| `photo3d_delivery_pack._check_matches_spec_failed_blocked` 函数体 | delivery 层 fail→blocked 行为零变化（注释除外，见 §4.1） |
+| `photo3d_delivery_pack._write_matches_spec_todo` 函数体 | line 554-556 fallback 已 cover defensive fail UX，函数体零变化 |
+| `enhance_consistency._read_jury_matches_spec_status` | 透传层 fail-safe + docstring 已 anticipate 'warn'（见 §9.2.1） |
 | PHOTO3D_JURY_REPORT schema | schema_version 仍 1，enum 扩展向后兼容 |
 
 ### 4.5 canonical / mirror 同步
@@ -255,7 +260,7 @@ def _derive_matches_spec_status(run: RunVerdict) -> str:
 不依赖 jury subprocess，纯单测 deriver 决策矩阵：
 
 ```python
-# 8 cases 全表，与 §3.2 决策表行号对应
+# 8 cases 全表，与 §3.2 决策表行号 1:1 对应
 @pytest.mark.parametrize("total, failed, overall, expected", [
     (3, 0, True,  "pass"),    # 决策表 #1
     (0, 0, True,  "pass"),    # 决策表 #2
@@ -271,6 +276,13 @@ def test_derive_status_decision_matrix(total, failed, overall, expected):
 ```
 
 可选择加 — 但已被 AC-1～8 单测覆盖，是 nice-to-have（plan 视具体进度决定加不加，不强制）。
+
+**层级说明**（防误读）：
+
+- AC-1a 走 jury subprocess fixture（**e2e 层**，修现有 `test_photo3d_jury_report_includes_run_verdict_aggregate` 实现）：fixture = 2 views, 1 failed
+- AC-1b/c/d 走 deriver 直测（**单元层**，对应决策表 #3-#5）
+- AC-1a fixture 配置 (2, 1) **不在 §6.2 parametrize 内** — 因 e2e 层与单元层覆盖不同假设面（e2e 层覆盖 jury subprocess + 序列化 + 状态写盘；单元层覆盖 deriver 纯函数决策）
+- 决策表/parametrize 用 (3,1)/(5,2)/(5,4) cover partial fail 区间，省 (2,1) 是有意为之
 
 ---
 
@@ -315,9 +327,17 @@ def test_derive_status_decision_matrix(total, failed, overall, expected):
 
 #### 9.2.1 内部消费方（zero-impact）
 
-- `photo3d_delivery_pack._check_matches_spec_failed_blocked` 显式判 `== 'fail'` 才 blocked，新 `'warn'` 不触发 blocked → 行为零变化
-- `enhance_consistency._read_jury_matches_spec_status` 透传 status 字符串，对值不假设 → 兼容新 'warn'
-- PHOTO3D_JURY_REPORT.schema_version 仍 `1`
+下游 chain **早已 anticipated 'warn' enum 值**，本 PR 只是补齐 jury 层 deriver 的实现：
+
+| 位置 | 既有 docstring/逻辑证据 | 取自 |
+|---|---|---|
+| `enhance_consistency._read_jury_matches_spec_status` | docstring 写：`"Returns: 'pass' \| 'fail' \| 'warn'（jury 真实值）或 None"`；实现 `return str(status)` 透传无白名单 | line 565（v2.37.x 既有） |
+| `photo3d_delivery_pack._check_matches_spec_failed_blocked` | docstring 写：`"matches_spec_status 不是 'fail'（pass / warn / 缺失） → 返 False"` | line 447（v2.37.x 既有） |
+| `photo3d_delivery_pack._write_matches_spec_todo` | line 554-556 已有 fallback：`per_view_failed_features` 空时写 `"(无具体特征条目，请查 PHOTO3D_JURY_REPORT.json 排查)"`，正好 cover AC-8 defensive 异常路径 UX | line 554-556（v2.36.x 既有） |
+
+→ **整条 jury → enhance → delivery → MATCHES_SPEC_TODO 透传链路 zero 代码改动**。本 PR 唯一动到的下游是 `_write_matches_spec_todo:555` **注释**（v2.37.15 语义校准，函数体不动）。
+
+PHOTO3D_JURY_REPORT.schema_version 仍 `1`。
 
 #### 9.2.2 外部消费方（**有行为变更，需告知**）
 
